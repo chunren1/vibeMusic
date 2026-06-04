@@ -2,6 +2,7 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.dto.SongDTO;
+import com.vibemusic.service.NeteaseApiService;
 import com.vibemusic.service.PlayHistoryService;
 import com.vibemusic.service.SongService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,9 +10,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/songs")
@@ -21,6 +21,31 @@ public class SongController {
 
     private final SongService songService;
     private final PlayHistoryService playHistoryService;
+    private final NeteaseApiService neteaseApiService;
+
+    /** Banner 轮播（网易云推荐歌单） */
+    @GetMapping("/banner")
+    @Operation(summary = "首页轮播图")
+    @SuppressWarnings("unchecked")
+    public Result<List<Map<String, Object>>> banner() {
+        try {
+            Map<String, Object> result = neteaseApiService.personalizedPlaylists(5);
+            List<Map<String, Object>> list = (List<Map<String, Object>>) result.get("result");
+            if (list == null) return Result.ok(List.of());
+
+            List<Map<String, Object>> banners = list.stream().map(p -> {
+                Map<String, Object> b = new HashMap<>();
+                b.put("name", String.valueOf(p.getOrDefault("name", "")));
+                b.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                b.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
+                b.put("playCount", p.getOrDefault("playCount", 0));
+                return b;
+            }).collect(Collectors.toList());
+            return Result.ok(banners);
+        } catch (Exception e) {
+            return Result.ok(List.of());
+        }
+    }
 
     /** 搜索（Redis → 网易云API） */
     @GetMapping("/search")
@@ -46,7 +71,7 @@ public class SongController {
             @RequestParam String sourceId,
             @RequestParam String name,
             @RequestParam(defaultValue = "未知歌手") String artist,
-            @RequestParam(defaultValue = "0") Long userId) {
+            @RequestParam(defaultValue = "1") Long userId) {
 
         // 1. 获取播放链接
         String playUrl = songService.getPlayUrl(sourceId);
@@ -54,10 +79,8 @@ public class SongController {
             return Result.error("无法获取播放链接");
         }
 
-        // 2. 记录播放历史
-        if (userId > 0) {
-            playHistoryService.record(userId, sourceId, name, artist);
-        }
+        // 2. 记录播放历史（userId 默认 1，未登录时已可用）
+        playHistoryService.record(userId, sourceId, name, artist);
 
         // 3. 返回
         Map<String, Object> data = new HashMap<>();

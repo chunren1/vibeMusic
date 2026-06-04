@@ -83,6 +83,19 @@ public class NeteaseApiService {
     }
 
     /**
+     * 获取推荐歌单（用于 Banner 轮播图）
+     */
+    public Map<String, Object> personalizedPlaylists(int limit) {
+        URI uri = buildUri("/personalized", "limit", String.valueOf(limit));
+
+        ResponseEntity<Map> response = restTemplate.exchange(
+                uri, HttpMethod.GET, buildHeaders(), Map.class);
+
+        log.info("获取推荐歌单: limit={}, status={}", limit, response.getStatusCode());
+        return response.getBody();
+    }
+
+    /**
      * 下载歌曲原始数据（字节数组）
      */
     public byte[] downloadSong(String downloadUrl) {

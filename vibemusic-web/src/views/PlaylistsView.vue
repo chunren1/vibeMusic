@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import TopBar from '@/components/TopBar.vue'
 
 const router = useRouter()
 
@@ -19,6 +20,7 @@ const playlists = ref([
 </script>
 
 <template>
+  <TopBar />
   <div class="playlists-page">
     <h2 class="page-title">📂 我的歌单</h2>
     <p class="subtitle">共 {{ playlists.length }} 个歌单</p>
@@ -42,8 +44,8 @@ const playlists = ref([
 
 <style scoped>
 .playlists-page { padding: 32px; }
-.page-title { font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-.subtitle { font-size: 13px; color: #666; margin-bottom: 28px; }
+.page-title { font-size: 24px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: #999; margin-bottom: 28px; }
 
 .playlist-grid {
   display: grid;

@@ -11,6 +11,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: '0.0.0.0',           // 允许外部访问
+    allowedHosts: true,          // 允许任意 cpolar 域名
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

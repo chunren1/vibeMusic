@@ -64,9 +64,13 @@ public class SongService {
                 if (dto != null) dtoList.add(dto);
             }
 
-            // 4. 缓存到 Redis
-            cacheService.setSearchCache(keyword, dtoList);
-            log.info("搜索 '{}' 返回 {} 首，已缓存", keyword, dtoList.size());
+            // 4. 缓存到 Redis（只在有结果时缓存，防止脏数据）
+            if (!dtoList.isEmpty()) {
+                cacheService.setSearchCache(keyword, dtoList);
+                log.info("搜索 '{}' 返回 {} 首，已缓存", keyword, dtoList.size());
+            } else {
+                log.info("搜索 '{}' 返回 0 首，不缓存", keyword);
+            }
             return dtoList;
 
         } catch (Exception e) {
