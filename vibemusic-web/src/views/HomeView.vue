@@ -1,8 +1,68 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong } from '@/api/song'
 
 const router = useRouter()
+
+// ===== 全局音频播放器（与PlayerBar共享） =====
+const audio = window.vibeAudio || new Audio()
+window.vibeAudio = audio
+const currentPlaySong = ref(null)
+const isPlaying = ref(false)
+
+audio.addEventListener('play', () => { isPlaying.value = true })
+audio.addEventListener('pause', () => { isPlaying.value = false })
+audio.addEventListener('ended', () => { isPlaying.value = false })
+
+function playSong(song) {
+  if (!song.sourceId) return
+
+  // 如果同一首歌且正在播放，暂停/继续
+  if (currentPlaySong.value?.sourceId === song.sourceId) {
+    if (isPlaying.value) {
+      audio.pause()
+    } else {
+      audio.play().catch(() => {})
+    }
+    return
+  }
+
+  // 新 API: playSong(sourceId, name, artist)
+  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
+    const url = res.data?.url
+    if (!url) return
+    audio.src = url
+    audio.play().catch(() => {})
+    currentPlaySong.value = song
+
+    window.dispatchEvent(new CustomEvent('song-change', {
+      detail: {
+        title: song.name,
+        artist: song.artist,
+        id: song.sourceId,
+        coverUrl: song.coverUrl,
+        duration: song.duration,
+        album: song.album,
+      }
+    }))
+  }).catch(() => {})
+}
+
+// 下载歌曲（传完整 song 对象）
+import { downloadSong as apiDownload } from '@/api/song'
+const downloadingIds = ref(new Set())
+function handleDownload(song) {
+  if (downloadingIds.value.has(song.sourceId)) return
+  downloadingIds.value.add(song.sourceId)
+  apiDownload(song.sourceId, song).then(() => {
+    alert(song.name + ' 下载完成!')
+  }).catch(e => {
+    alert('下载失败: ' + (e.message || ''))
+  }).finally(() => {
+    downloadingIds.value.delete(song.sourceId)
+  })
+}
 
 // ===== 用户信息（模拟） =====
 const user = ref({
@@ -24,29 +84,29 @@ onMounted(() => {
   }, 4000)
 })
 
-// ===== 随机推荐歌曲 =====
+// ===== 随机推荐歌曲（从后端获取） =====
 const randomSongs = ref([])
 
 function shuffleSongs() {
-  const pool = [
-    { id: 1, title: '晴天', artist: '周杰伦', cover: '' },
-    { id: 2, title: '孤勇者', artist: '陈奕迅', cover: '' },
-    { id: 3, title: '起风了', artist: '买辣椒也用券', cover: '' },
-    { id: 4, title: '错位时空', artist: '艾辰', cover: '' },
-    { id: 5, title: '若月亮没来', artist: '黄绮珊', cover: '' },
-    { id: 6, title: '罗生门', artist: '张子豪', cover: '' },
-    { id: 7, title: '篇章', artist: '张韶涵 / 王赫野', cover: '' },
-    { id: 8, title: '我记得', artist: '赵雷', cover: '' },
-    { id: 9, title: '兰亭序', artist: '周杰伦', cover: '' },
-    { id: 10, title: '青花瓷', artist: '周杰伦', cover: '' },
-    { id: 11, title: '夜曲', artist: '周杰伦', cover: '' },
-    { id: 12, title: '稻香', artist: '周杰伦', cover: '' },
-  ]
-  const shuffled = pool.sort(() => Math.random() - 0.5)
-  randomSongs.value = shuffled.slice(0, 8).map(s => ({
-    ...s,
-    coverColor: randomColor(),
-  }))
+  apiRandomSongs(8).then(res => {
+    randomSongs.value = (res.data || []).map(s => ({
+      ...s,
+      coverColor: randomColor(),
+    }))
+  }).catch(() => {
+    // 后端不可用时用模拟数据
+    const pool = [
+      { sourceId: '1', name: '晴天', artist: '周杰伦', cover: '' },
+      { sourceId: '2', name: '孤勇者', artist: '陈奕迅', cover: '' },
+      { sourceId: '3', name: '起风了', artist: '买辣椒也用券', cover: '' },
+      { sourceId: '4', name: '错位时空', artist: '艾辰', cover: '' },
+      { sourceId: '5', name: '若月亮没来', artist: '黄绮珊', cover: '' },
+      { sourceId: '6', name: '罗生门', artist: '张子豪', cover: '' },
+      { sourceId: '7', name: '篇章', artist: '张韶涵 / 王赫野', cover: '' },
+      { sourceId: '8', name: '我记得', artist: '赵雷', cover: '' },
+    ]
+    randomSongs.value = pool.map(s => ({ ...s, coverColor: randomColor() }))
+  })
 }
 
 function randomColor() {
@@ -66,33 +126,14 @@ const playlists = ref([
   { id: 6, name: '电竞燃曲BGM', count: 33, color: '#1abc9c' },
 ])
 
-// ===== 页面内搜索 =====
+// ===== 页面内搜索（调用后端API） =====
 const searchKeyword = ref('')
 const searchResults = ref([])
 const searchLoading = ref(false)
 const hasSearched = ref(false)
 
-const allSongs = [
-  { id: 1, title: '晴天', artist: '周杰伦', album: '叶惠美', duration: '4:29' },
-  { id: 2, title: '孤勇者', artist: '陈奕迅', album: '孤勇者', duration: '4:16' },
-  { id: 3, title: '起风了', artist: '买辣椒也用券', album: '起风了', duration: '5:08' },
-  { id: 4, title: '错位时空', artist: '艾辰', album: '错位时空', duration: '3:42' },
-  { id: 5, title: '若月亮没来', artist: '黄绮珊', album: '若月亮没来', duration: '4:11' },
-  { id: 6, title: '罗生门', artist: '张子豪', album: '罗生门', duration: '3:33' },
-  { id: 7, title: '篇章', artist: '张韶涵 / 王赫野', album: '篇章', duration: '4:05' },
-  { id: 8, title: '我记得', artist: '赵雷', album: '署前街少年', duration: '5:22' },
-  { id: 9, title: '兰亭序', artist: '周杰伦', album: '魔杰座', duration: '4:13' },
-  { id: 10, title: '青花瓷', artist: '周杰伦', album: '我很忙', duration: '3:59' },
-  { id: 11, title: '夜曲', artist: '周杰伦', album: '十一月的肖邦', duration: '3:51' },
-  { id: 12, title: '稻香', artist: '周杰伦', album: '魔杰座', duration: '3:43' },
-  { id: 13, title: '七里香', artist: '周杰伦', album: '七里香', duration: '4:57' },
-  { id: 14, title: '一路向北', artist: '周杰伦', album: '十一月的肖邦', duration: '4:46' },
-  { id: 15, title: '后来', artist: '刘若英', album: '我等你', duration: '5:33' },
-  { id: 16, title: '平凡之路', artist: '朴树', album: '平凡之路', duration: '5:02' },
-]
-
-function doSearch() {
-  const keyword = searchKeyword.value.trim().toLowerCase()
+async function doSearch() {
+  const keyword = searchKeyword.value.trim()
   if (!keyword) {
     searchResults.value = []
     hasSearched.value = false
@@ -101,15 +142,15 @@ function doSearch() {
   searchLoading.value = true
   hasSearched.value = true
 
-  // 模拟搜索延时
-  setTimeout(() => {
-    searchResults.value = allSongs.filter(s =>
-      s.title.toLowerCase().includes(keyword) ||
-      s.artist.toLowerCase().includes(keyword) ||
-      s.album.toLowerCase().includes(keyword)
-    )
+  try {
+    const res = await searchSongs(keyword)
+    searchResults.value = res.data || []
+  } catch (e) {
+    console.log('搜索失败:', e.message)
+    searchResults.value = []
+  } finally {
     searchLoading.value = false
-  }, 200)
+  }
 }
 
 function clearSearch() {
@@ -118,8 +159,13 @@ function clearSearch() {
   hasSearched.value = false
 }
 
-function playSong(song) {
-  console.log('播放:', song.title)
+// 格式化秒数为 mm:ss
+function formatDuration(seconds) {
+  if (!seconds && seconds !== 0) return ''
+  const s = parseInt(seconds)
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return m + ':' + String(sec).padStart(2, '0')
 }
 </script>
 
@@ -139,39 +185,71 @@ function playSong(song) {
           />
           <button v-if="searchKeyword" class="search-clear" @click="clearSearch">✕</button>
         </div>
-
-        <!-- 搜索结果下拉 -->
-        <Transition name="dropdown">
-          <div v-if="hasSearched && searchKeyword.trim()" class="search-dropdown">
-            <div v-if="searchLoading" class="search-status">搜索中...</div>
-            <div v-else-if="searchResults.length === 0" class="search-status">未找到相关歌曲</div>
-            <div v-else class="search-result-list">
-              <div class="result-header">
-                <span>找到 {{ searchResults.length }} 首歌曲</span>
-                <button class="result-clear" @click="clearSearch">关闭</button>
-              </div>
-              <div
-                v-for="(song, idx) in searchResults"
-                :key="song.id"
-                class="result-item"
-                @dblclick="playSong(song)"
-              >
-                <span class="ri-index">{{ idx + 1 }}</span>
-                <div class="ri-cover">♪</div>
-                <div class="ri-info">
-                  <span class="ri-title">{{ song.title }}</span>
-                  <span class="ri-meta">{{ song.artist }} · {{ song.album }}</span>
-                </div>
-                <span class="ri-time">{{ song.duration }}</span>
-              </div>
-            </div>
-          </div>
-        </Transition>
       </div>
 
       <div class="user-info">
         <div class="user-avatar">👤</div>
         <span class="user-name">{{ user.name }}</span>
+      </div>
+    </div>
+
+    <!-- 搜索结果页面（全屏展示，非下拉） -->
+    <div v-if="hasSearched" class="search-page">
+      <div class="search-page-header">
+        <h2 class="search-title">"{{ searchKeyword }}" 的搜索结果</h2>
+        <div class="search-stats">
+          <span v-if="searchLoading">搜索中...</span>
+          <span v-else-if="searchResults.length === 0">未找到相关歌曲</span>
+          <span v-else>找到 {{ searchResults.length }} 首歌曲</span>
+        </div>
+        <button class="back-btn" @click="clearSearch">返回首页</button>
+      </div>
+      
+      <div v-if="!searchLoading && searchResults.length > 0" class="search-result-page">
+        <div class="result-table-header">
+          <span class="th-index">#</span>
+          <span class="th-cover"></span>
+          <span class="th-title">歌名</span>
+          <span class="th-album">专辑</span>
+          <span class="th-time">时长</span>
+          <span class="th-actions"></span>
+        </div>
+        <div
+          v-for="(song, idx) in searchResults"
+          :key="song.sourceId"
+          class="result-page-item"
+          :class="{ playing: currentPlaySong?.sourceId === song.sourceId }"
+        >
+          <span class="rp-index">
+            <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="equalizer">▮▮</span>
+            <span v-else>{{ idx + 1 }}</span>
+          </span>
+          <div class="rp-cover-wrap">
+            <div
+              class="rp-cover"
+              :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=100y100)' } : {}"
+              @click="playSong(song)"
+            >
+              <span v-if="!song.coverUrl">♪</span>
+              <div class="cover-play-btn">▶</div>
+            </div>
+          </div>
+          <div class="rp-text" @click="playSong(song)">
+            <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">{{ song.name }}</span>
+            <span class="rp-artist">{{ song.artist }}</span>
+          </div>
+          <span class="rp-album" @click="playSong(song)">{{ song.album || '-' }}</span>
+          <span class="rp-time" @click="playSong(song)">{{ formatDuration(song.duration) }}</span>
+          <div class="rp-actions">
+            <button
+              class="action-btn download-btn"
+              @click.stop="handleDownload(song)"
+              :title="downloadingIds.has(song.id) ? '下载中...' : '下载到RustFS'"
+            >
+              {{ downloadingIds.has(song.id) ? '⏳' : '⬇' }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -211,15 +289,20 @@ function playSong(song) {
       <div class="song-scroll">
         <div
           v-for="song in randomSongs"
-          :key="song.id"
+          :key="song.sourceId"
           class="song-card"
-          @dblclick="playSong(song)"
+          @click="playSong(song)"
         >
-          <div class="card-cover">
-            <div class="cover-grad" :style="{ background: song.coverColor }">♪</div>
+          <div class="card-cover" @click="playSong(song)">
+            <div
+              class="cover-grad"
+              :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=200y200)', backgroundSize: 'cover' } : { background: song.coverColor }"
+            >
+              <span v-if="!song.coverUrl">♪</span>
+            </div>
             <div class="play-overlay">▶</div>
           </div>
-          <p class="card-title">{{ song.title }}</p>
+          <p class="card-title">{{ song.name }}</p>
           <p class="card-artist">{{ song.artist }}</p>
         </div>
       </div>
@@ -278,48 +361,80 @@ function playSong(song) {
 }
 .search-clear:hover { color: #fff; background: rgba(255,255,255,.08); }
 
-/* 搜索结果下拉 */
-.search-dropdown {
-  position: absolute; top: 56px; left: 0; right: 0;
-  background: #1a1d22; border: 1px solid #2a2a2a;
-  border-radius: 12px; overflow: hidden; z-index: 50;
-  max-height: 400px; display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+/* ===== 搜索结果全屏页面 ===== */
+.search-page {
+  padding: 20px 32px; flex: 1; overflow-y: auto;
 }
-.search-status { padding: 32px; text-align: center; color: #666; font-size: 14px; }
-.search-result-list { overflow-y: auto; }
-.result-header {
+.search-page-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 18px; border-bottom: 1px solid #2a2a2a;
-  font-size: 12px; color: #666;
+  margin-bottom: 24px; padding-bottom: 16px;
+  border-bottom: 1px solid #2a2a2a;
 }
-.result-clear {
-  background: none; border: 1px solid #444; color: #888; font-size: 11px;
-  padding: 4px 12px; border-radius: 12px; cursor: pointer;
+.search-title { font-size: 22px; font-weight: 700; color: #eee; }
+.search-stats { font-size: 13px; color: #666; flex: 1; margin-left: 16px; }
+.back-btn {
+  padding: 8px 20px; border: 1px solid #444; border-radius: 20px;
+  background: transparent; color: #aaa; font-size: 13px; cursor: pointer;
 }
-.result-clear:hover { border-color: #666; color: #ccc; }
+.back-btn:hover { border-color: #31c27c; color: #31c27c; }
 
-.result-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 18px; cursor: pointer; transition: .12s;
+.result-table-header {
+  display: grid;
+  grid-template-columns: 36px 56px 2fr 1fr 70px 50px;
+  padding: 8px 0 12px; border-bottom: 1px solid #2a2a2a;
+  color: #555; font-size: 12px; margin-bottom: 4px;
 }
-.result-item:nth-child(even) { background: rgba(255,255,255,.015); }
-.result-item:hover { background: rgba(255,255,255,.05); }
+.th-index { text-align: center; }
+.th-cover { }
+.th-album, .th-time { text-align: left; }
+.th-actions { text-align: center; }
 
-.ri-index { width: 24px; text-align: center; font-size: 13px; color: #555; }
-.ri-cover {
-  width: 36px; height: 36px; border-radius: 6px;
-  background: #2a2a3a; display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: rgba(255,255,255,.3);
+.result-page-item {
+  display: grid;
+  grid-template-columns: 36px 56px 2fr 1fr 70px 50px;
+  align-items: center;
+  padding: 8px 0; border-radius: 8px; transition: .12s;
 }
-.ri-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.ri-title { font-size: 14px; color: #ddd; }
-.ri-meta { font-size: 12px; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ri-time { font-size: 12px; color: #555; }
+.result-page-item:hover { background: rgba(255,255,255,.04); }
+.result-page-item:nth-child(odd) { background: rgba(255,255,255,.012); }
+.result-page-item:nth-child(odd):hover { background: rgba(255,255,255,.04); }
+.result-page-item.playing { background: rgba(49, 194, 124, .06); }
 
-/* 下拉动画 */
-.dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
-.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-8px); }
+.rp-index { text-align: center; font-size: 14px; color: #555; }
+.equalizer { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
+
+.rp-cover-wrap { display: flex; align-items: center; justify-content: center; }
+.rp-cover {
+  width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0; cursor: pointer; position: relative;
+  background: #2a2a3a;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: rgba(255,255,255,.25);
+  background-size: cover; background-position: center;
+}
+.cover-play-btn {
+  position: absolute; inset: 0; border-radius: 6px;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #31c27c; opacity: 0; transition: .15s;
+}
+.rp-cover:hover .cover-play-btn { opacity: 1; }
+
+.rp-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; padding: 4px 0; }
+.rp-title { font-size: 14px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-title.active { color: #31c27c; }
+.rp-artist { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-album {
+  font-size: 13px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.rp-time { font-size: 13px; color: #555; cursor: pointer; }
+
+.rp-actions { display: flex; justify-content: center; }
+.action-btn {
+  background: none; border: none; color: #555; font-size: 16px;
+  cursor: pointer; padding: 4px 8px; border-radius: 4px; opacity: 0; transition: .15s;
+}
+.result-page-item:hover .action-btn { opacity: 1; }
+.action-btn:hover { color: #31c27c; background: rgba(255,255,255,.06); }
 
 .user-info {
   display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0;

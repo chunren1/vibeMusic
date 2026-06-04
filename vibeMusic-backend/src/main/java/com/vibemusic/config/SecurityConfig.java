@@ -55,7 +55,13 @@ public class SecurityConfig {
                 // 歌曲相关 GET 接口公开（未登录可浏览）
                 .requestMatchers(HttpMethod.GET,
                     "/api/songs/**",
+                    "/api/download/**",
                     "/api/playlists/public/**"
+                ).permitAll()
+
+                // 下载接口（登录后可下载）
+                .requestMatchers(HttpMethod.POST,
+                    "/api/download/**"
                 ).permitAll()
 
                 // 静态资源

@@ -86,6 +86,13 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
+        <!-- MinIO (S3兼容，连接RustFS) -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.17</version>
+        </dependency>
+
         <!-- Knife4j (OpenAPI 文档) -->
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
