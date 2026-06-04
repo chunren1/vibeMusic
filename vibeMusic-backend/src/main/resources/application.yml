@@ -49,6 +49,21 @@ jwt:
   secret: SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2          # 生产环境务必修改为复杂密钥
   expiration: 86400000            # Token 有效期（毫秒）默认 24 小时
 
+# 网易云 API 配置
+netease:
+  api:
+    base-url: http://localhost:3000
+    timeout: 10000
+
+# RustFS 对象存储配置
+storage:
+  rustfs:
+    endpoint: http://127.0.0.1:9000
+    access-key: rustfsadmin
+    secret-key: rustfsadmin
+    bucket-name: vibemusic
+    data-path: D:\Rustfsdata
+
 # Knife4j API 文档配置
 springdoc:
   swagger-ui:
