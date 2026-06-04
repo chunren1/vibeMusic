@@ -5,7 +5,7 @@ import PlayerBar from '@/components/PlayerBar.vue'
 const navItems = [
   { path: '/', label: '主页', icon: '🏠' },
   { path: '/playlists', label: '歌单', icon: '📂' },
-  { path: '/likes', label: '我喜欢', icon: '❤' },
+  { path: '/likes', label: '我的收藏', icon: '⭐' },
   { path: '/recent', label: '最近播放', icon: '🕐' },
 ]
 </script>
