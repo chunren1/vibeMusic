@@ -64,6 +64,9 @@ public class SecurityConfig {
                     "/api/download/**"
                 ).permitAll()
 
+                // 收藏接口（无需登录）
+                .requestMatchers("/api/favorites/**").permitAll()
+
                 // 静态资源
                 .requestMatchers(
                     "/static/**",

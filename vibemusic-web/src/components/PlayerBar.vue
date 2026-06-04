@@ -195,10 +195,23 @@ getFavoriteIds().then(res => {
 }).catch(() => {})
 
 function toggleFav(song) {
+  const isFav = favIds.value.has(song.sourceId)
+  if (isFav) {
+    favIds.value.delete(song.sourceId)
+  } else {
+    favIds.value.add(song.sourceId)
+  }
   toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
     if (res.data === true) favIds.value.add(song.sourceId)
     else favIds.value.delete(song.sourceId)
-  }).catch(() => {})
+  }).catch(err => {
+    console.error('收藏失败:', err)
+    if (isFav) {
+      favIds.value.add(song.sourceId)
+    } else {
+      favIds.value.delete(song.sourceId)
+    }
+  })
 }
 
 function handleDownload(song) {

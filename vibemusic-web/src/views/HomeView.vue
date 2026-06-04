@@ -59,13 +59,26 @@ getFavoriteIds().then(res => {
 }).catch(() => {})
 
 function toggleFav(song) {
+  const isFav = favIds.value.has(song.sourceId)
+  if (isFav) {
+    favIds.value.delete(song.sourceId)
+  } else {
+    favIds.value.add(song.sourceId)
+  }
   toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
     if (res.data === true) {
       favIds.value.add(song.sourceId)
     } else {
       favIds.value.delete(song.sourceId)
     }
-  }).catch(() => {})
+  }).catch(err => {
+    console.error('收藏操作失败:', err)
+    if (isFav) {
+      favIds.value.add(song.sourceId)
+    } else {
+      favIds.value.delete(song.sourceId)
+    }
+  })
 }
 
 // 下载歌曲（传完整 song 对象）
@@ -556,7 +569,7 @@ function formatDuration(seconds) {
 
 .drop-footer {
   padding: 12px 16px; text-align: center; color: #31c27c;
-  font-size: 13px; cursor: pointer; border-top: 1px solid #2a2a2a;
+  font-size: 13px; cursor: pointer; border-top: 1px solid #eee;
 }
 .drop-footer:hover { background: rgba(49,194,124,.06); }
 
@@ -566,7 +579,7 @@ function formatDuration(seconds) {
 }
 .search-page-header {
   display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 14px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid #eee;
 }
 .search-title { font-size: 20px; font-weight: 700; color: #1a1a1a; }
 .search-stats { font-size: 13px; color: #777; flex: 1; margin-left: 14px; }
@@ -628,11 +641,11 @@ function formatDuration(seconds) {
 }
 .user-avatar {
   width: 40px; height: 40px; border-radius: 50%;
-  background: #2a2a2a;
+  background: #e8e8e8;
   display: flex; align-items: center; justify-content: center;
   font-size: 18px;
 }
-.user-avatar:hover { background: #333; }
+.user-avatar:hover { background: #ddd; }
 .user-name { font-size: 15px; color: #444; }
 
 /* ===== Banner ===== */
