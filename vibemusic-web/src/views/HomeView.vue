@@ -1,7 +1,7 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong } from '@/api/song'
+import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
 
 const router = useRouter()
 
@@ -32,33 +32,40 @@ function playSong(song) {
   apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
     const url = res.data?.url
     if (!url) return
-    audio.src = url
-    audio.play().catch(() => {})
+    // 通过 PlayerBar 设置音频源（它管理播放队列）
+    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
+    else { audio.src = url; audio.play().catch(() => {}) }
     currentPlaySong.value = song
 
     window.dispatchEvent(new CustomEvent('song-change', {
       detail: {
         title: song.name,
         artist: song.artist,
-        id: song.sourceId,
+        sourceId: song.sourceId,
         coverUrl: song.coverUrl,
         duration: song.duration,
-        album: song.album,
       }
     }))
   }).catch(() => {})
 }
 
-// 收藏歌曲
-const favIds = ref(new Set(JSON.parse(localStorage.getItem('favIds') || '[]')))
+// 收藏歌曲（调用后端API）
+import { toggleFavorite, getFavoriteIds } from '@/api/song'
+const favIds = ref(new Set())
+
+// 初始化时加载收藏列表
+getFavoriteIds().then(res => {
+  if (res.data) favIds.value = new Set(res.data)
+}).catch(() => {})
+
 function toggleFav(song) {
-  if (favIds.value.has(song.sourceId)) {
-    favIds.value.delete(song.sourceId)
-  } else {
-    favIds.value.add(song.sourceId)
-  }
-  // 持久化到 localStorage（后续替换为后端 API）
-  localStorage.setItem('favIds', JSON.stringify([...favIds.value]))
+  toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
+    if (res.data === true) {
+      favIds.value.add(song.sourceId)
+    } else {
+      favIds.value.delete(song.sourceId)
+    }
+  }).catch(() => {})
 }
 
 // 下载歌曲（传完整 song 对象）
@@ -82,18 +89,53 @@ const user = ref({
   avatar: '',
 })
 
-// ===== Banner 轮播 =====
+// ===== Banner 轮播（从网易云获取推荐歌单） =====
 const slides = ref([
-  { id: 1, title: '总有一首歌', subtitle: '让你想起最初的自己', bg: 'linear-gradient(135deg, #2b5a3a, #1a3d24)', emoji: '🎵' },
-  { id: 2, title: '发现好音乐', subtitle: '从这里开始你的音乐之旅', bg: 'linear-gradient(135deg, #4a2c5a, #2d1a3d)', emoji: '🎸' },
-  { id: 3, title: '随机推荐', subtitle: '听听不一样的声音', bg: 'linear-gradient(135deg, #2a4a5a, #1a2d3d)', emoji: '🎹' },
+  { name: '总有一首歌', desc: '让你想起最初的自己', coverUrl: '' },
+  { name: '发现好音乐', desc: '从这里开始你的音乐之旅', coverUrl: '' },
+  { name: '随机推荐', desc: '听听不一样的声音', coverUrl: '' },
 ])
 const activeSlide = ref(0)
+const bannerHover = ref(false)
+let bannerTimer = null
+
+function loadBanners() {
+  apiBanners().then(res => {
+    if (res.data && res.data.length > 0) {
+      slides.value = res.data
+    }
+  }).catch(() => {})
+}
+
+function startBanner() {
+  stopBanner()
+  bannerTimer = setInterval(() => {
+    if (slides.value.length) activeSlide.value = (activeSlide.value + 1) % slides.value.length
+  }, 4000)
+}
+
+function stopBanner() {
+  if (bannerTimer) { clearInterval(bannerTimer); bannerTimer = null }
+}
+
+function prevBanner() {
+  stopBanner()
+  activeSlide.value = activeSlide.value <= 0 ? slides.value.length - 1 : activeSlide.value - 1
+  if (!bannerHover.value) startBanner()
+}
+
+function nextBanner() {
+  stopBanner()
+  activeSlide.value = (activeSlide.value + 1) % slides.value.length
+  if (!bannerHover.value) startBanner()
+}
+
+function onBannerEnter() { bannerHover.value = true; stopBanner() }
+function onBannerLeave() { bannerHover.value = false; startBanner() }
 
 onMounted(() => {
-  setInterval(() => {
-    activeSlide.value = (activeSlide.value + 1) % slides.value.length
-  }, 4000)
+  loadBanners()
+  startBanner()
 })
 
 // ===== 随机推荐歌曲（从后端获取） =====
@@ -291,21 +333,21 @@ function formatDuration(seconds) {
 
     <!-- Banner 轮播 + 下方内容（搜索时隐藏） -->
     <template v-if="!showResultPage">
-    <div class="banner">
+    <div class="banner" @mouseenter="onBannerEnter" @mouseleave="onBannerLeave">
       <div
         v-for="(slide, idx) in slides"
-        :key="slide.id"
+        :key="idx"
         class="banner-slide"
         :class="{ active: idx === activeSlide }"
-        @click="activeSlide = idx"
+        :style="slide.coverUrl ? { backgroundImage: 'linear-gradient(rgba(0,0,0,.3), rgba(0,0,0,.7)), url(' + slide.coverUrl + '?param=800y340)' } : {}"
       >
-        <div class="slide-bg" :style="{ background: slide.bg }"></div>
-        <div class="slide-emoji">{{ slide.emoji }}</div>
         <div class="slide-text">
-          <h2>{{ slide.title }}</h2>
-          <p>{{ slide.subtitle }}</p>
+          <h2>{{ slide.name }}</h2>
+          <p>{{ slide.desc }}</p>
         </div>
       </div>
+      <button class="banner-arrow left" @click.stop="prevBanner">◂</button>
+      <button class="banner-arrow right" @click.stop="nextBanner">▸</button>
       <div class="banner-dots">
         <span
           v-for="(_, idx) in slides"
@@ -449,47 +491,47 @@ function formatDuration(seconds) {
 .search-box {
   display: flex; align-items: center;
   width: 100%; padding: 14px 20px;
-  background: #1e2024; border-radius: 24px; border: 1px solid transparent;
+  background: #fff; border-radius: 24px; border: 1px solid #e0e0e0;
   transition: .2s;
 }
-.search-box:focus-within { border-color: #31c27c; background: #222; }
+.search-box:focus-within { border-color: #31c27c; background: #fff; }
 .search-icon { font-size: 16px; margin-right: 10px; opacity: .5; flex-shrink: 0; }
 .search-input {
-  flex: 1; border: none; background: none; color: #ddd;
+  flex: 1; border: none; background: none; color: #333;
   font-size: 15px; outline: none;
 }
-.search-input::placeholder { color: #555; }
+.search-input::placeholder { color: #bbb; }
 .search-clear {
-  background: none; border: none; color: #666; font-size: 14px; cursor: pointer;
+  background: none; border: none; color: #999; font-size: 14px; cursor: pointer;
   padding: 2px 6px; border-radius: 50%; flex-shrink: 0;
 }
-.search-clear:hover { color: #fff; background: rgba(255,255,255,.08); }
+.search-clear:hover { color: #333; background: rgba(0,0,0,.06); }
 
-.search-box.focused { border-color: #31c27c; background: #222; }
+.search-box.focused { border-color: #31c27c; background: #fff; }
 
 /* ===== 搜索下拉框 ===== */
 .search-dropdown {
   position: absolute; top: 62px; left: 0; right: 0;
-  background: #1a1d22; border: 1px solid #2a2a2a;
+  background: #fff; border: 1px solid #e0e0e0;
   border-radius: 12px; overflow: hidden; z-index: 50;
   max-height: 420px; overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  box-shadow: 0 8px 32px rgba(0,0,0,.1);
 }
 .drop-loading, .drop-empty {
-  padding: 32px; text-align: center; color: #666; font-size: 14px;
+  padding: 32px; text-align: center; color: #999; font-size: 14px;
 }
 .drop-item {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; cursor: pointer; transition: .12s;
 }
-.drop-item:hover { background: rgba(255,255,255,.05); }
-.drop-item.active { background: rgba(49,194,124,.08); }
+.drop-item:hover { background: #f0f0f0; }
+.drop-item.active { background: rgba(49,194,124,.1); }
 
 .drop-cover {
   width: 42px; height: 42px; border-radius: 6px; flex-shrink: 0; position: relative;
-  background: #2a2a3a;
+  background: #e0e0e0;
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: rgba(255,255,255,.25);
+  font-size: 14px; color: #999;
   background-size: cover; background-position: center;
 }
 .drop-play-icon {
@@ -504,9 +546,9 @@ function formatDuration(seconds) {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column; gap: 2px;
 }
-.drop-name { font-size: 14px; color: #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-name { font-size: 14px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drop-name.hl { color: #31c27c; }
-.drop-meta { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-meta { font-size: 12px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* 下拉动画 */
 .dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
@@ -526,19 +568,19 @@ function formatDuration(seconds) {
   display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 14px;
   border-bottom: 1px solid #2a2a2a;
 }
-.search-title { font-size: 20px; font-weight: 700; color: #eee; }
-.search-stats { font-size: 13px; color: #666; flex: 1; margin-left: 14px; }
+.search-title { font-size: 20px; font-weight: 700; color: #1a1a1a; }
+.search-stats { font-size: 13px; color: #777; flex: 1; margin-left: 14px; }
 .back-btn {
-  padding: 6px 16px; border: 1px solid #444; border-radius: 16px;
-  background: transparent; color: #aaa; font-size: 12px; cursor: pointer;
+  padding: 6px 16px; border: 1px solid #ccc; border-radius: 16px;
+  background: transparent; color: #777; font-size: 12px; cursor: pointer;
 }
 .back-btn:hover { border-color: #31c27c; color: #31c27c; }
 
 .result-table-header {
   display: grid;
   grid-template-columns: 36px 56px 2fr 1fr 70px 80px;
-  padding: 8px 0 12px; border-bottom: 1px solid #2a2a2a;
-  color: #555; font-size: 12px;
+  padding: 8px 0 12px; border-bottom: 1px solid #ddd;
+  color: #999; font-size: 12px;
 }
 .th-index { text-align: center; }
 .th-actions { text-align: center; }
@@ -548,16 +590,16 @@ function formatDuration(seconds) {
   grid-template-columns: 36px 56px 2fr 1fr 70px 80px;
   align-items: center; padding: 8px 0; border-radius: 8px; transition: .12s;
 }
-.result-page-item:hover { background: rgba(255,255,255,.04); }
-.result-page-item:nth-child(odd) { background: rgba(255,255,255,.012); }
-.result-page-item.playing { background: rgba(49,194,124,.06); }
-.rp-index { text-align: center; font-size: 14px; color: #555; }
+.result-page-item:hover { background: #f0f0f0; }
+.result-page-item:nth-child(odd) { background: #f9f9f9; }
+.result-page-item.playing { background: rgba(49,194,124,.08); }
+.rp-index { text-align: center; font-size: 14px; color: #999; }
 .equalizer { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
 .rp-cover-wrap { display: flex; align-items: center; justify-content: center; }
 .rp-cover {
   width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
-  background: #2a2a3a; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: rgba(255,255,255,.25);
+  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: #999;
   background-size: cover; background-position: center;
 }
 .cover-play-btn {
@@ -567,11 +609,11 @@ function formatDuration(seconds) {
 }
 .rp-cover:hover .cover-play-btn { opacity: 1; }
 .rp-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; }
-.rp-title { font-size: 14px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-title { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-title.active { color: #31c27c; }
-.rp-artist { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rp-album { font-size: 13px; color: #666; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rp-time { font-size: 13px; color: #555; cursor: pointer; }
+.rp-artist { font-size: 12px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-album { font-size: 13px; color: #777; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-time { font-size: 13px; color: #888; cursor: pointer; }
 .rp-actions { display: flex; justify-content: center; gap: 2px; }
 .action-btn {
   background: none; border: none; color: #555; font-size: 15px;
@@ -591,7 +633,7 @@ function formatDuration(seconds) {
   font-size: 18px;
 }
 .user-avatar:hover { background: #333; }
-.user-name { font-size: 15px; color: #ccc; }
+.user-name { font-size: 15px; color: #444; }
 
 /* ===== Banner ===== */
 .banner {
@@ -601,21 +643,28 @@ function formatDuration(seconds) {
 .banner-slide {
   position: absolute; inset: 0; opacity: 0; transform: scale(0.96);
   transition: all .6s ease; cursor: pointer;
+  border-radius: 14px;
+  background-size: cover; background-position: center;
 }
 .banner-slide.active { opacity: 1; transform: scale(1); }
-.slide-bg {
-  width: 100%; height: 100%; border-radius: 14px;
-  display: flex; align-items: center; padding: 0 48px;
-}
-.slide-emoji {
-  position: absolute; right: 56px; top: 50%;
-  transform: translateY(-50%); font-size: 90px; opacity: .25;
-}
-.slide-text { position: absolute; left: 48px; top: 50%; transform: translateY(-50%); }
+.slide-text { position: absolute; left: 48px; bottom: 32px; }
 .slide-text h2 {
   font-size: 36px; font-weight: 800; color: #fff; margin-bottom: 8px;
 }
 .slide-text p { font-size: 17px; color: rgba(255,255,255,.7); }
+
+.banner-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: rgba(0,0,0,.4); border: none; border-radius: 50%;
+  width: 40px; height: 40px;
+  color: #fff; font-size: 20px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: .25s; z-index: 2;
+}
+.banner:hover .banner-arrow { opacity: 1; }
+.banner-arrow:hover { background: rgba(0,0,0,.7); }
+.banner-arrow.left { left: 12px; }
+.banner-arrow.right { right: 12px; }
 
 .banner-dots {
   position: absolute; bottom: 18px; right: 28px; display: flex; gap: 10px;
@@ -632,7 +681,7 @@ function formatDuration(seconds) {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px;
 }
-.section-header h3 { font-size: 20px; font-weight: 700; color: #eee; }
+.section-header h3 { font-size: 20px; font-weight: 700; color: #1a1a1a; }
 .refresh-btn, .more {
   font-size: 14px; color: #666; cursor: pointer; transition: .2s;
 }
@@ -663,11 +712,11 @@ function formatDuration(seconds) {
   font-size: 14px; color: #fff; opacity: 0; transition: .2s;
 }
 .card-title {
-  font-size: 15px; color: #ddd; margin-bottom: 4px;
+  font-size: 15px; color: #1a1a1a; margin-bottom: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .card-artist {
-  font-size: 13px; color: #666;
+  font-size: 13px; color: #888;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -695,7 +744,7 @@ function formatDuration(seconds) {
   background: rgba(0,0,0,.55); font-size: 13px; color: #bbb;
 }
 .pl-name {
-  font-size: 15px; color: #ccc;
+  font-size: 15px; color: #1a1a1a;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; line-height: 1.4;
 }

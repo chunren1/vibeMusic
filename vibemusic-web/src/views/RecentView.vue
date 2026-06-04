@@ -1,91 +1,115 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import TopBar from '@/components/TopBar.vue'
+import { getPlayHistory, playSong as apiPlaySong } from '@/api/song'
 
-const recentSongs = ref([
-  { id: 1, title: '晴天', artist: '周杰伦', time: '今天 18:30', color: '#e84c3d' },
-  { id: 2, title: '孤勇者', artist: '陈奕迅', time: '今天 15:20', color: '#3498db' },
-  { id: 3, title: '起风了', artist: '买辣椒也用券', time: '昨天 22:15', color: '#2ecc71' },
-  { id: 4, title: '错位时空', artist: '艾辰', time: '昨天 18:00', color: '#f39c12' },
-  { id: 5, title: '若月亮没来', artist: '黄绮珊', time: '前天 14:30', color: '#9b59b6' },
-])
+const recentSongs = ref([])
+const currentPlayId = ref(null)
+
+const audio = window.vibeAudio || new Audio()
+window.vibeAudio = audio
+
+function formatTime(dt) {
+  if (!dt) return ''
+  const d = new Date(dt)
+  const now = new Date()
+  const diff = now - d
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前'
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString().substring(0, 5)
+}
+
+function play(item) {
+  currentPlayId.value = item.sourceId
+  apiPlaySong(item.sourceId, item.songName, item.artist).then(res => {
+    const url = res.data?.url
+    if (!url) return
+    audio.src = url
+    audio.play().catch(() => {})
+  }).catch(() => {})
+}
 
 function clearHistory() {
   recentSongs.value = []
 }
 
-function playSong(song) {
-  console.log('播放:', song.title)
-}
+onMounted(() => {
+  getPlayHistory().then(res => {
+    recentSongs.value = res.data || []
+  }).catch(() => {})
+})
 </script>
 
 <template>
+  <TopBar />
   <div class="recent-page">
-    <div class="header">
+    <div class="page-header">
       <h2 class="page-title">🕐 最近播放</h2>
       <button v-if="recentSongs.length" class="clear-btn" @click="clearHistory">清空</button>
     </div>
     <p class="subtitle">{{ recentSongs.length }} 首歌曲</p>
 
-    <div class="song-list">
+    <div v-if="recentSongs.length > 0" class="song-list">
       <div
-        v-for="(song, idx) in recentSongs"
-        :key="song.id"
+        v-for="(item, idx) in recentSongs"
+        :key="item.sourceId + '_' + idx"
         class="song-row"
-        @dblclick="playSong(song)"
+        :class="{ active: currentPlayId === item.sourceId }"
+        @click="play(item)"
       >
-        <span class="row-index">{{ idx + 1 }}</span>
-        <div class="row-cover">
-          <div class="cover-dot" :style="{ background: song.color }">♪</div>
-        </div>
+        <span class="row-index">
+          <span v-if="currentPlayId === item.sourceId">▶</span>
+          <span v-else>{{ idx + 1 }}</span>
+        </span>
+        <div class="row-cover">♪</div>
         <div class="row-info">
-          <span class="row-title">{{ song.title }}</span>
-          <span class="row-artist">{{ song.artist }}</span>
+          <span class="row-title" :class="{ hl: currentPlayId === item.sourceId }">{{ item.songName }}</span>
+          <span class="row-meta">{{ item.artist }}</span>
         </div>
-        <span class="row-time">{{ song.time }}</span>
+        <span class="row-time">{{ formatTime(item.playedAt) }}</span>
       </div>
     </div>
 
-    <div v-if="recentSongs.length === 0" class="empty">
+    <div v-else class="empty">
       <p>暂无播放记录</p>
-      <p class="hint">去推荐页听听歌吧</p>
+      <p class="hint">去主页听听音乐吧</p>
     </div>
   </div>
 </template>
 
 <style scoped>
 .recent-page { padding: 28px; }
-.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.page-title { font-size: 24px; font-weight: 700; color: #fff; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.page-title { font-size: 24px; font-weight: 700; color: #333; }
 .clear-btn {
-  padding: 6px 16px; border: 1px solid #444; border-radius: 16px;
-  background: transparent; color: #888; font-size: 12px; cursor: pointer;
+  padding: 6px 16px; border: 1px solid #ccc; border-radius: 16px;
+  background: transparent; color: #999; font-size: 12px; cursor: pointer;
 }
-.clear-btn:hover { border-color: #ec4141; color: #ec4141; }
-.subtitle { font-size: 13px; color: #666; margin-bottom: 24px; }
+.clear-btn:hover { border-color: #e84c3d; color: #e84c3d; }
+.subtitle { font-size: 13px; color: #999; margin-bottom: 24px; }
 
 .song-list { display: flex; flex-direction: column; }
 .song-row {
   display: flex; align-items: center; gap: 14px;
   padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: .15s;
 }
-.song-row:nth-child(odd) { background: rgba(255,255,255,.015); }
-.song-row:hover { background: rgba(255,255,255,.05); }
+.song-row:nth-child(odd) { background: rgba(0,0,0,.02); }
+.song-row:hover { background: rgba(0,0,0,.05); }
+.song-row.active { background: rgba(49,194,124,.1); }
 
-.row-index { width: 28px; text-align: center; font-size: 13px; color: #555; }
-.row-cover { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; }
-.cover-dot {
-  width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: rgba(255,255,255,.5);
+.row-index { width: 28px; text-align: center; font-size: 13px; color: #999; }
+.row-cover {
+  width: 40px; height: 40px; border-radius: 6px;
+  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: #999;
 }
 .row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.row-title { font-size: 14px; color: #ddd; }
-.row-artist {
-  font-size: 12px; color: #666;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.row-time { font-size: 12px; color: #555; white-space: nowrap; }
+.row-title { font-size: 14px; color: #333; }
+.row-title.hl { color: #31c27c; }
+.row-meta { font-size: 12px; color: #999; }
+.row-time { font-size: 12px; color: #999; }
 
-.empty { text-align: center; padding: 80px 0; color: #666; }
+.empty { text-align: center; padding: 80px 0; color: #999; }
 .hint { font-size: 13px; margin-top: 8px; }
 </style>

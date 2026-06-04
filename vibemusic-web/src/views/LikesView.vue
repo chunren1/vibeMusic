@@ -1,68 +1,95 @@
 <script setup>
-// 喜欢的歌曲列表（后续接入 API）
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import TopBar from '@/components/TopBar.vue'
+import { getFavorites, playSong as apiPlaySong } from '@/api/song'
 
-const likedSongs = ref([
-  { id: 1, title: '晴天', artist: '周杰伦', album: '叶惠美', duration: '4:29', color: '#e84c3d' },
-  { id: 2, title: '孤勇者', artist: '陈奕迅', album: '孤勇者', duration: '4:16', color: '#3498db' },
-  { id: 3, title: '起风了', artist: '买辣椒也用券', album: '起风了', duration: '5:08', color: '#2ecc71' },
-])
+const favorites = ref([])
+const currentPlayId = ref(null)
+
+const audio = window.vibeAudio || new Audio()
+window.vibeAudio = audio
+
+function formatDuration(s) {
+  if (!s) return ''
+  const m = Math.floor(s / 60)
+  return m + ':' + String(s % 60).padStart(2, '0')
+}
+
+function play(fav) {
+  currentPlayId.value = fav.sourceId
+  apiPlaySong(fav.sourceId, fav.songName, fav.artist).then(res => {
+    const url = res.data?.url
+    if (!url) return
+    audio.src = url
+    audio.play().catch(() => {})
+  }).catch(() => {})
+}
+
+onMounted(() => {
+  getFavorites().then(res => {
+    favorites.value = res.data || []
+  }).catch(() => {})
+})
 </script>
 
 <template>
+  <TopBar />
   <div class="likes-page">
-    <h2 class="page-title">❤ 我喜欢</h2>
-    <p class="subtitle">{{ likedSongs.length }} 首歌曲</p>
+    <h2 class="page-title">⭐ 我的收藏</h2>
+    <p class="subtitle">{{ favorites.length }} 首歌曲</p>
 
-    <div class="song-list">
-      <div v-for="(song, idx) in likedSongs" :key="song.id" class="song-row">
-        <span class="row-index">{{ idx + 1 }}</span>
-        <div class="row-cover">
-          <div class="cover-dot" :style="{ background: song.color }">♪</div>
-        </div>
+    <div v-if="favorites.length > 0" class="song-list">
+      <div
+        v-for="(fav, idx) in favorites"
+        :key="fav.sourceId"
+        class="song-row"
+        :class="{ active: currentPlayId === fav.sourceId }"
+        @click="play(fav)"
+      >
+        <span class="row-index">
+          <span v-if="currentPlayId === fav.sourceId">▶</span>
+          <span v-else>{{ idx + 1 }}</span>
+        </span>
+        <div class="row-cover">♪</div>
         <div class="row-info">
-          <span class="row-title">{{ song.title }}</span>
-          <span class="row-meta">{{ song.artist }} · {{ song.album }}</span>
+          <span class="row-title" :class="{ hl: currentPlayId === fav.sourceId }">{{ fav.songName }}</span>
+          <span class="row-meta">{{ fav.artist }}</span>
         </div>
-        <span class="row-time">{{ song.duration }}</span>
       </div>
     </div>
 
-    <div v-if="likedSongs.length === 0" class="empty">
-      <p>还没有喜欢的歌曲</p>
-      <p class="hint">去推荐页发现好音乐吧</p>
+    <div v-else class="empty">
+      <p>还没有收藏歌曲</p>
+      <p class="hint">去主页搜索喜欢的音乐吧</p>
     </div>
   </div>
 </template>
 
 <style scoped>
 .likes-page { padding: 28px; }
-.page-title { font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-.subtitle { font-size: 13px; color: #666; margin-bottom: 24px; }
+.page-title { font-size: 24px; font-weight: 700; color: #333; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: #999; margin-bottom: 24px; }
 
 .song-list { display: flex; flex-direction: column; }
 .song-row {
   display: flex; align-items: center; gap: 14px;
   padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: .15s;
 }
-.song-row:nth-child(odd) { background: rgba(255,255,255,.015); }
-.song-row:hover { background: rgba(255,255,255,.05); }
+.song-row:nth-child(odd) { background: rgba(0,0,0,.02); }
+.song-row:hover { background: rgba(0,0,0,.05); }
+.song-row.active { background: rgba(49,194,124,.1); }
 
-.row-index { width: 28px; text-align: center; font-size: 13px; color: #555; }
-.row-cover { width: 40px; height: 40px; border-radius: 6px; overflow: hidden; }
-.cover-dot {
-  width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: rgba(255,255,255,.5);
+.row-index { width: 28px; text-align: center; font-size: 13px; color: #999; }
+.row-cover {
+  width: 40px; height: 40px; border-radius: 6px;
+  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: #999;
 }
 .row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.row-title { font-size: 14px; color: #ddd; }
-.row-meta {
-  font-size: 12px; color: #666;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.row-time { font-size: 12px; color: #555; }
+.row-title { font-size: 14px; color: #333; }
+.row-title.hl { color: #31c27c; }
+.row-meta { font-size: 12px; color: #999; }
 
-.empty { text-align: center; padding: 80px 0; color: #666; }
+.empty { text-align: center; padding: 80px 0; color: #999; }
 .hint { font-size: 13px; margin-top: 8px; }
 </style>
