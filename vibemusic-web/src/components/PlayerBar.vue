@@ -15,7 +15,6 @@ const currentTime = ref('0:00')
 const totalTime = ref('0:00')
 const volume = ref(70)
 const isMuted = ref(false)
-const isLiked = ref(false)
 
 // 共享全局 Audio
 const audio = window.vibeAudio || new Audio()
@@ -71,8 +70,6 @@ function toggleMute() {
   isMuted.value = !isMuted.value
   audio.muted = isMuted.value
 }
-function toggleLike() { isLiked.value = !isLiked.value }
-
 // 音量
 watch(volume, v => { audio.volume = v / 100 })
 
@@ -120,9 +117,6 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
           <div class="volume-fill" :style="{ width: volume + '%' }"></div>
         </div>
       </div>
-      <button class="like-btn" :class="{ liked: isLiked }" @click="toggleLike">
-        {{ isLiked ? '❤️' : '🤍' }}
-      </button>
       <button class="panel-btn" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
         📋
       </button>
@@ -170,10 +164,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .progress-fill { height: 100%; background: #31c27c; border-radius: 3px; transition: width .2s; }
 
 .right-area { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.like-btn { background: none; border: none; font-size: 22px; cursor: pointer; padding: 6px; border-radius: 6px; }
-.like-btn:hover { transform: scale(1.15); }
-.like-btn.liked { animation: likeBeat .3s ease; }
-@keyframes likeBeat { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }
+
 
 .panel-btn {
   position: relative; background: none; border: none;

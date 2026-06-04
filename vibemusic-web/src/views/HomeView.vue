@@ -49,6 +49,18 @@ function playSong(song) {
   }).catch(() => {})
 }
 
+// 收藏歌曲
+const favIds = ref(new Set(JSON.parse(localStorage.getItem('favIds') || '[]')))
+function toggleFav(song) {
+  if (favIds.value.has(song.sourceId)) {
+    favIds.value.delete(song.sourceId)
+  } else {
+    favIds.value.add(song.sourceId)
+  }
+  // 持久化到 localStorage（后续替换为后端 API）
+  localStorage.setItem('favIds', JSON.stringify([...favIds.value]))
+}
+
 // 下载歌曲（传完整 song 对象）
 import { downloadSong as apiDownload } from '@/api/song'
 const downloadingIds = ref(new Set())
@@ -126,37 +138,85 @@ const playlists = ref([
   { id: 6, name: '电竞燃曲BGM', count: 33, color: '#1abc9c' },
 ])
 
-// ===== 页面内搜索（调用后端API） =====
+// ===== 搜索下拉框 + 结果页 =====
 const searchKeyword = ref('')
 const searchResults = ref([])
 const searchLoading = ref(false)
-const hasSearched = ref(false)
+const searchFocused = ref(false)
+const showDropdown = ref(false)
+const showResultPage = ref(false)  // 控制显示全屏结果页
 
 async function doSearch() {
   const keyword = searchKeyword.value.trim()
   if (!keyword) {
     searchResults.value = []
-    hasSearched.value = false
+    showDropdown.value = false
+    showResultPage.value = false
     return
   }
   searchLoading.value = true
-  hasSearched.value = true
+  showDropdown.value = false  // 隐藏下拉
+  showResultPage.value = true  // 显示结果页
 
   try {
     const res = await searchSongs(keyword)
     searchResults.value = res.data || []
   } catch (e) {
-    console.log('搜索失败:', e.message)
     searchResults.value = []
   } finally {
     searchLoading.value = false
   }
 }
 
+function onInput() {
+  if (searchKeyword.value.trim() === '') {
+    searchResults.value = []
+    showDropdown.value = false
+    showResultPage.value = false
+    return
+  }
+  // 输入时只显示下拉建议，不跳转结果页
+  showDropdown.value = true
+  showResultPage.value = false
+  doSearchSuggest()
+}
+
+async function doSearchSuggest() {
+  const keyword = searchKeyword.value.trim()
+  if (!keyword) return
+  searchLoading.value = true
+  try {
+    const res = await searchSongs(keyword)
+    searchResults.value = res.data || []
+  } catch (e) {
+    searchResults.value = []
+  } finally {
+    searchLoading.value = false
+  }
+}
+
+function onBlur() {
+  searchFocused.value = false
+  setTimeout(() => { showDropdown.value = false }, 200)
+}
+
+function onFocus() {
+  searchFocused.value = true
+  if (searchKeyword.value.trim() && !showResultPage.value) {
+    showDropdown.value = true
+  }
+}
+
 function clearSearch() {
   searchKeyword.value = ''
   searchResults.value = []
-  hasSearched.value = false
+  showDropdown.value = false
+  showResultPage.value = false
+}
+
+function goResultPage() {
+  showDropdown.value = false
+  showResultPage.value = true
 }
 
 // 格式化秒数为 mm:ss
@@ -174,17 +234,53 @@ function formatDuration(seconds) {
     <!-- 搜索栏 + 用户信息 -->
     <div class="top-bar">
       <div class="search-area">
-        <div class="search-box">
-          <span class="search-icon">🔍</span>
+        <div class="search-box" :class="{ focused: searchFocused }">
+          <span class="search-icon">{{ searchFocused ? '🎵' : '🔍' }}</span>
           <input
             v-model="searchKeyword"
+            @focus="onFocus"
+            @blur="onBlur"
             @keyup.enter="doSearch"
-            @input="searchKeyword.trim() === '' ? clearSearch() : null"
-            placeholder="搜索歌曲、歌手、专辑"
+            @input="onInput"
+            placeholder="搜索歌曲"
             class="search-input"
           />
-          <button v-if="searchKeyword" class="search-clear" @click="clearSearch">✕</button>
+          <button v-if="searchKeyword" class="search-clear" @click.stop="clearSearch">✕</button>
         </div>
+
+        <!-- 搜索结果下拉 -->
+        <Transition name="dropdown">
+          <div v-if="showDropdown" class="search-dropdown">
+            <div v-if="searchLoading" class="drop-loading">搜索中...</div>
+            <div v-else-if="searchResults.length === 0" class="drop-empty">未找到相关歌曲</div>
+            <div v-else class="drop-list">
+              <div
+                v-for="(song, idx) in searchResults.slice(0, 5)"
+                :key="song.sourceId"
+                class="drop-item"
+                :class="{ active: currentPlaySong?.sourceId === song.sourceId }"
+                @mousedown.prevent="playSong(song); goResultPage()"
+              >
+                <div
+                  class="drop-cover"
+                  :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=60y60)' } : {}"
+                >
+                  <span v-if="!song.coverUrl">♪</span>
+                  <div class="drop-play-icon">▶</div>
+                </div>
+                <div class="drop-info">
+                  <span class="drop-name" :class="{ hl: currentPlaySong?.sourceId === song.sourceId }">
+                    {{ song.name }}
+                  </span>
+                  <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
+                </div>
+              </div>
+              <div class="drop-footer" @mousedown.prevent="goResultPage">
+                查看全部结果 →
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
 
       <div class="user-info">
@@ -193,68 +289,8 @@ function formatDuration(seconds) {
       </div>
     </div>
 
-    <!-- 搜索结果页面（全屏展示，非下拉） -->
-    <div v-if="hasSearched" class="search-page">
-      <div class="search-page-header">
-        <h2 class="search-title">"{{ searchKeyword }}" 的搜索结果</h2>
-        <div class="search-stats">
-          <span v-if="searchLoading">搜索中...</span>
-          <span v-else-if="searchResults.length === 0">未找到相关歌曲</span>
-          <span v-else>找到 {{ searchResults.length }} 首歌曲</span>
-        </div>
-        <button class="back-btn" @click="clearSearch">返回首页</button>
-      </div>
-      
-      <div v-if="!searchLoading && searchResults.length > 0" class="search-result-page">
-        <div class="result-table-header">
-          <span class="th-index">#</span>
-          <span class="th-cover"></span>
-          <span class="th-title">歌名</span>
-          <span class="th-album">专辑</span>
-          <span class="th-time">时长</span>
-          <span class="th-actions"></span>
-        </div>
-        <div
-          v-for="(song, idx) in searchResults"
-          :key="song.sourceId"
-          class="result-page-item"
-          :class="{ playing: currentPlaySong?.sourceId === song.sourceId }"
-        >
-          <span class="rp-index">
-            <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="equalizer">▮▮</span>
-            <span v-else>{{ idx + 1 }}</span>
-          </span>
-          <div class="rp-cover-wrap">
-            <div
-              class="rp-cover"
-              :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=100y100)' } : {}"
-              @click="playSong(song)"
-            >
-              <span v-if="!song.coverUrl">♪</span>
-              <div class="cover-play-btn">▶</div>
-            </div>
-          </div>
-          <div class="rp-text" @click="playSong(song)">
-            <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">{{ song.name }}</span>
-            <span class="rp-artist">{{ song.artist }}</span>
-          </div>
-          <span class="rp-album" @click="playSong(song)">{{ song.album || '-' }}</span>
-          <span class="rp-time" @click="playSong(song)">{{ formatDuration(song.duration) }}</span>
-          <div class="rp-actions">
-            <button
-              class="action-btn download-btn"
-              @click.stop="handleDownload(song)"
-              :title="downloadingIds.has(song.id) ? '下载中...' : '下载到RustFS'"
-            >
-              {{ downloadingIds.has(song.id) ? '⏳' : '⬇' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Banner 轮播 + 下方内容（搜索时隐藏） -->
-    <template v-if="!hasSearched">
+    <template v-if="!showResultPage">
     <div class="banner">
       <div
         v-for="(slide, idx) in slides"
@@ -330,6 +366,74 @@ function formatDuration(seconds) {
       </div>
     </section>
     </template>
+
+    <!-- 搜索结果全屏页 -->
+    <div v-if="showResultPage" class="search-page">
+      <div class="search-page-header">
+        <h2 class="search-title">"{{ searchKeyword }}" 的搜索结果</h2>
+        <div class="search-stats">
+          <span v-if="searchLoading">搜索中...</span>
+          <span v-else-if="searchResults.length === 0">未找到相关歌曲</span>
+          <span v-else>找到 {{ searchResults.length }} 首歌曲</span>
+        </div>
+        <button class="back-btn" @click="clearSearch">返回首页</button>
+      </div>
+
+      <div v-if="!searchLoading && searchResults.length > 0" class="search-result-page">
+        <div class="result-table-header">
+          <span class="th-index">#</span>
+          <span class="th-cover"></span>
+          <span class="th-title">歌名</span>
+          <span class="th-album">专辑</span>
+          <span class="th-time">时长</span>
+          <span class="th-actions"></span>
+        </div>
+        <div
+          v-for="(song, idx) in searchResults"
+          :key="song.sourceId"
+          class="result-page-item"
+          :class="{ playing: currentPlaySong?.sourceId === song.sourceId }"
+        >
+          <span class="rp-index">
+            <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="equalizer">▮▮</span>
+            <span v-else>{{ idx + 1 }}</span>
+          </span>
+          <div class="rp-cover-wrap">
+            <div
+              class="rp-cover"
+              :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=100y100)' } : {}"
+              @click="playSong(song)"
+            >
+              <span v-if="!song.coverUrl">♪</span>
+              <div class="cover-play-btn">▶</div>
+            </div>
+          </div>
+          <div class="rp-text" @click="playSong(song)">
+            <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">{{ song.name }}</span>
+            <span class="rp-artist">{{ song.artist }}</span>
+          </div>
+          <span class="rp-album" @click="playSong(song)">{{ song.album || '-' }}</span>
+          <span class="rp-time" @click="playSong(song)">{{ formatDuration(song.duration) }}</span>
+          <div class="rp-actions">
+            <button
+              class="action-btn fav-btn"
+              :class="{ faved: favIds.has(song.sourceId) }"
+              @click.stop="toggleFav(song)"
+              :title="favIds.has(song.sourceId) ? '取消收藏' : '收藏'"
+            >
+              {{ favIds.has(song.sourceId) ? '⭐' : '☆' }}
+            </button>
+            <button
+              class="action-btn download-btn"
+              @click.stop="handleDownload(song)"
+              :title="downloadingIds.has(song.sourceId) ? '下载中...' : '下载到RustFS'"
+            >
+              {{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -361,80 +465,121 @@ function formatDuration(seconds) {
 }
 .search-clear:hover { color: #fff; background: rgba(255,255,255,.08); }
 
-/* ===== 搜索结果全屏页面 ===== */
+.search-box.focused { border-color: #31c27c; background: #222; }
+
+/* ===== 搜索下拉框 ===== */
+.search-dropdown {
+  position: absolute; top: 62px; left: 0; right: 0;
+  background: #1a1d22; border: 1px solid #2a2a2a;
+  border-radius: 12px; overflow: hidden; z-index: 50;
+  max-height: 420px; overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+.drop-loading, .drop-empty {
+  padding: 32px; text-align: center; color: #666; font-size: 14px;
+}
+.drop-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; cursor: pointer; transition: .12s;
+}
+.drop-item:hover { background: rgba(255,255,255,.05); }
+.drop-item.active { background: rgba(49,194,124,.08); }
+
+.drop-cover {
+  width: 42px; height: 42px; border-radius: 6px; flex-shrink: 0; position: relative;
+  background: #2a2a3a;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: rgba(255,255,255,.25);
+  background-size: cover; background-position: center;
+}
+.drop-play-icon {
+  position: absolute; inset: 0; border-radius: 6px;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: #31c27c; opacity: 0; transition: .15s;
+}
+.drop-item:hover .drop-play-icon { opacity: 1; }
+
+.drop-info {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.drop-name { font-size: 14px; color: #eee; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-name.hl { color: #31c27c; }
+.drop-meta { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 下拉动画 */
+.dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-8px); }
+
+.drop-footer {
+  padding: 12px 16px; text-align: center; color: #31c27c;
+  font-size: 13px; cursor: pointer; border-top: 1px solid #2a2a2a;
+}
+.drop-footer:hover { background: rgba(49,194,124,.06); }
+
+/* ===== 搜索结果全屏页 ===== */
 .search-page {
   padding: 20px 32px; flex: 1; overflow-y: auto;
 }
 .search-page-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 24px; padding-bottom: 16px;
+  display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 14px;
   border-bottom: 1px solid #2a2a2a;
 }
-.search-title { font-size: 22px; font-weight: 700; color: #eee; }
-.search-stats { font-size: 13px; color: #666; flex: 1; margin-left: 16px; }
+.search-title { font-size: 20px; font-weight: 700; color: #eee; }
+.search-stats { font-size: 13px; color: #666; flex: 1; margin-left: 14px; }
 .back-btn {
-  padding: 8px 20px; border: 1px solid #444; border-radius: 20px;
-  background: transparent; color: #aaa; font-size: 13px; cursor: pointer;
+  padding: 6px 16px; border: 1px solid #444; border-radius: 16px;
+  background: transparent; color: #aaa; font-size: 12px; cursor: pointer;
 }
 .back-btn:hover { border-color: #31c27c; color: #31c27c; }
 
 .result-table-header {
   display: grid;
-  grid-template-columns: 36px 56px 2fr 1fr 70px 50px;
+  grid-template-columns: 36px 56px 2fr 1fr 70px 80px;
   padding: 8px 0 12px; border-bottom: 1px solid #2a2a2a;
-  color: #555; font-size: 12px; margin-bottom: 4px;
+  color: #555; font-size: 12px;
 }
 .th-index { text-align: center; }
-.th-cover { }
-.th-album, .th-time { text-align: left; }
 .th-actions { text-align: center; }
 
 .result-page-item {
   display: grid;
-  grid-template-columns: 36px 56px 2fr 1fr 70px 50px;
-  align-items: center;
-  padding: 8px 0; border-radius: 8px; transition: .12s;
+  grid-template-columns: 36px 56px 2fr 1fr 70px 80px;
+  align-items: center; padding: 8px 0; border-radius: 8px; transition: .12s;
 }
 .result-page-item:hover { background: rgba(255,255,255,.04); }
 .result-page-item:nth-child(odd) { background: rgba(255,255,255,.012); }
-.result-page-item:nth-child(odd):hover { background: rgba(255,255,255,.04); }
-.result-page-item.playing { background: rgba(49, 194, 124, .06); }
-
+.result-page-item.playing { background: rgba(49,194,124,.06); }
 .rp-index { text-align: center; font-size: 14px; color: #555; }
 .equalizer { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
-
 .rp-cover-wrap { display: flex; align-items: center; justify-content: center; }
 .rp-cover {
-  width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0; cursor: pointer; position: relative;
-  background: #2a2a3a;
-  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
+  background: #2a2a3a; display: flex; align-items: center; justify-content: center;
   font-size: 16px; color: rgba(255,255,255,.25);
   background-size: cover; background-position: center;
 }
 .cover-play-btn {
   position: absolute; inset: 0; border-radius: 6px;
-  background: rgba(0,0,0,.55);
-  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
   font-size: 18px; color: #31c27c; opacity: 0; transition: .15s;
 }
 .rp-cover:hover .cover-play-btn { opacity: 1; }
-
-.rp-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; padding: 4px 0; }
+.rp-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; }
 .rp-title { font-size: 14px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-title.active { color: #31c27c; }
 .rp-artist { font-size: 12px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rp-album {
-  font-size: 13px; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
-}
+.rp-album { font-size: 13px; color: #666; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-time { font-size: 13px; color: #555; cursor: pointer; }
-
-.rp-actions { display: flex; justify-content: center; }
+.rp-actions { display: flex; justify-content: center; gap: 2px; }
 .action-btn {
-  background: none; border: none; color: #555; font-size: 16px;
-  cursor: pointer; padding: 4px 8px; border-radius: 4px; opacity: 0; transition: .15s;
+  background: none; border: none; color: #555; font-size: 15px;
+  cursor: pointer; padding: 4px 6px; border-radius: 4px; opacity: 0; transition: .15s;
 }
 .result-page-item:hover .action-btn { opacity: 1; }
 .action-btn:hover { color: #31c27c; background: rgba(255,255,255,.06); }
+.action-btn.faved { color: #f0c040; opacity: 1; }
 
 .user-info {
   display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0;
