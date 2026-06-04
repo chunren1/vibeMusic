@@ -1,0 +1,26 @@
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# ===== Java =====
+target/
+*.class
+*.jar
+*.war
+
+# ===== Node =====
+node_modules/
+dist/
+.env.local
+.env.*.local
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+*.log
+
+# ===== Memory =====
+.codebuddy/memory/

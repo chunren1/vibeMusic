@@ -1,0 +1,12 @@
+/* ===== vibeMusic 全局样式 ===== */
+
+:root {
+  --color-primary: #ec4141;
+  --color-primary-hover: #d63434;
+  --color-bg-dark: #16181c;
+  --color-bg-card: #1e2024;
+  --color-bg-sidebar: #191b1f;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #999999;
+  --color-border: #2a2a2a;
+}

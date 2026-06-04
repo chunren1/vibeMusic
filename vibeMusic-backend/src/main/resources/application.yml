@@ -1,0 +1,72 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: vibeMusic-backend
+
+  # 数据库配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/vibemusic?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # JPA 配置
+  jpa:
+    hibernate:
+      ddl-auto: update          # 开发阶段用 update，生产改为 validate
+    show-sql: true               # 控制台打印 SQL
+    open-in-view: false          # 关闭 OSIV 避免性能问题
+    properties:
+      hibernate:
+        format_sql: true         # SQL 格式化输出
+        dialect: org.hibernate.dialect.MySQLDialect
+
+  # Redis 配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      # password:               # 没有密码，留空
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
+  # 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# JWT 配置
+jwt:
+  secret: SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2          # 生产环境务必修改为复杂密钥
+  expiration: 86400000            # Token 有效期（毫秒）默认 24 小时
+
+# Knife4j API 文档配置
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.vibemusic
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# 日志级别
+logging:
+  level:
+    com.vibemusic: debug
+    org.springframework.security: debug
