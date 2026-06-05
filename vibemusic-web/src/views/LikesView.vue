@@ -18,7 +18,7 @@ getFavoriteIds().then(res => { if (res.data) favIds.value = new Set(res.data) })
 function toggleFav(fav) {
   const isFav = favIds.value.has(fav.sourceId)
   if (isFav) favIds.value.delete(fav.sourceId); else favIds.value.add(fav.sourceId)
-  toggleFavorite(fav.sourceId, fav.songName, fav.artist).then(res => {
+  toggleFavorite(fav.sourceId, fav.songName, fav.artist, fav.coverUrl || '').then(res => {
     if (res.data === true) favIds.value.add(fav.sourceId)
     else favIds.value.delete(fav.sourceId)
   }).catch(err => {
@@ -31,13 +31,13 @@ function openPlaylistPopup(fav) { playlistTargetSong.value = fav; showPlaylistPo
 
 function play(fav) {
   currentPlayId.value = fav.sourceId
-  apiPlaySong(fav.sourceId, fav.songName, fav.artist).then(res => {
+  apiPlaySong(fav.sourceId, fav.songName, fav.artist, fav.coverUrl || '').then(res => {
     const url = res.data?.url
     if (!url) return
     if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
     else { audio.src = url; audio.play().catch(() => {}) }
     window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: fav.songName, artist: fav.artist, sourceId: fav.sourceId, duration: 0 }
+      detail: { title: fav.songName, artist: fav.artist, sourceId: fav.sourceId, coverUrl: fav.coverUrl || '', duration: 0 }
     }))
   }).catch(() => {})
 }
@@ -71,7 +71,7 @@ onMounted(() => {
           <span v-else>{{ idx + 1 }}</span>
         </span>
         <div class="td-cover">
-          <div class="cover-img" @click="play(fav)"><span>♪</span><div class="cover-hover">▶</div></div>
+          <div class="cover-img" :style="fav.coverUrl ? { backgroundImage: 'url(' + fav.coverUrl + '?param=100y100)' } : {}" @click="play(fav)"><span v-if="!fav.coverUrl">♪</span><div class="cover-hover">▶</div></div>
         </div>
         <div class="td-info" @click="play(fav)">
           <span class="td-name" :class="{ active: currentPlayId === fav.sourceId }">{{ fav.songName }}</span>
@@ -123,6 +123,7 @@ onMounted(() => {
   width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
   background: #e0e0e0; display: flex; align-items: center; justify-content: center;
   font-size: 16px; color: #999; flex-shrink: 0;
+  background-size: cover; background-position: center;
 }
 .cover-hover {
   position: absolute; inset: 0; border-radius: 6px;

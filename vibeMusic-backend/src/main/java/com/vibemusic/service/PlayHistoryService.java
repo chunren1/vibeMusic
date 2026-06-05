@@ -18,10 +18,10 @@ public class PlayHistoryService {
     private static final int MAX_HISTORY = 300;
 
     @Transactional
-    public void record(Long userId, String sourceId, String songName, String artist) {
+    public void record(Long userId, String sourceId, String songName, String artist, String coverUrl) {
         PlayHistory history = PlayHistory.builder()
                 .userId(userId).sourceId(sourceId)
-                .songName(songName).artist(artist).build();
+                .songName(songName).artist(artist).coverUrl(coverUrl).build();
         repository.save(history);
         int total = repository.countByUserId(userId);
         if (total > MAX_HISTORY) {
@@ -41,6 +41,7 @@ public class PlayHistoryService {
                     m.put("sourceId", h.getSourceId());
                     m.put("songName", h.getSongName());
                     m.put("artist", h.getArtist());
+                    m.put("coverUrl", h.getCoverUrl());
                     m.put("playedAt", h.getPlayedAt());
                     return m;
                 })

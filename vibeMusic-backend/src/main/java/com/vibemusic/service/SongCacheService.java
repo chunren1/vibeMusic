@@ -29,7 +29,7 @@ public class SongCacheService {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
-    private static final String SEARCH_PREFIX = "song:search:";
+    private static final String SEARCH_PREFIX = "song:search:v2:";
     private static final Duration TTL = Duration.ofHours(1);
 
     /**

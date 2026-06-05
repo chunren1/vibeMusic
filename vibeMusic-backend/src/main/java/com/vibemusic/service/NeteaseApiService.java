@@ -98,6 +98,30 @@ public class NeteaseApiService {
     /**
      * 下载歌曲原始数据（字节数组）
      */
+    /**
+     * 多平台聚合搜索（QQ + 网易云）
+     * GET /search?keyword=xxx&page=1&size=20
+     */
+    public Map<String, Object> aggregatedSearch(String keyword, int page, int size) {
+        URI uri = buildUri("/search",
+                "keyword", keyword,
+                "page", String.valueOf(page),
+                "size", String.valueOf(size));
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
+        log.info("聚合搜索: {} page={} size={} status={}", keyword, page, size, response.getStatusCode());
+        return response.getBody();
+    }
+
+    /**
+     * 获取QQ音乐播放URL
+     */
+    public Map<String, Object> getQQSongUrl(String songmid) {
+        URI uri = buildUri("/song/url/qq", "id", songmid);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
+        log.info("QQ播放URL: {} status={}", songmid, response.getStatusCode());
+        return response.getBody();
+    }
+
     public byte[] downloadSong(String downloadUrl) {
         try {
             ResponseEntity<byte[]> response = restTemplate.exchange(

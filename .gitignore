@@ -24,3 +24,9 @@ Thumbs.db
 
 # ===== Memory =====
 .codebuddy/memory/
+
+# ===== Test scripts =====
+test*.js
+fix*.js
+*.ps1
+qq-login.js

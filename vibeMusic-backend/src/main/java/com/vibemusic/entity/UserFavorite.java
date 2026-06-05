@@ -27,7 +27,16 @@ public class UserFavorite {
     @Column(name = "song_name", length = 200)
     private String songName;
 
+    @Column(name = "cover_url", length = 500)
+
+
+    private String coverUrl;
+
+
+
     @Column(length = 200)
+
+
     private String artist;
 
     @Column(name = "created_at")

@@ -71,6 +71,7 @@ public class SongController {
             @RequestParam String sourceId,
             @RequestParam String name,
             @RequestParam(defaultValue = "未知歌手") String artist,
+            @RequestParam(required = false, defaultValue = "") String coverUrl,
             @RequestParam(defaultValue = "1") Long userId) {
 
         // 1. 获取播放链接
@@ -80,7 +81,7 @@ public class SongController {
         }
 
         // 2. 记录播放历史（userId 默认 1，未登录时已可用）
-        playHistoryService.record(userId, sourceId, name, artist);
+        playHistoryService.record(userId, sourceId, name, artist, coverUrl);
 
         // 3. 返回
         Map<String, Object> data = new HashMap<>();

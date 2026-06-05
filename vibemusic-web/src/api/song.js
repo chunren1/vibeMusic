@@ -16,8 +16,8 @@ export function getRandomSongs(count = 8) {
 }
 
 /** 播放歌曲（获取 URL + 记录历史） */
-export function playSong(sourceId, name, artist) {
-  return request.get('/songs/play', { params: { sourceId, name, artist } })
+export function playSong(sourceId, name, artist, coverUrl) {
+  return request.get('/songs/play', { params: { sourceId, name, artist, coverUrl } })
 }
 
 /** 下载歌曲到 RustFS */
@@ -36,8 +36,8 @@ export function getPlayHistory(userId = 1, count = 999) {
 // ========== 收藏 ==========
 
 /** 切换收藏 */
-export function toggleFavorite(sourceId, songName, artist, userId = 1) {
-  return request.post('/favorites/toggle', { userId, sourceId, songName, artist })
+export function toggleFavorite(sourceId, songName, artist, coverUrl, userId = 1) {
+  return request.post('/favorites/toggle', { userId, sourceId, songName, artist, coverUrl })
 }
 
 /** 我的收藏列表 */

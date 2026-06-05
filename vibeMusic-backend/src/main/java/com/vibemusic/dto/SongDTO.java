@@ -33,4 +33,7 @@ public class SongDTO {
 
     /** 时长（秒） */
     private Integer duration;
+
+    /** 平台来源: netease / qq */
+    private String platform;
 }
