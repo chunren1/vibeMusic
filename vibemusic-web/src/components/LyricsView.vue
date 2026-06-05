@@ -110,8 +110,10 @@ const lyrics = ref([])
 async function fetchLyric(sourceId) {
   if (!sourceId) { lyrics.value = []; return }
   loadingLyric.value = true
+  console.log('[LyricsView] fetchLyric sourceId=', sourceId)
   try {
     const res = await getLyric(sourceId)
+    console.log('[LyricsView] lyric res code=', res.code, 'data length=', res.data?.length)
     lyrics.value = res.data || []
     currentLyricIndex.value = 0
     setTimeout(() => scrollToCurrent(), 200)
@@ -125,7 +127,9 @@ watch(() => props.visible, (val) => {
     volume.value = Math.round((window.vibeAudio?.volume || 1) * 100)
     isMuted.value = window.vibeAudio?.muted || false
     startTimeSync()
+    console.log('[LyricsView] opened, song.id=', props.currentSong.id, 'title=', props.currentSong.title)
     if (props.currentSong.id) fetchLyric(props.currentSong.id)
+    else console.warn('[LyricsView] currentSong.id 为空，跳过歌词请求')
   } else { stopTimeSync(); exitFullscreen() }
 })
 
