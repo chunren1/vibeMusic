@@ -1,9 +1,11 @@
 ﻿<script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
 
+import { useAuthStore } from '@/stores/auth'
 const router = useRouter()
+const authStore = useAuthStore()
 
 // ===== 全局音频播放器（与PlayerBar共享） =====
 const audio = window.vibeAudio || new Audio()
@@ -100,11 +102,8 @@ function handleDownload(song) {
   })
 }
 
-// ===== 用户信息（模拟） =====
-const user = ref({
-  name: '音乐爱好者',
-  avatar: '',
-})
+// ===== 用户信息 =====
+const username = computed(() => authStore.user?.nickname || authStore.user?.username || '未登录')
 
 // ===== Banner 轮播（从网易云获取推荐歌单） =====
 const slides = ref([
@@ -343,8 +342,12 @@ function formatDuration(seconds) {
       </div>
 
       <div class="user-info">
-        <div class="user-avatar">👤</div>
-        <span class="user-name">{{ user.name }}</span>
+        <template v-if="authStore.isLoggedIn">
+          <div class="user-avatar">👤</div>
+          <span class="user-name">{{ username }}</span>
+          <button class="logout-btn" @click="authStore.logout(); $router.push('/')">退出</button>
+        </template>
+        <button v-else class="login-btn" @click="$router.push('/login')">登录</button>
       </div>
     </div>
 
@@ -665,6 +668,14 @@ function formatDuration(seconds) {
 }
 .user-avatar:hover { background: #ddd; }
 .user-name { font-size: 15px; color: #444; }
+.login-btn, .logout-btn {
+  padding: 8px 20px; border-radius: 20px; border: 1px solid #31c27c;
+  background: transparent; color: #31c27c; font-size: 14px; cursor: pointer; transition: .2s;
+  margin-left: 12px;
+}
+.login-btn:hover { background: #31c27c; color: #fff; }
+.logout-btn { border-color: #e0e0e0; color: #999; margin-left: 8px; }
+.logout-btn:hover { border-color: #ec4141; color: #ec4141; }
 
 /* ===== Banner ===== */
 .banner {

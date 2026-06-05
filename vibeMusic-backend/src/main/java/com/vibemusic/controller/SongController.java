@@ -5,6 +5,7 @@ import com.vibemusic.dto.SongDTO;
 import com.vibemusic.service.NeteaseApiService;
 import com.vibemusic.service.PlayHistoryService;
 import com.vibemusic.service.SongService;
+import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -47,9 +48,9 @@ public class SongController {
         }
     }
 
-    /** 搜索（Redis → 网易云API） */
+    /** 搜索 */
     @GetMapping("/search")
-    @Operation(summary = "搜索歌曲（Redis缓存1h + 网易云API）")
+    @Operation(summary = "搜索歌曲（Redis缓存1h + 多平台聚合）")
     public Result<List<SongDTO>> search(@RequestParam String keyword) {
         return Result.ok(songService.search(keyword));
     }
@@ -61,18 +62,14 @@ public class SongController {
         return Result.ok(songService.getRandomSongs(count));
     }
 
-    /**
-     * 播放（获取 URL + 记录历史）
-     * GET /api/songs/play?sourceId=xxx&name=xxx&artist=xxx
-     */
+    /** 播放（获取 URL + 记录历史） */
     @GetMapping("/play")
     @Operation(summary = "获取播放链接并记录历史")
     public Result<Map<String, Object>> play(
             @RequestParam String sourceId,
             @RequestParam String name,
             @RequestParam(defaultValue = "未知歌手") String artist,
-            @RequestParam(required = false, defaultValue = "") String coverUrl,
-            @RequestParam(defaultValue = "1") Long userId) {
+            @RequestParam(required = false, defaultValue = "") String coverUrl) {
 
         // 1. 获取播放链接
         String playUrl = songService.getPlayUrl(sourceId);
@@ -80,8 +77,11 @@ public class SongController {
             return Result.error("无法获取播放链接");
         }
 
-        // 2. 记录播放历史（userId 默认 1，未登录时已可用）
-        playHistoryService.record(userId, sourceId, name, artist, coverUrl);
+        // 2. 记录播放历史（仅登录用户）
+        Long userId = UserService.getCurrentUserId();
+        if (userId != null) {
+            playHistoryService.record(userId, sourceId, name, artist, coverUrl);
+        }
 
         // 3. 返回
         Map<String, Object> data = new HashMap<>();
@@ -94,10 +94,9 @@ public class SongController {
     /** 最近播放 */
     @GetMapping("/history")
     @Operation(summary = "最近播放列表")
-    public Result<List<Map<String, Object>>> history(
-            @RequestParam(defaultValue = "0") Long userId,
-            @RequestParam(defaultValue = "20") int count) {
-        if (userId <= 0) return Result.ok(List.of());
+    public Result<List<Map<String, Object>>> history(@RequestParam(defaultValue = "20") int count) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.ok(List.of());
         return Result.ok(playHistoryService.recent(userId, count));
     }
 }

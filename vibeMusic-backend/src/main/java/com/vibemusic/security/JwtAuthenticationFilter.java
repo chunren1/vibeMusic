@@ -1,6 +1,8 @@
 package com.vibemusic.security;
 
 import com.vibemusic.common.utils.JwtUtils;
+import com.vibemusic.entity.User;
+import com.vibemusic.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,20 +18,15 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.Collections;
+import java.util.Optional;
 
-/**
- * JWT 认证过滤器
- *
- * 每个请求到达时，从 Authorization Header 中提取 JWT 并校验，
- * 校验通过后将用户信息写入 SecurityContext。
- */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtils jwtUtils;
+    private final UserRepository userRepository;
 
     @Override
     protected void doFilterInternal(
@@ -40,21 +37,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = extractToken(request);
 
         if (StringUtils.hasText(token) && jwtUtils.validateToken(token)) {
-            String userId = jwtUtils.getUserIdFromToken(token);
-
-            UsernamePasswordAuthenticationToken authentication =
-                new UsernamePasswordAuthenticationToken(userId, null, Collections.emptyList());
-            authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-            SecurityContextHolder.getContext().setAuthentication(authentication);
+            String userIdStr = jwtUtils.getUserIdFromToken(token);
+            try {
+                Long userId = Long.parseLong(userIdStr);
+                Optional<User> userOpt = userRepository.findById(userId);
+                if (userOpt.isPresent()) {
+                    CustomUserDetails userDetails = new CustomUserDetails(userOpt.get());
+                    UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Invalid userId in JWT: {}", userIdStr);
+            }
         }
 
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * 从请求头中提取 JWT Token
-     */
     private String extractToken(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {

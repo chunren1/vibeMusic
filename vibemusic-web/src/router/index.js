@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const routes = [
   {
@@ -14,6 +15,7 @@ const routes = [
   {
     path: '/playlists',
     name: 'playlists',
+    meta: { requiresAuth: true },
     component: () => import('@/views/PlaylistsView.vue'),
   },
   {
@@ -24,11 +26,13 @@ const routes = [
   {
     path: '/likes',
     name: 'likes',
+    meta: { requiresAuth: true },
     component: () => import('@/views/LikesView.vue'),
   },
   {
     path: '/recent',
     name: 'recent',
+    meta: { requiresAuth: true },
     component: () => import('@/views/RecentView.vue'),
   },
   {
@@ -45,6 +49,16 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+})
+
+// 路由守卫：需要登录的页面自动跳转
+router.beforeEach((to, from, next) => {
+  const authStore = useAuthStore()
+  if (to.meta.requiresAuth && !authStore.isLoggedIn) {
+    next({ name: 'login', query: { redirect: to.fullPath } })
+  } else {
+    next()
+  }
 })
 
 export default router
