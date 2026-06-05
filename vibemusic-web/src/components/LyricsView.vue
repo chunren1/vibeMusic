@@ -169,9 +169,6 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
                 <div class="disc-grooves"></div>
                 <div class="disc-body">
                   <img :src="currentSong.coverUrl ? currentSong.coverUrl + '?param=400y400' : ''" class="disc-cover" alt="" />
-                  <div class="disc-label">
-                    <span class="label-text">{{ currentSong.title?.charAt(0) || '♪' }}</span>
-                  </div>
                 </div>
                 <div class="disc-highlight"></div>
               </div>
@@ -201,15 +198,15 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
         <!-- 底部播放控制 QQ音乐风格 -->
         <div class="lyrics-footer">
           <div class="ft-controls">
-            <button class="ft-btn" @click="$emit('prev')">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            <button class="ft-btn" @click="$emit('prev')" title="上一首">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
             </button>
-            <button class="ft-btn ft-play" @click="$emit('togglePlay')">
-              <svg v-if="isPlaying" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-              <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
+            <button class="ft-btn ft-play" @click="$emit('togglePlay')" title="播放/暂停">
+              <svg v-if="isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
             </button>
-            <button class="ft-btn" @click="$emit('next')">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            <button class="ft-btn" @click="$emit('next')" title="下一首">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
             </button>
           </div>
           <div class="ft-progress">
@@ -378,17 +375,6 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
   box-shadow: 0 4px 30px rgba(0,0,0,0.5);
 }
 .disc-cover { width: 100%; height: 100%; object-fit: cover; display: block; }
-.disc-label {
-  position: absolute; inset: 38%;
-  border-radius: 50%;
-  background: radial-gradient(circle, #e63946 0%, #c1121f 40%, #780000 100%);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.4), inset 0 1px 3px rgba(255,255,255,0.2);
-}
-.label-text {
-  font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9);
-  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-}
 
 .disc-highlight {
   position: absolute; top: 12%; left: 15%; right: 15%; bottom: 50%;
@@ -403,16 +389,16 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
   position: relative;
 }
 .lyrics-area::before, .lyrics-area::after {
-  content: ''; position: absolute; left: 0; right: 8px; z-index: 2;
-  height: 48px; pointer-events: none;
+  content: ''; position: absolute; left: 0; right: 0; z-index: 2;
+  height: 40px; pointer-events: none;
 }
 .lyrics-area::before {
   top: 0;
-  background: linear-gradient(to bottom, rgba(16,28,20,0.92) 0%, transparent 100%);
+  background: linear-gradient(to bottom, rgba(10,18,12,0.7) 0%, transparent 100%);
 }
 .lyrics-area::after {
   bottom: 0;
-  background: linear-gradient(to top, rgba(8,14,10,0.92) 0%, transparent 100%);
+  background: linear-gradient(to top, rgba(8,14,10,0.7) 0%, transparent 100%);
 }
 
 .lyrics-list {
@@ -474,13 +460,13 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
 }
 .ft-btn {
   border: none; background: none; cursor: pointer; color: #fff;
-  padding: 4px; opacity: 0.65; transition: all 0.2s;
+  padding: 8px; opacity: 0.8; transition: all 0.2s;
   display: flex; align-items: center; justify-content: center;
 }
-.ft-btn:hover { opacity: 1; }
+.ft-btn:hover { opacity: 1; color: #31c27c; }
 .ft-btn:active { transform: scale(0.9); }
 .ft-btn.ft-play {
-  width: 48px; height: 48px; border-radius: 50%; opacity: 1;
+  width: 48px; height: 48px; border-radius: 50%; opacity: 1; color: #fff;
   background: linear-gradient(135deg, #31c27c, #27ae60);
   box-shadow: 0 4px 16px rgba(49,194,124,0.3);
 }
