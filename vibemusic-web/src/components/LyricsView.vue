@@ -31,67 +31,124 @@ function startTimeSync() {
 function stopTimeSync() { if (timeInterval) { clearInterval(timeInterval); timeInterval = null } }
 
 
-// ===== 频谱可视化 =====
-const spectrumCanvas = ref(null)
-let audioCtx = null
-let analyserNode = null
-let mediaSource = null
-let spectrumRafId = null
 
-function initSpectrum() {
-  if (audioCtx) return
+// ===== 频谱可视化 (双模式: Web Audio + 程序化回退) =====
+const spectrumCanvas = ref(null)
+let analyserNode = null
+let audioCtx = null
+let spectrumRafId = null
+let canvasReady = false
+let specStartTime = 0
+
+async function initSpectrum() {
+  if (analyserNode) return
+  const a = window.vibeAudio
   try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)()
     analyserNode = audioCtx.createAnalyser()
     analyserNode.fftSize = 512
-    analyserNode.smoothingTimeConstant = 0.85
-    // 连接全局 audio 元素
-    const a = window.vibeAudio
-    if (a) {
-      mediaSource = audioCtx.createMediaElementSource(a)
-      mediaSource.connect(analyserNode)
-      analyserNode.connect(audioCtx.destination)
+    analyserNode.smoothingTimeConstant = 0.8
+    // 尝试连接 audio 元素 (只能调用一次, 可能与 HomeView 冲突)
+    a.crossOrigin = 'anonymous'
+    const src = audioCtx.createMediaElementSource(a)
+    src.connect(analyserNode)
+    analyserNode.connect(audioCtx.destination)
+    console.log('[Spectrum] Web Audio 模式')
+  } catch(e) {
+    console.warn('[Spectrum] MediaElementSource 失败, 启用程序化模式:', e.message)
+    analyserNode = null // 标记为程序化模式
+    specStartTime = performance.now()
+  }
+}
+
+function initCanvasSize() {
+  if (canvasReady || !spectrumCanvas.value) return
+  const cvs = spectrumCanvas.value
+  const w = cvs.clientWidth
+  const h = cvs.clientHeight
+  if (w === 0 || h === 0) return
+  cvs.width = w * devicePixelRatio
+  cvs.height = h * devicePixelRatio
+  canvasReady = true
+}
+
+// 程序化频谱数据 (当 Web Audio 不可用时)
+const fakeData = new Uint8Array(128)
+function getFakeSpectrum() {
+  const t = (performance.now() - specStartTime) / 1000
+  const isOn = window.vibeAudio && !window.vibeAudio.paused
+  for (let i = 0; i < 128; i++) {
+    const center = 64
+    const dist = Math.abs(i - center) / center
+    // 多频率组分模拟音乐频谱
+    let v = 0
+    v += Math.sin(i * 0.3 + t * 2.5) * 0.3
+    v += Math.sin(i * 0.15 + t * 1.8) * 0.4
+    v += Math.cos(i * 0.08 + t * 0.9) * 0.3
+    v += Math.sin(i * 0.5 + t * 4.2) * 0.2 * (1 - dist)
+    if (isOn) {
+      // 播放时添加节拍脉冲
+      const beat = Math.sin(t * 3.14) > 0.7 ? 0.5 : 0
+      v += beat * (1 - dist)
+      // 动态范围
+      v *= 0.8 + Math.sin(t * 0.5) * 0.2
+    } else {
+      // 暂停时渐弱
+      v *= 0.15
     }
-  } catch(e) { console.warn('频谱初始化失败:', e) }
+    fakeData[i] = Math.max(0, Math.min(255, Math.floor((v * 0.5 + 0.5) * 255 * (0.6 + Math.random() * 0.4))))
+  }
+  return fakeData
 }
 
 function drawSpectrum() {
-  if (!analyserNode || !spectrumCanvas.value) return
-  const canvas = spectrumCanvas.value
-  const ctx = canvas.getContext('2d')
-  const w = canvas.clientWidth
-  const h = canvas.clientHeight
-  canvas.width = w * devicePixelRatio 
-  canvas.height = h * devicePixelRatio
-  ctx.scale(devicePixelRatio, devicePixelRatio)
+  initCanvasSize()
+  if (!spectrumCanvas.value || !canvasReady) {
+    spectrumRafId = requestAnimationFrame(drawSpectrum)
+    return
+  }
+  const cvs = spectrumCanvas.value
+  const ctx = cvs.getContext('2d')
+  const dpr = devicePixelRatio
+  const w = cvs.width / dpr
+  const h = cvs.height / dpr
 
-  const barNum = 80
+  // 获取数据
+  let data
+  if (analyserNode) {
+    data = new Uint8Array(analyserNode.frequencyBinCount)
+    analyserNode.getByteFrequencyData(data)
+  } else {
+    data = getFakeSpectrum()
+  }
+
+  const barNum = 64
   const gap = 2
-  const bw = (w - gap * (barNum + 1)) / barNum
-  const data = new Uint8Array(analyserNode.frequencyBinCount)
-  analyserNode.getByteFrequencyData(data)
+  const bw = Math.max(2.5, (w - gap * (barNum + 1)) / barNum)
 
-  ctx.clearRect(0, 0, w, h)
+  ctx.clearRect(0, 0, cvs.width, cvs.height)
+  ctx.save()
+  ctx.scale(dpr, dpr)
+
   for (let i = 0; i < barNum; i++) {
     const idx = Math.floor(i * data.length / barNum)
     const v = data[idx] / 255
     const center = barNum / 2
     const dist = Math.abs(i - center) / center
-    let bh = v * h * 0.85 * (1 - dist * 0.5)
+    let bh = v * h * 0.88 * (1 - dist * 0.45)
     if (bh < 2) bh = 2
     const x = gap + i * (bw + gap)
     const y = (h - bh) / 2
     const g = ctx.createLinearGradient(x, y, x, y + bh)
     g.addColorStop(0, '#2ecc71')
-    g.addColorStop(1, 'rgba(46,204,113,0.2)')
+    g.addColorStop(1, 'rgba(46,204,113,0.15)')
     ctx.fillStyle = g
-    ctx.shadowColor = 'rgba(46,204,113,0.5)'
-    ctx.shadowBlur = 6
-    ctx.beginPath()
-    ctx.roundRect(x, y, bw, bh, bw / 2)
-    ctx.fill()
+    ctx.shadowColor = 'rgba(46,204,113,0.4)'
+    ctx.shadowBlur = 3
+    ctx.fillRect(x, y, bw, bh)
     ctx.shadowBlur = 0
   }
+  ctx.restore()
   spectrumRafId = requestAnimationFrame(drawSpectrum)
 }
 
