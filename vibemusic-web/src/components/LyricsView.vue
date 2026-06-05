@@ -444,7 +444,7 @@ function close() { emit('update:visible', false) }
 
 /* 频谱 */
 .spectrum-wrap { padding: 0 40px; height: 60px; flex-shrink: 0; }
-.spec-canvas { width: 100%; height: 100%; display: block; }
+.spec-canvas { width: 100%; height: 100%; display: block; background: rgba(255,255,255,0.02); border-radius: 4px; }
 
 /* 歌词 — 紧邻碟片右侧，撑满 */
 .right { flex: 1; height: 100%; overflow: hidden; }
