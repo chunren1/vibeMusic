@@ -69,6 +69,7 @@ function playCurrent() {
     const url = res.data?.url
     if (url) {
       audio.src = url
+      audio.load()
       audio.play().catch(() => {})
     }
   }).catch(() => {})
@@ -164,6 +165,7 @@ function onSongChange(e) {
 function setAudioSrc(url) {
   if (!url) return
   audio.src = url
+  audio.load()
   audio.play().catch(() => {})
   isPlaying.value = true
 }
