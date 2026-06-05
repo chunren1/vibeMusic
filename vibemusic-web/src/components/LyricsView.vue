@@ -372,9 +372,9 @@ function close() { emit('update:visible', false) }
 .right { flex: 1; height: 100%; overflow: hidden; }
 .lyric-box { height: 100%; overflow-y: auto; padding: 80px 20px 100px; scroll-behavior: smooth; }
 .lyric-box::-webkit-scrollbar { display: none; }
-.lyric-line { padding: 16px 12px; font-size: 19px; line-height: 1.6; color: rgba(255,255,255,0.3); text-align: left; transition: all .4s; cursor: pointer; letter-spacing: .5px; }
+.lyric-line { padding: 16px 0; font-size: 20px; line-height: 1.7; color: rgba(255,255,255,0.3); text-align: left; transition: all .35s; cursor: pointer; letter-spacing: .5px; }
 .lyric-line:hover { color: rgba(255,255,255,0.5); }
-.lyric-line.current { font-size: 24px; font-weight: 700; color: #2ecc71; text-shadow: 0 0 28px rgba(46,204,113,0.5); }
+.lyric-line.current { font-weight: 700; color: #2ecc71; text-shadow: 0 0 20px rgba(46,204,113,0.5); }
 .empty { text-align: center; padding-top: 30%; color: rgba(255,255,255,0.3); font-size: 16px; }
 
 /* 底部栏 */
