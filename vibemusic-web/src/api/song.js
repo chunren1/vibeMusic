@@ -1,5 +1,10 @@
 import request from './request'
 
+/** 获取歌词 */
+export function getLyric(sourceId) {
+  return request.get('/songs/lyric', { params: { sourceId } })
+}
+
 /** 首页 Banner */
 export function getBanners() {
   return request.get('/songs/banner')

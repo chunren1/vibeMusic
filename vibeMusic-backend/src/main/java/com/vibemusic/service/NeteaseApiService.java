@@ -113,6 +113,17 @@ public class NeteaseApiService {
     }
 
     /**
+     * 获取歌词
+     * GET /lyric?id=xxx
+     */
+    public Map<String, Object> getLyric(String musicId) {
+        URI uri = buildUri("/lyric", "id", musicId);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
+        log.info("获取歌词: id={} status={}", musicId, response.getStatusCode());
+        return response.getBody();
+    }
+
+    /**
      * 获取QQ音乐播放URL
      */
     public Map<String, Object> getQQSongUrl(String songmid) {

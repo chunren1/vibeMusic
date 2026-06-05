@@ -27,6 +27,22 @@ qqMusic.setCookie({
 // ==================== 兼容原网易云API路由 ====================
 
 /**
+ * 获取歌词
+ * GET /lyric?id=xxx
+ */
+app.get('/lyric', async (req, res) => {
+  try {
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ code: 400, message: 'id is required' });
+    const result = await NeteaseCloudMusicApi.lyric({ id });
+    res.json(result.body);
+  } catch (error) {
+    console.error('Lyric Error:', error.message);
+    res.status(500).json({ code: 500, message: error.message });
+  }
+});
+
+/**
  * 搜索歌曲（cloudsearch 返回完整字段）
  * GET /cloudsearch?keywords=xxx&limit=20
  */
