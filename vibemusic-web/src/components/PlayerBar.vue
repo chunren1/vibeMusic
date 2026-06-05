@@ -252,10 +252,13 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
     <div class="song-info">
       <div
         class="mini-cover"
+        :class="{ active: showLyrics }"
         :style="currentSong.coverUrl ? { backgroundImage: 'url(' + currentSong.coverUrl + '?param=100y100)' } : {}"
-        @click="showLyrics = true"
+        @click="showLyrics = !showLyrics"
+        title="打开歌词"
       >
         <span v-if="!currentSong.coverUrl">♪</span>
+        <span class="cover-badge">{{ showLyrics ? '✕' : '词' }}</span>
       </div>
       <div class="info-text">
         <p class="song-title">{{ currentSong.title }}</p>
@@ -340,7 +343,6 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
     :visible="showLyrics"
     :currentSong="currentSong"
     :isPlaying="isPlaying"
-    :currentTime="audio.currentTime || 0"
     :duration="audio.duration || 0"
     @update:visible="showLyrics = $event"
     @togglePlay="togglePlay"
@@ -363,10 +365,19 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 }
 .mini-cover {
   width: 54px; height: 54px; border-radius: 8px;
-  background: #e0e0e0;
+  background: #e0e0e0; position: relative;
   display: flex; align-items: center; justify-content: center;
-  font-size: 22px; color: #31c27c; flex-shrink: 0;
+  font-size: 22px; color: #31c27c; flex-shrink: 0; cursor: pointer;
   background-size: cover; background-position: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.mini-cover:hover { transform: scale(1.05); box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+.mini-cover.active { box-shadow: 0 0 0 3px rgba(49,194,124,0.5); }
+.cover-badge {
+  position: absolute; bottom: 2px; right: 2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(49,194,124,0.9); color: #fff; font-size: 10px;
+  display: flex; align-items: center; justify-content: center; font-weight: 600;
 }
 .info-text { flex: 1; min-width: 0; }
 .song-title { font-size: 15px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
