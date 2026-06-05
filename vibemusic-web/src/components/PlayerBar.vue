@@ -255,10 +255,9 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
         :class="{ active: showLyrics }"
         :style="currentSong.coverUrl ? { backgroundImage: 'url(' + currentSong.coverUrl + '?param=100y100)' } : {}"
         @click="showLyrics = !showLyrics"
-        title="打开歌词"
+        title="歌词"
       >
         <span v-if="!currentSong.coverUrl">♪</span>
-        <span class="cover-badge">{{ showLyrics ? '✕' : '词' }}</span>
       </div>
       <div class="info-text">
         <p class="song-title">{{ currentSong.title }}</p>
@@ -373,12 +372,6 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 }
 .mini-cover:hover { transform: scale(1.05); box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
 .mini-cover.active { box-shadow: 0 0 0 3px rgba(49,194,124,0.5); }
-.cover-badge {
-  position: absolute; bottom: 2px; right: 2px;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: rgba(49,194,124,0.9); color: #fff; font-size: 10px;
-  display: flex; align-items: center; justify-content: center; font-weight: 600;
-}
 .info-text { flex: 1; min-width: 0; }
 .song-title { font-size: 15px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .song-artist { font-size: 13px; color: #777; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
