@@ -53,7 +53,6 @@ watch(() => props.visible, (val) => {
   if (val) {
     currentTime.value = window.vibeAudio?.currentTime || 0
     startTimeSync()
-    // 获取真实歌词
     if (props.currentSong.id) {
       fetchLyric(props.currentSong.id)
     }
@@ -126,60 +125,103 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
     <Transition name="lyrics-slide">
       <div v-if="visible" ref="lyricsViewEl" class="lyrics-view" :class="{ fullscreen: isFullscreen }"
         @touchstart="onTS" @touchmove="onTM">
-        <div class="lyrics-bg" :style="{ backgroundImage: `url(${currentSong.coverUrl}?param=600y600)` }"></div>
 
+        <!-- 多层背景：封面图模糊 + 深绿渐变叠加 + 纹理 -->
+        <div class="bg-layer">
+          <div class="bg-cover" :style="{ backgroundImage: `url(${currentSong.coverUrl}?param=600y600)` }"></div>
+          <div class="bg-gradient"></div>
+          <div class="bg-texture"></div>
+          <div class="bg-vignette"></div>
+        </div>
+
+        <!-- 顶部导航 -->
         <div class="lyrics-header">
-          <button class="back-btn" @click="close">
-            <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+          <button class="nav-btn" @click="close" aria-label="返回">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
-          <div class="header-info">
-            <span class="header-title">{{ currentSong.title || '未播放' }}</span>
-            <span class="header-sub">{{ currentSong.artist || '-' }}</span>
+          <div class="header-meta">
+            <div class="meta-title">{{ currentSong.title || '未播放' }}</div>
+            <div class="meta-sub">
+              {{ currentSong.artist || '-' }}
+              <span v-if="currentSong.artist" class="meta-dot">·</span>
+              专辑名
+            </div>
           </div>
-          <button class="fullscreen-btn" @click="toggleFullscreen">
-            <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-            <svg v-else viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+          <button class="nav-btn" @click="toggleFullscreen" aria-label="全屏">
+            <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
           </button>
         </div>
 
-        <!-- 封面 + 歌词同屏 -->
+        <!-- 封面 + 歌词同屏主体 -->
         <div class="lyrics-body">
+          <!-- 左侧：黑胶唱片 -->
           <div class="disc-area">
-            <div class="disc-wrapper" :class="{ playing: isPlaying }">
-              <div class="disc-outer">
-                <img :src="currentSong.coverUrl ? currentSong.coverUrl + '?param=300y300' : ''" class="disc-cover" />
+            <div class="disc-player">
+              <!-- 唱臂 -->
+              <div class="tonearm" :class="{ dropped: isPlaying }">
+                <div class="tonearm-base"></div>
+                <div class="tonearm-bar"></div>
+                <div class="tonearm-head"></div>
               </div>
-              <div class="disc-shine"></div>
+              <!-- 唱片 -->
+              <div class="disc-wrapper" :class="{ playing: isPlaying }">
+                <div class="disc-grooves"></div>
+                <div class="disc-body">
+                  <img :src="currentSong.coverUrl ? currentSong.coverUrl + '?param=400y400' : ''" class="disc-cover" alt="" />
+                  <div class="disc-label">
+                    <span class="label-text">{{ currentSong.title?.charAt(0) || '♪' }}</span>
+                  </div>
+                </div>
+                <div class="disc-highlight"></div>
+              </div>
             </div>
-            <p class="disc-artist">{{ currentSong.artist || '' }}</p>
           </div>
 
+          <!-- 右侧：歌词 -->
           <div class="lyrics-area">
             <div ref="lyricsContainer" class="lyrics-list">
-              <div v-if="loadingLyric" class="lyric-placeholder">加载歌词中...</div>
-              <div v-else-if="lyrics.length === 0" class="lyric-placeholder">暂无歌词</div>
+              <div v-if="loadingLyric" class="lyric-placeholder">
+                <span class="loading-dots">加载歌词中<span class="dots-anim">...</span></span>
+              </div>
+              <div v-else-if="lyrics.length === 0" class="lyric-placeholder">
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                <p>暂无歌词</p>
+                <span class="placeholder-hint">请欣赏音乐</span>
+              </div>
               <div v-for="(line, i) in lyrics" :key="i"
                 class="lyric-item" :class="{ active: i === currentLyricIndex }"
                 @click="window.vibeAudio && (window.vibeAudio.currentTime = parseFloat(line.time))">
-                {{ line.text }}
+                <span class="lyric-text">{{ line.text }}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- 底部控制 -->
+        <!-- 底部播放控制 -->
         <div class="lyrics-footer">
-          <div class="progress-section">
-            <span class="time">{{ formatTime(currentTime) }}</span>
-            <div class="progress-bar" @click="onProgressClick">
-              <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          <div class="progress-track" @click="onProgressClick">
+            <div class="progress-rail">
+              <div class="progress-fill" :style="{ width: progressPercent + '%' }">
+                <div class="progress-thumb"></div>
+              </div>
             </div>
-            <span class="time">{{ formatTime(duration) }}</span>
           </div>
-          <div class="control-btns">
-            <button class="ctrl-btn" @click="$emit('prev')">⏮</button>
-            <button class="ctrl-btn play-btn" @click="$emit('togglePlay')">{{ isPlaying ? '⏸' : '▶' }}</button>
-            <button class="ctrl-btn" @click="$emit('next')">⏭</button>
+          <div class="time-row">
+            <span class="time-label">{{ formatTime(currentTime) }}</span>
+            <span class="time-label">{{ formatTime(duration) }}</span>
+          </div>
+          <div class="control-row">
+            <button class="ctrl-btn skip-btn" @click="$emit('prev')">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            </button>
+            <button class="ctrl-btn play-pause-btn" @click="$emit('togglePlay')">
+              <svg v-if="isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button class="ctrl-btn skip-btn" @click="$emit('next')">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
           </div>
         </div>
       </div>
@@ -188,91 +230,318 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
 </template>
 
 <style scoped>
+/* ===============================
+   BASE LAYOUT
+   =============================== */
 .lyrics-view {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 200; display: flex; flex-direction: column; color: #fff; overflow: hidden;
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column; overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
-.lyrics-bg {
-  position: absolute; top: -40px; left: -40px; right: -40px; bottom: -40px;
+
+/* ===============================
+   MULTI-LAYER BACKGROUND
+   =============================== */
+.bg-layer { position: absolute; inset: 0; z-index: -1; }
+.bg-cover {
+  position: absolute; inset: -60px;
   background-size: cover; background-position: center;
-  filter: blur(80px) brightness(0.3); z-index: -1;
+  filter: blur(100px) saturate(0.6);
+  transform: scale(1.1);
 }
+.bg-gradient {
+  position: absolute; inset: 0;
+  background: linear-gradient(
+    170deg,
+    rgba(22, 38, 28, 0.92) 0%,
+    rgba(16, 28, 20, 0.88) 30%,
+    rgba(10, 18, 12, 0.94) 60%,
+    rgba(8, 14, 10, 0.97) 100%
+  );
+}
+.bg-texture {
+  position: absolute; inset: 0; opacity: 0.04;
+  background-image: repeating-linear-gradient(
+    0deg, transparent, transparent 2px,
+    rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px
+  );
+}
+.bg-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.45) 100%);
+}
+
+/* ===============================
+   HEADER
+   =============================== */
 .lyrics-header {
-  display: flex; align-items: center; padding: 12px 16px 0; z-index: 10;
+  display: flex; align-items: center;
+  padding: 14px 16px 8px; z-index: 10;
+  backdrop-filter: blur(4px);
 }
-.back-btn, .fullscreen-btn {
-  width: 34px; height: 34px; border: none; background: rgba(255,255,255,0.1);
-  border-radius: 50%; color: #fff; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
+.nav-btn {
+  width: 36px; height: 36px; border: none;
+  background: rgba(255,255,255,0.08);
+  border-radius: 50%; color: rgba(255,255,255,0.85);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; flex-shrink: 0;
 }
-.header-info { flex: 1; text-align: center; }
-.header-title { font-size: 16px; font-weight: 500; display: block; }
-.header-sub { font-size: 12px; opacity: 0.6; display: block; margin-top: 2px; }
+.nav-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.nav-btn:active { transform: scale(0.92); }
 
-/* ===== 封面 + 歌词 ===== */
+.header-meta { flex: 1; text-align: center; min-width: 0; padding: 0 12px; }
+.meta-title {
+  font-size: 17px; font-weight: 600; color: #fff;
+  letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meta-sub {
+  font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 3px;
+  letter-spacing: 0.3px;
+}
+.meta-dot { margin: 0 6px; opacity: 0.4; }
+
+/* ===============================
+   BODY: DISC + LYRICS
+   =============================== */
 .lyrics-body {
-  flex: 1; display: flex; align-items: center; gap: 16px; padding: 8px 20px; overflow: hidden;
+  flex: 1; display: flex; align-items: center;
+  padding: 0 24px; gap: 32px; overflow: hidden; min-height: 0;
 }
 
-/* 封面 */
+/* ------ DISC AREA ------ */
 .disc-area {
-  width: 42%; display: flex; flex-direction: column; align-items: center; gap: 12px;
+  width: 44%; max-width: 340px; display: flex; align-items: center; justify-content: center;
 }
+.disc-player {
+  position: relative; width: 100%; aspect-ratio: 1;
+  max-width: 280px;
+}
+
+/* Tonearm */
+.tonearm {
+  position: absolute; top: -8%; right: -2%; z-index: 5;
+  transform-origin: 85% 12%;
+  transform: rotate(18deg);
+  transition: transform 0.5s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+.tonearm.dropped { transform: rotate(6deg); }
+.tonearm-base {
+  width: 26px; height: 26px; background: radial-gradient(circle at 30% 30%, #555, #222);
+  border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.tonearm-bar {
+  position: absolute; top: 11px; right: 13px;
+  width: 72px; height: 3px;
+  background: linear-gradient(180deg, #d4d4d4, #888);
+  border-radius: 2px;
+  transform-origin: right center;
+  transform: rotate(-14deg);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.tonearm-head {
+  position: absolute; top: 0px; left: -8px;
+  width: 20px; height: 10px;
+  background: linear-gradient(180deg, #ccc, #777);
+  border-radius: 2px 2px 6px 1px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
+/* Disc */
 .disc-wrapper {
-  position: relative; width: 100%; max-width: 240px; aspect-ratio: 1;
-  animation: discRotate 18s linear infinite; animation-play-state: paused;
+  position: relative; width: 100%; height: 100%;
+  animation: discSpin 20s linear infinite; animation-play-state: paused;
 }
 .disc-wrapper.playing { animation-play-state: running; }
-.disc-outer {
-  width: 100%; height: 100%; border-radius: 50%; overflow: hidden;
-  border: 6px solid rgba(255,255,255,0.12); box-shadow: 0 0 50px rgba(0,0,0,0.5);
+@keyframes discSpin { to { transform: rotate(360deg); } }
+
+.disc-grooves {
+  position: absolute; inset: -3%;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    #1a1a1a 0deg 15deg, #222 15deg 30deg,
+    #1a1a1a 30deg 45deg, #222 45deg 60deg,
+    #1a1a1a 60deg 75deg, #222 75deg 90deg,
+    #1a1a1a 90deg 105deg, #222 105deg 120deg,
+    #1a1a1a 120deg 135deg, #222 135deg 150deg,
+    #1a1a1a 150deg 165deg, #222 165deg 180deg,
+    #1a1a1a 180deg 195deg, #222 195deg 210deg,
+    #1a1a1a 210deg 225deg, #222 225deg 240deg,
+    #1a1a1a 240deg 255deg, #222 255deg 270deg,
+    #1a1a1a 270deg 285deg, #222 285deg 300deg,
+    #1a1a1a 300deg 315deg, #222 315deg 330deg,
+    #1a1a1a 330deg 345deg, #222 345deg 360deg
+  );
+  opacity: 0.5; box-shadow: 0 0 60px rgba(0,0,0,0.6), inset 0 0 30px rgba(0,0,0,0.4);
+}
+
+.disc-body {
+  position: absolute; inset: 7%;
+  border-radius: 50%; overflow: hidden;
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
 }
 .disc-cover { width: 100%; height: 100%; object-fit: cover; display: block; }
-.disc-shine {
-  position: absolute; top: 8%; left: 18%; right: 18%; bottom: 28%;
-  background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 50%);
-  border-radius: 50%; pointer-events: none;
+.disc-label {
+  position: absolute; inset: 38%;
+  border-radius: 50%;
+  background: radial-gradient(circle, #e63946 0%, #c1121f 40%, #780000 100%);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.4), inset 0 1px 3px rgba(255,255,255,0.2);
 }
-.disc-artist { font-size: 14px; opacity: 0.5; }
-@keyframes discRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.label-text {
+  font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
 
-/* 歌词 */
-.lyrics-area { flex: 1; min-width: 0; height: 100%; overflow: hidden; }
+.disc-highlight {
+  position: absolute; top: 12%; left: 15%; right: 15%; bottom: 50%;
+  border-radius: 50%;
+  background: linear-gradient(160deg, rgba(255,255,255,0.07) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ------ LYRICS AREA ------ */
+.lyrics-area {
+  flex: 1; height: 100%; min-width: 0; overflow: hidden;
+  position: relative;
+}
+.lyrics-area::before, .lyrics-area::after {
+  content: ''; position: absolute; left: 0; right: 0; z-index: 2;
+  height: 60px; pointer-events: none;
+}
+.lyrics-area::before {
+  top: 0;
+  background: linear-gradient(to bottom, rgba(16,28,20,0.95), transparent);
+}
+.lyrics-area::after {
+  bottom: 0;
+  background: linear-gradient(to top, rgba(8,14,10,0.95), transparent);
+}
+
 .lyrics-list {
-  height: 100%; overflow-y: auto; padding: 30% 0;
+  height: 100%; overflow-y: auto; padding: 35% 0;
+  scroll-behavior: smooth;
 }
 .lyrics-list::-webkit-scrollbar { display: none; }
+
 .lyric-item {
-  padding: 13px 0; font-size: 15px; line-height: 1.7; opacity: 0.3;
-  transition: all 0.35s; cursor: pointer; text-align: center;
+  padding: 14px 20px; cursor: pointer;
+  transition: all 0.45s cubic-bezier(0.23, 1, 0.32, 1);
+  text-align: center;
 }
-.lyric-item.active {
-  font-size: 18px; font-weight: 600; opacity: 1; color: #31c27c;
+.lyric-text {
+  font-size: 16px; line-height: 1.8; color: rgba(255,255,255,0.35);
+  transition: all 0.45s cubic-bezier(0.23, 1, 0.32, 1);
+  display: inline-block; letter-spacing: 0.8px;
 }
+
+.lyric-item.active .lyric-text {
+  font-size: 20px; font-weight: 700; color: #31c27c;
+  text-shadow: 0 0 20px rgba(49,194,124,0.4), 0 0 40px rgba(49,194,124,0.15);
+  transform: scale(1.02);
+}
+
+.lyric-item:not(.active):hover .lyric-text {
+  color: rgba(255,255,255,0.6);
+}
+
 .lyric-placeholder {
-  text-align: center; padding-top: 40%; font-size: 15px; opacity: 0.4;
+  text-align: center; padding-top: 40%; color: rgba(255,255,255,0.3);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.lyric-placeholder p { font-size: 16px; margin: 0; }
+.placeholder-hint { font-size: 12px; opacity: 0.5; }
+
+.dots-anim {
+  animation: dots 1.5s infinite;
+}
+@keyframes dots {
+  0%, 20% { opacity: 0; }
+  50% { opacity: 1; }
+  80%, 100% { opacity: 0; }
 }
 
-/* 底部 */
+/* ===============================
+   FOOTER CONTROLS
+   =============================== */
 .lyrics-footer {
-  padding: 8px 24px 32px;
-  background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-}
-.progress-section { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-.time { font-size: 12px; opacity: 0.6; min-width: 36px; text-align: center; }
-.progress-bar {
-  flex: 1; height: 6px; background: rgba(255,255,255,0.12); border-radius: 3px;
-  cursor: pointer; overflow: hidden;
-}
-.progress-fill { height: 100%; background: #31c27c; border-radius: 3px; transition: width 0.15s; }
-.control-btns { display: flex; align-items: center; justify-content: center; gap: 36px; }
-.ctrl-btn { border: none; background: none; color: #fff; font-size: 22px; cursor: pointer; opacity: 0.85; }
-.ctrl-btn:hover { opacity: 1; }
-.play-btn {
-  width: 52px; height: 52px; background: #31c27c; border-radius: 50%;
-  font-size: 22px; display: flex; align-items: center; justify-content: center;
+  padding: 12px 28px;
+  padding-bottom: max(28px, env(safe-area-inset-bottom, 28px));
+  z-index: 10;
+  background: linear-gradient(to top,
+    rgba(8,14,10,0.95) 0%,
+    rgba(8,14,10,0.5) 60%,
+    transparent 100%);
 }
 
-.lyrics-slide-enter-active, .lyrics-slide-leave-active { transition: transform 0.4s cubic-bezier(0.32,0.72,0,1); }
-.lyrics-slide-enter-from, .lyrics-slide-leave-to { transform: translateY(100%); }
+.progress-track {
+  padding: 6px 0; cursor: pointer;
+}
+.progress-rail {
+  height: 3px; background: rgba(255,255,255,0.15);
+  border-radius: 2px; position: relative; overflow: visible;
+  transition: height 0.15s;
+}
+.progress-track:hover .progress-rail { height: 5px; }
+.progress-fill {
+  height: 100%; background: linear-gradient(90deg, #31c27c, #5fdd9d);
+  border-radius: 2px; position: relative;
+  transition: width 0.15s linear;
+  min-width: 0;
+}
+.progress-thumb {
+  position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
+  width: 12px; height: 12px; background: #31c27c;
+  border-radius: 50%; box-shadow: 0 0 8px rgba(49,194,124,0.5);
+  opacity: 0; transition: opacity 0.2s;
+}
+.progress-track:hover .progress-thumb { opacity: 1; }
+
+.time-row {
+  display: flex; justify-content: space-between;
+  padding: 2px 0 16px;
+}
+.time-label {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  font-variant-numeric: tabular-nums; letter-spacing: 0.5px;
+}
+
+.control-row {
+  display: flex; align-items: center; justify-content: center; gap: 48px;
+}
+.ctrl-btn { border: none; background: none; cursor: pointer; color: #fff; transition: all 0.2s; }
+.ctrl-btn:active { transform: scale(0.9); }
+.skip-btn { opacity: 0.7; padding: 4px; }
+.skip-btn:hover { opacity: 1; }
+.play-pause-btn {
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(135deg, #31c27c, #27ae60);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 20px rgba(49,194,124,0.35);
+  transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.play-pause-btn:hover {
+  box-shadow: 0 6px 28px rgba(49,194,124,0.5);
+  transform: scale(1.05);
+}
+.play-pause-btn:active { transform: scale(0.94); }
+
+/* ===============================
+   TRANSITIONS
+   =============================== */
+.lyrics-slide-enter-active,
+.lyrics-slide-leave-active {
+  transition: transform 0.45s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.lyrics-slide-enter-from,
+.lyrics-slide-leave-to {
+  transform: translateY(100%);
+}
+
+/* Fullscreen tweaks */
+.lyrics-view.fullscreen .meta-title { font-size: 20px; }
+.lyrics-view.fullscreen .lyrics-body { gap: 48px; }
+.lyrics-view.fullscreen .disc-area { max-width: 380px; }
+.lyrics-view.fullscreen .lyric-text { font-size: 17px; }
+.lyrics-view.fullscreen .lyric-item.active .lyric-text { font-size: 22px; }
 </style>
