@@ -67,6 +67,9 @@ public class SecurityConfig {
                 // 收藏接口（无需登录）
                 .requestMatchers("/api/favorites/**").permitAll()
 
+                // 歌单接口（无需登录）
+                .requestMatchers("/api/playlists/**").permitAll()
+
                 // 静态资源
                 .requestMatchers(
                     "/static/**",
