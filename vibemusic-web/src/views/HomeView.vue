@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
 
 import { useAuthStore } from '@/stores/auth'
+import LoginModal from '@/components/LoginModal.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -347,7 +348,7 @@ function formatDuration(seconds) {
           <span class="user-name">{{ username }}</span>
           <button class="logout-btn" @click="authStore.logout(); $router.push('/')">退出</button>
         </template>
-        <button v-else class="login-btn" @click="$router.push('/login')">登录</button>
+        <button v-else class="login-btn" @click="authStore.openLogin()">登录</button>
       </div>
     </div>
 
@@ -509,6 +510,10 @@ function formatDuration(seconds) {
     :song="playlistTargetSong"
     @close="showPlaylistPopup = false"
     @done="showPlaylistPopup = false"
+  />
+  <LoginModal
+    v-model:visible="authStore.showLoginModal"
+    @success="authStore.closeLogin()"
   />
 </template>
 

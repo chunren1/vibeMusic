@@ -91,19 +91,24 @@ function toggleMode() {
       <h1 class="title">{{ isRegister ? '注册' : '登录' }}</h1>
 
       <div class="form">
-        <input v-model="username" placeholder="用户名" class="input" autocomplete="username" />
+        <!-- 欺骗浏览器密码管理器 - 隐藏的诱饵字段 -->
+        <input type="text" style="display:none" autocomplete="username" />
+        <input type="password" style="display:none" autocomplete="current-password" />
+        
+        <input v-model="username" placeholder="用户名" class="input" autocomplete="new-username" />
         <input
           v-if="isRegister"
           v-model="nickname"
           placeholder="昵称（可选）"
           class="input"
+          autocomplete="off"
         />
         <input
           v-model="password"
           type="password"
           placeholder="密码"
           class="input"
-          autocomplete="current-password"
+          autocomplete="new-password"
           @keyup.enter="isRegister ? handleRegister() : handleLogin()"
         />
         <p v-if="errorMsg" class="error">{{ errorMsg }}</p>

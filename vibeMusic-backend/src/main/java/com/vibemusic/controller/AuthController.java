@@ -7,7 +7,6 @@ import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -37,13 +36,13 @@ public class AuthController {
         if (username == null || username.trim().isEmpty()) return Result.error("用户名不能为空");
         if (password == null || password.length() < 4) return Result.error("密码至少4位");
 
-        User user = userService.register(username.trim(), password, nickname);
+        userService.register(username.trim(), password, nickname);
 
         // 注册后自动登录，返回 token
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
-        String token = jwtUtils.generateToken(details.getUserId());
+        String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
 
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
@@ -64,7 +63,7 @@ public class AuthController {
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
-        String token = jwtUtils.generateToken(details.getUserId());
+        String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
 
         Map<String, Object> data = new HashMap<>();
         data.put("token", token);
