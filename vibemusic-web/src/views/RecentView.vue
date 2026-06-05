@@ -1,13 +1,19 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import TopBar from '@/components/TopBar.vue'
-import { getPlayHistory, playSong as apiPlaySong } from '@/api/song'
+import PlaylistPopup from '@/components/PlaylistPopup.vue'
+import { getPlayHistory, playSong as apiPlaySong, toggleFavorite, getFavoriteIds } from '@/api/song'
 
 const recentSongs = ref([])
 const currentPlayId = ref(null)
+const showPlaylistPopup = ref(false)
+const playlistTargetSong = ref(null)
+const favIds = ref(new Set())
 
 const audio = window.vibeAudio || new Audio()
 window.vibeAudio = audio
+
+getFavoriteIds().then(res => { if (res.data) favIds.value = new Set(res.data) }).catch(() => {})
 
 function formatTime(dt) {
   if (!dt) return ''
@@ -20,18 +26,31 @@ function formatTime(dt) {
   return d.toLocaleDateString() + ' ' + d.toLocaleTimeString().substring(0, 5)
 }
 
+function toggleFav(song) {
+  const isFav = favIds.value.has(song.sourceId)
+  if (isFav) favIds.value.delete(song.sourceId); else favIds.value.add(song.sourceId)
+  toggleFavorite(song.sourceId, song.songName, song.artist).then(res => {
+    if (res.data === true) favIds.value.add(song.sourceId)
+    else favIds.value.delete(song.sourceId)
+  }).catch(err => {
+    console.error('收藏失败:', err)
+    if (isFav) favIds.value.add(song.sourceId); else favIds.value.delete(song.sourceId)
+  })
+}
+
+function openPlaylistPopup(item) { playlistTargetSong.value = item; showPlaylistPopup.value = true }
+
 function play(item) {
   currentPlayId.value = item.sourceId
   apiPlaySong(item.sourceId, item.songName, item.artist).then(res => {
     const url = res.data?.url
     if (!url) return
-    audio.src = url
-    audio.play().catch(() => {})
+    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
+    else { audio.src = url; audio.play().catch(() => {}) }
+    window.dispatchEvent(new CustomEvent('song-change', {
+      detail: { title: item.songName, artist: item.artist, sourceId: item.sourceId, duration: 0 }
+    }))
   }).catch(() => {})
-}
-
-function clearHistory() {
-  recentSongs.value = []
 }
 
 onMounted(() => {
@@ -46,28 +65,41 @@ onMounted(() => {
   <div class="recent-page">
     <div class="page-header">
       <h2 class="page-title">🕐 最近播放</h2>
-      <button v-if="recentSongs.length" class="clear-btn" @click="clearHistory">清空</button>
     </div>
     <p class="subtitle">{{ recentSongs.length }} 首歌曲</p>
 
-    <div v-if="recentSongs.length > 0" class="song-list">
+    <div v-if="recentSongs.length > 0" class="song-table">
+      <div class="table-header">
+        <span class="th-index">#</span>
+        <span class="th-cover"></span>
+        <span class="th-title">歌名</span>
+        <span class="th-time">播放时间</span>
+        <span class="th-actions"></span>
+      </div>
       <div
-        v-for="(item, idx) in recentSongs"
-        :key="item.sourceId + '_' + idx"
-        class="song-row"
-        :class="{ active: currentPlayId === item.sourceId }"
-        @click="play(item)"
+        v-for="(item, idx) in recentSongs" :key="item.sourceId + '_' + idx"
+        class="table-row"
+        :class="{ playing: currentPlayId === item.sourceId }"
       >
-        <span class="row-index">
-          <span v-if="currentPlayId === item.sourceId">▶</span>
+        <span class="td-index">
+          <span v-if="currentPlayId === item.sourceId" class="playing-eq">▮▮</span>
           <span v-else>{{ idx + 1 }}</span>
         </span>
-        <div class="row-cover">♪</div>
-        <div class="row-info">
-          <span class="row-title" :class="{ hl: currentPlayId === item.sourceId }">{{ item.songName }}</span>
-          <span class="row-meta">{{ item.artist }}</span>
+        <div class="td-cover">
+          <div class="cover-img" @click="play(item)"><span>♪</span><div class="cover-hover">▶</div></div>
         </div>
-        <span class="row-time">{{ formatTime(item.playedAt) }}</span>
+        <div class="td-info" @click="play(item)">
+          <span class="td-name" :class="{ active: currentPlayId === item.sourceId }">{{ item.songName }}</span>
+          <span class="td-artist">{{ item.artist || '-' }}</span>
+        </div>
+        <span class="td-time">{{ formatTime(item.playedAt) }}</span>
+        <div class="td-actions">
+          <button
+            class="action-btn fav-btn" :class="{ faved: favIds.has(item.sourceId) }"
+            @click.stop="toggleFav(item)" :title="favIds.has(item.sourceId) ? '取消收藏' : '收藏'"
+          >{{ favIds.has(item.sourceId) ? '⭐' : '☆' }}</button>
+          <button class="action-btn add-btn" @click.stop="openPlaylistPopup(item)" title="加入歌单">➕</button>
+        </div>
       </div>
     </div>
 
@@ -76,39 +108,60 @@ onMounted(() => {
       <p class="hint">去主页听听音乐吧</p>
     </div>
   </div>
+
+  <PlaylistPopup v-if="showPlaylistPopup" :song="playlistTargetSong" @close="showPlaylistPopup = false" @done="showPlaylistPopup = false" />
 </template>
 
 <style scoped>
-.recent-page { padding: 28px; }
+.recent-page { padding: 24px 32px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.page-title { font-size: 24px; font-weight: 700; color: #333; }
-.clear-btn {
-  padding: 6px 16px; border: 1px solid #ccc; border-radius: 16px;
-  background: transparent; color: #999; font-size: 12px; cursor: pointer;
-}
-.clear-btn:hover { border-color: #e84c3d; color: #e84c3d; }
-.subtitle { font-size: 13px; color: #999; margin-bottom: 24px; }
+.page-title { font-size: 22px; font-weight: 700; color: #333; }
+.subtitle { font-size: 13px; color: #999; margin-bottom: 20px; }
 
-.song-list { display: flex; flex-direction: column; }
-.song-row {
-  display: flex; align-items: center; gap: 14px;
-  padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: .15s;
+.song-table { display: flex; flex-direction: column; }
+.table-header {
+  display: grid; grid-template-columns: 36px 56px 2fr 120px 80px;
+  padding: 8px 0 12px; border-bottom: 1px solid #ddd;
+  color: #999; font-size: 12px;
 }
-.song-row:nth-child(odd) { background: rgba(0,0,0,.02); }
-.song-row:hover { background: rgba(0,0,0,.05); }
-.song-row.active { background: rgba(49,194,124,.1); }
+.th-index { text-align: center; }
+.th-actions { text-align: center; }
 
-.row-index { width: 28px; text-align: center; font-size: 13px; color: #999; }
-.row-cover {
-  width: 40px; height: 40px; border-radius: 6px;
+.table-row {
+  display: grid; grid-template-columns: 36px 56px 2fr 120px 80px;
+  align-items: center; padding: 8px 0; border-radius: 8px; transition: .12s;
+}
+.table-row:hover { background: #f0f0f0; }
+.table-row:nth-child(odd) { background: #f9f9f9; }
+.table-row.playing { background: rgba(49,194,124,.08); }
+
+.td-index { text-align: center; font-size: 14px; color: #999; }
+.playing-eq { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
+.td-cover { display: flex; align-items: center; justify-content: center; }
+.cover-img {
+  width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
   background: #e0e0e0; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: #999;
+  font-size: 16px; color: #999; flex-shrink: 0;
 }
-.row-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.row-title { font-size: 14px; color: #333; }
-.row-title.hl { color: #31c27c; }
-.row-meta { font-size: 12px; color: #999; }
-.row-time { font-size: 12px; color: #999; }
+.cover-hover {
+  position: absolute; inset: 0; border-radius: 6px;
+  background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #31c27c; opacity: 0; transition: .15s;
+}
+.cover-img:hover .cover-hover { opacity: 1; }
+.td-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; }
+.td-name { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-name.active { color: #31c27c; }
+.td-artist { font-size: 12px; color: #777; }
+.td-time { font-size: 13px; color: #888; }
+.td-actions { display: flex; justify-content: center; gap: 2px; }
+.action-btn {
+  background: none; border: none; color: #555; font-size: 15px;
+  cursor: pointer; padding: 4px 6px; border-radius: 4px; opacity: 0; transition: .15s;
+}
+.table-row:hover .action-btn { opacity: 1; }
+.fav-btn.faved { color: #f0c040; opacity: 1; }
+.add-btn:hover, .fav-btn:hover { color: #31c27c; background: rgba(49,194,124,.08); }
 
 .empty { text-align: center; padding: 80px 0; color: #999; }
 .hint { font-size: 13px; margin-top: 8px; }

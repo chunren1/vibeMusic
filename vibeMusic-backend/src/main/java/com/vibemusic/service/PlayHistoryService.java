@@ -5,9 +5,9 @@ import com.vibemusic.repository.PlayHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -15,28 +15,24 @@ import java.util.stream.Collectors;
 public class PlayHistoryService {
 
     private final PlayHistoryRepository repository;
+    private static final int MAX_HISTORY = 300;
 
-    /**
-     * 记录播放
-     */
+    @Transactional
     public void record(Long userId, String sourceId, String songName, String artist) {
         PlayHistory history = PlayHistory.builder()
-                .userId(userId)
-                .sourceId(sourceId)
-                .songName(songName)
-                .artist(artist)
-                .build();
+                .userId(userId).sourceId(sourceId)
+                .songName(songName).artist(artist).build();
         repository.save(history);
-        log.debug("记录播放历史: user={}, song={}", userId, songName);
+        int total = repository.countByUserId(userId);
+        if (total > MAX_HISTORY) {
+            int deleted = repository.deleteOldByUserId(userId, MAX_HISTORY);
+            log.debug("deleted {} old history records for user {}", deleted, userId);
+        }
     }
 
-    /**
-     * 最近播放列表（去重，同一首歌只保留最新记录）
-     */
     public List<Map<String, Object>> recent(Long userId, int count) {
+        if (count > MAX_HISTORY) count = MAX_HISTORY;
         List<PlayHistory> list = repository.findRecentByUserId(userId, count);
-
-        // 去重 + 转为 DTO
         Set<String> seen = new HashSet<>();
         return list.stream()
                 .filter(h -> seen.add(h.getSourceId()))
@@ -48,6 +44,6 @@ public class PlayHistoryService {
                     m.put("playedAt", h.getPlayedAt());
                     return m;
                 })
-                .collect(Collectors.toList());
+                .collect(java.util.stream.Collectors.toList());
     }
 }

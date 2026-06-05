@@ -83,7 +83,11 @@ function toggleFav(song) {
 
 // 下载歌曲（传完整 song 对象）
 import { downloadSong as apiDownload } from '@/api/song'
+import PlaylistPopup from '@/components/PlaylistPopup.vue'
 const downloadingIds = ref(new Set())
+const showPlaylistPopup = ref(false)
+const playlistTargetSong = ref(null)
+function openPlaylistPopup(song) { playlistTargetSong.value = song; showPlaylistPopup.value = true }
 function handleDownload(song) {
   if (downloadingIds.value.has(song.sourceId)) return
   downloadingIds.value.add(song.sourceId)
@@ -485,11 +489,24 @@ function formatDuration(seconds) {
             >
               {{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}
             </button>
+            <button
+              class="action-btn playlist-btn"
+              @click.stop="openPlaylistPopup(song)"
+              title="加入歌单"
+            >
+              ➕
+            </button>
           </div>
         </div>
       </div>
     </div>
   </div>
+  <PlaylistPopup
+    v-if="showPlaylistPopup"
+    :song="playlistTargetSong"
+    @close="showPlaylistPopup = false"
+    @done="showPlaylistPopup = false"
+  />
 </template>
 
 <style scoped>
@@ -635,6 +652,7 @@ function formatDuration(seconds) {
 .result-page-item:hover .action-btn { opacity: 1; }
 .action-btn:hover { color: #31c27c; background: rgba(255,255,255,.06); }
 .action-btn.faved { color: #f0c040; opacity: 1; }
+.action-btn.playlist-btn { color: #31c27c; opacity: 1; }
 
 .user-info {
   display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0;

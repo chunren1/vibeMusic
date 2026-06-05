@@ -1,165 +1,231 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import TopBar from '@/components/TopBar.vue'
+import PlaylistPopup from '@/components/PlaylistPopup.vue'
+import { getPlaylists, getPlaylistSongs, removeFromPlaylist, playSong as apiPlaySong, toggleFavorite, getFavoriteIds } from '@/api/song'
 
 const route = useRoute()
-const playlistId = route.params.id
+const playlistId = ref(Number(route.params.id))
+const songs = ref([])
+const playlistName = ref('歌单详情')
+const currentPlayId = ref(null)
+const showPlaylistPopup = ref(false)
+const playlistTargetSong = ref(null)
+const favIds = ref(new Set())
 
-// ----- 模拟歌单数据 -----
-const playlist = {
-  id: playlistId,
-  name: '华语热门 | 抖音神曲合集',
-  cover: '',
-  creator: 'vibeMusic',
-  description: '精选当下最热门的华语歌曲，每周更新。',
-  songCount: 56,
-  playCount: '1280万',
+const audio = window.vibeAudio || new Audio()
+window.vibeAudio = audio
+
+function formatDuration(s) {
+  if (!s) return ''
+  const m = Math.floor(s / 60)
+  return m + ':' + String(s % 60).padStart(2, '0')
 }
 
-const songs = ref([
-  { id: 1, title: '晴天', artist: '周杰伦', album: '叶惠美', duration: '4:29' },
-  { id: 2, title: '孤勇者', artist: '陈奕迅', album: '孤勇者', duration: '4:16' },
-  { id: 3, title: '起风了', artist: '买辣椒也用券', album: '起风了', duration: '5:08' },
-  { id: 4, title: '错位时空', artist: '艾辰', album: '错位时空', duration: '3:42' },
-  { id: 5, title: '若月亮没来', artist: '黄绮珊', album: '若月亮没来', duration: '4:11' },
-  { id: 6, title: '罗生门', artist: '张子豪', album: '罗生门', duration: '3:33' },
-  { id: 7, title: '篇章', artist: '张韶涵 / 王赫野', album: '篇章', duration: '4:05' },
-  { id: 8, title: '我记得', artist: '赵雷', album: '署前街少年', duration: '5:22' },
-  { id: 9, title: '兰亭序', artist: '周杰伦', album: '魔杰座', duration: '4:13' },
-  { id: 10, title: '青花瓷', artist: '周杰伦', album: '我很忙', duration: '3:59' },
-  { id: 11, title: '稻香', artist: '周杰伦', album: '魔杰座', duration: '3:43' },
-  { id: 12, title: '夜曲', artist: '周杰伦', album: '十一月的肖邦', duration: '3:51' },
-])
+async function loadSongs() {
+  try {
+    const plRes = await getPlaylists()
+    const pl = (plRes.data || []).find(p => p.id === playlistId.value)
+    if (pl) playlistName.value = pl.name
 
-function playAll() {
-  console.log('播放全部')
+    const res = await getPlaylistSongs(playlistId.value)
+    songs.value = (res.data || []).map(s => ({
+      sourceId: s.sourceId,
+      name: s.songName,
+      artist: s.artist || '',
+      coverUrl: s.coverUrl || '',
+      duration: s.duration || 0,
+    }))
+  } catch (e) {
+    console.error('加载歌单失败:', e)
+  }
 }
 
-function playSong(song) {
-  console.log('播放:', song.title)
+function play(song) {
+  currentPlayId.value = song.sourceId
+  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
+    const url = res.data?.url
+    if (!url) return
+    if (window.vibeAudioSetSrc) {
+      window.vibeAudioSetSrc(url)
+    } else {
+      audio.src = url
+      audio.play().catch(() => {})
+    }
+    window.dispatchEvent(new CustomEvent('song-change', {
+      detail: { title: song.name, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl, duration: song.duration }
+    }))
+  }).catch(() => {})
 }
+
+function toggleFav(song) {
+  const isFav = favIds.value.has(song.sourceId)
+  if (isFav) favIds.value.delete(song.sourceId); else favIds.value.add(song.sourceId)
+  toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
+    if (res.data === true) favIds.value.add(song.sourceId)
+    else favIds.value.delete(song.sourceId)
+  }).catch(err => {
+    console.error('收藏失败:', err)
+    if (isFav) favIds.value.add(song.sourceId); else favIds.value.delete(song.sourceId)
+  })
+}
+
+function openPlaylistPopup(song) {
+  playlistTargetSong.value = song
+  showPlaylistPopup.value = true
+}
+
+async function removeSong(song) {
+  try {
+    await removeFromPlaylist(1, playlistId.value, song.sourceId)
+    songs.value = songs.value.filter(s => s.sourceId !== song.sourceId)
+  } catch (e) {
+    console.error('移除失败:', e)
+  }
+}
+
+getFavoriteIds().then(res => { if (res.data) favIds.value = new Set(res.data) }).catch(() => {})
+
+onMounted(() => loadSongs())
 </script>
 
 <template>
-  <div class="playlist-page">
-    <!-- 歌单头部 -->
-    <div class="playlist-header">
-      <div class="cover-box">
-        <div class="cover-img">♪</div>
+  <TopBar />
+  <div class="detail-page">
+    <div class="detail-header">
+      <h2 class="detail-title">{{ playlistName }}</h2>
+      <p class="subtitle">{{ songs.length }} 首歌曲</p>
+    </div>
+
+    <div v-if="songs.length > 0" class="song-table">
+      <div class="table-header">
+        <span class="th-index">#</span>
+        <span class="th-cover"></span>
+        <span class="th-title">歌名</span>
+        <span class="th-time">时长</span>
+        <span class="th-actions"></span>
       </div>
-      <div class="header-info">
-        <span class="tag">歌单</span>
-        <h1 class="name">{{ playlist.name }}</h1>
-        <p class="creator">{{ playlist.creator }} 创建</p>
-        <p class="desc">{{ playlist.description }}</p>
-        <div class="stats">
-          <span>{{ playlist.songCount }} 首</span>
-          <span>播放 {{ playlist.playCount }}</span>
+      <div
+        v-for="(song, idx) in songs" :key="song.sourceId"
+        class="table-row"
+        :class="{ playing: currentPlayId === song.sourceId }"
+      >
+        <span class="td-index">
+          <span v-if="currentPlayId === song.sourceId" class="playing-eq">▮▮</span>
+          <span v-else>{{ idx + 1 }}</span>
+        </span>
+        <div class="td-cover">
+          <div
+            class="cover-img"
+            :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=100y100)' } : {}"
+            @click="play(song)"
+          >
+            <span v-if="!song.coverUrl">♪</span>
+            <div class="cover-hover">▶</div>
+          </div>
+        </div>
+        <div class="td-info" @click="play(song)">
+          <span class="td-name" :class="{ active: currentPlayId === song.sourceId }">{{ song.name }}</span>
+          <span class="td-artist">{{ song.artist || '-' }}</span>
+        </div>
+        <span class="td-time">{{ formatDuration(song.duration) }}</span>
+        <div class="td-actions">
+          <button
+            class="action-btn fav-btn"
+            :class="{ faved: favIds.has(song.sourceId) }"
+            @click.stop="toggleFav(song)"
+            :title="favIds.has(song.sourceId) ? '取消收藏' : '收藏'"
+          >{{ favIds.has(song.sourceId) ? '⭐' : '☆' }}</button>
+          <button
+            class="action-btn add-btn"
+            @click.stop="openPlaylistPopup(song)"
+            title="加入其他歌单"
+          >➕</button>
+          <button
+            class="action-btn del-btn"
+            @click.stop="removeSong(song)"
+            title="从歌单移除"
+          >✕</button>
         </div>
       </div>
     </div>
 
-    <!-- 操作栏 -->
-    <div class="action-bar">
-      <button class="btn-play-all" @click="playAll">▶ 播放全部</button>
-      <button class="btn-secondary">❤ 收藏</button>
-      <button class="btn-secondary">↗ 分享</button>
+    <div v-else class="empty">
+      <p>歌单里还没有歌曲</p>
+      <p class="hint">去主页搜索音乐并添加到歌单吧</p>
     </div>
 
-    <!-- 歌曲列表 -->
-    <div class="song-table">
-      <div class="table-header">
-        <span class="col-index">#</span>
-        <span class="col-title">歌曲</span>
-        <span class="col-artist">歌手</span>
-        <span class="col-album">专辑</span>
-        <span class="col-time">⏱</span>
-      </div>
-      <div
-        v-for="(song, idx) in songs"
-        :key="song.id"
-        class="table-row"
-        @dblclick="playSong(song)"
-      >
-        <span class="col-index">{{ idx + 1 }}</span>
-        <span class="col-title">{{ song.title }}</span>
-        <span class="col-artist">{{ song.artist }}</span>
-        <span class="col-album">{{ song.album }}</span>
-        <span class="col-time">{{ song.duration }}</span>
-      </div>
-    </div>
+    <PlaylistPopup
+      v-if="showPlaylistPopup"
+      :song="playlistTargetSong"
+      :exclude-playlist-id="playlistId"
+      @close="showPlaylistPopup = false"
+      @done="showPlaylistPopup = false"
+    />
   </div>
 </template>
 
 <style scoped>
-.playlist-page { padding: 32px; padding-bottom: 100px; }
+.detail-page { padding: 24px 32px; }
+.detail-header { margin-bottom: 20px; }
+.detail-title { font-size: 22px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: #999; }
 
-/* ===== 头部 ===== */
-.playlist-header {
-  display: flex; gap: 28px; margin-bottom: 28px;
-}
-.cover-box {
-  width: 180px; height: 180px; flex-shrink: 0;
-  border-radius: 12px; overflow: hidden;
-}
-.cover-img {
-  width: 100%; height: 100%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 56px; color: #ec4141;
-  background: linear-gradient(135deg, #2a2a3a, #1e2024);
-}
-.header-info {
-  display: flex; flex-direction: column; justify-content: center; gap: 6px;
-}
-.tag {
-  display: inline-block; padding: 2px 8px;
-  border: 1px solid #ec4141; border-radius: 4px;
-  color: #ec4141; font-size: 12px; width: fit-content;
-}
-.name {
-  font-size: 26px; font-weight: 700; color: #fff;
-}
-.creator { font-size: 13px; color: #666; }
-.desc { font-size: 13px; color: #999; max-width: 480px; }
-.stats { font-size: 12px; color: #555; display: flex; gap: 16px; }
-
-/* ===== 操作栏 ===== */
-.action-bar {
-  display: flex; gap: 12px; margin-bottom: 24px; padding-bottom: 20px;
-  border-bottom: 1px solid #2a2a2a;
-}
-.btn-play-all {
-  padding: 10px 28px; border: none; border-radius: 20px;
-  background: #ec4141; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
-}
-.btn-play-all:hover { background: #d63434; }
-.btn-secondary {
-  padding: 10px 20px; border: 1px solid #444; border-radius: 20px;
-  background: transparent; color: #ccc; font-size: 13px; cursor: pointer;
-}
-.btn-secondary:hover { border-color: #666; color: #fff; }
-
-/* ===== 表格 ===== */
-.table-header, .table-row {
-  display: grid;
-  grid-template-columns: 40px 2fr 1fr 1fr 60px;
-  align-items: center; gap: 12px;
-  padding: 10px 12px; font-size: 13px;
-}
+.song-table { display: flex; flex-direction: column; }
 .table-header {
-  color: #666; border-bottom: 1px solid #2a2a2a;
-  margin-bottom: 4px; font-size: 12px;
+  display: grid;
+  grid-template-columns: 36px 56px 2fr 70px 80px;
+  padding: 8px 0 12px; border-bottom: 1px solid #ddd;
+  color: #999; font-size: 12px;
 }
+.th-index { text-align: center; }
+.th-actions { text-align: center; }
+
 .table-row {
-  border-radius: 6px; cursor: pointer; transition: .15s;
-  color: #ccc;
+  display: grid;
+  grid-template-columns: 36px 56px 2fr 70px 80px;
+  align-items: center; padding: 8px 0; border-radius: 8px; transition: .12s;
 }
-.table-row:nth-child(odd) { background: rgba(255,255,255,.015); }
-.table-row:hover { background: rgba(255,255,255,.06); }
-.col-index { text-align: center; color: #555; }
-.col-title { color: #ddd; }
-.col-artist, .col-album {
-  color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.table-row:hover { background: #f0f0f0; }
+.table-row:nth-child(odd) { background: #f9f9f9; }
+.table-row.playing { background: rgba(49,194,124,.08); }
+
+.td-index { text-align: center; font-size: 14px; color: #999; }
+.playing-eq { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
+
+.td-cover { display: flex; align-items: center; justify-content: center; }
+.cover-img {
+  width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
+  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: #999;
+  background-size: cover; background-position: center;
 }
-.col-time { text-align: right; color: #555; }
+.cover-hover {
+  position: absolute; inset: 0; border-radius: 6px;
+  background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #31c27c; opacity: 0; transition: .15s;
+}
+.cover-img:hover .cover-hover { opacity: 1; }
+
+.td-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; }
+.td-name { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-name.active { color: #31c27c; }
+.td-artist { font-size: 12px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.td-time { font-size: 13px; color: #888; }
+
+.td-actions { display: flex; justify-content: center; gap: 2px; }
+.action-btn {
+  background: none; border: none; color: #555; font-size: 15px;
+  cursor: pointer; padding: 4px 6px; border-radius: 4px; opacity: 0; transition: .15s;
+}
+.table-row:hover .action-btn { opacity: 1; }
+.fav-btn.faved { color: #f0c040; opacity: 1; }
+.fav-btn:hover { color: #f0c040; background: rgba(240,192,64,.08); }
+.add-btn:hover { color: #31c27c; background: rgba(49,194,124,.08); }
+.del-btn:hover { color: #e84c3d; background: rgba(232,76,61,.08); }
+
+.empty { text-align: center; padding: 80px 0; color: #999; }
+.hint { font-size: 13px; margin-top: 8px; }
 </style>

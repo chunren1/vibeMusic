@@ -1,43 +1,43 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
+import { getPlaylists } from '@/api/song'
 
 const router = useRouter()
+const playlists = ref([])
 
-const playlists = ref([
-  { id: 1, name: '华语热门精选', count: 56, color: '#e84c3d' },
-  { id: 2, name: '治愈系纯音乐', count: 38, color: '#3498db' },
-  { id: 3, name: '说唱新世代', count: 29, color: '#2ecc71' },
-  { id: 4, name: '怀旧金曲', count: 64, color: '#f39c12' },
-  { id: 5, name: '民谣在路上', count: 27, color: '#9b59b6' },
-  { id: 6, name: '电竞燃曲BGM', count: 33, color: '#1abc9c' },
-  { id: 7, name: '周杰伦全集', count: 88, color: '#e74c3c' },
-  { id: 8, name: '欧美精选', count: 42, color: '#2c3e50' },
-  { id: 9, name: '抖音神曲2026', count: 51, color: '#e67e22' },
-  { id: 10, name: '经典钢琴曲', count: 35, color: '#8e44ad' },
-])
+onMounted(() => {
+  getPlaylists().then(res => {
+    playlists.value = res.data || []
+  }).catch(() => {})
+})
 </script>
 
 <template>
   <TopBar />
   <div class="playlists-page">
     <h2 class="page-title">📂 我的歌单</h2>
-    <p class="subtitle">共 {{ playlists.length }} 个歌单</p>
+    <p class="subtitle">{{ playlists.length }} 个歌单</p>
 
     <div class="playlist-grid">
       <div
-        v-for="pl in playlists"
-        :key="pl.id"
+        v-for="pl in playlists" :key="pl.id"
         class="playlist-card"
         @click="router.push({ name: 'playlist', params: { id: pl.id } })"
       >
         <div class="pl-cover">
-          <div class="cover-inner" :style="{ background: pl.color }">♪</div>
-          <span class="pl-count">{{ pl.count }}首</span>
+          <div class="cover-inner" :style="{ background: '#31c27c' }">♪</div>
+          <span class="pl-count">{{ pl.songCount }}首</span>
         </div>
         <p class="pl-name">{{ pl.name }}</p>
+        <p v-if="pl.description" class="pl-desc">{{ pl.description }}</p>
       </div>
+    </div>
+
+    <div v-if="playlists.length === 0" class="empty">
+      <p>还没有歌单</p>
+      <p class="hint">在歌曲列表中点击"加入歌单"来创建</p>
     </div>
   </div>
 </template>
@@ -70,8 +70,15 @@ const playlists = ref([
   background: rgba(0,0,0,.55); font-size: 13px; color: #bbb;
 }
 .pl-name {
-  font-size: 15px; color: #ccc;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; line-height: 1.4;
+  font-size: 15px; color: #1a1a1a;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+.pl-desc {
+  font-size: 12px; color: #999; margin-top: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.empty { text-align: center; padding: 80px 0; color: #999; }
+.hint { font-size: 13px; margin-top: 8px; }
 </style>
