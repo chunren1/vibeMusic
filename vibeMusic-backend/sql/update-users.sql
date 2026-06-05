@@ -14,5 +14,6 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 插入默认用户（密码: 123456，BCrypt 加密）
 -- 生产环境请修改密码
+-- 如果已存在错误的旧 admin 用户，请先 DELETE FROM users WHERE username='admin' 再执行
 INSERT IGNORE INTO users (username, password, nickname, enabled) VALUES
-('admin', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '管理员', TRUE);
+('admin', '$2b$10$1/FXBiQlDlBnapQ6PosJO.lv3oj59Zf6j.VVrHao0xASJxcewwlDG', '管理员', TRUE);
