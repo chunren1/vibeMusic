@@ -86,6 +86,7 @@ function toggleMode() {
   const idx = modes.indexOf(playMode.value)
   playMode.value = modes[(idx + 1) % 3]
 }
+window.vibePlayMode = (m) => { playMode.value = m }
 
 function onEnded() {
   if (playMode.value === 'single') {
@@ -123,6 +124,7 @@ function playIndex(idx) {
   currentIdx.value = idx
   playCurrent()
 }
+window.vibePlayQueue = playIndex
 
 function removeFromQueue(idx) {
   queue.value.splice(idx, 1)
