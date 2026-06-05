@@ -30,6 +30,75 @@ function startTimeSync() {
 }
 function stopTimeSync() { if (timeInterval) { clearInterval(timeInterval); timeInterval = null } }
 
+
+// ===== 频谱可视化 =====
+const spectrumCanvas = ref(null)
+let audioCtx = null
+let analyserNode = null
+let mediaSource = null
+let spectrumRafId = null
+
+function initSpectrum() {
+  if (audioCtx) return
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+    analyserNode = audioCtx.createAnalyser()
+    analyserNode.fftSize = 512
+    analyserNode.smoothingTimeConstant = 0.85
+    // 连接全局 audio 元素
+    const a = window.vibeAudio
+    if (a) {
+      mediaSource = audioCtx.createMediaElementSource(a)
+      mediaSource.connect(analyserNode)
+      analyserNode.connect(audioCtx.destination)
+    }
+  } catch(e) { console.warn('频谱初始化失败:', e) }
+}
+
+function drawSpectrum() {
+  if (!analyserNode || !spectrumCanvas.value) return
+  const canvas = spectrumCanvas.value
+  const ctx = canvas.getContext('2d')
+  const w = canvas.clientWidth
+  const h = canvas.clientHeight
+  canvas.width = w * devicePixelRatio 
+  canvas.height = h * devicePixelRatio
+  ctx.scale(devicePixelRatio, devicePixelRatio)
+
+  const barNum = 80
+  const gap = 2
+  const bw = (w - gap * (barNum + 1)) / barNum
+  const data = new Uint8Array(analyserNode.frequencyBinCount)
+  analyserNode.getByteFrequencyData(data)
+
+  ctx.clearRect(0, 0, w, h)
+  for (let i = 0; i < barNum; i++) {
+    const idx = Math.floor(i * data.length / barNum)
+    const v = data[idx] / 255
+    const center = barNum / 2
+    const dist = Math.abs(i - center) / center
+    let bh = v * h * 0.85 * (1 - dist * 0.5)
+    if (bh < 2) bh = 2
+    const x = gap + i * (bw + gap)
+    const y = (h - bh) / 2
+    const g = ctx.createLinearGradient(x, y, x, y + bh)
+    g.addColorStop(0, '#2ecc71')
+    g.addColorStop(1, 'rgba(46,204,113,0.2)')
+    ctx.fillStyle = g
+    ctx.shadowColor = 'rgba(46,204,113,0.5)'
+    ctx.shadowBlur = 6
+    ctx.beginPath()
+    ctx.roundRect(x, y, bw, bh, bw / 2)
+    ctx.fill()
+    ctx.shadowBlur = 0
+  }
+  spectrumRafId = requestAnimationFrame(drawSpectrum)
+}
+
+function stopSpectrum() {
+  if (spectrumRafId) { cancelAnimationFrame(spectrumRafId); spectrumRafId = null }
+}
+
 function toggleMute() {
   isMuted.value = !isMuted.value
   if (window.vibeAudio) { window.vibeAudio.muted = isMuted.value; if (!isMuted.value && volume.value === 0) { volume.value = 70; window.vibeAudio.volume = 0.7 } }
@@ -134,7 +203,7 @@ watch(() => props.currentSong.id, (newId) => {
   if (props.visible && newId) fetchLyric(newId)
 })
 
-onUnmounted(() => { stopTimeSync(); exitFullscreen() })
+onUnmounted(() => { stopTimeSync(); stopSpectrum(); exitFullscreen() })
 
 const currentLyricIndex = ref(0)
 watch(() => currentTime.value, () => {
@@ -239,6 +308,11 @@ function close() { emit('update:visible', false) }
             </div>
           </div>
         </main>
+
+        <!-- 频谱可视化 -->
+        <div class="spectrum-wrap">
+          <canvas ref="spectrumCanvas" class="spec-canvas"></canvas>
+        </div>
 
         <!-- 底部控制栏 -->
         <footer class="bar">
@@ -367,6 +441,10 @@ function close() { emit('update:visible', false) }
 .disc-inner { position: absolute; inset: 20%; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 2px rgba(255,255,255,0.04); }
 .disc-inner img { width: 100%; height: 100%; object-fit: cover; }
 .disc-shine { position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%); pointer-events: none; }
+
+/* 频谱 */
+.spectrum-wrap { padding: 0 40px; height: 60px; flex-shrink: 0; }
+.spec-canvas { width: 100%; height: 100%; display: block; }
 
 /* 歌词 — 紧邻碟片右侧，撑满 */
 .right { flex: 1; height: 100%; overflow: hidden; }
