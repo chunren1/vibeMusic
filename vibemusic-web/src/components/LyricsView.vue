@@ -395,15 +395,15 @@ function close() { emit('update:visible', false) }
 .func-btn.fav { color: #ec4141; background: rgba(236,65,65,0.12); }
 
 /* 中间播放 — x2 */
-.center-ctrl { display: flex; align-items: center; gap: 20px; position: absolute; left: 44%; transform: translateX(-50%); }
+.center-ctrl { display: flex; align-items: center; gap: 16px; position: absolute; left: 48%; transform: translateX(-50%); }
 .ctrl-btn { border: none; background: none; color: rgba(255,255,255,0.75); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .ctrl-btn:hover { color: #fff; }
 .ctrl-btn.mode-btn { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.04); }
 .ctrl-btn.mode-btn:hover { color: #2ecc71; background: rgba(46,204,113,0.12); }
 .ctrl-btn.skip { opacity: 0.8; padding: 6px; }
 .ctrl-btn.skip:hover { opacity: 1; }
-.ctrl-btn.main { width: 108px; height: 54px; border-radius: 14px; background: #2ecc71; color: #fff; box-shadow: 0 6px 32px rgba(46,204,113,0.4); }
-.ctrl-btn.main:hover { transform: scale(1.04); box-shadow: 0 10px 40px rgba(46,204,113,0.55); }
+.ctrl-btn.main { width: 65px; height: 32px; border-radius: 8px; background: #2ecc71; color: #fff; box-shadow: 0 4px 18px rgba(46,204,113,0.35); font-size: 16px; }
+.ctrl-btn.main:hover { transform: scale(1.05); box-shadow: 0 6px 24px rgba(46,204,113,0.45); }
 
 /* 右侧操作 — x2 */
 .right-actions { display: flex; align-items: center; gap: 20px; min-width: 220px; justify-content: flex-end; }
