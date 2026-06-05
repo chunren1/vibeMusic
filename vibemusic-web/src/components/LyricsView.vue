@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { getLyric } from '@/api/song'
+import { getLyric, toggleFavorite } from '@/api/song'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -62,6 +62,25 @@ function removeFromQueue(idx, e) {
   e.stopPropagation()
   const q = window.vibeQueue?.value
   if (q) q.splice(idx, 1)
+}
+
+// ===== 收藏 =====
+const isFav = ref(false)
+watch(() => props.currentSong.id, (id) => {
+  if (id && window.vibeFavIds) {
+    isFav.value = window.vibeFavIds.has(id)
+  } else { isFav.value = false }
+})
+async function handleFav() {
+  if (!props.currentSong.id) return
+  isFav.value = !isFav.value
+  try {
+    await toggleFavorite(props.currentSong.id, props.currentSong.title, props.currentSong.artist, props.currentSong.coverUrl || '')
+    if (window.vibeFavIds) {
+      if (isFav.value) window.vibeFavIds.add(props.currentSong.id)
+      else window.vibeFavIds.delete(props.currentSong.id)
+    }
+  } catch { isFav.value = !isFav.value }
 }
 
 // ===== 下载 =====
@@ -199,12 +218,6 @@ function close() { emit('update:visible', false) }
                 </div>
                 <div class="disc-shine"></div>
               </div>
-              <!-- 唱臂 -->
-              <div class="arm" :class="{ down: isPlaying }">
-                <div class="arm-base"></div>
-                <div class="arm-stick"></div>
-                <div class="arm-head"></div>
-              </div>
             </div>
           </div>
 
@@ -243,14 +256,14 @@ function close() { emit('update:visible', false) }
                 <span class="mini-name">{{ currentSong.title }}</span>
                 <span class="mini-artist"> - {{ currentSong.artist }}</span>
               </div>
-              <button class="func-btn" title="收藏">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              <button class="func-btn" :class="{ fav: isFav }" @click="handleFav" title="收藏">
+                <svg viewBox="0 0 24 24" width="20" height="20" :fill="isFav ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               </button>
             </div>
 
             <!-- 中间：播放控制 -->
             <div class="center-ctrl">
-              <button class="ctrl-btn mode-btn" :class="{ active: playMode !== 'sequential' }" @click="toggleMode" :title="modeLabel">
+              <button class="ctrl-btn mode-btn" @click="toggleMode" :title="modeLabel">
                 <!-- 顺序: 循环箭头 | 随机: 交叉箭头 | 单曲: 循环+1 -->
                 <svg v-if="playMode === 'sequential'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                 <svg v-else-if="playMode === 'random'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
@@ -332,16 +345,15 @@ function close() { emit('update:visible', false) }
 .btn-icon { width: 38px; height: 38px; border: none; background: rgba(255,255,255,0.06); border-radius: 50%; color: rgba(255,255,255,0.7); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .btn-icon:hover { background: rgba(255,255,255,0.12); color: #fff; }
 .top-center { text-align: center; }
-.song-name { font-size: 19px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
+.song-name { font-size: 19px; font-weight: 600; color: #fff; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
 .artist-name { font-size: 14px; color: rgba(255,255,255,0.5); margin-top: 3px; }
 
 /* 主体 — 左碟片右歌词，均靠上 */
 .stage { flex: 1; display: flex; align-items: flex-start; padding: 20px 48px 0; gap: 48px; overflow: hidden; }
 
 /* 碟片 */
-.left { width: 42%; display: flex; align-items: flex-start; justify-content: center; padding-top: 10px; }
-.disc-box { position: relative; width: 100%; max-width: 320px; aspect-ratio: 1; }
-/* 修复：旋转轴心设为碟片中心 */
+.left { width: 40%; display: flex; align-items: center; justify-content: center; padding-top: 30px; }
+.disc-box { position: relative; width: 100%; max-width: 340px; aspect-ratio: 1; }
 .disc { position: absolute; inset: 0; transform-origin: center center; animation: spin 18s linear infinite; animation-play-state: paused; }
 .disc.spin { animation-play-state: running; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -351,64 +363,58 @@ function close() { emit('update:visible', false) }
 .disc-inner img { width: 100%; height: 100%; object-fit: cover; }
 .disc-shine { position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%); pointer-events: none; }
 
-/* 唱臂 — 轴心在 disc-box 右上角 */
-.arm { position: absolute; top: -10%; right: 3%; z-index: 5; transform-origin: 82% 16%; transform: rotate(22deg); transition: transform 0.6s cubic-bezier(0.25, 0.1, 0.25, 1); }
-.arm.down { transform: rotate(8deg); }
-.arm-base { width: 24px; height: 24px; background: radial-gradient(circle at 30% 30%, #666, #1a1a1a); border-radius: 50%; box-shadow: 0 2px 8px rgba(0,0,0,0.5); }
-.arm-stick { position: absolute; top: 10px; right: 12px; width: 70px; height: 3px; background: linear-gradient(180deg, #bbb, #777); border-radius: 2px; transform-origin: right; transform: rotate(-12deg); box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
-.arm-head { position: absolute; top: 0; left: -6px; width: 18px; height: 9px; background: linear-gradient(180deg, #999, #555); border-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
-
-/* 歌词 — 增大宽度高度 */
-.right { flex: 1; height: 100%; padding-top: 20px; overflow: hidden; }
-.lyric-box { height: 100%; overflow-y: auto; padding: 140px 24px 240px; scroll-behavior: smooth; }
+/* 歌词 — 更宽更大，高度占2/3 */
+.right { flex: 1.2; height: 66%; padding-top: 0; overflow: hidden; margin-top: 6%; }
+.lyric-box { height: 100%; overflow-y: auto; padding: 100px 28px 140px; scroll-behavior: smooth; }
 .lyric-box::-webkit-scrollbar { display: none; }
-.lyric-line { padding: 18px 0; font-size: 17px; line-height: 1.8; color: rgba(255,255,255,0.32); text-align: left; transition: all .4s; cursor: pointer; letter-spacing: .5px; }
+.lyric-line { padding: 20px 16px; font-size: 20px; line-height: 1.6; color: rgba(255,255,255,0.3); text-align: left; transition: all .4s; cursor: pointer; letter-spacing: .5px; }
 .lyric-line:hover { color: rgba(255,255,255,0.5); }
-.lyric-line.current { font-size: 22px; font-weight: 700; color: #2ecc71; text-shadow: 0 0 24px rgba(46,204,113,0.45); }
-.empty { text-align: center; padding-top: 40%; color: rgba(255,255,255,0.3); font-size: 16px; }
+.lyric-line.current { font-size: 26px; font-weight: 700; color: #2ecc71; text-shadow: 0 0 28px rgba(46,204,113,0.5); }
+.empty { text-align: center; padding-top: 35%; color: rgba(255,255,255,0.3); font-size: 16px; }
 
-/* 底部栏 — 增高 */
-.bar { padding: 10px 28px 28px; }
-.progress-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.time { font-size: 13px; color: rgba(255,255,255,0.45); min-width: 40px; font-variant-numeric: tabular-nums; }
-.progress-track { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; cursor: pointer; position: relative; }
-.progress-track:hover { height: 6px; }
-.progress-fill { height: 100%; background: #2ecc71; border-radius: 2px; position: relative; }
-.thumb { position: absolute; right: -5px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; background: #2ecc71; border-radius: 50%; opacity: 0; transition: opacity .2s; }
+/* 底部栏 — 更高 */
+.bar { padding: 14px 32px 34px; }
+.progress-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.time { font-size: 14px; color: rgba(255,255,255,0.45); min-width: 44px; font-variant-numeric: tabular-nums; }
+.progress-track { flex: 1; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; position: relative; }
+.progress-track:hover { height: 7px; }
+.progress-fill { height: 100%; background: #2ecc71; border-radius: 3px; position: relative; }
+.thumb { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: #2ecc71; border-radius: 50%; opacity: 0; transition: opacity .2s; }
 .progress-track:hover .thumb { opacity: 1; }
 
 .ctrl-wrap { display: flex; align-items: center; justify-content: space-between; }
 
 /* 左侧 */
-.left-info { display: flex; align-items: center; gap: 14px; min-width: 180px; }
-.mini-song { color: rgba(255,255,255,0.6); font-size: 14px; }
+.left-info { display: flex; align-items: center; gap: 16px; min-width: 180px; }
+.mini-song { color: rgba(255,255,255,0.6); font-size: 15px; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-name { color: #fff; font-weight: 500; }
 .mini-artist { color: rgba(255,255,255,0.45); }
-.func-btn { width: 36px; height: 36px; border: none; background: rgba(255,255,255,0.06); border-radius: 50%; color: rgba(255,255,255,0.6); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
+.func-btn { width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.06); border-radius: 50%; color: rgba(255,255,255,0.6); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .func-btn:hover { background: rgba(255,255,255,0.12); color: #ec4141; }
+.func-btn.fav { color: #ec4141; background: rgba(236,65,65,0.12); }
 
-/* 中间播放 */
-.center-ctrl { display: flex; align-items: center; gap: 28px; position: absolute; left: 50%; transform: translateX(-50%); }
+/* 中间播放 — 放大按钮 */
+.center-ctrl { display: flex; align-items: center; gap: 32px; position: absolute; left: 50%; transform: translateX(-50%); }
 .ctrl-btn { border: none; background: none; color: rgba(255,255,255,0.75); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .ctrl-btn:hover { color: #fff; }
-.ctrl-btn.mode-btn { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.05); }
-.ctrl-btn.mode-btn.active { color: #2ecc71; background: rgba(46,204,113,0.15); }
-.ctrl-btn.mode-btn:hover { background: rgba(255,255,255,0.1); }
-.ctrl-btn.skip { opacity: 0.75; padding: 4px; }
+/* 模式按钮: hover 变绿 */
+.ctrl-btn.mode-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.04); }
+.ctrl-btn.mode-btn:hover { color: #2ecc71; background: rgba(46,204,113,0.12); }
+.ctrl-btn.skip { opacity: 0.8; padding: 4px; }
 .ctrl-btn.skip:hover { opacity: 1; }
-.ctrl-btn.main { width: 56px; height: 56px; border-radius: 50%; background: #2ecc71; color: #fff; box-shadow: 0 4px 24px rgba(46,204,113,0.35); }
-.ctrl-btn.main:hover { transform: scale(1.06); box-shadow: 0 6px 32px rgba(46,204,113,0.5); }
+.ctrl-btn.main { width: 64px; height: 64px; border-radius: 50%; background: #2ecc71; color: #fff; box-shadow: 0 4px 28px rgba(46,204,113,0.35); }
+.ctrl-btn.main:hover { transform: scale(1.06); box-shadow: 0 8px 36px rgba(46,204,113,0.5); }
 
-/* 右侧操作 */
-.right-actions { display: flex; align-items: center; gap: 12px; min-width: 180px; justify-content: flex-end; }
-.act-icon { width: 34px; height: 34px; border: none; background: none; color: rgba(255,255,255,0.5); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
+/* 右侧操作 — 放大 */
+.right-actions { display: flex; align-items: center; gap: 16px; min-width: 180px; justify-content: flex-end; }
+.act-icon { width: 38px; height: 38px; border: none; background: none; color: rgba(255,255,255,0.5); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .act-icon:hover { color: #fff; }
 .act-icon.active { color: #2ecc71; }
 .act-icon.downloading { color: #2ecc71; }
 .spin-icon { animation: spin 1.2s linear infinite; }
-.vol-group { display: flex; align-items: center; gap: 6px; }
-.vol-bar { width: 72px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; cursor: pointer; }
-.vol-bar:hover { height: 4px; }
+.vol-group { display: flex; align-items: center; gap: 8px; }
+.vol-bar { width: 80px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; cursor: pointer; }
+.vol-bar:hover { height: 5px; }
 .vol-fill { height: 100%; background: rgba(255,255,255,0.5); border-radius: 2px; }
 .vol-bar:hover .vol-fill { background: #2ecc71; }
 
