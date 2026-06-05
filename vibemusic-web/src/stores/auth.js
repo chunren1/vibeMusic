@@ -5,6 +5,7 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token'))
   const user = ref(tryParse(localStorage.getItem('user')))
   const showLoginModal = ref(false)
+  const redirectPath = ref(null)  // Bug2: 登录后跳转目标页面
 
   const isLoggedIn = computed(() => !!token.value)
 
@@ -30,7 +31,18 @@ export const useAuthStore = defineStore('auth', () => {
     showLoginModal.value = false
   }
 
-  return { token, user, isLoggedIn, login, logout, showLoginModal, openLogin, closeLogin }
+  function openLoginWithRedirect(path) {
+    redirectPath.value = path
+    showLoginModal.value = true
+  }
+
+  function consumeRedirect() {
+    const p = redirectPath.value
+    redirectPath.value = null
+    return p
+  }
+
+  return { token, user, isLoggedIn, login, logout, showLoginModal, openLogin, closeLogin, redirectPath, openLoginWithRedirect, consumeRedirect }
 })
 
 function tryParse(str) {

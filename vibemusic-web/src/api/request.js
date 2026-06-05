@@ -33,12 +33,11 @@ request.interceptors.response.use(
 )
 
 function handleUnauthorized() {
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
-  // 动态导入 auth store 弹出登录弹窗，而不是跳转页面
+  // Bug5修复: 只通过 store.logout() 统一清理，避免双重删除
   import('@/stores/auth').then(({ useAuthStore }) => {
-    useAuthStore().logout()
-    useAuthStore().openLogin()
+    const store = useAuthStore()
+    store.logout()
+    store.openLogin()
   })
 }
 
