@@ -29,7 +29,7 @@ function playSong(song) {
   }
 
   // 新 API: playSong(sourceId, name, artist)
-  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
+  apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     const url = res.data?.url
     if (!url) return
     // 通过 PlayerBar 设置音频源（它管理播放队列）
@@ -65,7 +65,7 @@ function toggleFav(song) {
   } else {
     favIds.value.add(song.sourceId)
   }
-  toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
+  toggleFavorite(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     if (res.data === true) {
       favIds.value.add(song.sourceId)
     } else {

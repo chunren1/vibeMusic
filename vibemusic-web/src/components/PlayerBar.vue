@@ -41,6 +41,8 @@ function addToQueue(song) {
   // song = { sourceId, name, artist, coverUrl, duration }
   const exists = queue.value.findIndex(s => s.sourceId === song.sourceId)
   if (exists >= 0) {
+    // 更新已有条目（补充可能缺失的封面等新字段）
+    Object.assign(queue.value[exists], song)
     currentIdx.value = exists
   } else {
     queue.value.push(song)
@@ -129,13 +131,20 @@ function removeFromQueue(idx) {
 // ===== 监听外部播放（HomeView → PlayerBar） =====
 function onSongChange(e) {
   const d = e.detail
+  const cover = d.coverUrl || ''
+  console.log('[PlayerBar] song-change cover:', cover)
   addToQueue({
     sourceId: d.id || d.sourceId,
     name: d.title || d.name,
     artist: d.artist || '',
-    coverUrl: d.coverUrl || '',
+    coverUrl: cover,
     duration: d.duration || 0,
   })
+  // 修复：如果歌曲已在队列且缺少封面，补充封面
+  const existIdx = queue.value.findIndex(s => s.sourceId === (d.id || d.sourceId))
+  if (existIdx >= 0 && cover && !queue.value[existIdx].coverUrl) {
+    queue.value[existIdx].coverUrl = cover
+  }
   // 仅更新 UI，不重复获取 URL（HomeView 已获取）
   if (currentIdx.value >= 0) {
     const song = queue.value[currentIdx.value]

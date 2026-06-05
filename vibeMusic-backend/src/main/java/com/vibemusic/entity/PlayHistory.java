@@ -32,8 +32,19 @@ public class PlayHistory {
     @Column(name = "song_name", length = 200)
     private String songName;
 
+    @Column(name = "cover_url", length = 500)
+
+
+    private String coverUrl;
+
+
+
     /** 歌手名 */
+
+
     @Column(name = "artist", length = 200)
+
+
     private String artist;
 
     @Column(name = "played_at")

@@ -11,11 +11,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 歌曲服务
+ * Song Service
  * <p>
- * 搜索流程: Redis 缓存(1h) → 未命中 → 网易云 API → 缓存 Redis → 返回 DTO
+ * Search flow: Redis cache (1h) -> miss -> multi-platform aggregated search (QQ + Netease) -> cache -> return DTO
  * <p>
- * DB song 表仅存储已下载到 RustFS 的歌曲
+ * DB song table only stores songs downloaded to RustFS
  */
 @Slf4j
 @Service
@@ -26,10 +26,10 @@ public class SongService {
     private final NeteaseApiService neteaseApiService;
     private final SongCacheService cacheService;
 
-    // ==================== 搜索 ====================
+    // ==================== Search ====================
 
     /**
-     * 搜索歌曲（Redis → 网易云 API）
+     * Search songs (Redis -> multi-platform aggregated search)
      */
     @SuppressWarnings("unchecked")
     public List<SongDTO> search(String keyword) {
@@ -38,66 +38,69 @@ public class SongService {
         }
         keyword = keyword.trim();
 
-        // 1. 查 Redis 缓存
+        // 1. Check Redis cache
         List<SongDTO> cached = cacheService.getSearchCache(keyword);
         if (!cached.isEmpty()) {
-            log.info("搜索 '{}' Redis 命中 {} 首", keyword, cached.size());
+            log.info("Search '{}' Redis hit {} results", keyword, cached.size());
             return cached;
         }
 
-        // 2. 调用网易云 API
-        log.info("搜索 '{}' Redis 未命中，调用网易云 API", keyword);
+        // 2. Call multi-platform aggregated search (QQ + Netease)
+        log.info("Search '{}' Redis miss, calling multi-platform aggregated search", keyword);
         try {
-            Map<String, Object> result = neteaseApiService.search(keyword, 20);
+            Map<String, Object> result = neteaseApiService.aggregatedSearch(keyword, 1, 20);
             if (result == null) return Collections.emptyList();
 
-            Map<String, Object> resultMap = (Map<String, Object>) result.get("result");
-            if (resultMap == null) return Collections.emptyList();
+            // Aggregated API returns {code: 200, data: {list: [...], total, page, size}}
+            @SuppressWarnings("unchecked")
+            Map<String, Object> data = (Map<String, Object>) result.get("data");
+            if (data == null) return Collections.emptyList();
 
-            List<Map<String, Object>> songs = (List<Map<String, Object>>) resultMap.get("songs");
-            if (songs == null || songs.isEmpty()) return Collections.emptyList();
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> list = (List<Map<String, Object>>) data.get("list");
+            if (list == null || list.isEmpty()) return Collections.emptyList();
 
-            // 3. 解析为 SongDTO
+            // 3. Parse to SongDTO (multi-platform unified format)
             List<SongDTO> dtoList = new ArrayList<>();
-            for (Map<String, Object> s : songs) {
-                SongDTO dto = parseToDTO(s);
+            for (Map<String, Object> item : list) {
+                SongDTO dto = parseAggregatedToDTO(item);
                 if (dto != null) dtoList.add(dto);
             }
 
-            // 4. 缓存到 Redis（只在有结果时缓存，防止脏数据）
+            // 4. Cache to Redis (only cache when there are results)
             if (!dtoList.isEmpty()) {
                 cacheService.setSearchCache(keyword, dtoList);
-                log.info("搜索 '{}' 返回 {} 首，已缓存", keyword, dtoList.size());
+                log.info("Search '{}' returned {} results (QQ+Netease aggregated), cached", keyword, dtoList.size());
             } else {
-                log.info("搜索 '{}' 返回 0 首，不缓存", keyword);
+                log.info("Search '{}' returned 0 results, not cached", keyword);
             }
             return dtoList;
 
         } catch (Exception e) {
-            log.error("网易云搜索失败: {} (type: {})", e.getMessage(), e.getClass().getSimpleName());
+            log.error("Aggregated search failed: {} (type: {})", e.getMessage(), e.getClass().getSimpleName());
             return Collections.emptyList();
         }
     }
 
     /**
-     * 从网易云 API 原始数据解析为 SongDTO
+     * Parse raw Netease API data to SongDTO
      */
     private SongDTO parseToDTO(Map<String, Object> raw) {
         try {
             String sourceId = String.valueOf(raw.get("id"));
 
-            // 歌手
-            String artist = "未知歌手";
+            // Artist
+            String artist = "\u672a\u77e5\u6b4c\u624b";
             Object arObj = raw.get("ar");
             if (arObj instanceof List<?> arList && !arList.isEmpty()) {
                 Object first = arList.get(0);
                 if (first instanceof Map<?, ?> m) {
                     Object val = m.get("name");
-                    artist = val != null ? String.valueOf(val) : "未知歌手";
+                    artist = val != null ? String.valueOf(val) : "\u672a\u77e5\u6b4c\u624b";
                 }
             }
 
-            // 专辑/封面
+            // Album/Cover
             String album = "";
             String coverUrl = "";
             Object alObj = raw.get("al");
@@ -106,7 +109,7 @@ public class SongService {
                 coverUrl = alMap.get("picUrl") != null ? String.valueOf(alMap.get("picUrl")) : "";
             }
 
-            // 时长（毫秒→秒）
+            // Duration (ms -> s)
             int duration = 0;
             if (raw.get("dt") instanceof Number dtNum) {
                 duration = dtNum.intValue() / 1000;
@@ -122,50 +125,89 @@ public class SongService {
                     .build();
 
         } catch (Exception e) {
-            log.warn("解析歌曲数据失败: {}", e.getMessage());
+            log.warn("Failed to parse song data: {}", e.getMessage());
             return null;
         }
     }
 
-    // ==================== 播放 ====================
 
     /**
-     * 获取播放 URL（从网易云实时获取，不缓存 DB）
+     * Parse aggregated search format to SongDTO (QQ + Netease unified format)
+     */
+    private SongDTO parseAggregatedToDTO(Map<String, Object> raw) {
+        try {
+            String sourceId = String.valueOf(raw.get("id"));
+            String name = raw.get("name") != null ? String.valueOf(raw.get("name")) : "";
+            String artists = raw.get("artists") != null ? String.valueOf(raw.get("artists")) : "\u672a\u77e5\u6b4c\u624b";
+            String album = raw.get("album") != null ? String.valueOf(raw.get("album")) : "";
+            String coverUrl = raw.get("cover") != null ? String.valueOf(raw.get("cover")) : "";
+            String platform = raw.get("platform") != null ? String.valueOf(raw.get("platform")) : "netease";
+
+            // duration: aggregated search returns milliseconds
+            int duration = 0;
+            Object durObj = raw.get("duration");
+            if (durObj instanceof Number) duration = ((Number) durObj).intValue() / 1000;
+
+            SongDTO dto = new SongDTO();
+            dto.setSourceId(sourceId);
+            dto.setName(name);
+            dto.setArtist(artists);
+            dto.setAlbum(album);
+            dto.setCoverUrl(coverUrl);
+            dto.setDuration(duration);
+            dto.setPlatform(platform);
+            return dto;
+        } catch (Exception e) {
+            log.warn("Failed to parse aggregated search song: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    // ==================== Playback ====================
+
+    /**
+     * Get playback URL (real-time from Netease, not cached in DB)
      */
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId) {
         try {
-            Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, "exhigh");
+            // Platform detection: QQ ID contains letters, Netease ID is pure numbers
+            Map<String, Object> result;
+            if (sourceId.matches("\\d+")) {
+                result = neteaseApiService.getSongUrl(sourceId, "exhigh");
+            } else {
+                result = neteaseApiService.getQQSongUrl(sourceId);
+            }
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data != null && !data.isEmpty()) {
                 return (String) data.get(0).get("url");
             }
         } catch (Exception e) {
-            log.error("获取播放链接失败: {}", e.getMessage());
+            log.error("Failed to get playback URL: {}", e.getMessage());
         }
 
-        // 降级：查看 DB 中是否有已下载的 RustFS 地址
+        // Fallback: check DB for downloaded RustFS URL
         Song song = songRepository.findBySourceId(sourceId);
         return song != null ? song.getUrl() : null;
     }
 
-    // ==================== 随机推荐 ====================
+    // ==================== Random Recommendations ====================
 
     /**
-     * 获取随机推荐（用热门关键词搜索 + 缓存）
+     * Get random recommendations (search with popular keyword + cache)
      */
     public List<SongDTO> getRandomSongs(int count) {
-        // 先用一个热门关键词填充缓存
-        List<SongDTO> songs = search("热门推荐");
+        // Use a popular keyword to populate cache
+        List<SongDTO> songs = search("\u70ed\u95e8\u63a8\u8350");
 
         if (songs.size() > count) {
-            // 随机选
+            // Random shuffle
             Collections.shuffle(songs);
             return songs.subList(0, count);
         }
 
         if (songs.size() < count) {
-            // 再从 DB 的已下载歌曲中补充
+            // Supplement from DB downloaded songs
             List<Song> dbSongs = songRepository.findRandomSongs(count - songs.size());
             List<SongDTO> dbDtos = dbSongs.stream().map(s -> SongDTO.builder()
                     .sourceId(s.getSourceId())
@@ -182,10 +224,10 @@ public class SongService {
         return songs;
     }
 
-    // ==================== 下载后保存到 DB ====================
+    // ==================== Save Downloaded Song to DB ====================
 
     /**
-     * 下载成功后，将歌曲信息存储到 DB（用于长期缓存）
+     * Save song info to DB after successful download (for long-term cache)
      */
     public Song saveDownloadedSong(String sourceId, String name, String artist,
                                     String album, String coverUrl, Integer duration,
@@ -208,10 +250,10 @@ public class SongService {
     }
 
     /**
-     * 根据 DB ID 查询（仅下载过的歌曲有 DB 记录）
+     * Query by DB ID (only downloaded songs have DB records)
      */
     public Song getById(Long id) {
         return songRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("歌曲不存在"));
+                .orElseThrow(() -> new RuntimeException("\u6b4c\u66f2\u4e0d\u5b58\u5728"));
     }
 }

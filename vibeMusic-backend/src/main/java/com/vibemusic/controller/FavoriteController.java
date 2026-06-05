@@ -26,8 +26,9 @@ public class FavoriteController {
         String sourceId = (String) body.get("sourceId");
         String songName = (String) body.get("songName");
         String artist = (String) body.get("artist");
+        String coverUrl = (String) body.getOrDefault("coverUrl", "");
 
-        boolean faved = favoriteService.toggle(userId, sourceId, songName, artist);
+        boolean faved = favoriteService.toggle(userId, sourceId, songName, artist, coverUrl);
         return Result.ok(faved ? "已收藏" : "已取消", faved);
     }
 

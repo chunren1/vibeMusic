@@ -1,0 +1,20 @@
+{
+  "name": "musicapi",
+  "version": "1.0.0",
+  "description": "整合网易云和QQ音乐的统一API服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["netease", "qqmusic", "music", "api"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "NeteaseCloudMusicApi": "^4.32.0",
+    "qq-music-api": "^1.1.2",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}

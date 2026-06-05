@@ -44,7 +44,7 @@ async function loadSongs() {
 
 function play(song) {
   currentPlayId.value = song.sourceId
-  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
+  apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     const url = res.data?.url
     if (!url) return
     if (window.vibeAudioSetSrc) {
@@ -62,7 +62,7 @@ function play(song) {
 function toggleFav(song) {
   const isFav = favIds.value.has(song.sourceId)
   if (isFav) favIds.value.delete(song.sourceId); else favIds.value.add(song.sourceId)
-  toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
+  toggleFavorite(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     if (res.data === true) favIds.value.add(song.sourceId)
     else favIds.value.delete(song.sourceId)
   }).catch(err => {
