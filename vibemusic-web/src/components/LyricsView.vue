@@ -311,6 +311,13 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
 /* ------ DISC AREA ------ */
 .disc-area {
   width: 44%; max-width: 340px; display: flex; align-items: center; justify-content: center;
+  position: relative; z-index: 1;
+}
+.disc-area::after {
+  content: ''; position: absolute; top: 0; right: -16px; bottom: 0;
+  width: 32px;
+  background: linear-gradient(to right, rgba(16,28,20,0.88) 0%, transparent 100%);
+  pointer-events: none; z-index: 3;
 }
 .disc-player {
   position: relative; width: 100%; aspect-ratio: 1;
@@ -406,16 +413,16 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
   position: relative;
 }
 .lyrics-area::before, .lyrics-area::after {
-  content: ''; position: absolute; left: 0; right: 0; z-index: 2;
-  height: 60px; pointer-events: none;
+  content: ''; position: absolute; left: 0; right: 8px; z-index: 2;
+  height: 48px; pointer-events: none;
 }
 .lyrics-area::before {
   top: 0;
-  background: linear-gradient(to bottom, rgba(16,28,20,0.95), transparent);
+  background: linear-gradient(to bottom, rgba(16,28,20,0.92) 0%, transparent 100%);
 }
 .lyrics-area::after {
   bottom: 0;
-  background: linear-gradient(to top, rgba(8,14,10,0.95), transparent);
+  background: linear-gradient(to top, rgba(8,14,10,0.92) 0%, transparent 100%);
 }
 
 .lyrics-list {
