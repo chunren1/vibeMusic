@@ -203,10 +203,6 @@ function seekBar(e) {
 watch(volume, v => { audio.volume = v / 100 })
 
 
-// ===== 歌词进度跳转 =====
-function onLyricsSeek(time) {
-  audio.currentTime = time
-}
 
 // 收藏 & 下载
 const favIds = ref(new Set())
