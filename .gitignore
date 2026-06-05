@@ -25,8 +25,12 @@ Thumbs.db
 # ===== Memory =====
 .codebuddy/memory/
 
-# ===== Test scripts =====
-test*.js
-fix*.js
-*.ps1
-qq-login.js
+# ===== Temp scripts (root level only) =====
+/test*.js
+/fix*.js
+/qq-login.js
+/save-*.ps1
+
+# ===== Env & secrets =====
+.env
+.env.local
