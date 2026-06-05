@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { playSong as apiPlaySong, downloadSong as apiDownload, toggleFavorite, getFavoriteIds } from '@/api/song'
+import LyricsView from '@/components/LyricsView.vue'
 
 // ===== 全局播放队列（localStorage 持久化） =====
 const STORAGE_KEY = 'vibe_queue'
@@ -22,6 +23,7 @@ const currentIdx = ref(parseInt(localStorage.getItem(IDX_KEY) || '-1'))
 watch(queue, saveQueue, { deep: true })
 
 const currentSong = ref({ id: '', title: '未播放', artist: '', coverUrl: '', duration: 0 })
+const showLyrics = ref(false)
 const isPlaying = ref(false)
 const progress = ref(0)
 const currentTime = ref('0:00')
@@ -165,6 +167,11 @@ function setAudioSrc(url) {
 }
 window.vibeAudioSetSrc = setAudioSrc
 
+// ===== 歌词进度跳转 =====
+function onLyricsSeek(time) {
+  audio.currentTime = time
+}
+
 // ===== Audio 事件 =====
 audio.addEventListener('timeupdate', () => {
   if (audio.duration) {
@@ -194,6 +201,12 @@ function seekBar(e) {
   audio.currentTime = (e.offsetX / e.target.offsetWidth) * audio.duration
 }
 watch(volume, v => { audio.volume = v / 100 })
+
+
+// ===== 歌词进度跳转 =====
+function onLyricsSeek(time) {
+  audio.currentTime = time
+}
 
 // 收藏 & 下载
 const favIds = ref(new Set())
@@ -244,6 +257,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
       <div
         class="mini-cover"
         :style="currentSong.coverUrl ? { backgroundImage: 'url(' + currentSong.coverUrl + '?param=100y100)' } : {}"
+        @click="showLyrics = true"
       >
         <span v-if="!currentSong.coverUrl">♪</span>
       </div>
@@ -326,6 +340,18 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
       </div>
     </Transition>
   </div>
+  <LyricsView
+    :visible="showLyrics"
+    :currentSong="currentSong"
+    :isPlaying="isPlaying"
+    :currentTime="audio.currentTime || 0"
+    :duration="audio.duration || 0"
+    @update:visible="showLyrics = $event"
+    @togglePlay="togglePlay"
+    @prev="prev"
+    @next="next"
+    @seek="onLyricsSeek"
+  />
 </template>
 
 <style scoped>
