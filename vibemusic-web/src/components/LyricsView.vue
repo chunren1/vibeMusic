@@ -198,30 +198,26 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
           </div>
         </div>
 
-        <!-- 底部播放控制 -->
+        <!-- 底部播放控制 QQ音乐风格 -->
         <div class="lyrics-footer">
-          <div class="progress-track" @click="onProgressClick">
-            <div class="progress-rail">
-              <div class="progress-fill" :style="{ width: progressPercent + '%' }">
-                <div class="progress-thumb"></div>
-              </div>
+          <div class="ft-controls">
+            <button class="ft-btn" @click="$emit('prev')">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            </button>
+            <button class="ft-btn ft-play" @click="$emit('togglePlay')">
+              <svg v-if="isPlaying" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
+            </button>
+            <button class="ft-btn" @click="$emit('next')">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+          </div>
+          <div class="ft-progress">
+            <span class="ft-time">{{ formatTime(currentTime) }}</span>
+            <div class="ft-bar" @click="onProgressClick">
+              <div class="ft-fill" :style="{ width: progressPercent + '%' }"></div>
             </div>
-          </div>
-          <div class="time-row">
-            <span class="time-label">{{ formatTime(currentTime) }}</span>
-            <span class="time-label">{{ formatTime(duration) }}</span>
-          </div>
-          <div class="control-row">
-            <button class="ctrl-btn skip-btn" @click="$emit('prev')">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
-            </button>
-            <button class="ctrl-btn play-pause-btn" @click="$emit('togglePlay')">
-              <svg v-if="isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
-              <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            </button>
-            <button class="ctrl-btn skip-btn" @click="$emit('next')">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-            </button>
+            <span class="ft-time">{{ formatTime(duration) }}</span>
           </div>
         </div>
       </div>
@@ -312,12 +308,6 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
 .disc-area {
   width: 44%; max-width: 340px; display: flex; align-items: center; justify-content: center;
   position: relative; z-index: 1;
-}
-.disc-area::after {
-  content: ''; position: absolute; top: 0; right: -16px; bottom: 0;
-  width: 32px;
-  background: linear-gradient(to right, rgba(16,28,20,0.88) 0%, transparent 100%);
-  pointer-events: none; z-index: 3;
 }
 .disc-player {
   position: relative; width: 100%; aspect-ratio: 1;
@@ -469,69 +459,50 @@ function onTM(e) { if (e.touches[0].clientY - touchStartY > 100) close() }
 }
 
 /* ===============================
-   FOOTER CONTROLS
+   FOOTER — QQ Music Compact Style
    =============================== */
 .lyrics-footer {
-  padding: 12px 28px;
-  padding-bottom: max(28px, env(safe-area-inset-bottom, 28px));
+  padding: 6px 28px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom, 20px));
   z-index: 10;
-  background: linear-gradient(to top,
-    rgba(8,14,10,0.95) 0%,
-    rgba(8,14,10,0.5) 60%,
-    transparent 100%);
 }
 
-.progress-track {
-  padding: 6px 0; cursor: pointer;
+/* 播放控制行 */
+.ft-controls {
+  display: flex; align-items: center; justify-content: center; gap: 36px;
+  margin-bottom: 10px;
 }
-.progress-rail {
-  height: 3px; background: rgba(255,255,255,0.15);
-  border-radius: 2px; position: relative; overflow: visible;
-  transition: height 0.15s;
-}
-.progress-track:hover .progress-rail { height: 5px; }
-.progress-fill {
-  height: 100%; background: linear-gradient(90deg, #31c27c, #5fdd9d);
-  border-radius: 2px; position: relative;
-  transition: width 0.15s linear;
-  min-width: 0;
-}
-.progress-thumb {
-  position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
-  width: 12px; height: 12px; background: #31c27c;
-  border-radius: 50%; box-shadow: 0 0 8px rgba(49,194,124,0.5);
-  opacity: 0; transition: opacity 0.2s;
-}
-.progress-track:hover .progress-thumb { opacity: 1; }
-
-.time-row {
-  display: flex; justify-content: space-between;
-  padding: 2px 0 16px;
-}
-.time-label {
-  font-size: 11px; color: rgba(255,255,255,0.4);
-  font-variant-numeric: tabular-nums; letter-spacing: 0.5px;
-}
-
-.control-row {
-  display: flex; align-items: center; justify-content: center; gap: 48px;
-}
-.ctrl-btn { border: none; background: none; cursor: pointer; color: #fff; transition: all 0.2s; }
-.ctrl-btn:active { transform: scale(0.9); }
-.skip-btn { opacity: 0.7; padding: 4px; }
-.skip-btn:hover { opacity: 1; }
-.play-pause-btn {
-  width: 56px; height: 56px; border-radius: 50%;
-  background: linear-gradient(135deg, #31c27c, #27ae60);
+.ft-btn {
+  border: none; background: none; cursor: pointer; color: #fff;
+  padding: 4px; opacity: 0.65; transition: all 0.2s;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 20px rgba(49,194,124,0.35);
-  transition: all 0.25s cubic-bezier(0.23, 1, 0.32, 1);
 }
-.play-pause-btn:hover {
-  box-shadow: 0 6px 28px rgba(49,194,124,0.5);
-  transform: scale(1.05);
+.ft-btn:hover { opacity: 1; }
+.ft-btn:active { transform: scale(0.9); }
+.ft-btn.ft-play {
+  width: 48px; height: 48px; border-radius: 50%; opacity: 1;
+  background: linear-gradient(135deg, #31c27c, #27ae60);
+  box-shadow: 0 4px 16px rgba(49,194,124,0.3);
 }
-.play-pause-btn:active { transform: scale(0.94); }
+.ft-btn.ft-play:hover { transform: scale(1.06); }
+
+/* 进度条行 */
+.ft-progress {
+  display: flex; align-items: center; gap: 10px;
+}
+.ft-time {
+  font-size: 11px; color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums; min-width: 34px; text-align: center;
+}
+.ft-bar {
+  flex: 1; height: 3px; background: rgba(255,255,255,0.12);
+  border-radius: 2px; cursor: pointer; transition: height 0.15s;
+}
+.ft-bar:hover { height: 5px; }
+.ft-fill {
+  height: 100%; background: linear-gradient(90deg, #31c27c, #5fdd9d);
+  border-radius: 2px; transition: width 0.15s linear;
+}
 
 /* ===============================
    TRANSITIONS
