@@ -126,8 +126,12 @@ watch(() => props.visible, (val) => {
     isMuted.value = window.vibeAudio?.muted || false
     startTimeSync()
     if (props.currentSong.id) fetchLyric(props.currentSong.id)
-    else console.warn('[LyricsView] currentSong.id 为空，跳过歌词请求')
   } else { stopTimeSync(); exitFullscreen() }
+})
+
+// 切歌时自动刷新歌词
+watch(() => props.currentSong.id, (newId) => {
+  if (props.visible && newId) fetchLyric(newId)
 })
 
 onUnmounted(() => { stopTimeSync(); exitFullscreen() })
