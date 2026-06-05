@@ -104,17 +104,32 @@ public class SongController {
 
     /** 获取歌词 */
     @GetMapping("/lyric")
-    @Operation(summary = "获取歌曲歌词")
+    @Operation(summary = "获取歌曲歌词（自动识别网易云/QQ平台）")
     @SuppressWarnings("unchecked")
     public Result<List<Map<String, Object>>> lyric(@RequestParam String sourceId) {
         try {
-            Map<String, Object> result = neteaseApiService.getLyric(sourceId);
-            if (result == null) return Result.ok(List.of());
+            // 判断平台：包含字母 → QQ音乐ID，纯数字 → 网易云ID
+            boolean isQQ = sourceId.matches(".*[a-zA-Z]+.*");
+            Map<String, Object> result;
+            String lyricStr;
 
-            Map<String, Object> lrc = (Map<String, Object>) result.get("lrc");
-            if (lrc == null) return Result.ok(List.of());
+            if (isQQ) {
+                // QQ音乐歌词：通过 /qq/lyric?songmid=xxx 获取
+                result = neteaseApiService.getQQLyric(sourceId);
+                if (result == null) return Result.ok(List.of());
+                // QQ返回格式: {code:200, data:{lyric:"...", trans:"..."}}
+                Map<String, Object> data = (Map<String, Object>) result.get("data");
+                if (data == null) return Result.ok(List.of());
+                lyricStr = (String) data.get("lyric");
+            } else {
+                // 网易云歌词：通过 /lyric?id=xxx 获取
+                result = neteaseApiService.getLyric(sourceId);
+                if (result == null) return Result.ok(List.of());
+                Map<String, Object> lrc = (Map<String, Object>) result.get("lrc");
+                if (lrc == null) return Result.ok(List.of());
+                lyricStr = (String) lrc.get("lyric");
+            }
 
-            String lyricStr = (String) lrc.get("lyric");
             if (lyricStr == null || lyricStr.isEmpty()) return Result.ok(List.of());
 
             // 解析 LRC 格式 → [{time, text}]
@@ -123,7 +138,6 @@ public class SongController {
             for (String line : parts) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
-                // 匹配 [mm:ss.xx] 或 [mm:ss]
                 java.util.regex.Matcher m = java.util.regex.Pattern
                         .compile("\\[(\\d{2}):(\\d{2})(?:\\.(\\d+))?\\](.*)")
                         .matcher(line);
@@ -139,6 +153,7 @@ public class SongController {
                     lines.add(item);
                 }
             }
+            log.info("歌词解析: sourceId={} platform={} lines={}", sourceId, isQQ ? "QQ" : "Netease", lines.size());
             return Result.ok(lines);
         } catch (Exception e) {
             log.error("获取歌词失败: {}", e.getMessage());
