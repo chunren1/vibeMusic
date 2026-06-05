@@ -274,8 +274,8 @@ function close() { emit('update:visible', false) }
                 <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
               </button>
               <button class="ctrl-btn main" @click="$emit('togglePlay')" title="播放/暂停">
-                <svg v-if="isPlaying" viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
+                <svg v-if="isPlaying" viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
               </button>
               <button class="ctrl-btn skip" @click="$emit('next')" title="下一首">
                 <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
@@ -395,15 +395,15 @@ function close() { emit('update:visible', false) }
 .func-btn.fav { color: #ec4141; background: rgba(236,65,65,0.12); }
 
 /* 中间播放 — x2 */
-.center-ctrl { display: flex; align-items: center; gap: 40px; position: absolute; left: 50%; transform: translateX(-50%); }
+.center-ctrl { display: flex; align-items: center; gap: 20px; position: absolute; left: 44%; transform: translateX(-50%); }
 .ctrl-btn { border: none; background: none; color: rgba(255,255,255,0.75); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .ctrl-btn:hover { color: #fff; }
 .ctrl-btn.mode-btn { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.04); }
 .ctrl-btn.mode-btn:hover { color: #2ecc71; background: rgba(46,204,113,0.12); }
 .ctrl-btn.skip { opacity: 0.8; padding: 6px; }
 .ctrl-btn.skip:hover { opacity: 1; }
-.ctrl-btn.main { width: 72px; height: 72px; border-radius: 50%; background: #2ecc71; color: #fff; box-shadow: 0 6px 32px rgba(46,204,113,0.4); }
-.ctrl-btn.main:hover { transform: scale(1.06); box-shadow: 0 10px 40px rgba(46,204,113,0.55); }
+.ctrl-btn.main { width: 108px; height: 54px; border-radius: 14px; background: #2ecc71; color: #fff; box-shadow: 0 6px 32px rgba(46,204,113,0.4); }
+.ctrl-btn.main:hover { transform: scale(1.04); box-shadow: 0 10px 40px rgba(46,204,113,0.55); }
 
 /* 右侧操作 — x2 */
 .right-actions { display: flex; align-items: center; gap: 20px; min-width: 220px; justify-content: flex-end; }
