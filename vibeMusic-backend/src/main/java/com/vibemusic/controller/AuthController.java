@@ -31,14 +31,15 @@ public class AuthController {
     public Result<Map<String, Object>> register(@RequestBody Map<String, String> body) {
         String username = body.get("username");
         String password = body.get("password");
-        String nickname = body.getOrDefault("nickname", username);
+        // Bug7修复: 正确处理 map key 存在但 value 为 null 的情况
+        String nickname = body.containsKey("nickname") && body.get("nickname") != null
+                ? body.get("nickname") : username;
 
         if (username == null || username.trim().isEmpty()) return Result.error("用户名不能为空");
         if (password == null || password.length() < 4) return Result.error("密码至少4位");
 
         userService.register(username.trim(), password, nickname);
 
-        // 注册后自动登录，返回 token
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();

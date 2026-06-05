@@ -1,7 +1,10 @@
 <script setup>
 import { ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import request from '@/api/request'
+
+const router = useRouter()
 
 const props = defineProps({
   visible: {
@@ -48,6 +51,16 @@ function onMaskClick(e) {
   }
 }
 
+function onAuthSuccess() {
+  emit('success')
+  close()
+  // Bug2修复: 登录后跳转到目标页面
+  const redirect = authStore.consumeRedirect()
+  if (redirect) {
+    router.push(redirect)
+  }
+}
+
 async function handleLogin() {
   errorMsg.value = ''
   if (!username.value || !password.value) {
@@ -66,8 +79,7 @@ async function handleLogin() {
         username: res.data.username,
         nickname: res.data.nickname,
       })
-      emit('success')
-      close()
+      onAuthSuccess()
     } else {
       errorMsg.value = res.message || '登录失败'
     }
@@ -101,8 +113,7 @@ async function handleRegister() {
         username: res.data.username,
         nickname: res.data.nickname,
       })
-      emit('success')
-      close()
+      onAuthSuccess()
     } else {
       errorMsg.value = res.message || '注册失败'
     }

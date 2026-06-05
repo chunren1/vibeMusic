@@ -32,7 +32,12 @@ public class FavoriteController {
         String artist = (String) body.get("artist");
         String coverUrl = (String) body.getOrDefault("coverUrl", "");
 
-        boolean faved = favoriteService.toggle(userId, sourceId, songName, artist, coverUrl);
+        // Bug4修复: 必填字段校验
+        if (sourceId == null || sourceId.isEmpty()) return Result.error("sourceId 不能为空");
+        if (songName == null || songName.isEmpty()) return Result.error("songName 不能为空");
+
+        boolean faved = favoriteService.toggle(userId, sourceId, songName,
+                artist != null ? artist : "未知歌手", coverUrl);
         return Result.ok(faved ? "已收藏" : "已取消", faved);
     }
 

@@ -31,7 +31,9 @@ public class PlaylistController {
         if (userId == null) return Result.error(401, "请先登录");
         String name = (String) body.get("name");
         String description = (String) body.getOrDefault("description", "");
-        return Result.ok(playlistService.create(userId, name, description));
+        // Bug3修复: name 必填校验
+        if (name == null || name.trim().isEmpty()) return Result.error("歌单名称不能为空");
+        return Result.ok(playlistService.create(userId, name.trim(), description));
     }
 
     /** 添加歌曲到歌单 */

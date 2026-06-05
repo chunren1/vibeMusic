@@ -36,6 +36,22 @@ public class CustomUserDetails implements UserDetails {
         return user.getUsername();
     }
 
+    // Bug9修复: 显式声明账户状态方法（虽然Spring Security 6有默认true实现，但显式声明更安全）
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
     @Override
     public boolean isEnabled() {
         return user.getEnabled();

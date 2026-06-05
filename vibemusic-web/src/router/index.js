@@ -20,8 +20,8 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
-    // 弹出登录弹窗，不跳转页面
-    authStore.openLogin()
+    // Bug2修复: 记录目标页面，登录成功后自动跳转
+    authStore.openLoginWithRedirect(to.fullPath)
     return next(false)
   }
   next()
