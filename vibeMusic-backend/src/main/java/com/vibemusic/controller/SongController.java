@@ -99,4 +99,48 @@ public class SongController {
         if (userId == null) return Result.ok(List.of());
         return Result.ok(playHistoryService.recent(userId, count));
     }
+
+    /** 获取歌词 */
+    @GetMapping("/lyric")
+    @Operation(summary = "获取歌曲歌词")
+    @SuppressWarnings("unchecked")
+    public Result<List<Map<String, Object>>> lyric(@RequestParam String sourceId) {
+        try {
+            Map<String, Object> result = neteaseApiService.getLyric(sourceId);
+            if (result == null) return Result.ok(List.of());
+
+            Map<String, Object> lrc = (Map<String, Object>) result.get("lrc");
+            if (lrc == null) return Result.ok(List.of());
+
+            String lyricStr = (String) lrc.get("lyric");
+            if (lyricStr == null || lyricStr.isEmpty()) return Result.ok(List.of());
+
+            // 解析 LRC 格式 → [{time, text}]
+            List<Map<String, Object>> lines = new ArrayList<>();
+            String[] parts = lyricStr.split("\\n");
+            for (String line : parts) {
+                line = line.trim();
+                if (line.isEmpty()) continue;
+                // 匹配 [mm:ss.xx] 或 [mm:ss]
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("\\[(\\d{2}):(\\d{2})(?:\\.(\\d+))?\\](.*)")
+                        .matcher(line);
+                if (m.find()) {
+                    int min = Integer.parseInt(m.group(1));
+                    int sec = Integer.parseInt(m.group(2));
+                    int ms = m.group(3) != null ? Integer.parseInt(m.group(3)) : 0;
+                    String text = m.group(4).trim();
+                    double time = min * 60 + sec + ms / 1000.0;
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("time", time);
+                    item.put("text", text.isEmpty() ? "♪" : text);
+                    lines.add(item);
+                }
+            }
+            return Result.ok(lines);
+        } catch (Exception e) {
+            log.error("获取歌词失败: {}", e.getMessage());
+            return Result.ok(List.of());
+        }
+    }
 }
