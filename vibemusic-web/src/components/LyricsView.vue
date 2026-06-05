@@ -257,7 +257,7 @@ function close() { emit('update:visible', false) }
                 <span class="mini-artist"> - {{ currentSong.artist }}</span>
               </div>
               <button class="func-btn" :class="{ fav: isFav }" @click="handleFav" title="收藏">
-                <svg viewBox="0 0 24 24" width="20" height="20" :fill="isFav ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                <svg viewBox="0 0 24 24" width="26" height="26" :fill="isFav ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
               </button>
             </div>
 
@@ -265,39 +265,39 @@ function close() { emit('update:visible', false) }
             <div class="center-ctrl">
               <button class="ctrl-btn mode-btn" @click="toggleMode" :title="modeLabel">
                 <!-- 顺序: 循环箭头 | 随机: 交叉箭头 | 单曲: 循环+1 -->
-                <svg v-if="playMode === 'sequential'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                <svg v-else-if="playMode === 'random'" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><rect x="7" y="13" width="10" height="10" rx="2"/><text x="12" y="21" text-anchor="middle" font-size="8" fill="currentColor" stroke="none">1</text></svg>
+                <svg v-if="playMode === 'sequential'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                <svg v-else-if="playMode === 'random'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><rect x="7" y="13" width="10" height="10" rx="2"/><text x="12" y="21" text-anchor="middle" font-size="8" fill="currentColor" stroke="none">1</text></svg>
               </button>
               <button class="ctrl-btn skip" @click="$emit('prev')" title="上一首">
-                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
               </button>
               <button class="ctrl-btn main" @click="$emit('togglePlay')" title="播放/暂停">
-                <svg v-if="isPlaying" viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
+                <svg v-if="isPlaying" viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
               </button>
               <button class="ctrl-btn skip" @click="$emit('next')" title="下一首">
-                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
               </button>
             </div>
 
             <!-- 右侧：下载 + 音量 + 列表 -->
             <div class="right-actions">
               <button class="act-icon" :class="{ downloading }" @click="handleDownload" title="下载">
-                <svg v-if="!downloading" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" class="spin-icon"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                <svg v-if="!downloading" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" class="spin-icon"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
               </button>
               <div class="vol-group">
                 <button class="act-icon" @click="toggleMute" title="音量">
-                  <svg v-if="isMuted || volume === 0" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                  <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                  <svg v-if="isMuted || volume === 0" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+                  <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
                 </button>
                 <div class="vol-bar" @click="onVolumeClick">
                   <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
                 </div>
               </div>
               <button class="act-icon" :class="{ active: showPlaylist }" @click="showPlaylist = !showPlaylist" title="播放列表">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
               </button>
             </div>
           </div>
@@ -348,12 +348,12 @@ function close() { emit('update:visible', false) }
 .song-name { font-size: 19px; font-weight: 600; color: #fff; letter-spacing: 0.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60vw; }
 .artist-name { font-size: 14px; color: rgba(255,255,255,0.5); margin-top: 3px; }
 
-/* 主体 — 左碟片右歌词，均靠上 */
-.stage { flex: 1; display: flex; align-items: flex-start; padding: 20px 48px 0; gap: 48px; overflow: hidden; }
+/* 主体 — 左右居中 */
+.stage { flex: 1; display: flex; align-items: center; padding: 0 40px; gap: 40px; overflow: hidden; }
 
 /* 碟片 */
-.left { width: 40%; display: flex; align-items: center; justify-content: center; padding-top: 30px; }
-.disc-box { position: relative; width: 100%; max-width: 340px; aspect-ratio: 1; }
+.left { width: 40%; display: flex; align-items: center; justify-content: center; }
+.disc-box { position: relative; width: 100%; max-width: 360px; aspect-ratio: 1; }
 .disc { position: absolute; inset: 0; transform-origin: center center; animation: spin 18s linear infinite; animation-play-state: paused; }
 .disc.spin { animation-play-state: running; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -363,59 +363,58 @@ function close() { emit('update:visible', false) }
 .disc-inner img { width: 100%; height: 100%; object-fit: cover; }
 .disc-shine { position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%); pointer-events: none; }
 
-/* 歌词 — 更宽更大，高度占2/3 */
-.right { flex: 1.2; height: 66%; padding-top: 0; overflow: hidden; margin-top: 6%; }
-.lyric-box { height: 100%; overflow-y: auto; padding: 100px 28px 140px; scroll-behavior: smooth; }
+/* 歌词 — 紧邻碟片右侧，撑满 */
+.right { flex: 1; height: 100%; overflow: hidden; }
+.lyric-box { height: 100%; overflow-y: auto; padding: 80px 20px 100px; scroll-behavior: smooth; }
 .lyric-box::-webkit-scrollbar { display: none; }
-.lyric-line { padding: 20px 16px; font-size: 20px; line-height: 1.6; color: rgba(255,255,255,0.3); text-align: left; transition: all .4s; cursor: pointer; letter-spacing: .5px; }
+.lyric-line { padding: 16px 12px; font-size: 19px; line-height: 1.6; color: rgba(255,255,255,0.3); text-align: left; transition: all .4s; cursor: pointer; letter-spacing: .5px; }
 .lyric-line:hover { color: rgba(255,255,255,0.5); }
-.lyric-line.current { font-size: 26px; font-weight: 700; color: #2ecc71; text-shadow: 0 0 28px rgba(46,204,113,0.5); }
-.empty { text-align: center; padding-top: 35%; color: rgba(255,255,255,0.3); font-size: 16px; }
+.lyric-line.current { font-size: 24px; font-weight: 700; color: #2ecc71; text-shadow: 0 0 28px rgba(46,204,113,0.5); }
+.empty { text-align: center; padding-top: 30%; color: rgba(255,255,255,0.3); font-size: 16px; }
 
-/* 底部栏 — 更高 */
-.bar { padding: 14px 32px 34px; }
-.progress-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
-.time { font-size: 14px; color: rgba(255,255,255,0.45); min-width: 44px; font-variant-numeric: tabular-nums; }
-.progress-track { flex: 1; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; position: relative; }
-.progress-track:hover { height: 7px; }
+/* 底部栏 */
+.bar { padding: 16px 36px 38px; }
+.progress-wrap { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; }
+.time { font-size: 15px; color: rgba(255,255,255,0.45); min-width: 48px; font-variant-numeric: tabular-nums; }
+.progress-track { flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; position: relative; }
+.progress-track:hover { height: 8px; }
 .progress-fill { height: 100%; background: #2ecc71; border-radius: 3px; position: relative; }
-.thumb { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: #2ecc71; border-radius: 50%; opacity: 0; transition: opacity .2s; }
+.thumb { position: absolute; right: -7px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; background: #2ecc71; border-radius: 50%; opacity: 0; transition: opacity .2s; box-shadow: 0 0 8px rgba(46,204,113,0.6); }
 .progress-track:hover .thumb { opacity: 1; }
 
 .ctrl-wrap { display: flex; align-items: center; justify-content: space-between; }
 
-/* 左侧 */
-.left-info { display: flex; align-items: center; gap: 16px; min-width: 180px; }
-.mini-song { color: rgba(255,255,255,0.6); font-size: 15px; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 左侧 — x2 */
+.left-info { display: flex; align-items: center; gap: 20px; min-width: 200px; }
+.mini-song { color: rgba(255,255,255,0.6); font-size: 16px; max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-name { color: #fff; font-weight: 500; }
 .mini-artist { color: rgba(255,255,255,0.45); }
-.func-btn { width: 40px; height: 40px; border: none; background: rgba(255,255,255,0.06); border-radius: 50%; color: rgba(255,255,255,0.6); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
+.func-btn { width: 56px; height: 56px; border: none; background: rgba(255,255,255,0.06); border-radius: 50%; color: rgba(255,255,255,0.6); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .func-btn:hover { background: rgba(255,255,255,0.12); color: #ec4141; }
 .func-btn.fav { color: #ec4141; background: rgba(236,65,65,0.12); }
 
-/* 中间播放 — 放大按钮 */
-.center-ctrl { display: flex; align-items: center; gap: 32px; position: absolute; left: 50%; transform: translateX(-50%); }
+/* 中间播放 — x2 */
+.center-ctrl { display: flex; align-items: center; gap: 40px; position: absolute; left: 50%; transform: translateX(-50%); }
 .ctrl-btn { border: none; background: none; color: rgba(255,255,255,0.75); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
 .ctrl-btn:hover { color: #fff; }
-/* 模式按钮: hover 变绿 */
-.ctrl-btn.mode-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.04); }
+.ctrl-btn.mode-btn { width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.04); }
 .ctrl-btn.mode-btn:hover { color: #2ecc71; background: rgba(46,204,113,0.12); }
-.ctrl-btn.skip { opacity: 0.8; padding: 4px; }
+.ctrl-btn.skip { opacity: 0.8; padding: 6px; }
 .ctrl-btn.skip:hover { opacity: 1; }
-.ctrl-btn.main { width: 64px; height: 64px; border-radius: 50%; background: #2ecc71; color: #fff; box-shadow: 0 4px 28px rgba(46,204,113,0.35); }
-.ctrl-btn.main:hover { transform: scale(1.06); box-shadow: 0 8px 36px rgba(46,204,113,0.5); }
+.ctrl-btn.main { width: 72px; height: 72px; border-radius: 50%; background: #2ecc71; color: #fff; box-shadow: 0 6px 32px rgba(46,204,113,0.4); }
+.ctrl-btn.main:hover { transform: scale(1.06); box-shadow: 0 10px 40px rgba(46,204,113,0.55); }
 
-/* 右侧操作 — 放大 */
-.right-actions { display: flex; align-items: center; gap: 16px; min-width: 180px; justify-content: flex-end; }
-.act-icon { width: 38px; height: 38px; border: none; background: none; color: rgba(255,255,255,0.5); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
-.act-icon:hover { color: #fff; }
-.act-icon.active { color: #2ecc71; }
+/* 右侧操作 — x2 */
+.right-actions { display: flex; align-items: center; gap: 20px; min-width: 220px; justify-content: flex-end; }
+.act-icon { width: 50px; height: 50px; border: none; background: rgba(255,255,255,0.04); border-radius: 50%; color: rgba(255,255,255,0.5); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .2s; }
+.act-icon:hover { color: #fff; background: rgba(255,255,255,0.08); }
+.act-icon.active { color: #2ecc71; background: rgba(46,204,113,0.1); }
 .act-icon.downloading { color: #2ecc71; }
 .spin-icon { animation: spin 1.2s linear infinite; }
-.vol-group { display: flex; align-items: center; gap: 8px; }
-.vol-bar { width: 80px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; cursor: pointer; }
-.vol-bar:hover { height: 5px; }
-.vol-fill { height: 100%; background: rgba(255,255,255,0.5); border-radius: 2px; }
+.vol-group { display: flex; align-items: center; gap: 10px; }
+.vol-bar { width: 100px; height: 5px; background: rgba(255,255,255,0.1); border-radius: 3px; cursor: pointer; }
+.vol-bar:hover { height: 7px; }
+.vol-fill { height: 100%; background: rgba(255,255,255,0.5); border-radius: 3px; }
 .vol-bar:hover .vol-fill { background: #2ecc71; }
 
 /* ===== 播放列表面板 ===== */
