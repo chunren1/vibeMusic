@@ -110,6 +110,71 @@ const PLATFORM_WEIGHTS = {
   qq: 0.9
 };
 
+// 搜索结果质量过滤配置
+const SEARCH_FILTER = {
+  minDuration: 50,           // 秒，低于此值视为试听
+  blacklist: ['伴奏', '纯音乐', '有声书', '朗诵', '翻唱', 'dj版', 'remix'],
+  penalty: 0.8,              // 降权系数
+  nameMatchBonus: 0.4,
+  artistMatchBonus: 0.2,
+  albumMatchBonus: 0.1,
+  exactMatchBonus: 0.2,
+  longSongBonus: 0.1,        // 超过2分钟额外加分
+  maxResults: 80
+};
+
+function isBlacklisted(song) {
+  return SEARCH_FILTER.blacklist.some(word =>
+    (song.name && song.name.toLowerCase().includes(word)) ||
+    (song.album && song.album.toLowerCase().includes(word))
+  );
+}
+
+function refineResults(songs, keyword) {
+  if (!songs || !songs.length) return [];
+
+  // 1. 硬过滤试听版 (<50秒)
+  const before = songs.length;
+  songs = songs.filter(song => {
+    if (song.duration && song.duration < SEARCH_FILTER.minDuration * 1000) {
+      return false;
+    }
+    return true;
+  });
+  if (songs.length < before) console.log(`[Refine] 过滤试听版: ${before - songs.length}首`);
+
+  // 2. 黑名单降权
+  songs.forEach(song => {
+    if (isBlacklisted(song)) {
+      song.finalScore = (song.finalScore || 1.0) * (1 - SEARCH_FILTER.penalty);
+    }
+  });
+
+  // 3. 搜索词匹配加分
+  const kw = keyword.toLowerCase();
+  songs.forEach(song => {
+    let bonus = 0;
+    if (song.name && song.name.toLowerCase().includes(kw)) bonus += SEARCH_FILTER.nameMatchBonus;
+    if (song.artists && song.artists.toLowerCase().includes(kw)) bonus += SEARCH_FILTER.artistMatchBonus;
+    if (song.album && song.album.toLowerCase().includes(kw)) bonus += SEARCH_FILTER.albumMatchBonus;
+    if (song.name && song.name.replace(/\s+/g, '').toLowerCase() === kw.replace(/\s+/g, '')) {
+      bonus += SEARCH_FILTER.exactMatchBonus;
+    }
+    song.finalScore = (song.finalScore || 1.0) + bonus;
+  });
+
+  // 4. 长歌曲加分 (>120秒)
+  songs.forEach(song => {
+    if (!isBlacklisted(song) && song.duration > 120000) {
+      song.finalScore += SEARCH_FILTER.longSongBonus;
+    }
+  });
+
+  // 5. 重排 + 截取
+  songs.sort((a, b) => b.finalScore - a.finalScore);
+  return songs.slice(0, SEARCH_FILTER.maxResults);
+}
+
 /**
  * 多平台聚合搜索接口（含排序）
  * GET /search?keyword=xxx&page=1&size=20
@@ -178,14 +243,15 @@ app.get('/search', async (req, res) => {
       }
     });
     
-    // 按finalScore降序排序
+    // 按finalScore降序排序 + 质量精炼
     const sortedResults = Array.from(mergedMap.values()).sort((a, b) => b.finalScore - a.finalScore);
-    
+    const refinedResults = refineResults(sortedResults, keyword);
+
     // 分页
-    const total = sortedResults.length;
+    const total = refinedResults.length;
     const start = (page - 1) * size;
     const end = start + parseInt(size);
-    const pageData = sortedResults.slice(start, end);
+    const pageData = refinedResults.slice(start, end);
     
     res.json({
       code: 200,
@@ -210,7 +276,7 @@ app.get('/netease/search', async (req, res) => {
     const { keyword, limit = 20 } = req.query;
     if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
     const songs = await searchNetease(keyword, parseInt(limit));
-    res.json({ code: 200, data: songs });
+    res.json({ code: 200, data: refineResults(songs, keyword) });
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message, data: [] });
   }
@@ -221,7 +287,7 @@ app.get('/qq/search', async (req, res) => {
     const { keyword, limit = 20 } = req.query;
     if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
     const songs = await searchQQ(keyword, parseInt(limit));
-    res.json({ code: 200, data: songs });
+    res.json({ code: 200, data: refineResults(songs, keyword) });
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message, data: [] });
   }

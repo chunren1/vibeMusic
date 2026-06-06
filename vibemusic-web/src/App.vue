@@ -1,40 +1,74 @@
 <script setup>
+import { ref, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import PlayerBar from '@/components/PlayerBar.vue'
 
-const navItems = [
-  { path: '/', label: '主页', icon: '🏠' },
-  { path: '/playlists', label: '歌单', icon: '📂' },
-  { path: '/likes', label: '我的收藏', icon: '⭐' },
-  { path: '/recent', label: '最近播放', icon: '🕐' },
-]
+const isMobile = ref(checkDevice())
+
+function checkDevice() {
+  const ua = navigator.userAgent || ''
+  return window.innerWidth < 768 ||
+    /Android|iPhone|iPad|iPod|webOS|BlackBerry|Windows Phone/i.test(ua)
+}
+
+// 立即设置 body 样式（同步，避免刷新闪白）
+if (isMobile.value) {
+  document.body.style.background = '#0a0a0a'
+  document.body.style.color = '#e0e0e0'
+}
+
+function onResize() {
+  isMobile.value = checkDevice()
+  if (isMobile.value) {
+    document.body.style.background = '#0a0a0a'
+    document.body.style.color = '#e0e0e0'
+  } else {
+    document.body.style.background = '#ffffff'
+    document.body.style.color = '#1a1a1a'
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('resize', onResize)
+})
 </script>
 
 <template>
-  <div class="app-layout">
-    <!-- 左侧导航 -->
+  <!-- 移动端：无侧栏，无桌面播放条，全屏 -->
+  <div v-if="isMobile" class="mobile-root">
+    <RouterView />
+  </div>
+
+  <!-- 桌面端：固定侧栏布局 -->
+  <div v-else class="app-layout">
     <aside class="sidebar">
       <div class="logo">♪ vibeMusic</div>
       <nav class="nav">
-        <router-link
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          class="nav-item"
-          active-class="active"
-        >
-          <span class="nav-icon">{{ item.icon }}</span>
-          <span class="nav-label">{{ item.label }}</span>
+        <router-link to="/" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span class="nav-label">主页</span>
+        </router-link>
+        <router-link to="/playlists" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span class="nav-label">歌单</span>
+        </router-link>
+        <router-link to="/likes" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+          <span class="nav-label">我的收藏</span>
+        </router-link>
+        <router-link to="/recent" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span class="nav-label">最近播放</span>
+        </router-link>
+        <router-link to="/profile" class="nav-item" active-class="active">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span class="nav-label">我的</span>
         </router-link>
       </nav>
     </aside>
-
-    <!-- 右侧内容区 -->
     <main class="main">
       <RouterView />
     </main>
-
-    <!-- 底部播放条 -->
     <PlayerBar />
   </div>
 </template>
@@ -44,13 +78,14 @@ const navItems = [
 html, body, #app { height: 100%; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #ffffff; color: #1a1a1a;
+  background: #0a0a0a; color: #e0e0e0;
 }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 3px; }
 </style>
 
 <style scoped>
+.mobile-root { height: 100%; overflow-y: auto; }
 .app-layout { display: flex; height: 100%; }
 
 .sidebar {
@@ -76,8 +111,7 @@ body {
   color: #31c27c; background: rgba(49, 194, 124, .1);
   border-left-color: #31c27c;
 }
-.nav-icon { font-size: 20px; }
-.nav-label { font-size: 18px; }
+.nav-label { font-size: 18px; margin-left: 4px; }
 
 .main {
   flex: 1; overflow-y: auto; padding-bottom: 88px;

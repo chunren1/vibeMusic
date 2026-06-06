@@ -24,12 +24,12 @@ public class DownloadController {
     private final StorageService storageService;
 
     /**
-     * 下载歌曲到 RustFS（同时存入 DB）
+     * 下载歌曲到 RustFS（已缓存直接返回成功 + 文件下载链接）
      * POST /api/download/{sourceId}
      */
     @PostMapping("/{sourceId}")
-    @Operation(summary = "下载歌曲到 RustFS")
-    public Result<String> download(
+    @Operation(summary = "下载歌曲到 RustFS（已缓存则直接返回文件链接）")
+    public Result<Map<String, Object>> download(
             @PathVariable @Parameter(description = "歌曲ID") String sourceId,
             @RequestBody @Parameter(description = "歌曲信息") Map<String, Object> params) {
 
@@ -40,8 +40,20 @@ public class DownloadController {
         Integer duration = params.get("duration") instanceof Number n ? n.intValue() : 0;
         String level = (String) params.getOrDefault("level", "exhigh");
 
-        downloadService.download(sourceId, name, artist, album, coverUrl, duration, level);
-        return Result.ok("下载成功");
+        try {
+            downloadService.download(sourceId, name, artist, album, coverUrl, duration, level);
+        } catch (Exception e) {
+            // 如果已经缓存，忽略错误
+            if (!storageService.exists("songs/" + sourceId + ".mp3")) {
+                return Result.error("下载失败: " + e.getMessage());
+            }
+        }
+
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("sourceId", sourceId);
+        data.put("fileUrl", "/api/download/file/" + sourceId);
+        data.put("cached", true);
+        return Result.ok(data);
     }
 
     /**

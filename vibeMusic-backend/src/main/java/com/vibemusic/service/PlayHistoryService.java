@@ -24,10 +24,16 @@ public class PlayHistoryService {
                 .userId(userId).sourceId(sourceId)
                 .songName(songName).artist(artist).coverUrl(coverUrl).build();
         mapper.insert(history);
+        // 保留最近 MAX_HISTORY 条，删除更旧的
         Long total = mapper.selectCount(new LambdaQueryWrapper<PlayHistory>().eq(PlayHistory::getUserId, userId));
         if (total > MAX_HISTORY) {
-            mapper.deleteOldByUserId(userId, MAX_HISTORY);
+            List<PlayHistory> list = mapper.selectList(new LambdaQueryWrapper<PlayHistory>()
+                    .eq(PlayHistory::getUserId, userId)
+                    .orderByDesc(PlayHistory::getPlayedAt));
+            for (int i = MAX_HISTORY; i < list.size(); i++) {
+                mapper.deleteById(list.get(i).getId());
             }
+        }
     }
 
     public List<Map<String, Object>> recent(Long userId, int count) {

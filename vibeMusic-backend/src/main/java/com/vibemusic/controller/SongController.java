@@ -55,14 +55,15 @@ public class SongController {
         }
     }
 
-    /** 搜索（v2：独立平台搜索 + 去重合并 + 排序打分 + 分页） */
+    /** 搜索（v2：独立平台搜索 + 去重合并 + 排序打分 + 分页 + 分源） */
     @GetMapping("/search")
-    @Operation(summary = "搜索歌曲（Redis缓存 + 独立QQ/网易云搜索 + 去重打分）")
+    @Operation(summary = "搜索歌曲（Redis缓存 + 独立QQ/网易云搜索 + 去重打分，支持分源过滤）")
     public Result<List<SongDTO>> search(
             @RequestParam String keyword,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(songService.search(keyword, page, size));
+            @RequestParam(defaultValue = "40") int size,
+            @RequestParam(required = false) String platform) {
+        return Result.ok(songService.search(keyword, page, size, platform));
     }
 
     /** 随机推荐 */
@@ -72,7 +73,7 @@ public class SongController {
         return Result.ok(songService.getRandomSongs(count));
     }
 
-    /** 播放（获取 URL + 记录历史） */
+    /** 播放（获取 URL + 试听标识 + 平台 + 记录历史） */
     @GetMapping("/play")
     @Operation(summary = "获取播放链接并记录历史")
     public Result<Map<String, Object>> play(
@@ -81,9 +82,9 @@ public class SongController {
             @RequestParam(defaultValue = "未知歌手") String artist,
             @RequestParam(required = false, defaultValue = "") String coverUrl) {
 
-        // 1. 获取播放链接
-        String playUrl = songService.getPlayUrl(sourceId);
-        if (playUrl == null) {
+        // 1. 获取播放信息（含试听标记）
+        Map<String, Object> playInfo = songService.getPlayInfo(sourceId);
+        if (playInfo == null || playInfo.get("url") == null) {
             return Result.error("无法获取播放链接");
         }
 
@@ -93,12 +94,10 @@ public class SongController {
             playHistoryService.record(userId, sourceId, name, artist, coverUrl);
         }
 
-        // 3. 返回
-        Map<String, Object> data = new HashMap<>();
-        data.put("url", playUrl);
-        data.put("sourceId", sourceId);
-        data.put("name", name);
-        return Result.ok(data);
+        // 3. 返回（含 url, isTrial, platform）
+        playInfo.put("sourceId", sourceId);
+        playInfo.put("name", name);
+        return Result.ok(playInfo);
     }
 
     /** 最近播放 */

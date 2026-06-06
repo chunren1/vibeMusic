@@ -84,7 +84,9 @@ async function handleLogin() {
       errorMsg.value = res.message || '登录失败'
     }
   } catch (e) {
-    errorMsg.value = e.response?.data?.message || '登录失败，请检查用户名密码'
+    // 优先取 axios 响应中的 msg，其次取拦截器 reject 的 error.message
+    const msg = e.response?.data?.message || e.message || '登录失败，请检查用户名密码'
+    errorMsg.value = msg
   } finally {
     loading.value = false
   }
@@ -118,7 +120,8 @@ async function handleRegister() {
       errorMsg.value = res.message || '注册失败'
     }
   } catch (e) {
-    errorMsg.value = e.response?.data?.message || '注册失败'
+    const msg = e.response?.data?.message || e.message || '注册失败'
+    errorMsg.value = msg
   } finally {
     loading.value = false
   }

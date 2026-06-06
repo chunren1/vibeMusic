@@ -129,6 +129,17 @@ function playCurrent() {
   resumeAudioContext()
   audio.play().catch(() => {})
   setupGlobalAnalyser()
+
+  // 通知 HomeView 当前播放的歌曲已变化
+  window.dispatchEvent(new CustomEvent('song-change', {
+    detail: {
+      title: song.name,
+      artist: song.artist,
+      sourceId: song.sourceId,
+      coverUrl: song.coverUrl || '',
+      duration: song.duration || 0,
+    }
+  }))
 }
 
 // 播放模式
@@ -171,6 +182,10 @@ function next() {
   }
   playCurrent()
 }
+
+// 暴露给移动端播放页调用
+window.vibePrev = prev
+window.vibeNext = next
 
 function playIndex(idx) {
   currentIdx.value = idx

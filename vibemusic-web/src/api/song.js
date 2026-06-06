@@ -10,9 +10,11 @@ export function getBanners() {
   return request.get('/songs/banner')
 }
 
-/** 搜索歌曲 */
-export function searchSongs(keyword) {
-  return request.get('/songs/search', { params: { keyword } })
+/** 搜索歌曲（支持分源过滤和分页） */
+export function searchSongs(keyword, page = 1, size = 20, platform = null) {
+  const params = { keyword, page, size }
+  if (platform) params.platform = platform
+  return request.get('/songs/search', { params })
 }
 
 /** 随机推荐歌曲 */
