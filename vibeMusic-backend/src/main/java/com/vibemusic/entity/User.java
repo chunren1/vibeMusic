@@ -1,33 +1,26 @@
 package com.vibemusic.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.*;
 
-@Entity
-@Table(name = "users")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@TableName("users")
 public class User {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(unique = true, nullable = false, length = 50)
     private String username;
 
-    @Column(nullable = false)
     private String password;
 
-    @Column(length = 50)
     private String nickname;
 
-    @Column(length = 200)
     private String avatar;
 
-    @Column(nullable = false)
     @Builder.Default
     private Boolean enabled = true;
 }

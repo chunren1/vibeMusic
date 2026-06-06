@@ -10,15 +10,22 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value)
 
   function login(newToken, newUser) {
+    if (!newToken) {
+      console.error('[Auth] login() called with null/empty token')
+      return false
+    }
     token.value = newToken
     user.value = newUser
     localStorage.setItem('token', newToken)
     localStorage.setItem('user', JSON.stringify(newUser))
+    return true
   }
 
   function logout() {
     token.value = null
     user.value = null
+    redirectPath.value = null       // 清空跳转目标
+    showLoginModal.value = false    // 关闭登录弹窗
     localStorage.removeItem('token')
     localStorage.removeItem('user')
   }

@@ -25,7 +25,7 @@ public class DownloadService {
     /**
      * 下载歌曲到 RustFS 并入库
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public String download(String sourceId, String name, String artist,
                            String album, String coverUrl, Integer duration,
                            String level) {

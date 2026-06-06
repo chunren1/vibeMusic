@@ -78,7 +78,7 @@ function openPlaylistPopup(song) {
 
 async function removeSong(song) {
   try {
-    await removeFromPlaylist(1, playlistId.value, song.sourceId)
+    await removeFromPlaylist(playlistId.value, song.sourceId)
     songs.value = songs.value.filter(s => s.sourceId !== song.sourceId)
   } catch (e) {
     console.error('移除失败:', e)

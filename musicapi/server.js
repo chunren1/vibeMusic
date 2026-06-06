@@ -203,6 +203,30 @@ app.get('/search', async (req, res) => {
   }
 });
 
+// ==================== 独立平台搜索（必须在通用路由之前） ====================
+
+app.get('/netease/search', async (req, res) => {
+  try {
+    const { keyword, limit = 20 } = req.query;
+    if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
+    const songs = await searchNetease(keyword, parseInt(limit));
+    res.json({ code: 200, data: songs });
+  } catch (error) {
+    res.status(500).json({ code: 500, message: error.message, data: [] });
+  }
+});
+
+app.get('/qq/search', async (req, res) => {
+  try {
+    const { keyword, limit = 20 } = req.query;
+    if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
+    const songs = await searchQQ(keyword, parseInt(limit));
+    res.json({ code: 200, data: songs });
+  } catch (error) {
+    res.status(500).json({ code: 500, message: error.message, data: [] });
+  }
+});
+
 // ==================== 网易云音乐API路由（通用） ====================
 app.all('/netease/*', async (req, res) => {
   try {

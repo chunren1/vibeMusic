@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
@@ -21,6 +21,11 @@ audio.addEventListener('ended', () => { isPlaying.value = false })
 function playSong(song) {
   if (!song.sourceId) return
 
+  // Chrome 自动播放策略：必须在用户手势上下文中创建/恢复 AudioContext
+  if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
+    window._vibeAudioCtx.resume()
+  }
+
   // 如果同一首歌且正在播放，暂停/继续
   if (currentPlaySong.value?.sourceId === song.sourceId) {
     if (isPlaying.value) {
@@ -32,10 +37,14 @@ function playSong(song) {
   }
 
   // 新 API: playSong(sourceId, name, artist)
+  console.log('[HomeView] 请求播放:', song.sourceId, song.name)
   apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     const url = res.data?.url
-    if (!url) return
-    // 通过 PlayerBar 设置音频源（传入完整歌曲信息）
+    if (!url) {
+      console.warn('[HomeView] 获取播放URL失败:', song.sourceId)
+      return
+    }
+    console.log('[HomeView] 获取到播放URL，准备播放')
     if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
     else { audio.src = url; audio.play().catch(() => {}) }
     currentPlaySong.value = song
@@ -49,7 +58,9 @@ function playSong(song) {
         duration: song.duration,
       }
     }))
-  }).catch(() => {})
+  }).catch(err => {
+    console.error('[HomeView] 播放API调用失败:', err)
+  })
 }
 
 // 收藏歌曲（调用后端API）
@@ -203,7 +214,7 @@ const searchResults = ref([])
 const searchLoading = ref(false)
 const searchFocused = ref(false)
 const showDropdown = ref(false)
-const showResultPage = ref(false)  // 控制显示全屏结果页
+const showResultPage = ref(false)
 
 async function doSearch() {
   const keyword = searchKeyword.value.trim()
@@ -214,8 +225,8 @@ async function doSearch() {
     return
   }
   searchLoading.value = true
-  showDropdown.value = false  // 隐藏下拉
-  showResultPage.value = true  // 显示结果页
+  showDropdown.value = false
+  showResultPage.value = true
 
   try {
     const res = await searchSongs(keyword)
@@ -234,7 +245,6 @@ function onInput() {
     showResultPage.value = false
     return
   }
-  // 输入时只显示下拉建议，不跳转结果页
   showDropdown.value = true
   showResultPage.value = false
   doSearchSuggest()
@@ -307,7 +317,6 @@ function formatDuration(seconds) {
           <button v-if="searchKeyword" class="search-clear" @click.stop="clearSearch">✕</button>
         </div>
 
-        <!-- 搜索结果下拉 -->
         <Transition name="dropdown">
           <div v-if="showDropdown" class="search-dropdown">
             <div v-if="searchLoading" class="drop-loading">搜索中...</div>
@@ -346,13 +355,12 @@ function formatDuration(seconds) {
         <template v-if="authStore.isLoggedIn">
           <div class="user-avatar">👤</div>
           <span class="user-name">{{ username }}</span>
-          <button class="logout-btn" @click="authStore.logout(); $router.push('/')">退出</button>
+          <button class="logout-btn" @click="authStore.logout(); router.push('/')">退出</button>
         </template>
         <button v-else class="login-btn" @click="authStore.openLogin()">登录</button>
       </div>
     </div>
 
-    <!-- Banner 轮播 + 下方内容（搜索时隐藏） -->
     <template v-if="!showResultPage">
     <div class="banner" @mouseenter="onBannerEnter" @mouseleave="onBannerLeave">
       <div
@@ -379,7 +387,6 @@ function formatDuration(seconds) {
       </div>
     </div>
 
-    <!-- 推荐歌曲 -->
     <section class="section">
       <div class="section-header">
         <h3>推荐歌曲</h3>
@@ -407,7 +414,6 @@ function formatDuration(seconds) {
       </div>
     </section>
 
-    <!-- 推荐歌单 -->
     <section class="section">
       <div class="section-header">
         <h3>推荐歌单</h3>
@@ -430,7 +436,6 @@ function formatDuration(seconds) {
     </section>
     </template>
 
-    <!-- 搜索结果全屏页 -->
     <div v-if="showResultPage" class="search-page">
       <div class="search-page-header">
         <h2 class="search-title">"{{ searchKeyword }}" 的搜索结果</h2>
@@ -520,7 +525,6 @@ function formatDuration(seconds) {
 <style scoped>
 .home { padding-bottom: 20px; }
 
-/* ===== 顶部搜索栏 + 用户信息 ===== */
 .top-bar {
   padding: 32px 32px 36px; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
 }
@@ -547,7 +551,6 @@ function formatDuration(seconds) {
 
 .search-box.focused { border-color: #31c27c; background: #fff; }
 
-/* ===== 搜索下拉框 ===== */
 .search-dropdown {
   position: absolute; top: 62px; left: 0; right: 0;
   background: #fff; border: 1px solid #e0e0e0;
@@ -588,7 +591,6 @@ function formatDuration(seconds) {
 .drop-name.hl { color: #31c27c; }
 .drop-meta { font-size: 12px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 下拉动画 */
 .dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-8px); }
 
@@ -598,7 +600,6 @@ function formatDuration(seconds) {
 }
 .drop-footer:hover { background: rgba(49,194,124,.06); }
 
-/* ===== 搜索结果全屏页 ===== */
 .search-page {
   padding: 20px 32px; flex: 1; overflow-y: auto;
 }
@@ -682,7 +683,6 @@ function formatDuration(seconds) {
 .logout-btn { border-color: #e0e0e0; color: #999; margin-left: 8px; }
 .logout-btn:hover { border-color: #ec4141; color: #ec4141; }
 
-/* ===== Banner ===== */
 .banner {
   position: relative; height: 300px; overflow: hidden;
   margin: 0 32px 32px; border-radius: 14px;
@@ -722,7 +722,6 @@ function formatDuration(seconds) {
 }
 .dot.active { background: #31c27c; width: 24px; border-radius: 5px; }
 
-/* ===== Section 通用 ===== */
 .section { padding: 0 32px; margin-bottom: 40px; }
 .section-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -734,7 +733,6 @@ function formatDuration(seconds) {
 }
 .refresh-btn:hover, .more:hover { color: #31c27c; }
 
-/* ===== 推荐歌曲 ===== */
 .song-scroll {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -767,7 +765,6 @@ function formatDuration(seconds) {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-/* ===== 推荐歌单 ===== */
 .playlist-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

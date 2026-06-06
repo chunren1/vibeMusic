@@ -36,4 +36,10 @@ public class SongDTO {
 
     /** 平台来源: netease / qq */
     private String platform;
+
+    /** 可播放的来源平台列表，如 ["netease", "qq"] */
+    private java.util.List<String> availableSources;
+
+    /** 跨平台去重后的最终排名分（越高越靠前） */
+    private Double finalScore;
 }

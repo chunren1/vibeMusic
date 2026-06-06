@@ -14,13 +14,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/**
- * 搜索缓存 —— 基于 Redis String（JSON）
- * <p>
- * Key:   song:search:{keyword}
- * Value: JSON Array of SongDTO
- * TTL:   1 小时
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -30,11 +23,9 @@ public class SongCacheService {
     private final ObjectMapper objectMapper;
 
     private static final String SEARCH_PREFIX = "song:search:v2:";
-    private static final Duration TTL = Duration.ofHours(1);
+    private static final Duration TTL_RESULTS = Duration.ofHours(1);
+    private static final Duration TTL_EMPTY = Duration.ofMinutes(5);
 
-    /**
-     * 启动时清空旧缓存（防止脏数据残留）
-     */
     @PostConstruct
     public void clearAllCache() {
         try {
@@ -48,14 +39,14 @@ public class SongCacheService {
         }
     }
 
-    /**
-     * 获取缓存的搜索结果
-     */
-    public List<SongDTO> getSearchCache(String keyword) {
+    public List<SongDTO> getSearchCache(String keyword, int page) {
         try {
             String json = stringRedisTemplate.opsForValue().get(SEARCH_PREFIX + keyword);
-            if (json == null || json.isEmpty()) return Collections.emptyList();
-            log.debug("Redis 命中搜索: {}", keyword);
+            if (json == null) return Collections.emptyList();
+            if (json.isEmpty() || "\"__EMPTY__\"".equals(json)) {
+                return Collections.emptyList();
+            }
+            log.debug("Redis 命中搜索: {} page={}", keyword, page);
             return objectMapper.readValue(json, new TypeReference<List<SongDTO>>() {});
         } catch (Exception e) {
             log.warn("读取 Redis 缓存失败: {}", e.getMessage());
@@ -63,17 +54,22 @@ public class SongCacheService {
         }
     }
 
-    /**
-     * 缓存搜索结果
-     */
-    public void setSearchCache(String keyword, List<SongDTO> songs) {
-        if (songs == null || songs.isEmpty()) return;
+    public void setSearchCache(String keyword, int page, List<SongDTO> songs, boolean hasResults) {
         try {
-            String json = objectMapper.writeValueAsString(songs);
-            stringRedisTemplate.opsForValue().set(SEARCH_PREFIX + keyword, json, TTL);
-            log.info("Redis 缓存搜索结果 '{}': {} 首, TTL={}", keyword, songs.size(), TTL);
+            if (hasResults) {
+                String json = objectMapper.writeValueAsString(songs);
+                stringRedisTemplate.opsForValue().set(SEARCH_PREFIX + keyword, json, TTL_RESULTS);
+                log.info("Redis 缓存搜索 '{}': {} 首, TTL={}", keyword, songs.size(), TTL_RESULTS);
+            } else {
+                stringRedisTemplate.opsForValue().set(SEARCH_PREFIX + keyword, "\"__EMPTY__\"", TTL_EMPTY);
+                log.info("Redis 缓存空搜索 '{}': TTL={}", keyword, TTL_EMPTY);
+            }
         } catch (Exception e) {
             log.warn("写入 Redis 缓存失败: {}", e.getMessage());
         }
+    }
+
+    public List<SongDTO> getSearchCache(String keyword) {
+        return getSearchCache(keyword, 1);
     }
 }

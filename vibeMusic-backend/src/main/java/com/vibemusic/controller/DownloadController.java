@@ -2,31 +2,35 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.service.DownloadService;
+import com.vibemusic.service.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/download")
 @RequiredArgsConstructor
-@Tag(name = "下载", description = "下载歌曲到 RustFS")
+@Tag(name = "下载", description = "下载歌曲到 RustFS 及浏览器下载")
 public class DownloadController {
 
     private final DownloadService downloadService;
+    private final StorageService storageService;
 
     /**
      * 下载歌曲到 RustFS（同时存入 DB）
      * POST /api/download/{sourceId}
-     * Body: { name, artist, album, coverUrl, duration, level }
      */
     @PostMapping("/{sourceId}")
     @Operation(summary = "下载歌曲到 RustFS")
     public Result<String> download(
-            @PathVariable @Parameter(description = "网易云歌曲ID") String sourceId,
+            @PathVariable @Parameter(description = "歌曲ID") String sourceId,
             @RequestBody @Parameter(description = "歌曲信息") Map<String, Object> params) {
 
         String name = (String) params.getOrDefault("name", sourceId);
@@ -36,8 +40,36 @@ public class DownloadController {
         Integer duration = params.get("duration") instanceof Number n ? n.intValue() : 0;
         String level = (String) params.getOrDefault("level", "exhigh");
 
-        String url = downloadService.download(sourceId, name, artist, album, coverUrl, duration, level);
-        return Result.ok("下载成功", url);
+        downloadService.download(sourceId, name, artist, album, coverUrl, duration, level);
+        return Result.ok("下载成功");
+    }
+
+    /**
+     * 从 RustFS 读取文件流式返回浏览器（触发浏览器下载）
+     * GET /api/download/file/{sourceId}
+     */
+    @GetMapping("/file/{sourceId}")
+    @Operation(summary = "从 RustFS 下载文件到浏览器")
+    public void fileDownload(@PathVariable String sourceId, HttpServletResponse response) {
+        String objectName = "songs/" + sourceId + ".mp3";
+        try (InputStream in = storageService.getObject(objectName);
+             OutputStream out = response.getOutputStream()) {
+
+            response.setContentType("audio/mpeg");
+            response.setHeader("Content-Disposition", "attachment; filename=\"" + sourceId + ".mp3\"");
+            response.setHeader("Cache-Control", "public, max-age=86400");
+
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+            out.flush();
+        } catch (Exception e) {
+            if (!response.isCommitted()) {
+                response.setStatus(404);
+            }
+        }
     }
 
     /**
@@ -46,7 +78,6 @@ public class DownloadController {
     @GetMapping("/check/{sourceId}")
     @Operation(summary = "检查歌曲是否已缓存")
     public Result<Boolean> check(@PathVariable String sourceId) {
-        // TODO: 调用 StorageService.exists("songs/" + sourceId + ".mp3")
-        return Result.ok(false);
+        return Result.ok(storageService.exists("songs/" + sourceId + ".mp3"));
     }
 }

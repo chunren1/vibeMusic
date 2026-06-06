@@ -60,12 +60,22 @@ function setupGlobalAnalyser() {
     analyser.connect(ctx.destination)
     window._vibeAudioCtx = ctx
     window._vibeAnalyser = analyser
+    console.log('[PlayerBar] AudioContext 已创建, state:', ctx.state)
   } catch (e) {
     console.warn('[AudioCtx]', e.message)
     window._vibeAnalyser = null
   }
 }
 document.addEventListener('click', setupGlobalAnalyser, { once: true })
+
+// 恢复被浏览器挂起的 AudioContext（解决首次播放无声问题）
+function resumeAudioContext() {
+  if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
+    window._vibeAudioCtx.resume().then(() => {
+      console.log('[PlayerBar] AudioContext 已恢复')
+    }).catch(() => {})
+  }
+}
 
 function pad(n) { return String(Math.floor(n)).padStart(2, '0') }
 function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + pad(s % 60) }
@@ -82,7 +92,6 @@ function restorePlayback() {
     totalTime.value = fmtSec(song.duration || 0)
     const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
     audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
-    audio.load()
     if (cachedTime > 0) {
       audio.currentTime = cachedTime
       currentTime.value = fmtSec(cachedTime)
@@ -93,10 +102,8 @@ function restorePlayback() {
 
 // ===== 播放队列操作 =====
 function addToQueue(song) {
-  // song = { sourceId, name, artist, coverUrl, duration }
   const exists = queue.value.findIndex(s => s.sourceId === song.sourceId)
   if (exists >= 0) {
-    // 更新已有条目（补充可能缺失的封面等新字段）
     Object.assign(queue.value[exists], song)
     currentIdx.value = exists
   } else {
@@ -117,15 +124,14 @@ function playCurrent() {
   }
   totalTime.value = fmtSec(song.duration || 0)
 
-  // 获取实际播放 URL
   apiPlaySong(song.sourceId, song.name, song.artist).catch(() => {})
   audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
-  audio.load()
+  resumeAudioContext()
   audio.play().catch(() => {})
   setupGlobalAnalyser()
 }
 
-// 播放模式: sequential(顺序) | random(随机) | single(单曲循环)
+// 播放模式
 const playMode = ref('sequential')
 function toggleMode() {
   const modes = ['sequential', 'random', 'single']
@@ -182,7 +188,6 @@ function removeFromQueue(idx) {
 function onSongChange(e) {
   const d = e.detail
   const cover = d.coverUrl || ''
-  console.log('[PlayerBar] song-change cover:', cover)
   addToQueue({
     sourceId: d.id || d.sourceId,
     name: d.title || d.name,
@@ -190,12 +195,10 @@ function onSongChange(e) {
     coverUrl: cover,
     duration: d.duration || 0,
   })
-  // 修复：如果歌曲已在队列且缺少封面，补充封面
   const existIdx = queue.value.findIndex(s => s.sourceId === (d.id || d.sourceId))
   if (existIdx >= 0 && cover && !queue.value[existIdx].coverUrl) {
     queue.value[existIdx].coverUrl = cover
   }
-  // 仅更新 UI，不重复获取 URL（HomeView 已获取）
   if (currentIdx.value >= 0) {
     const song = queue.value[currentIdx.value]
     currentSong.value = {
@@ -206,28 +209,32 @@ function onSongChange(e) {
   }
 }
 
-// HomeView 播放歌曲时通过此函数设置 Audio 源 + 歌曲信息
+// HomeView 播放歌曲时设置 Audio 源
 function setAudioSrc(url, sourceId, songName, songArtist, coverUrl) {
   if (!url) return
-  // 有 sourceId 时用代理 URL（避免 CORS，Web Audio 可用）
   const finalUrl = sourceId
     ? `/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
     : url
+  console.log('[PlayerBar] setAudioSrc:', songName, 'sourceId:', sourceId)
   audio.src = finalUrl
-  audio.load()
-  audio.play().catch(() => {})
+  resumeAudioContext()
+  audio.play().then(() => {
+    console.log('[PlayerBar] 播放成功:', songName)
+  }).catch(err => {
+    console.warn('[PlayerBar] 播放被阻止:', err.message)
+  })
   isPlaying.value = true
   if (sourceId) { currentSong.value = { id: sourceId, title: songName || "", artist: songArtist || "", coverUrl: coverUrl || "", duration: currentSong.value.duration || 0 } }
   setupGlobalAnalyser()
 }
 window.vibeAudioSetSrc = setAudioSrc
 
-// ===== 歌词进度跳转 =====
+// 歌词进度跳转
 function onLyricsSeek(time) {
   audio.currentTime = time
 }
 
-// ===== Audio 事件 =====
+// Audio 事件
 audio.addEventListener('timeupdate', () => {
   if (audio.duration) {
     progress.value = (audio.currentTime / audio.duration) * 100
@@ -253,25 +260,16 @@ function togglePlay() {
   if (isPlaying.value) {
     audio.pause()
   } else {
-    if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
-      window._vibeAudioCtx.resume().catch(() => {})
-    }
+    resumeAudioContext()
     if (!audio.src || audio.readyState === 0) {
       audio.load()
     }
     audio.play().catch(() => { isPlaying.value = false })
   }
 }
-function toggleMute() {
-  isMuted.value = !isMuted.value
-  audio.muted = isMuted.value
-}
-function seekBar(e) {
-  audio.currentTime = (e.offsetX / e.target.offsetWidth) * audio.duration
-}
+function toggleMute() { isMuted.value = !isMuted.value; audio.muted = isMuted.value }
+function seekBar(e) { audio.currentTime = (e.offsetX / e.target.offsetWidth) * audio.duration }
 watch(volume, v => { audio.volume = v / 100; localStorage.setItem(VOL_KEY, String(v)) })
-
-
 
 // 收藏 & 下载
 const favIds = ref(new Set())
@@ -283,21 +281,15 @@ getFavoriteIds().then(res => {
 
 function toggleFav(song) {
   const isFav = favIds.value.has(song.sourceId)
-  if (isFav) {
-    favIds.value.delete(song.sourceId)
-  } else {
-    favIds.value.add(song.sourceId)
-  }
+  if (isFav) favIds.value.delete(song.sourceId)
+  else favIds.value.add(song.sourceId)
   toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
     if (res.data === true) favIds.value.add(song.sourceId)
     else favIds.value.delete(song.sourceId)
   }).catch(err => {
     console.error('收藏失败:', err)
-    if (isFav) {
-      favIds.value.add(song.sourceId)
-    } else {
-      favIds.value.delete(song.sourceId)
-    }
+    if (isFav) favIds.value.add(song.sourceId)
+    else favIds.value.delete(song.sourceId)
   })
 }
 
@@ -306,6 +298,11 @@ function handleDownload(song) {
   downloadingIds.value.add(song.sourceId)
   apiDownload(song.sourceId, song).then(() => {
     downloadingIds.value.delete(song.sourceId)
+    // 下载到 RustFS 成功后触发浏览器下载
+    const a = document.createElement('a')
+    a.href = `/api/download/file/${song.sourceId}`
+    a.download = `${song.name || song.sourceId}.mp3`
+    a.click()
   }).catch(() => {
     downloadingIds.value.delete(song.sourceId)
   })
@@ -393,7 +390,10 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
       <div v-if="showPlaylist" class="playlist-panel">
         <div class="panel-header">
           <span>播放队列 ({{ queue.length }})</span>
-          <button class="panel-close" @click="showPlaylist = false">✕</button>
+          <div class="panel-header-actions">
+            <button v-if="queue.length" class="panel-clear-btn" @click="queue = []; currentIdx = -1">清空</button>
+            <button class="panel-close" @click="showPlaylist = false">✕</button>
+          </div>
         </div>
         <div class="panel-list">
           <div
@@ -498,8 +498,11 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 20px; border-bottom: 1px solid #eee;
-  font-size: 15px; color: #fff; flex-shrink: 0;
+  font-size: 15px; color: #333; flex-shrink: 0;
 }
+.panel-header-actions { display: flex; align-items: center; gap: 12px; }
+.panel-clear-btn { background: none; border: 1px solid #ddd; border-radius: 4px; color: #999; font-size: 12px; padding: 2px 8px; cursor: pointer; }
+.panel-clear-btn:hover { color: #ec4141; border-color: #ec4141; }
 .panel-close { background: none; border: none; color: #999; font-size: 16px; cursor: pointer; }
 .panel-close:hover { color: #333; }
 .panel-list { flex: 1; overflow-y: auto; padding: 8px 0; }
