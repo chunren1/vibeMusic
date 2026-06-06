@@ -8,10 +8,15 @@ import com.vibemusic.service.SongService;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -158,6 +163,84 @@ public class SongController {
         } catch (Exception e) {
             log.error("获取歌词失败: {}", e.getMessage());
             return Result.ok(List.of());
+        }
+    }
+
+    /**
+     * 音频流代理 — 解决 Web Audio API CORS 限制
+     * 后端从网易云/QQ 获取音频然后流式返回给前端，同源访问，无跨域问题
+     */
+    @GetMapping("/stream")
+    @Operation(summary = "代理音频流（支持Range请求）")
+    public void stream(@RequestParam String sourceId,
+                       HttpServletRequest request,
+                       HttpServletResponse response) {
+        HttpURLConnection conn = null;
+        InputStream in = null;
+        OutputStream out = null;
+        try {
+            String audioUrl = songService.getPlayUrl(sourceId);
+            if (audioUrl == null) {
+                response.setStatus(404);
+                return;
+            }
+
+            URL url = new URL(audioUrl);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+            // 转发 Range 请求头（支持 seek）
+            String rangeHeader = request.getHeader("Range");
+            if (rangeHeader != null) {
+                conn.setRequestProperty("Range", rangeHeader);
+            }
+
+            conn.connect();
+            int contentLength = conn.getContentLength();
+            String contentType = conn.getContentType();
+            int statusCode = conn.getResponseCode();
+
+            // 设置响应头
+            if (contentType != null && contentType.startsWith("audio/")) {
+                response.setContentType(contentType);
+            } else {
+                response.setContentType("audio/mpeg");
+            }
+            if (contentLength > 0) response.setContentLength(contentLength);
+            response.setHeader("Accept-Ranges", "bytes");
+            response.setHeader("Cache-Control", "public, max-age=3600");
+
+            if (statusCode >= 200 && statusCode < 300) {
+                response.setStatus(statusCode);
+                if (statusCode == 206) {
+                    response.setHeader("Content-Range",
+                        conn.getHeaderField("Content-Range"));
+                }
+            } else {
+                response.setStatus(200);
+            }
+
+            in = conn.getInputStream();
+            out = response.getOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+            out.flush();
+
+        } catch (Exception e) {
+            log.error("音频流代理失败 sourceId={}: {}", sourceId, e.getMessage());
+            if (!response.isCommitted()) {
+                response.setStatus(500);
+            }
+        } finally {
+            try { if (out != null) out.close(); } catch (Exception ignored) {}
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            if (conn != null) conn.disconnect();
         }
     }
 }

@@ -35,8 +35,8 @@ function playSong(song) {
   apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     const url = res.data?.url
     if (!url) return
-    // 通过 PlayerBar 设置音频源（它管理播放队列）
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
+    // 通过 PlayerBar 设置音频源（传入完整歌曲信息）
+    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
     else { audio.src = url; audio.play().catch(() => {}) }
     currentPlaySong.value = song
 
