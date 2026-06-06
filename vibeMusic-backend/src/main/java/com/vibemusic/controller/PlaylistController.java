@@ -41,9 +41,12 @@ public class PlaylistController {
     public Result<Boolean> addSong(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        Long playlistId = ((Number) body.get("playlistId")).longValue();
+        Long playlistId = body.get("playlistId") instanceof Number n ? n.longValue() : null;
         String sourceId = (String) body.get("sourceId");
         String songName = (String) body.get("songName");
+        if (playlistId == null) return Result.error("缺少 playlistId");
+        if (sourceId == null || sourceId.isEmpty()) return Result.error("缺少 sourceId");
+        if (songName == null || songName.isEmpty()) return Result.error("缺少 songName");
         String artist = (String) body.getOrDefault("artist", "");
         String coverUrl = (String) body.getOrDefault("coverUrl", "");
         Integer duration = body.get("duration") != null

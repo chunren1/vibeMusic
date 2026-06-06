@@ -287,15 +287,12 @@ const lyrics = ref([])
 async function fetchLyric(sourceId) {
   if (!sourceId) { lyrics.value = []; return }
   loadingLyric.value = true
-  console.log('[Lyric] 请求歌词 sourceId:', sourceId)
   try {
     const res = await getLyric(sourceId)
-    console.log('[Lyric] 返回数据:', res.data?.length, '行')
     lyrics.value = res.data || []
     currentLyricIndex.value = 0
     setTimeout(() => scrollToCurrent(), 200)
-  } catch (e) {
-    console.error('[Lyric] 获取失败:', e.message || e)
+  } catch {
     lyrics.value = []
   }
   finally { loadingLyric.value = false }
@@ -311,7 +308,6 @@ watch(() => props.visible, (val) => {
     // 启动频谱可视化
     canvasReady = false
     _dbgOnce = false
-    console.log('[Spectrum] LyricsView opened, starting spectrum...')
     initSpectrum()
     if (!spectrumRafId) drawSpectrum()
   } else {
@@ -567,7 +563,7 @@ function close() { emit('update:visible', false) }
 
 /* 频谱 — 底部栏上方，水平全宽 */
 .spectrum-row { padding: 0 300px; flex-shrink: 0; margin-bottom: 8px; }
-.spec-canvas { width: 150%; height: 150px; display: block; border-radius: 0; }
+.spec-canvas { width: 100%; height: 72px; display: block; border-radius: 0; }
 
 /* 歌词 — 紧邻碟片右侧，撑满 */
 .right { flex: 1; height: 75%; overflow: hidden; padding-left: 70px; }

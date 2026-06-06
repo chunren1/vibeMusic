@@ -45,7 +45,7 @@ watch(() => route.query.keyword, (val) => {
   font-size: 28px;
   font-weight: 700;
   margin-bottom: 24px;
-  color: #fff;
+  color: #1a1a1a;
 }
 
 .search-box { max-width: 520px; margin-bottom: 40px; }

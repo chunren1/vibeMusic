@@ -106,4 +106,20 @@ public class StorageService {
             return config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
         }
     }
+
+    /**
+     * 从 RustFS 读取文件流（用于浏览器下载）
+     */
+    public java.io.InputStream getObject(String objectName) {
+        try {
+            return client.getObject(
+                    GetObjectArgs.builder()
+                            .bucket(config.getBucketName())
+                            .object(objectName)
+                            .build());
+        } catch (Exception e) {
+            log.error("读取文件失败: {}", e.getMessage());
+            throw new RuntimeException("文件不存在或读取失败", e);
+        }
+    }
 }

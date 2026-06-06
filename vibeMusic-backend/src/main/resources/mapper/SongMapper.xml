@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.vibemusic.mapper.SongMapper">
+
+    <!--
+        随机获取 N 首已下载歌曲（RustFS 缓存池）
+        注意: ORDER BY RAND() 在小数据量下可行，大数据量应改用其他方案
+    -->
+    <select id="findRandomSongs" resultType="com.vibemusic.entity.Song">
+        SELECT * FROM song ORDER BY RAND() LIMIT #{count}
+    </select>
+
+</mapper>

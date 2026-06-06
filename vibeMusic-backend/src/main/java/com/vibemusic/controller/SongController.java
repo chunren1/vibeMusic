@@ -55,11 +55,14 @@ public class SongController {
         }
     }
 
-    /** 搜索 */
+    /** 搜索（v2：独立平台搜索 + 去重合并 + 排序打分 + 分页） */
     @GetMapping("/search")
-    @Operation(summary = "搜索歌曲（Redis缓存1h + 多平台聚合）")
-    public Result<List<SongDTO>> search(@RequestParam String keyword) {
-        return Result.ok(songService.search(keyword));
+    @Operation(summary = "搜索歌曲（Redis缓存 + 独立QQ/网易云搜索 + 去重打分）")
+    public Result<List<SongDTO>> search(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.ok(songService.search(keyword, page, size));
     }
 
     /** 随机推荐 */

@@ -1,7 +1,8 @@
 package com.vibemusic.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vibemusic.entity.User;
-import com.vibemusic.repository.UserRepository;
+import com.vibemusic.mapper.UserMapper;
 import com.vibemusic.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -14,18 +15,18 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class UserService implements UserDetailsService {
 
-    private final UserRepository userRepository;
+    private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (user == null) throw new UsernameNotFoundException("用户不存在: " + username);
         return new CustomUserDetails(user);
     }
 
     public User register(String username, String password, String nickname) {
-        if (userRepository.existsByUsername(username)) {
+        if (userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getUsername, username)) > 0) {
             throw new RuntimeException("用户名已存在");
         }
         User user = User.builder()
@@ -34,22 +35,22 @@ public class UserService implements UserDetailsService {
                 .nickname(nickname != null ? nickname : username)
                 .enabled(true)
                 .build();
-        return userRepository.save(user);
+        userMapper.insert(user);
+        return user;
     }
 
     public User findByUsername(String username) {
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
+        if (user == null) throw new RuntimeException("用户不存在");
+        return user;
     }
 
     public User findById(Long id) {
-        return userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectById(id);
+        if (user == null) throw new RuntimeException("用户不存在");
+        return user;
     }
 
-    /**
-     * 从 SecurityContextHolder 获取当前登录用户ID，未登录返回 null
-     */
     public static Long getCurrentUserId() {
         var auth = org.springframework.security.core.context.SecurityContextHolder
                 .getContext().getAuthentication();

@@ -1,9 +1,10 @@
 package com.vibemusic.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vibemusic.entity.Playlist;
 import com.vibemusic.entity.PlaylistSong;
-import com.vibemusic.repository.PlaylistRepository;
-import com.vibemusic.repository.PlaylistSongRepository;
+import com.vibemusic.mapper.PlaylistMapper;
+import com.vibemusic.mapper.PlaylistSongMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,29 +18,29 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PlaylistService {
 
-    private final PlaylistRepository playlistRepo;
-    private final PlaylistSongRepository songRepo;
+    private final PlaylistMapper playlistMapper;
+    private final PlaylistSongMapper songMapper;
 
-    /** 获取用户的所有歌单（带歌曲数） */
     public List<Map<String, Object>> listPlaylists(Long userId) {
-        List<Playlist> pls = playlistRepo.findByUserIdOrderByCreatedAtDesc(userId);
+        List<Playlist> pls = playlistMapper.selectList(new LambdaQueryWrapper<Playlist>()
+                .eq(Playlist::getUserId, userId)
+                .orderByDesc(Playlist::getCreatedAt));
         return pls.stream().map(pl -> {
             Map<String, Object> m = new HashMap<>();
             m.put("id", pl.getId());
             m.put("name", pl.getName());
             m.put("description", pl.getDescription());
-            m.put("songCount", songRepo.countByPlaylistId(pl.getId()));
+            m.put("songCount", songMapper.selectCount(new LambdaQueryWrapper<PlaylistSong>()
+                    .eq(PlaylistSong::getPlaylistId, pl.getId())));
             m.put("createdAt", pl.getCreatedAt());
             return m;
         }).collect(Collectors.toList());
     }
 
-    /** 创建歌单 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> create(Long userId, String name, String description) {
-        Playlist pl = Playlist.builder()
-                .userId(userId).name(name).description(description).build();
-        pl = playlistRepo.save(pl);
+        Playlist pl = Playlist.builder().userId(userId).name(name).description(description).build();
+        playlistMapper.insert(pl);
         Map<String, Object> m = new HashMap<>();
         m.put("id", pl.getId());
         m.put("name", pl.getName());
@@ -49,40 +50,36 @@ public class PlaylistService {
         return m;
     }
 
-    /** 添加歌曲到歌单 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public boolean addSong(Long userId, Long playlistId, String sourceId,
                            String songName, String artist, String coverUrl, Integer duration) {
-        Playlist pl = playlistRepo.findById(playlistId)
-                .orElseThrow(() -> new RuntimeException("歌单不存在"));
-        if (!pl.getUserId().equals(userId))
-            throw new RuntimeException("无权操作此歌单");
-
-        if (songRepo.findByPlaylistIdAndSourceId(playlistId, sourceId).isPresent())
-            return false; // 已存在
-
+        Playlist pl = playlistMapper.selectById(playlistId);
+        if (pl == null) throw new RuntimeException("歌单不存在");
+        if (!pl.getUserId().equals(userId)) throw new RuntimeException("无权操作此歌单");
+        if (songMapper.selectCount(new LambdaQueryWrapper<PlaylistSong>()
+                .eq(PlaylistSong::getPlaylistId, playlistId)
+                .eq(PlaylistSong::getSourceId, sourceId)) > 0) return false;
         PlaylistSong ps = PlaylistSong.builder()
-                .playlistId(playlistId).sourceId(sourceId)
-                .songName(songName).artist(artist)
-                .coverUrl(coverUrl).duration(duration).build();
-        songRepo.save(ps);
-        log.info("添加到歌单: playlist={}, song={}", playlistId, songName);
+                .playlistId(playlistId).sourceId(sourceId).songName(songName)
+                .artist(artist).coverUrl(coverUrl).duration(duration).build();
+        songMapper.insert(ps);
         return true;
     }
 
-    /** 从歌单移除歌曲 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void removeSong(Long userId, Long playlistId, String sourceId) {
-        Playlist pl = playlistRepo.findById(playlistId)
-                .orElseThrow(() -> new RuntimeException("歌单不存在"));
-        if (!pl.getUserId().equals(userId))
-            throw new RuntimeException("无权操作此歌单");
-        songRepo.deleteByPlaylistIdAndSourceId(playlistId, sourceId);
+        Playlist pl = playlistMapper.selectById(playlistId);
+        if (pl == null) throw new RuntimeException("歌单不存在");
+        if (!pl.getUserId().equals(userId)) throw new RuntimeException("无权操作此歌单");
+        songMapper.delete(new LambdaQueryWrapper<PlaylistSong>()
+                .eq(PlaylistSong::getPlaylistId, playlistId)
+                .eq(PlaylistSong::getSourceId, sourceId));
     }
 
-    /** 获取歌单中的歌曲 */
     public List<Map<String, Object>> getSongs(Long playlistId) {
-        List<PlaylistSong> list = songRepo.findByPlaylistIdOrderByAddedAtDesc(playlistId);
+        List<PlaylistSong> list = songMapper.selectList(new LambdaQueryWrapper<PlaylistSong>()
+                .eq(PlaylistSong::getPlaylistId, playlistId)
+                .orderByDesc(PlaylistSong::getAddedAt));
         return list.stream().map(s -> {
             Map<String, Object> m = new HashMap<>();
             m.put("sourceId", s.getSourceId());
@@ -95,16 +92,12 @@ public class PlaylistService {
         }).collect(Collectors.toList());
     }
 
-    /** 删除歌单 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long userId, Long playlistId) {
-        Playlist pl = playlistRepo.findById(playlistId)
-                .orElseThrow(() -> new RuntimeException("歌单不存在"));
-        if (!pl.getUserId().equals(userId))
-            throw new RuntimeException("无权操作此歌单");
-        // 先删关联歌曲
-        songRepo.findByPlaylistIdOrderByAddedAtDesc(playlistId)
-                .forEach(s -> songRepo.delete(s));
-        playlistRepo.delete(pl);
+        Playlist pl = playlistMapper.selectById(playlistId);
+        if (pl == null) throw new RuntimeException("歌单不存在");
+        if (!pl.getUserId().equals(userId)) throw new RuntimeException("无权操作此歌单");
+        songMapper.delete(new LambdaQueryWrapper<PlaylistSong>().eq(PlaylistSong::getPlaylistId, playlistId));
+        playlistMapper.deleteById(playlistId);
     }
 }

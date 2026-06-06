@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.vibemusic.mapper.PlayHistoryMapper">
+
+    <!--
+        删除旧播放记录，只保留每个用户最近 N 条
+        使用双层子查询绕过 MySQL "can't specify target table for update in FROM" 限制
+    -->
+    <delete id="deleteOldByUserId">
+        DELETE FROM play_history
+        WHERE user_id = #{userId}
+          AND id NOT IN (
+              SELECT id FROM (
+                  SELECT id
+                  FROM play_history
+                  WHERE user_id = #{userId}
+                  ORDER BY played_at DESC
+                  LIMIT #{keep}
+              ) AS t
+          )
+    </delete>
+
+</mapper>

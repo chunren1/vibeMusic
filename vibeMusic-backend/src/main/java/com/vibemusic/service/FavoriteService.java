@@ -1,7 +1,8 @@
 package com.vibemusic.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vibemusic.entity.UserFavorite;
-import com.vibemusic.repository.UserFavoriteRepository;
+import com.vibemusic.mapper.UserFavoriteMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,32 +16,29 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class FavoriteService {
 
-    private final UserFavoriteRepository repository;
+    private final UserFavoriteMapper mapper;
 
-    /** 切换收藏状态，返回 true=已收藏 false=已取消 */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public boolean toggle(Long userId, String sourceId, String songName, String artist, String coverUrl) {
-        Optional<UserFavorite> existing = repository.findByUserIdAndSourceId(userId, sourceId);
-        if (existing.isPresent()) {
-            repository.delete(existing.get());
-            log.info("取消收藏: user={}, song={}", userId, songName);
+        UserFavorite existing = mapper.selectOne(new LambdaQueryWrapper<UserFavorite>()
+                .eq(UserFavorite::getUserId, userId)
+                .eq(UserFavorite::getSourceId, sourceId));
+        if (existing != null) {
+            mapper.deleteById(existing.getId());
             return false;
         }
         UserFavorite fav = UserFavorite.builder()
-                .userId(userId)
-                .sourceId(sourceId)
-                .songName(songName)
-                .artist(artist)
-                .coverUrl(coverUrl)
-                .build();
-        repository.save(fav);
-        log.info("收藏: user={}, song={}", userId, songName);
+                .userId(userId).sourceId(sourceId).songName(songName)
+                .artist(artist).coverUrl(coverUrl).build();
+        mapper.insert(fav);
         return true;
     }
 
-    /** 获取收藏列表 */
     public List<Map<String, Object>> list(Long userId, int count) {
-        List<UserFavorite> list = repository.findByUserId(userId, count);
+        List<UserFavorite> list = mapper.selectList(new LambdaQueryWrapper<UserFavorite>()
+                .eq(UserFavorite::getUserId, userId)
+                .orderByDesc(UserFavorite::getCreatedAt)
+                .last("LIMIT " + count));
         return list.stream().map(f -> {
             Map<String, Object> m = new HashMap<>();
             m.put("sourceId", f.getSourceId());
@@ -52,9 +50,10 @@ public class FavoriteService {
         }).collect(Collectors.toList());
     }
 
-    /** 获取用户收藏的 sourceId 集合（用于前端高亮） */
     public Set<String> favoritesSet(Long userId) {
-        return repository.findByUserId(userId, 999).stream()
+        return mapper.selectList(new LambdaQueryWrapper<UserFavorite>()
+                .eq(UserFavorite::getUserId, userId)
+                .last("LIMIT 999")).stream()
                 .map(UserFavorite::getSourceId)
                 .collect(Collectors.toSet());
     }

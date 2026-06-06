@@ -12,17 +12,6 @@ spring:
     password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
 
-  # JPA 配置
-  jpa:
-    hibernate:
-      ddl-auto: update          # 开发阶段用 update，生产改为 validate
-    show-sql: true               # 控制台打印 SQL
-    open-in-view: false          # 关闭 OSIV 避免性能问题
-    properties:
-      hibernate:
-        format_sql: true         # SQL 格式化输出
-        dialect: org.hibernate.dialect.MySQLDialect
-
   # Redis 配置
   data:
     redis:
@@ -43,6 +32,19 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 50MB
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml   # XML 映射文件路径
+  configuration:
+    map-underscore-to-camel-case: true    # 下划线转驼峰
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 控制台打印 SQL
+  global-config:
+    db-config:
+      id-type: auto                       # 主键自增
+      logic-delete-field: deleted         # 逻辑删除字段（暂未使用）
+      logic-delete-value: 1
+      logic-not-delete-value: 0
 
 # JWT 配置
 jwt:

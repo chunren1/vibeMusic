@@ -1,7 +1,7 @@
 /* ===== vibeMusic 全局样式（浅色主题） ===== */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #root { height: 100%; }
+html, body, #app { height: 100%; }
 
 :root {
   --color-primary: #31c27c;
