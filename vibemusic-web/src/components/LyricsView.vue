@@ -173,7 +173,8 @@ function drawSpectrum() {
     const weightedV = v * curveWeight
 
     const maxH = h - 4
-    const bh = Math.max(1.5, weightedV * maxH)
+    const bh = weightedV * maxH  // 零值柱子不显示，消除底部虚线
+    if (bh < 0.5) continue       // 值太低直接跳过，不画
     const x = gap + i * (bw + gap)
     const y = h - bh
 
@@ -565,8 +566,8 @@ function close() { emit('update:visible', false) }
 .disc-shine { position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%); pointer-events: none; }
 
 /* 频谱 — 底部栏上方，水平全宽 */
-.spectrum-row { padding: 0 40px; flex-shrink: 0; margin-bottom: 8px; }
-.spec-canvas { width: 100%; height: 152px; display: block; border-radius: 0; }
+.spectrum-row { padding: 0 300px; flex-shrink: 0; margin-bottom: 8px; }
+.spec-canvas { width: 150%; height: 150px; display: block; border-radius: 0; }
 
 /* 歌词 — 紧邻碟片右侧，撑满 */
 .right { flex: 1; height: 75%; overflow: hidden; padding-left: 70px; }

@@ -250,7 +250,17 @@ onUnmounted(() => {
 })
 
 function togglePlay() {
-  if (isPlaying.value) { audio.pause() } else { audio.play().catch(() => {}) }
+  if (isPlaying.value) {
+    audio.pause()
+  } else {
+    if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
+      window._vibeAudioCtx.resume().catch(() => {})
+    }
+    if (!audio.src || audio.readyState === 0) {
+      audio.load()
+    }
+    audio.play().catch(() => { isPlaying.value = false })
+  }
 }
 function toggleMute() {
   isMuted.value = !isMuted.value
