@@ -88,4 +88,19 @@ public class AuthController {
         data.put("avatar", user.getAvatar());
         return Result.ok(data);
     }
+
+    @PostMapping("/change-password")
+    @Operation(summary = "修改密码")
+    public Result<String> changePassword(@RequestBody Map<String, String> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+
+        String oldPwd = body.get("oldPassword");
+        String newPwd = body.get("newPassword");
+        if (oldPwd == null || newPwd == null) return Result.error("参数不能为空");
+        if (newPwd.length() < 4) return Result.error("新密码至少4位");
+
+        userService.changePassword(userId, oldPwd, newPwd);
+        return Result.ok("密码修改成功");
+    }
 }

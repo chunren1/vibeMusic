@@ -33,14 +33,17 @@
 
 | 功能 | 说明 |
 |------|------|
-| 👤 用户认证 | JWT 登录/注册，BCrypt 加密，弹窗式无跳转 |
-| 🔍 多平台搜索 | 聚合网易云 + QQ音乐结果，智能去重排序 |
+| 👤 用户认证 | JWT 登录/注册，BCrypt 加密，弹窗式无跳转，支持修改密码 |
+| 🔍 多平台搜索 | 聚合网易云 + QQ音乐结果，去重打分排序，分源筛选，400ms 防抖实时搜索 |
 | ▶️ VIP音质播放 | 自有 VIP Cookie，exhigh / hires 品质 |
 | ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录 |
 | 📋 歌单管理 | 创建/删除/添加歌曲，完整 CRUD，所有权校验 |
 | 🕐 最近播放 | 播放历史，自动保留最近 300 条，用户隔离 |
+| 📱 移动端适配 | 同项目路由分流 `/m`，独立 UI 组件，共享 API/Store，自动设备检测跳转 |
+| 🎵 歌词页 | 播放中封面 + 四行滚动歌词 + 进度条 + 切歌/模式/收藏/下载/歌单 |
+| 📜 播放队列 | 自动入列，底部弹出式列表，去重管理 |
 | 🛡️ Cookie 监控 | Python 脚本，Windows 任务计划，Server酱微信告警 |
-| 🎨 响应式 UI | 白色主题，搜索下拉 + 全屏结果页，登录弹窗 |
+| 🎨 响应式 UI | 桌面侧栏 + 移动底部TabBar，暗色/亮色双主题 |
 
 ## 目录结构
 
@@ -48,8 +51,12 @@
 vibeMusic/
 ├── vibemusic-web/          # Vue 3 前端
 │   ├── src/
-│   │   ├── views/          # HomeView, LikesView, PlaylistView, RecentView, LoginView
-│   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal
+│   │   ├── views/          # 桌面视图 + mobile/ 移动视图
+│   │   │   ├── HomeView, LikesView, PlaylistsView, RecentView, LoginView, ProfileView
+│   │   │   └── mobile/     # MHomeView, MPlayerView, MSearchView, MLikesView, MRecentView, MPlaylistsView, MProfileView, MobileShell
+│   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView + mobile/
+│   │   │   └── mobile/     # MBottomPlayer, MTabBar, MQueuePopup
+│   │   ├── composables/    # useIsMobile (设备检测)
 │   │   ├── stores/         # Pinia: auth (JWT + 弹窗状态)
 │   │   └── api/            # Axios 封装 + 接口定义 (song.js, request.js)
 │   └── vite.config.js      # Vite 配置 + API 代理
@@ -60,14 +67,14 @@ vibeMusic/
 │       ├── entity/         # User, Song, UserFavorite, Playlist, PlayHistory
 │       ├── security/       # JwtAuthFilter, CustomUserDetails
 │       ├── dto/            # SongDTO
-│       ├── config/         # Security, Redis, NeteaseApi 配置
-│       └── repository/     # JPA Repository
+│       ├── config/         # Security, Cors, Redis, NeteaseApi 配置
+│       └── mapper/         # MyBatis-Plus Mapper
 ├── scripts/                # 运维工具
 │   ├── cookie-monitor.py   # Cookie 存活监控 (定时任务)
-│   ├── setup-scheduler.ps1 # Windows 任务计划程序配置
+│   ├── start-tunnel.bat    # cpolar 自动重连脚本
 │   └── requirements.txt    # Python 依赖
 └── musicapi/               # Node.js API 聚合网关 (端口 3000)
-    └── server.js           # 聚合搜索 + 网易云/QQ双平台
+    └── server.js           # 聚合搜索 + 独立平台搜索 + 质量过滤
 ```
 
 ## 快速开始
@@ -123,7 +130,8 @@ mysql -u root -p < vibeMusic-backend/sql/update-tables.sql
 | `/api/auth/register` | POST | 用户注册（自动登录返回JWT） |
 | `/api/auth/login` | POST | 用户登录（返回JWT） |
 | `/api/auth/me` | GET | 获取当前用户信息 |
-| `/api/songs/search` | GET | 搜索歌曲（Redis缓存1h） |
+| `/api/auth/change-password` | POST | 修改密码（需登录） |
+| `/api/songs/search` | GET | 搜索歌曲（支持 page/size/platform 参数） |
 | `/api/songs/play` | GET | 获取播放URL + 记录历史 |
 | `/api/songs/history` | GET | 最近播放列表 |
 | `/api/songs/banner` | GET | 首页轮播推荐 |
@@ -159,6 +167,17 @@ mysql -u root -p < vibeMusic-backend/sql/update-tables.sql
 - 去重键: 歌曲名|歌手名
 - 排序: 最终得分降序
 ```
+
+## 移动端适配
+
+采用**同项目路由分流**方案（方案C），移动端与桌面端共享 API/Store/Auth，但使用独立的视图组件。
+
+- **入口**: App.vue 同步检测设备 → 移动端自动跳 `/m`，桌面端误入 `/m` 则跳回 `/`
+- **路由**: `/m/home`, `/m/search`, `/m/likes`, `/m/recent`, `/m/playlists`, `/m/profile`, `/m/player`
+- **底部栏**: MTabBar（首页/最近/歌单/收藏/我的）+ MBottomPlayer（迷你播放条）
+- **播放队列**: MQueuePopup 从下到上弹出，去重自动入列
+- **歌词页**: `/m/player` — 圆形封面 + 四行歌词 + 进度条 + 收藏/下载/歌单/播放模式
+- **CORS**: 允许所有来源（支持 cpolar 内网穿透）
 
 ## 缓存策略
 

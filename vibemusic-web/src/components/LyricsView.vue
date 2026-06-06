@@ -563,7 +563,7 @@ function close() { emit('update:visible', false) }
 
 /* 频谱 — 底部栏上方，水平全宽 */
 .spectrum-row { padding: 0 300px; flex-shrink: 0; margin-bottom: 8px; }
-.spec-canvas { width: 100%; height: 72px; display: block; border-radius: 0; }
+.spec-canvas { width: 100%; height: 125px; display: block; border-radius: 0; }
 
 /* 歌词 — 紧邻碟片右侧，撑满 */
 .right { flex: 1; height: 75%; overflow: hidden; padding-left: 70px; }

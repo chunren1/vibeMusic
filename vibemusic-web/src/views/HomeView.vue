@@ -1,10 +1,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
+import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
 
 import { useAuthStore } from '@/stores/auth'
 import LoginModal from '@/components/LoginModal.vue'
+import PlaylistPopup from '@/components/PlaylistPopup.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -18,6 +19,17 @@ audio.addEventListener('play', () => { isPlaying.value = true })
 audio.addEventListener('pause', () => { isPlaying.value = false })
 audio.addEventListener('ended', () => { isPlaying.value = false })
 
+// 监听 PlayerBar 队列切歌，同步当前播放歌曲
+window.addEventListener('song-change', (e) => {
+  currentPlaySong.value = {
+    sourceId: e.detail.sourceId,
+    name: e.detail.title,
+    artist: e.detail.artist,
+    coverUrl: e.detail.coverUrl,
+    duration: e.detail.duration,
+  }
+})
+
 function playSong(song) {
   if (!song.sourceId) return
 
@@ -26,17 +38,7 @@ function playSong(song) {
     window._vibeAudioCtx.resume()
   }
 
-  // 如果同一首歌且正在播放，暂停/继续
-  if (currentPlaySong.value?.sourceId === song.sourceId) {
-    if (isPlaying.value) {
-      audio.pause()
-    } else {
-      audio.play().catch(() => {})
-    }
-    return
-  }
-
-  // 新 API: playSong(sourceId, name, artist)
+  // 始终请求播放（不自己做暂停/继续判断，交给 PlayerBar 统一处理）
   console.log('[HomeView] 请求播放:', song.sourceId, song.name)
   apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
     const url = res.data?.url
@@ -95,20 +97,53 @@ function toggleFav(song) {
   })
 }
 
-// 下载歌曲（传完整 song 对象）
-import { downloadSong as apiDownload } from '@/api/song'
-import PlaylistPopup from '@/components/PlaylistPopup.vue'
-const downloadingIds = ref(new Set())
+// ===== 歌单弹窗 =====
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
 function openPlaylistPopup(song) { playlistTargetSong.value = song; showPlaylistPopup.value = true }
+
+// 下载歌曲（复用 LyricsView 方式：直接获取音频流 → blob → 浏览器下载）
+const downloadingIds = ref(new Set())
 function handleDownload(song) {
   if (downloadingIds.value.has(song.sourceId)) return
   downloadingIds.value.add(song.sourceId)
-  apiDownload(song.sourceId, song).then(() => {
-    alert(song.name + ' 下载完成!')
-  }).catch(e => {
-    alert('下载失败: ' + (e.message || ''))
+
+  // 先尝试从当前播放的 audio 流直接下载（最快）
+  const audioUrl = window.vibeAudio?.src
+  const isPlayingThis = currentPlaySong.value?.sourceId === song.sourceId && audioUrl?.startsWith('http')
+
+  if (isPlayingThis) {
+    fetch(audioUrl).then(resp => resp.blob()).then(blob => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${song.name || song.sourceId}.mp3`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      downloadingIds.value.delete(song.sourceId)
+    }).catch(() => {
+      // fallback to RustFS
+      downloadViaBackend(song)
+    })
+  } else {
+    downloadViaBackend(song)
+  }
+}
+
+function downloadViaBackend(song) {
+  apiDownload(song.sourceId, song).then(res => {
+    // 后端返回 { fileUrl } → 触发浏览器下载
+    const fileUrl = res.data?.fileUrl || `/api/download/file/${song.sourceId}`
+    const a = document.createElement('a')
+    a.href = fileUrl
+    a.download = `${song.name || song.sourceId}.mp3`
+    a.click()
+  }).catch(() => {
+    // 即便报错也尝试直接下载 RustFS 文件
+    const a = document.createElement('a')
+    a.href = `/api/download/file/${song.sourceId}`
+    a.download = `${song.name || song.sourceId}.mp3`
+    a.click()
   }).finally(() => {
     downloadingIds.value.delete(song.sourceId)
   })
@@ -215,35 +250,51 @@ const searchLoading = ref(false)
 const searchFocused = ref(false)
 const showDropdown = ref(false)
 const showResultPage = ref(false)
+const sourceFilter = ref('all')
+const searchPage = ref(1)
+const hasMoreResults = ref(false)
+const SEARCH_PAGE_SIZE = 20
 
-async function doSearch() {
+async function doSearch(reset = true) {
   const keyword = searchKeyword.value.trim()
   if (!keyword) {
-    searchResults.value = []
-    showDropdown.value = false
-    showResultPage.value = false
-    return
+    searchResults.value = []; showDropdown.value = false; showResultPage.value = false; return
   }
   searchLoading.value = true
   showDropdown.value = false
   showResultPage.value = true
+  if (reset) { searchPage.value = 1 }
 
   try {
-    const res = await searchSongs(keyword)
-    searchResults.value = res.data || []
+    const platform = sourceFilter.value === 'all' ? null : sourceFilter.value
+    const res = await searchSongs(keyword, searchPage.value, SEARCH_PAGE_SIZE, platform)
+    const data = res.data || []
+    if (reset) {
+      searchResults.value = data
+    } else {
+      searchResults.value = [...searchResults.value, ...data]
+    }
+    hasMoreResults.value = data.length >= SEARCH_PAGE_SIZE
   } catch (e) {
-    searchResults.value = []
+    if (reset) searchResults.value = []
   } finally {
     searchLoading.value = false
   }
 }
 
+function loadMore() {
+  searchPage.value++
+  doSearch(false)
+}
+
+function onSourceChange() {
+  searchPage.value = 1
+  doSearch(true)
+}
+
 function onInput() {
   if (searchKeyword.value.trim() === '') {
-    searchResults.value = []
-    showDropdown.value = false
-    showResultPage.value = false
-    return
+    searchResults.value = []; showDropdown.value = false; showResultPage.value = false; return
   }
   showDropdown.value = true
   showResultPage.value = false
@@ -255,7 +306,7 @@ async function doSearchSuggest() {
   if (!keyword) return
   searchLoading.value = true
   try {
-    const res = await searchSongs(keyword)
+    const res = await searchSongs(keyword, 1, 8)
     searchResults.value = res.data || []
   } catch (e) {
     searchResults.value = []
@@ -339,6 +390,8 @@ function formatDuration(seconds) {
                 <div class="drop-info">
                   <span class="drop-name" :class="{ hl: currentPlaySong?.sourceId === song.sourceId }">
                     {{ song.name }}
+                    <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
+                    <span v-if="song.duration != null && song.duration <= 30" class="tag-trial">试听</span>
                   </span>
                   <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
                 </div>
@@ -442,8 +495,13 @@ function formatDuration(seconds) {
         <div class="search-stats">
           <span v-if="searchLoading">搜索中...</span>
           <span v-else-if="searchResults.length === 0">未找到相关歌曲</span>
-          <span v-else>找到 {{ searchResults.length }} 首歌曲</span>
+          <span v-else>共 {{ searchResults.length }} 首</span>
         </div>
+        <select v-model="sourceFilter" class="source-select" @change="onSourceChange">
+          <option value="all">全部来源</option>
+          <option value="netease">网易云</option>
+          <option value="qq">QQ音乐</option>
+        </select>
         <button class="back-btn" @click="clearSearch">返回首页</button>
       </div>
 
@@ -477,7 +535,11 @@ function formatDuration(seconds) {
             </div>
           </div>
           <div class="rp-text" @click="playSong(song)">
-            <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">{{ song.name }}</span>
+            <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">
+              {{ song.name }}
+              <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
+              <span v-if="song.duration != null && song.duration <= 30" class="tag-trial">试听</span>
+            </span>
             <span class="rp-artist">{{ song.artist }}</span>
           </div>
           <span class="rp-album" @click="playSong(song)">{{ song.album || '-' }}</span>
@@ -506,6 +568,11 @@ function formatDuration(seconds) {
               ➕
             </button>
           </div>
+        </div>
+        <div v-if="hasMoreResults" class="load-more-wrap">
+          <button class="load-more-btn" @click="loadMore" :disabled="searchLoading">
+            {{ searchLoading ? '加载中...' : '加载更多' }}
+          </button>
         </div>
       </div>
     </div>
@@ -609,11 +676,24 @@ function formatDuration(seconds) {
 }
 .search-title { font-size: 20px; font-weight: 700; color: #1a1a1a; }
 .search-stats { font-size: 13px; color: #777; flex: 1; margin-left: 14px; }
+.source-select {
+  padding: 5px 10px; border: 1px solid #d9d9d9; border-radius: 6px;
+  font-size: 13px; color: #555; background: #fff; cursor: pointer; outline: none;
+}
+.source-select:hover { border-color: #31c27c; }
 .back-btn {
   padding: 6px 16px; border: 1px solid #ccc; border-radius: 16px;
   background: transparent; color: #777; font-size: 12px; cursor: pointer;
 }
 .back-btn:hover { border-color: #31c27c; color: #31c27c; }
+
+.load-more-wrap { text-align: center; padding: 20px 0 10px; }
+.load-more-btn {
+  padding: 8px 36px; border: 1px solid #31c27c; border-radius: 20px;
+  background: transparent; color: #31c27c; font-size: 14px; cursor: pointer; outline: none;
+}
+.load-more-btn:hover { background: #31c27c; color: #fff; }
+.load-more-btn:disabled { opacity: 0.5; cursor: default; }
 
 .result-table-header {
   display: grid;
@@ -651,6 +731,19 @@ function formatDuration(seconds) {
 .rp-title { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-title.active { color: #31c27c; }
 .rp-artist { font-size: 12px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 平台标签 */
+.tag-platform {
+  display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  margin-left: 6px; vertical-align: middle; font-weight: 500;
+}
+.tag-platform.qq { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
+.tag-platform.netease { background: #fff7e6; color: #fa541c; border: 1px solid #ffd591; }
+.tag-trial {
+  display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  margin-left: 4px; vertical-align: middle;
+  background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e;
+}
 .rp-album { font-size: 13px; color: #777; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-time { font-size: 13px; color: #888; cursor: pointer; }
 .rp-actions { display: flex; justify-content: center; gap: 2px; }

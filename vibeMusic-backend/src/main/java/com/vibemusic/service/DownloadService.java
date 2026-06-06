@@ -38,18 +38,9 @@ public class DownloadService {
             return url;
         }
 
-        // 2. 从网易云获取播放链接
+        // 2. 获取播放链接（自动识别QQ/网易云平台）
         log.info("获取播放链接: {} ({})", name, sourceId);
-        Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, level != null ? level : "exhigh");
-
-        @SuppressWarnings("unchecked")
-        java.util.List<Map<String, Object>> dataList =
-                (java.util.List<Map<String, Object>>) result.get("data");
-        if (dataList == null || dataList.isEmpty()) {
-            throw new RuntimeException("获取播放链接失败");
-        }
-
-        String downloadUrl = (String) dataList.get(0).get("url");
+        String downloadUrl = songService.getPlayUrl(sourceId);
         if (downloadUrl == null) {
             throw new RuntimeException("无法获取 VIP 播放链接");
         }
