@@ -32,76 +32,104 @@ function stopTimeSync() { if (timeInterval) { clearInterval(timeInterval); timeI
 
 
 
-// ===== 频谱可视化 (双模式: Web Audio + 程序化回退) =====
+// ===== 频谱可视化 =====
+// 优先使用全局 AnalyserNode (PlayerBar 创建) 获取真实音频频谱数据
+// 不可用时回退到程序化模拟
 const spectrumCanvas = ref(null)
-let analyserNode = null
-let audioCtx = null
 let spectrumRafId = null
 let canvasReady = false
 let specStartTime = 0
+let useRealAudio = false
 
-async function initSpectrum() {
-  if (analyserNode) return
-  const a = window.vibeAudio
-  try {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)()
-    analyserNode = audioCtx.createAnalyser()
-    analyserNode.fftSize = 512
-    analyserNode.smoothingTimeConstant = 0.8
-    // 尝试连接 audio 元素 (只能调用一次, 可能与 HomeView 冲突)
-    a.crossOrigin = 'anonymous'
-    const src = audioCtx.createMediaElementSource(a)
-    src.connect(analyserNode)
-    analyserNode.connect(audioCtx.destination)
-    console.log('[Spectrum] Web Audio 模式')
-  } catch(e) {
-    console.warn('[Spectrum] MediaElementSource 失败, 启用程序化模式:', e.message)
-    analyserNode = null // 标记为程序化模式
-    specStartTime = performance.now()
-  }
+function initSpectrum() {
+  _specInited = false
+  specStartTime = performance.now()
 }
 
+let _dbgOnce = false
 function initCanvasSize() {
   if (canvasReady || !spectrumCanvas.value) return
   const cvs = spectrumCanvas.value
   const w = cvs.clientWidth
   const h = cvs.clientHeight
+  if (!_dbgOnce) { console.log('[Spectrum] Canvas:', w, 'x', h, 'DPR:', devicePixelRatio); _dbgOnce = true }
   if (w === 0 || h === 0) return
   cvs.width = w * devicePixelRatio
   cvs.height = h * devicePixelRatio
   canvasReady = true
 }
 
-// 程序化频谱数据 (当 Web Audio 不可用时)
-const fakeData = new Uint8Array(128)
-function getFakeSpectrum() {
+// ==== 真实音频数据 ====
+let realData = null
+function getRealData() {
+  const a = window._vibeAnalyser
+  if (!a) { useRealAudio = false; return null }
+  if (!realData || realData.length !== a.frequencyBinCount) {
+    realData = new Uint8Array(a.frequencyBinCount)
+  }
+  a.getByteFrequencyData(realData)
+  // 检测 CORS 零数据
+  const sum = realData.reduce((s, v) => s + v, 0)
+  if (sum === 0) { useRealAudio = false; return null }
+  useRealAudio = true
+  return realData
+}
+
+// ==== 程序化回退数据 ====
+const fakeData = new Float64Array(64)
+const seeds = new Float64Array(64)
+const walkPhase = new Float64Array(64)
+const walkSpeed = new Float64Array(64)
+const walkAmp = new Float64Array(64)
+const barEnergy = new Float64Array(64)
+let _specInited = false
+
+function initSpecState() {
+  for (let i = 0; i < 64; i++) {
+    seeds[i] = Math.random() * Math.PI * 2
+    walkPhase[i] = Math.random() * Math.PI * 2
+    walkSpeed[i] = 0.3 + Math.random() * 0.9
+    walkAmp[i] = 0.3 + Math.random() * 0.5
+    barEnergy[i] = 0
+  }
+  _specInited = true
+}
+
+function getFakeData() {
+  if (!_specInited) initSpecState()
   const t = (performance.now() - specStartTime) / 1000
-  const isOn = window.vibeAudio && !window.vibeAudio.paused
-  for (let i = 0; i < 128; i++) {
-    const center = 64
-    const dist = Math.abs(i - center) / center
-    // 多频率组分模拟音乐频谱
+  const playing = window.vibeAudio && !window.vibeAudio.paused
+  const bps = 2 // 120 BPM
+  const beat = (t * bps) % 1
+  const beatDecay = Math.exp(-beat * 4)
+  const macroEnv = 0.6 + 0.4 * Math.abs(Math.sin(t * 0.13 + Math.sin(t * 0.07) * 1.5))
+  for (let i = 0; i < 64; i++) {
+    const f = (i + 1) / 64
     let v = 0
-    v += Math.sin(i * 0.3 + t * 2.5) * 0.3
-    v += Math.sin(i * 0.15 + t * 1.8) * 0.4
-    v += Math.cos(i * 0.08 + t * 0.9) * 0.3
-    v += Math.sin(i * 0.5 + t * 4.2) * 0.2 * (1 - dist)
-    if (isOn) {
-      // 播放时添加节拍脉冲
-      const beat = Math.sin(t * 3.14) > 0.7 ? 0.5 : 0
-      v += beat * (1 - dist)
-      // 动态范围
-      v *= 0.8 + Math.sin(t * 0.5) * 0.2
-    } else {
-      // 暂停时渐弱
-      v *= 0.15
-    }
-    fakeData[i] = Math.max(0, Math.min(255, Math.floor((v * 0.5 + 0.5) * 255 * (0.6 + Math.random() * 0.4))))
+    v += Math.sin(t * (2.1 + f * 6) + seeds[i]) * 0.35
+    v += Math.sin(t * (3.7 + f * 4.5) + seeds[i] * 1.7) * 0.28
+    v += Math.cos(t * (5.2 + f * 8.3) + seeds[i] * 0.6) * 0.22
+    walkPhase[i] += walkSpeed[i] * 0.03
+    v += Math.sin(walkPhase[i]) * walkAmp[i]
+    const beatBoost = beatDecay * (f < 0.4 ? 0.9 : 0.3)
+    v += beatBoost * (0.3 + Math.random() * 0.4)
+    const target = Math.abs(v)
+    if (target > barEnergy[i]) barEnergy[i] += (target - barEnergy[i]) * 0.65
+    else barEnergy[i] += (target - barEnergy[i]) * 0.15
+    v = barEnergy[i] * macroEnv
+    if (!playing) v *= 0.08
+    fakeData[i] = Math.max(0, Math.min(1, v))
   }
   return fakeData
 }
 
 function drawSpectrum() {
+  // 窗口失焦时暂停动画（节省资源）
+  if (!document.hasFocus()) {
+    spectrumRafId = requestAnimationFrame(drawSpectrum)
+    return
+  }
+
   initCanvasSize()
   if (!spectrumCanvas.value || !canvasReady) {
     spectrumRafId = requestAnimationFrame(drawSpectrum)
@@ -110,50 +138,72 @@ function drawSpectrum() {
   const cvs = spectrumCanvas.value
   const ctx = cvs.getContext('2d')
   const dpr = devicePixelRatio
-  const w = cvs.width / dpr
-  const h = cvs.height / dpr
+  const w = cvs.width / dpr   // 全宽 ~1400px
+  const h = cvs.height / dpr  // 64px
 
-  // 获取数据
-  let data
-  if (analyserNode) {
-    data = new Uint8Array(analyserNode.frequencyBinCount)
-    analyserNode.getByteFrequencyData(data)
+  // 获取数据: 真实 > 回退
+  let bars = null
+  const rd = getRealData()
+  if (rd) {
+    bars = rd
   } else {
-    data = getFakeSpectrum()
+    bars = getFakeData()
   }
-
-  const barNum = 64
-  const gap = 2
-  const bw = Math.max(2.5, (w - gap * (barNum + 1)) / barNum)
 
   ctx.clearRect(0, 0, cvs.width, cvs.height)
-  ctx.save()
-  ctx.scale(dpr, dpr)
+
+  // 96 根柱条, 每根约 4px 宽
+  const barNum = 96
+  const gap = 2
+  const bw = Math.max(4, (w - gap * (barNum + 1)) / barNum)
 
   for (let i = 0; i < barNum; i++) {
-    const idx = Math.floor(i * data.length / barNum)
-    const v = data[idx] / 255
-    const center = barNum / 2
+    const srcIdx = Math.floor(i * bars.length / barNum)
+    let v
+    if (useRealAudio) {
+      v = bars[srcIdx] / 255
+    } else {
+      v = bars[srcIdx] // already 0..1
+    }
+
+    // 幂次曲线: 中间高、两侧低，更平滑自然
+    const center = (barNum - 1) / 2
     const dist = Math.abs(i - center) / center
-    let bh = v * h * 0.88 * (1 - dist * 0.45)
-    if (bh < 2) bh = 2
+    const curveWeight = Math.pow(Math.cos(dist * Math.PI * 0.5), 1.5)
+    const weightedV = v * curveWeight
+
+    const maxH = h - 4
+    const bh = Math.max(1.5, weightedV * maxH)
     const x = gap + i * (bw + gap)
-    const y = (h - bh) / 2
-    const g = ctx.createLinearGradient(x, y, x, y + bh)
-    g.addColorStop(0, '#2ecc71')
-    g.addColorStop(1, 'rgba(46,204,113,0.15)')
-    ctx.fillStyle = g
-    ctx.shadowColor = 'rgba(46,204,113,0.4)'
-    ctx.shadowBlur = 3
-    ctx.fillRect(x, y, bw, bh)
+    const y = h - bh
+
+    // 统一使用 #31c27c 品牌绿，偏浅色调
+    const alpha = 0.7 + weightedV * 0.3
+
+    // 渐变: 顶部浅绿 → 中部淡绿 → 底部完全透明
+    const grad = ctx.createLinearGradient(x, y, x, h)
+    grad.addColorStop(0, `rgba(100,220,150,${Math.min(1, alpha)})`)
+    grad.addColorStop(0.4, `rgba(49,194,124,${Math.min(1, alpha * 0.5)})`)
+    grad.addColorStop(1, 'rgba(49,194,124,0)')
+    ctx.fillStyle = grad
+
+    // 柔和发光
+    ctx.shadowColor = 'rgba(49,194,124,0.4)'
+    ctx.shadowBlur = 6
+
+    // 顶部圆角 rx = 宽度的一半
+    const rx = bw / 2
+    ctx.beginPath()
+    ctx.roundRect(x, y, bw, bh, [rx, rx, 0, 0])
+    ctx.fill()
     ctx.shadowBlur = 0
   }
-  ctx.restore()
   spectrumRafId = requestAnimationFrame(drawSpectrum)
 }
 
 function stopSpectrum() {
   if (spectrumRafId) { cancelAnimationFrame(spectrumRafId); spectrumRafId = null }
+  canvasReady = false
 }
 
 function toggleMute() {
@@ -236,12 +286,17 @@ const lyrics = ref([])
 async function fetchLyric(sourceId) {
   if (!sourceId) { lyrics.value = []; return }
   loadingLyric.value = true
+  console.log('[Lyric] 请求歌词 sourceId:', sourceId)
   try {
     const res = await getLyric(sourceId)
+    console.log('[Lyric] 返回数据:', res.data?.length, '行')
     lyrics.value = res.data || []
     currentLyricIndex.value = 0
     setTimeout(() => scrollToCurrent(), 200)
-  } catch { lyrics.value = [] }
+  } catch (e) {
+    console.error('[Lyric] 获取失败:', e.message || e)
+    lyrics.value = []
+  }
   finally { loadingLyric.value = false }
 }
 
@@ -252,7 +307,17 @@ watch(() => props.visible, (val) => {
     isMuted.value = window.vibeAudio?.muted || false
     startTimeSync()
     if (props.currentSong.id) fetchLyric(props.currentSong.id)
-  } else { stopTimeSync(); exitFullscreen() }
+    // 启动频谱可视化
+    canvasReady = false
+    _dbgOnce = false
+    console.log('[Spectrum] LyricsView opened, starting spectrum...')
+    initSpectrum()
+    if (!spectrumRafId) drawSpectrum()
+  } else {
+    stopTimeSync()
+    stopSpectrum()
+    exitFullscreen()
+  }
 })
 
 // 切歌时自动刷新歌词
@@ -366,8 +431,8 @@ function close() { emit('update:visible', false) }
           </div>
         </main>
 
-        <!-- 频谱可视化 -->
-        <div class="spectrum-wrap">
+        <!-- 频谱 — 底部栏上方，水平全宽 -->
+        <div class="spectrum-row">
           <canvas ref="spectrumCanvas" class="spec-canvas"></canvas>
         </div>
 
@@ -488,8 +553,8 @@ function close() { emit('update:visible', false) }
 .stage { flex: 1; display: flex; align-items: center; padding: 0 40px; gap: 40px; overflow: hidden; }
 
 /* 碟片 */
-.left { width: 40%; display: flex; align-items: center; justify-content: center; }
-.disc-box { position: relative; width: 100%; max-width: 360px; aspect-ratio: 1; }
+.left { width: 38%; display: flex; align-items: center; justify-content: center; }
+.disc-box { position: relative; width: 100%; max-width: 390px; aspect-ratio: 1; flex-shrink: 0; }
 .disc { position: absolute; inset: 0; transform-origin: center center; animation: spin 18s linear infinite; animation-play-state: paused; }
 .disc.spin { animation-play-state: running; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -499,15 +564,15 @@ function close() { emit('update:visible', false) }
 .disc-inner img { width: 100%; height: 100%; object-fit: cover; }
 .disc-shine { position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%); pointer-events: none; }
 
-/* 频谱 */
-.spectrum-wrap { padding: 0 40px; height: 60px; flex-shrink: 0; }
-.spec-canvas { width: 100%; height: 100%; display: block; background: rgba(255,255,255,0.02); border-radius: 4px; }
+/* 频谱 — 底部栏上方，水平全宽 */
+.spectrum-row { padding: 0 40px; flex-shrink: 0; margin-bottom: 8px; }
+.spec-canvas { width: 100%; height: 152px; display: block; border-radius: 0; }
 
 /* 歌词 — 紧邻碟片右侧，撑满 */
-.right { flex: 1; height: 100%; overflow: hidden; }
-.lyric-box { height: 100%; overflow-y: auto; padding: 80px 20px 100px; scroll-behavior: smooth; }
+.right { flex: 1; height: 75%; overflow: hidden; padding-left: 70px; }
+.lyric-box { height: 100%; overflow-y: auto; padding: 40px 20px 100px; scroll-behavior: smooth; }
 .lyric-box::-webkit-scrollbar { display: none; }
-.lyric-line { padding: 16px 0; font-size: 20px; line-height: 1.7; color: rgba(255,255,255,0.3); text-align: left; transition: all .35s; cursor: pointer; letter-spacing: .5px; }
+.lyric-line { padding: 13px 0; font-size: 25px; line-height: 1.7; color: rgba(255,255,255,0.3); text-align: left; transition: all .35s; cursor: pointer; letter-spacing: .5px; }
 .lyric-line:hover { color: rgba(255,255,255,0.5); }
 .lyric-line.current { font-weight: 700; color: #2ecc71; text-shadow: 0 0 20px rgba(46,204,113,0.5); }
 .empty { text-align: center; padding-top: 30%; color: rgba(255,255,255,0.3); font-size: 16px; }

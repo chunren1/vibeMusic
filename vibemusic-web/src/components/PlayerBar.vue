@@ -6,37 +6,90 @@ import LyricsView from '@/components/LyricsView.vue'
 // ===== 全局播放队列（localStorage 持久化） =====
 const STORAGE_KEY = 'vibe_queue'
 const IDX_KEY = 'vibe_queue_idx'
+const SONG_KEY = 'vibe_current_song'
+const TIME_KEY = 'vibe_playback_time'
+const VOL_KEY = 'vibe_volume'
 
 function loadQueue() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
 }
-function saveQueue(q) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(q))
+function saveQueue() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(queue.value))
   localStorage.setItem(IDX_KEY, String(currentIdx.value))
+  localStorage.setItem(SONG_KEY, JSON.stringify(currentSong.value))
+}
+function loadSong() {
+  try { return JSON.parse(localStorage.getItem(SONG_KEY) || 'null') } catch { return null }
+}
+function savePlaybackTime() {
+  if (audio.duration && !audio.paused) {
+    localStorage.setItem(TIME_KEY, String(audio.currentTime))
+  }
 }
 
 const queue = ref(loadQueue())
 window.vibeQueue = queue
 const currentIdx = ref(parseInt(localStorage.getItem(IDX_KEY) || '-1'))
 
-// 队列变化时自动保存
 watch(queue, saveQueue, { deep: true })
-
-const currentSong = ref({ id: '', title: '未播放', artist: '', coverUrl: '', duration: 0 })
+const cachedSong = loadSong()
+const currentSong = ref(cachedSong || { id: '', title: '未播放', artist: '', coverUrl: '', duration: 0 })
+watch(currentSong, () => saveQueue(), { deep: true })
 const showLyrics = ref(false)
 const isPlaying = ref(false)
 const progress = ref(0)
 const currentTime = ref('0:00')
 const totalTime = ref('0:00')
-const volume = ref(70)
+const volume = ref(parseInt(localStorage.getItem(VOL_KEY) || '70'))
 const isMuted = ref(false)
 
 // 共享全局 Audio
 const audio = window.vibeAudio || new Audio()
 window.vibeAudio = audio
 
+// 全局 AudioContext + AnalyserNode（频谱用）
+function setupGlobalAnalyser() {
+  if (window._vibeAnalyser) return
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const analyser = ctx.createAnalyser()
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.8
+    const src = ctx.createMediaElementSource(audio)
+    src.connect(analyser)
+    analyser.connect(ctx.destination)
+    window._vibeAudioCtx = ctx
+    window._vibeAnalyser = analyser
+  } catch (e) {
+    console.warn('[AudioCtx]', e.message)
+    window._vibeAnalyser = null
+  }
+}
+document.addEventListener('click', setupGlobalAnalyser, { once: true })
+
 function pad(n) { return String(Math.floor(n)).padStart(2, '0') }
 function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + pad(s % 60) }
+
+function restorePlayback() {
+  if (currentIdx.value >= 0 && currentIdx.value < queue.value.length) {
+    const song = queue.value[currentIdx.value]
+    if (!currentSong.value.id) {
+      currentSong.value = {
+        id: song.sourceId, title: song.name, artist: song.artist,
+        coverUrl: song.coverUrl || '', duration: song.duration || 0,
+      }
+    }
+    totalTime.value = fmtSec(song.duration || 0)
+    const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
+    audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
+    audio.load()
+    if (cachedTime > 0) {
+      audio.currentTime = cachedTime
+      currentTime.value = fmtSec(cachedTime)
+    }
+    setupGlobalAnalyser()
+  }
+}
 
 // ===== 播放队列操作 =====
 function addToQueue(song) {
@@ -65,23 +118,15 @@ function playCurrent() {
   totalTime.value = fmtSec(song.duration || 0)
 
   // 获取实际播放 URL
-  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
-    const url = res.data?.url
-    if (url) {
-      audio.src = url
-      audio.load()
-      audio.play().catch(() => {})
-    }
-  }).catch(() => {})
+  apiPlaySong(song.sourceId, song.name, song.artist).catch(() => {})
+  audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
+  audio.load()
+  audio.play().catch(() => {})
+  setupGlobalAnalyser()
 }
 
 // 播放模式: sequential(顺序) | random(随机) | single(单曲循环)
 const playMode = ref('sequential')
-const modeIcons = {
-  sequential: '↻',   // 循环箭头
-  random: '⇄',       // 交叉箭头
-  single: '↻¹'      // 循环 + 1
-}
 function toggleMode() {
   const modes = ['sequential', 'random', 'single']
   const idx = modes.indexOf(playMode.value)
@@ -161,13 +206,19 @@ function onSongChange(e) {
   }
 }
 
-// HomeView 获取到 URL 后通过此函数设置 Audio 源
-function setAudioSrc(url) {
+// HomeView 播放歌曲时通过此函数设置 Audio 源 + 歌曲信息
+function setAudioSrc(url, sourceId, songName, songArtist, coverUrl) {
   if (!url) return
-  audio.src = url
+  // 有 sourceId 时用代理 URL（避免 CORS，Web Audio 可用）
+  const finalUrl = sourceId
+    ? `/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
+    : url
+  audio.src = finalUrl
   audio.load()
   audio.play().catch(() => {})
   isPlaying.value = true
+  if (sourceId) { currentSong.value = { id: sourceId, title: songName || "", artist: songArtist || "", coverUrl: coverUrl || "", duration: currentSong.value.duration || 0 } }
+  setupGlobalAnalyser()
 }
 window.vibeAudioSetSrc = setAudioSrc
 
@@ -189,9 +240,13 @@ audio.addEventListener('ended', () => { onEnded() })
 
 onMounted(() => {
   window.addEventListener('song-change', onSongChange)
+  restorePlayback()
+  setInterval(savePlaybackTime, 5000)
+  window.addEventListener('beforeunload', savePlaybackTime)
 })
 onUnmounted(() => {
   window.removeEventListener('song-change', onSongChange)
+  savePlaybackTime()
 })
 
 function togglePlay() {
@@ -204,7 +259,7 @@ function toggleMute() {
 function seekBar(e) {
   audio.currentTime = (e.offsetX / e.target.offsetWidth) * audio.duration
 }
-watch(volume, v => { audio.volume = v / 100 })
+watch(volume, v => { audio.volume = v / 100; localStorage.setItem(VOL_KEY, String(v)) })
 
 
 
@@ -251,56 +306,77 @@ const showPlaylist = ref(false)
 function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 </script>
 
+
 <template>
   <div class="player-bar">
-    <div class="song-info">
-      <div
-        class="mini-cover"
-        :class="{ active: showLyrics }"
-        :style="currentSong.coverUrl ? { backgroundImage: 'url(' + currentSong.coverUrl + '?param=100y100)' } : {}"
-        @click="showLyrics = !showLyrics"
-        title="歌词"
-      >
-        <span v-if="!currentSong.coverUrl">♪</span>
-      </div>
-      <div class="info-text">
-        <p class="song-title">{{ currentSong.title }}</p>
-        <p class="song-artist">{{ currentSong.artist }}</p>
-      </div>
-    </div>
-
-    <div class="player-controls">
-      <div class="control-btns">
-        <button class="ctrl-btn mode-btn" :class="{ active: playMode !== 'sequential' }" @click="toggleMode" :title="'模式: ' + (playMode === 'sequential' ? '顺序播放' : playMode === 'random' ? '随机播放' : '单曲循环')">
-          {{ modeIcons[playMode] }}
-        </button>
-        <button class="ctrl-btn" @click="prev" title="上一首">⏮</button>
-        <button class="ctrl-btn play-btn" @click="togglePlay" :title="isPlaying ? '暂停' : '播放'">
-          {{ isPlaying ? '⏸' : '▶' }}
-        </button>
-        <button class="ctrl-btn" @click="next" title="下一首">⏭</button>
-      </div>
-      <div class="progress-area">
+    <footer class="bar">
+      <div class="progress-wrap">
         <span class="time">{{ currentTime }}</span>
-        <div class="progress-bar" @click="seekBar">
-          <div class="progress-fill" :style="{ width: progress + '%' }"></div>
+        <div class="progress-track" @click="seekBar">
+          <div class="progress-fill" :style="{ width: progress + '%' }">
+            <div class="thumb"></div>
+          </div>
         </div>
         <span class="time">{{ totalTime || '0:00' }}</span>
       </div>
-    </div>
 
-    <div class="right-area">
-      <div class="volume-area">
-        <button class="mute-btn" @click="toggleMute">{{ isMuted ? '🔇' : '🔊' }}</button>
-        <div class="volume-bar" @click="e => volume = (e.offsetX / e.target.offsetWidth) * 100">
-          <div class="volume-fill" :style="{ width: volume + '%' }"></div>
+      <div class="ctrl-wrap">
+        <div class="left-info">
+          <div
+            class="mini-cover"
+            :class="{ active: showLyrics }"
+            :style="currentSong.coverUrl ? { backgroundImage: 'url(' + currentSong.coverUrl + '?param=80y80)' } : {}"
+            @click="showLyrics = !showLyrics"
+            title="歌词"
+          >
+            <span v-if="!currentSong.coverUrl">♪</span>
+          </div>
+          <div class="mini-song">
+            <span class="mini-name">{{ currentSong.title }}</span>
+            <span class="mini-artist"> - {{ currentSong.artist }}</span>
+          </div>
+          <button class="func-btn" :class="{ fav: favIds.has(currentSong.id) }" @click="toggleFav(currentSong)" title="收藏">
+            <svg viewBox="0 0 24 24" width="22" height="22" :fill="favIds.has(currentSong.id) ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          </button>
+        </div>
+
+        <div class="center-ctrl">
+          <button class="ctrl-btn mode-btn" @click="toggleMode" :title="playMode === 'sequential' ? '顺序播放' : playMode === 'random' ? '随机播放' : '单曲循环'">
+            <svg v-if="playMode === 'sequential'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            <svg v-else-if="playMode === 'random'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><rect x="7" y="13" width="10" height="10" rx="2"/><text x="12" y="21" text-anchor="middle" font-size="8" fill="currentColor" stroke="none">1</text></svg>
+          </button>
+          <button class="ctrl-btn skip" @click="prev" title="上一首">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+          </button>
+          <button class="ctrl-btn main" @click="togglePlay" title="播放/暂停">
+            <svg v-if="isPlaying" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
+          </button>
+          <button class="ctrl-btn skip" @click="next" title="下一首">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+          </button>
+        </div>
+
+        <div class="right-actions">
+          <button class="act-icon" :class="{ downloading: downloadingIds.has(currentSong.id) }" @click="handleDownload(currentSong)" title="下载">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <div class="vol-group">
+            <button class="act-icon" @click="toggleMute" title="音量">
+              <svg v-if="isMuted || volume === 0" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+              <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+            </button>
+            <div class="vol-bar" @click="e => volume = Math.round((e.offsetX / e.target.offsetWidth) * 100)">
+              <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
+            </div>
+          </div>
+          <button class="act-icon" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
         </div>
       </div>
-      <button class="panel-btn" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
-        📋
-        <span v-if="queue.length" class="queue-count">{{ queue.length }}</span>
-      </button>
-    </div>
+    </footer>
 
     <!-- 播放列表面板 -->
     <Transition name="panel">
@@ -324,17 +400,8 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
               <span class="pi-name" :class="{ hl: idx === currentIdx }">{{ song.name }}</span>
               <span class="pi-artist">{{ song.artist }}</span>
             </div>
-            <button
-              class="pi-fav"
-              :class="{ faved: favIds.has(song.sourceId) }"
-              @click.stop="toggleFav(song)"
-              :title="favIds.has(song.sourceId) ? '取消收藏' : '收藏'"
-            >{{ favIds.has(song.sourceId) ? '⭐' : '☆' }}</button>
-            <button
-              class="pi-dl"
-              @click.stop="handleDownload(song)"
-              :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'"
-            >{{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}</button>
+            <button class="pi-fav" :class="{ faved: favIds.has(song.sourceId) }" @click.stop="toggleFav(song)" :title="favIds.has(song.sourceId) ? '取消收藏' : '收藏'">⭐</button>
+            <button class="pi-dl" @click.stop="handleDownload(song)" :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'">{{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}</button>
             <button class="pi-remove" @click.stop="removeFromQueue(idx)" title="移除">✕</button>
           </div>
           <div v-if="queue.length === 0" class="panel-empty">播放队列为空</div>
@@ -355,113 +422,98 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
   />
 </template>
 
+
 <style scoped>
 .player-bar {
-  position: fixed; bottom: 0; left: 0; right: 0; height: 80px;
-  background: #fff; border-top: 1px solid #e0e0e0;
-  display: flex; align-items: center; gap: 20px;
-  padding: 0 24px; z-index: 100;
-  box-shadow: 0 -2px 8px rgba(0,0,0,.06);
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
 }
-.song-info {
-  display: flex; align-items: center; gap: 14px; width: 240px; flex-shrink: 0;
-}
+
+.bar { padding: 10px 28px 16px; background: #fff; border-top: 1px solid #e8e8e8; box-shadow: 0 -2px 8px rgba(0,0,0,.05); }
+
+.progress-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.time { font-size: 13px; color: #999; min-width: 44px; font-variant-numeric: tabular-nums; text-align: center; }
+.progress-track { flex: 1; height: 4px; background: #e8e8e8; border-radius: 2px; cursor: pointer; position: relative; }
+.progress-track:hover { height: 6px; }
+.progress-fill { height: 100%; background: #31c27c; border-radius: 2px; position: relative; }
+.thumb { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: #31c27c; border-radius: 50%; opacity: 0; transition: opacity .2s; }
+.progress-track:hover .thumb { opacity: 1; }
+
+.ctrl-wrap { display: flex; align-items: center; justify-content: space-between; }
+
+.left-info { display: flex; align-items: center; gap: 14px; min-width: 200px; }
 .mini-cover {
-  width: 54px; height: 54px; border-radius: 8px;
-  background: #e0e0e0; position: relative;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 22px; color: #31c27c; flex-shrink: 0; cursor: pointer;
+  width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0;
+  background: #eee; display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #31c27c; cursor: pointer;
   background-size: cover; background-position: center;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform .15s;
 }
-.mini-cover:hover { transform: scale(1.05); box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
-.mini-cover.active { box-shadow: 0 0 0 3px rgba(49,194,124,0.5); }
-.info-text { flex: 1; min-width: 0; }
-.song-title { font-size: 15px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.song-artist { font-size: 13px; color: #777; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-cover:hover { transform: scale(1.08); }
+.mini-cover.active { box-shadow: 0 0 0 2px rgba(49,194,124,0.5); }
+.mini-song { color: #666; font-size: 13px; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-name { color: #1a1a1a; font-weight: 500; }
+.mini-artist { color: #999; }
+.func-btn { width: 40px; height: 40px; border: none; background: none; border-radius: 50%; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
+.func-btn:hover { background: rgba(0,0,0,.05); color: #ec4141; }
+.func-btn.fav { color: #ec4141; }
 
-.player-controls { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.control-btns { display: flex; align-items: center; gap: 24px; }
-.ctrl-btn { background: none; border: none; color: #555; font-size: 22px; cursor: pointer; }
+.center-ctrl { display: flex; align-items: center; gap: 12px; }
+.ctrl-btn { border: none; background: none; color: #555; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .ctrl-btn:hover { color: #1a1a1a; }
-.mode-btn { font-size: 16px; color: #999; position: relative; }
-.mode-btn:hover { color: #1a1a1a; }
-.mode-btn.active { color: #31c27c; }
-.play-btn {
-  width: 44px; height: 44px; border-radius: 50%;
-  background: #31c27c; color: #fff; font-size: 16px;
-  display: flex; align-items: center; justify-content: center;
-}
-.play-btn:hover { background: #28a86b; }
-.progress-area { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 520px; }
-.time { font-size: 13px; color: #888; width: 40px; text-align: center; }
-.progress-bar {
-  flex: 1; height: 5px; background: #e0e0e0; border-radius: 3px;
-  position: relative; cursor: pointer;
-}
-.progress-fill { height: 100%; background: #31c27c; border-radius: 3px; transition: width .2s; }
+.ctrl-btn.mode-btn { width: 40px; height: 40px; border-radius: 50%; color: #999; }
+.ctrl-btn.mode-btn:hover { color: #31c27c; background: rgba(49,194,124,0.12); }
+.ctrl-btn.skip { opacity: 0.75; }
+.ctrl-btn.skip:hover { opacity: 1; }
+.ctrl-btn.main { width: 52px; height: 28px; border-radius: 7px; background: #31c27c; color: #fff; }
+.ctrl-btn.main:hover { transform: scale(1.06); }
 
-.right-area { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.panel-btn {
-  position: relative; background: none; border: none;
-  color: #888; font-size: 22px; cursor: pointer; padding: 6px; border-radius: 6px;
-}
-.panel-btn:hover { color: #333; background: rgba(0,0,0,.04); }
-.panel-btn.active { color: #31c27c; }
-.queue-count {
-  position: absolute; top: -2px; right: -4px;
-  background: #31c27c; color: #fff; font-size: 10px;
-  border-radius: 50%; width: 16px; height: 16px;
-  display: flex; align-items: center; justify-content: center;
-}
+.right-actions { display: flex; align-items: center; gap: 12px; min-width: 180px; justify-content: flex-end; }
+.act-icon { width: 38px; height: 38px; border: none; background: none; border-radius: 50%; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
+.act-icon:hover { color: #333; background: rgba(0,0,0,.05); }
+.act-icon.active { color: #31c27c; background: rgba(49,194,124,0.1); }
+.act-icon.downloading { color: #31c27c; }
+.vol-group { display: flex; align-items: center; gap: 8px; }
+.vol-bar { width: 70px; height: 4px; background: #e0e0e0; border-radius: 2px; cursor: pointer; }
+.vol-bar:hover { height: 6px; }
+.vol-fill { height: 100%; background: #aaa; border-radius: 2px; }
+.vol-bar:hover .vol-fill { background: #31c27c; }
 
-.volume-area { display: flex; align-items: center; gap: 10px; }
-.mute-btn { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
-.volume-bar { width: 100px; height: 5px; background: #e0e0e0; border-radius: 3px; cursor: pointer; }
-.volume-fill { height: 100%; background: #999; border-radius: 3px; }
-
-/* ===== 播放列表面板 ===== */
+/* 播放列表面板 */
 .playlist-panel {
-  position: fixed; right: 0; bottom: 80px; top: 0; width: 320px;
-  background: #fff; border-left: 1px solid #e0e0e0;
-  z-index: 99; display: flex; flex-direction: column;
-  box-shadow: -4px 0 24px rgba(0,0,0,.08);
+  position: fixed; right: 0; bottom: 0; top: 0; width: 320px;
+  background: #fff;
+  border-left: 1px solid #e0e0e0;
+  z-index: 110; display: flex; flex-direction: column;
 }
 .panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 18px 20px; border-bottom: 1px solid #eee;
-  font-size: 15px; color: #333; flex-shrink: 0;
+  font-size: 15px; color: #fff; flex-shrink: 0;
 }
 .panel-close { background: none; border: none; color: #999; font-size: 16px; cursor: pointer; }
 .panel-close:hover { color: #333; }
 .panel-list { flex: 1; overflow-y: auto; padding: 8px 0; }
-.panel-empty { text-align: center; color: #999; padding: 60px 0; font-size: 13px; }
+.panel-empty { text-align: center; color: #999; padding: 80px 0; font-size: 13px; }
 
-.panel-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 20px; cursor: pointer; transition: .12s;
-}
-.panel-item:hover { background: #f0f0f0; }
-.panel-item.current { background: rgba(49,194,124,.1); }
+.panel-item { display: flex; align-items: center; gap: 12px; padding: 10px 20px; cursor: pointer; transition: .12s; }
+.panel-item:hover { background: #f5f5f5; }
+.panel-item.current { background: rgba(49,194,124,0.1); }
 .pi-cover {
   width: 38px; height: 38px; border-radius: 5px; flex-shrink: 0;
-  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: #999;
+  background: #eee; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: #31c27c;
   background-size: cover; background-position: center;
 }
 .pi-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .pi-name { font-size: 13px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pi-name.hl { color: #31c27c; }
 .pi-artist { font-size: 11px; color: #888; }
-.pi-fav, .pi-dl, .pi-remove {
-  background: none; border: none; color: #444; font-size: 12px;
-  cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 3px;
-}
+.pi-fav, .pi-dl, .pi-remove { background: none; border: none; color: #ccc; font-size: 11px; cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 3px; }
 .panel-item:hover .pi-fav, .panel-item:hover .pi-dl, .panel-item:hover .pi-remove { opacity: 1; }
-.pi-fav:hover { color: #f0c040; background: rgba(255,255,255,.05); }
+.pi-fav:hover { color: #f0c040; }
 .pi-fav.faved { color: #f0c040; opacity: 1; }
-.pi-dl:hover { color: #31c27c; background: rgba(255,255,255,.05); }
-.pi-remove:hover { color: #e84c3d; background: rgba(255,255,255,.05); }
+.pi-dl:hover { color: #31c27c; }
+.pi-remove:hover { color: #ec4141; }
 
 .panel-enter-active, .panel-leave-active { transition: transform .25s ease; }
 .panel-enter-from, .panel-leave-to { transform: translateX(100%); }
