@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+import { API_HOST } from '@/api/request'
 import { useRoute, useRouter } from 'vue-router'
 import { searchSongs, playSong as apiPlaySong, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
 
@@ -101,10 +102,10 @@ function handleDownload(song) {
 
 function downloadViaBackend(song) {
   apiDownload(song.sourceId, song).then(res => {
-    const u = res.data?.fileUrl || `/api/download/file/${song.sourceId}`
+    const u = res.data?.fileUrl || `${API_HOST}/api/download/file/${song.sourceId}`
     const a = document.createElement('a'); a.href = u; a.download = `${song.name}.mp3`; a.click()
   }).catch(() => {
-    const a = document.createElement('a'); a.href = `/api/download/file/${song.sourceId}`; a.download = `${song.name}.mp3`; a.click()
+    const a = document.createElement('a'); a.href = `${API_HOST}/api/download/file/${song.sourceId}`; a.download = `${song.name}.mp3`; a.click()
   }).finally(() => downloadingIds.value.delete(song.sourceId))
 }
 

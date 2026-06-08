@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { API_HOST } from '@/api/request'
 import { playSong as apiPlaySong, downloadSong as apiDownload, toggleFavorite, getFavoriteIds } from '@/api/song'
 import LyricsView from '@/components/LyricsView.vue'
 
@@ -91,7 +92,7 @@ function restorePlayback() {
     }
     totalTime.value = fmtSec(song.duration || 0)
     const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
-    audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
+    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
     if (cachedTime > 0) {
       audio.currentTime = cachedTime
       currentTime.value = fmtSec(cachedTime)
@@ -124,8 +125,11 @@ function playCurrent() {
   }
   totalTime.value = fmtSec(song.duration || 0)
 
-  apiPlaySong(song.sourceId, song.name, song.artist).catch(() => {})
-  audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
+  const baseURL = API_HOST
+  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
+    if (res.data?.url) audio.src = res.data.url  // 直接用 CDN 地址
+  }).catch(() => {})
+  audio.src = `${baseURL}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
   resumeAudioContext()
   audio.play().catch(() => {})
   setupGlobalAnalyser()
@@ -228,7 +232,7 @@ function onSongChange(e) {
 function setAudioSrc(url, sourceId, songName, songArtist, coverUrl) {
   if (!url) return
   const finalUrl = sourceId
-    ? `/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
+    ? `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
     : url
   console.log('[PlayerBar] setAudioSrc:', songName, 'sourceId:', sourceId)
   audio.src = finalUrl
@@ -315,7 +319,7 @@ function handleDownload(song) {
     downloadingIds.value.delete(song.sourceId)
     // 下载到 RustFS 成功后触发浏览器下载
     const a = document.createElement('a')
-    a.href = `/api/download/file/${song.sourceId}`
+    a.href = `${API_HOST}/api/download/file/${song.sourceId}`
     a.download = `${song.name || song.sourceId}.mp3`
     a.click()
   }).catch(() => {

@@ -1,7 +1,15 @@
 import axios from 'axios'
 
+// 开发环境用 Vite proxy，生产环境用完整 URL
+export const API_HOST = import.meta.env.PROD 
+  ? 'https://3c93f058.r11.cpolar.top' 
+  : ''
+const API_BASE = import.meta.env.PROD 
+  ? API_HOST + '/api'
+  : '/api'
+
 const request = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   timeout: 15000,
 })
 

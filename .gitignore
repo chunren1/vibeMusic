@@ -34,3 +34,18 @@ Thumbs.db
 # ===== Env & secrets =====
 .env
 .env.local
+
+# ===== Android =====
+vibemusic-web/android/app/build/
+vibemusic-web/android/build/
+vibemusic-web/android/.gradle/
+vibemusic-web/android/local.properties
+*.apk
+
+# ===== Cloudflare Tunnel =====
+.cloudflared/
+
+# ===== Temp / Debug =====
+compile_err.txt
+.codebuddy/tmp/
+$null

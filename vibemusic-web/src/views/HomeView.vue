@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
 import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
 
@@ -133,7 +134,7 @@ function handleDownload(song) {
 function downloadViaBackend(song) {
   apiDownload(song.sourceId, song).then(res => {
     // 后端返回 { fileUrl } → 触发浏览器下载
-    const fileUrl = res.data?.fileUrl || `/api/download/file/${song.sourceId}`
+    const fileUrl = res.data?.fileUrl || `${API_HOST}/api/download/file/${song.sourceId}`
     const a = document.createElement('a')
     a.href = fileUrl
     a.download = `${song.name || song.sourceId}.mp3`
@@ -141,7 +142,7 @@ function downloadViaBackend(song) {
   }).catch(() => {
     // 即便报错也尝试直接下载 RustFS 文件
     const a = document.createElement('a')
-    a.href = `/api/download/file/${song.sourceId}`
+    a.href = `${API_HOST}/api/download/file/${song.sourceId}`
     a.download = `${song.name || song.sourceId}.mp3`
     a.click()
   }).finally(() => {

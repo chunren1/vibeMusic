@@ -1,4 +1,5 @@
 <script setup>
+import { API_HOST } from '@/api/request'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toggleFavorite, getFavoriteIds } from '@/api/song'
@@ -30,7 +31,7 @@ const isPlayer = computed(() => route.path.startsWith('/m/player'))
 const isSearch = computed(() => route.path.startsWith('/m/search'))
 const bottomOffset = computed(() => isSearch.value ? 0 : 56)
 const currentSong = ref({ id: '', title: '', artist: '', coverUrl: '' })
-const isPlaying = ref(false)
+const isPlaying = ref(!audio.paused)
 const progress = ref(0)
 
 function fmtSec(s) {
@@ -84,7 +85,7 @@ onMounted(() => {
         isFaved.value = favIds.value.has(s.id)
         // 恢复音频源（刷新后 audio 是新的，需要重新设 src）
         if (!audio.src) {
-          audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(s.id)}`
+          audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(s.id)}`
           const t = parseFloat(localStorage.getItem('vibe_playback_time') || '0')
           if (t > 0) audio.currentTime = t
         }
@@ -115,7 +116,8 @@ function switchQueue(delta) {
       : (idx <= 0 ? q.length - 1 : idx - 1)
     localStorage.setItem('vibe_queue_idx', String(idx))
     const s = q[idx]
-    audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(s.sourceId)}`
+    const baseURL = API_HOST
+    audio.src = `${baseURL}/api/songs/stream?sourceId=${encodeURIComponent(s.sourceId)}`
     audio.play().catch(() => {})
     const song = { sourceId: s.sourceId, title: s.name, artist: s.artist, coverUrl: s.coverUrl || '' }
     localStorage.setItem('vibe_current_song', JSON.stringify({ id: s.sourceId, title: s.name, artist: s.artist, coverUrl: s.coverUrl || '' }))

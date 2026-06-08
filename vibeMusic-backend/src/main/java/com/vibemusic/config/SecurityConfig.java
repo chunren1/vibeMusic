@@ -40,8 +40,9 @@ public class SecurityConfig {
                     "/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/favicon.ico"
                 ).permitAll()
 
-                // 歌曲浏览 GET 公开
+                // 歌曲搜索/浏览 GET 公开（注意：/api/song/ 和 /api/songs/ 两个路径）
                 .requestMatchers(HttpMethod.GET,
+                    "/api/song/**",
                     "/api/songs/**"
                 ).permitAll()
 
