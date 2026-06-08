@@ -17,4 +17,7 @@ public class NeteaseApiConfig {
 
     /** 连接超时 (毫秒) */
     private int timeout = 10000;
+
+    /** 网易云 VIP Cookie (MUSIC_U) */
+    private String cookie;
 }

@@ -1,4 +1,5 @@
 <script setup>
+import { API_HOST } from '@/api/request'
 import { ref, watch, nextTick } from 'vue'
 
 const props = defineProps({ visible: Boolean })
@@ -23,7 +24,7 @@ function playSong(song) {
   if (idx === -1) return
   localStorage.setItem('vibe_queue_idx', String(idx))
   const a = window.vibeAudio
-  a.src = `/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
+  a.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
   a.play().catch(() => {})
   const info = { sourceId: song.sourceId, title: song.name, artist: song.artist, coverUrl: song.coverUrl || '' }
   localStorage.setItem('vibe_current_song', JSON.stringify({ id: song.sourceId, title: song.name, artist: song.artist, coverUrl: song.coverUrl || '' }))

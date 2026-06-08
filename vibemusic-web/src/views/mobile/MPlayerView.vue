@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
 import { getLyric, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
@@ -10,7 +11,7 @@ const audio = window.vibeAudio
 
 // 当前歌曲：直接从 localStorage 读取（和底部栏同一数据源）
 const song = ref({ id: '', title: '', artist: '', coverUrl: '' })
-const isPlaying = ref(false)
+const isPlaying = ref(!audio.paused)
 const currentTime = ref(0)
 const duration = ref(0)
 const progress = ref(0)
@@ -51,10 +52,10 @@ function doDownload() {
 }
 function downloadViaBackend() {
   apiDownload(song.value.id, { name: song.value.title, artist: song.value.artist, coverUrl: song.value.coverUrl }).then(res => {
-    const u = res.data?.fileUrl || `/api/download/file/${song.value.id}`
+    const u = res.data?.fileUrl || `${API_HOST}/api/download/file/${song.value.id}`
     const a = document.createElement('a'); a.href = u; a.download = `${song.value.title}.mp3`; a.click()
   }).catch(() => {
-    const a = document.createElement('a'); a.href = `/api/download/file/${song.value.id}`; a.download = `${song.value.title}.mp3`; a.click()
+    const a = document.createElement('a'); a.href = `${API_HOST}/api/download/file/${song.value.id}`; a.download = `${song.value.title}.mp3`; a.click()
   }).finally(() => { downloading.value = false })
 }
 
@@ -165,7 +166,7 @@ function switchTo(idx) {
   const s = q[idx]
   localStorage.setItem('vibe_queue_idx', String(idx))
   // 更新播放轨道
-  audio.src = `/api/songs/stream?sourceId=${encodeURIComponent(s.sourceId)}`
+  audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(s.sourceId)}`
   audio.play().catch(() => {})
   // 同步 localStorage（底部栏会读到这个）
   localStorage.setItem('vibe_current_song', JSON.stringify({
