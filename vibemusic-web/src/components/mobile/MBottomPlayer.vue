@@ -1,6 +1,6 @@
 <script setup>
 import { API_HOST } from '@/api/request'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toggleFavorite, getFavoriteIds } from '@/api/song'
 
@@ -40,40 +40,33 @@ function fmtSec(s) {
   return m + ':' + String(sec).padStart(2, '0')
 }
 
-onMounted(() => {
-  window.addEventListener('song-change', e => {
-    const d = e.detail
-    const song = {
-      id: d.sourceId || '',
-      title: d.title || '',
-      artist: d.artist || '',
-      coverUrl: d.coverUrl || '',
-    }
-    currentSong.value = song
-    // 同步写入 localStorage
-    localStorage.setItem('vibe_current_song', JSON.stringify(song))
-    // 同步收藏状态
-    isFaved.value = favIds.value.has(song.id)
-    // 管理播放队列：去重 + 追加
-    try {
-      const q = JSON.parse(localStorage.getItem('vibe_queue') || '[]')
-      const sourceId = d.sourceId || d.id
-      // 去重：已存在则移除旧位置
-      const existIdx = q.findIndex(s => s.sourceId === sourceId)
-      if (existIdx >= 0) q.splice(existIdx, 1)
-      // 追加到队尾
-      q.push({ sourceId, name: d.title, artist: d.artist, coverUrl: d.coverUrl || '', duration: d.duration || 0 })
-      localStorage.setItem('vibe_queue', JSON.stringify(q))
-      localStorage.setItem('vibe_queue_idx', String(q.length - 1))
-    } catch {}
-  })
+const _onPlay = () => { isPlaying.value = true }
+const _onPause = () => { isPlaying.value = false }
+const _onEnded = () => { isPlaying.value = false }
+const _onTime = () => { if (audio.duration) progress.value = (audio.currentTime / audio.duration) * 100 }
+const _onSongChange = (e) => {
+  const d = e.detail
+  const song = { id: d.sourceId || '', title: d.title || '', artist: d.artist || '', coverUrl: d.coverUrl || '' }
+  currentSong.value = song
+  localStorage.setItem('vibe_current_song', JSON.stringify(song))
+  isFaved.value = favIds.value.has(song.id)
+  try {
+    const q = JSON.parse(localStorage.getItem('vibe_queue') || '[]')
+    const sid = d.sourceId || d.id
+    const existIdx = q.findIndex(s => s.sourceId === sid)
+    if (existIdx >= 0) q.splice(existIdx, 1)
+    q.push({ sourceId: sid, name: d.title, artist: d.artist, coverUrl: d.coverUrl || '', duration: d.duration || 0 })
+    localStorage.setItem('vibe_queue', JSON.stringify(q))
+    localStorage.setItem('vibe_queue_idx', String(q.length - 1))
+  } catch {}
+}
 
-  audio.addEventListener('play', () => { isPlaying.value = true })
-  audio.addEventListener('pause', () => { isPlaying.value = false })
-  audio.addEventListener('ended', () => { isPlaying.value = false })
-  audio.addEventListener('timeupdate', () => {
-    if (audio.duration) progress.value = (audio.currentTime / audio.duration) * 100
-  })
+onMounted(() => {
+  window.addEventListener('song-change', _onSongChange)
+  audio.addEventListener('play', _onPlay)
+  audio.addEventListener('pause', _onPause)
+  audio.addEventListener('ended', _onEnded)
+  audio.addEventListener('timeupdate', _onTime)
 
   // 恢复已播放状态
   const saved = localStorage.getItem('vibe_current_song')
@@ -92,6 +85,13 @@ onMounted(() => {
       }
     } catch {}
   }
+})
+onUnmounted(() => {
+  window.removeEventListener('song-change', _onSongChange)
+  audio.removeEventListener('play', _onPlay)
+  audio.removeEventListener('pause', _onPause)
+  audio.removeEventListener('ended', _onEnded)
+  audio.removeEventListener('timeupdate', _onTime)
 })
 
 function goToPlayer() {
