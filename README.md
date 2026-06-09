@@ -37,8 +37,10 @@
 | 👤 用户中心 | JWT 登录/注册，弹窗式无跳转；个人主页支持编辑资料（昵称/性别/生日/头像/背景图）；详情页展示完整信息 |
 | 🔍 多平台搜索 | 聚合网易云 + QQ音乐，多维加权评分(相关性+热度+排名)，信息指纹去重，LRU缓存加速，400ms 防抖 |
 | 🎯 个性化推荐 | 基于播放历史聚合歌手权重，优先匹配 RustFS 已缓存歌曲；Redis 缓存加速；未登录降级随机推荐 |
-| ▶️ VIP音质播放 | 自有 VIP Cookie，exhigh / hires 品质 |
-| ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录；Pinia Store 全局实时同步，跨页面状态一致 |
+| 🎯 个性化推荐 | 播放历史歌手权重聚合 + RustFS缓存优先 + Redis缓存加速(6h/1h) |
+| 🏷️ 音质SLA分级 | LOCAL>HIRES>EXHIGH>HIGHER>STANDARD>FALLBACK，逐级降级+降级统计，前端实时显示音质标签 |
+| 🔐 Cookie统一管理 | 网易云+QQ Cookie集中在 musicapi/config.js，后端零持有；服务启动自动监控+每小时检查 |
+| ❤️ 收藏管理 | Pinia Store 全局实时同步，乐观更新+回滚，10个组件统一接入 |
 | 📋 歌单管理 | 创建/删除/添加歌曲，完整 CRUD，所有权校验 |
 | 🕐 最近播放 | 播放历史，自动保留最近 300 条，用户隔离 |
 | 📱 移动端适配 | 同项目路由分流 `/m`，独立 UI 组件，共享 API/Store，自动设备检测跳转 |
@@ -46,8 +48,8 @@
 | 📜 播放队列 | 自动入列，底部弹出式列表，去重管理 |
 | 🤖 Android APK | Capacitor 打包，HTTPS 公网接口，安装即用 |
 | 🌐 内网穿透 | natapp + cpolar 双方案，公网可访问 |
-| 🛡️ Cookie 监控 | Python 脚本，Windows 任务计划，Server酱微信告警 |
-| 💾 RustFS 离线缓存 | 歌曲下载到对象存储，API 挂了也能播放已缓存歌曲，stream 直读兜底 |
+| 🛡️ Cookie 监控 | 随 API 启动自动运行，日志写入 musicapi/logs/，支持 Server酱微信告警 |
+| 💾 RustFS 离线缓存 | 用户主动下载→存入对象存储，播放优先RustFS直读(零API调用)；播放不自动下载 |
 | 🎨 响应式 UI | 桌面侧栏 + 移动底部TabBar，暗色/亮色双主题 |
 
 ## 目录结构
@@ -65,18 +67,18 @@ vibeMusic/
 │   │   └── ...
 │   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView, GlobalFullscreenBtn + mobile/
 │   │   ├── composables/    # useIsMobile (设备检测)
-│   │   ├── stores/         # Pinia: auth (JWT), player (播放), favorite (收藏), recommend (推荐)
+│   │   ├── stores/         # Pinia: auth(JWT), player(播放), favorite(收藏全局同步), recommend(个性化推荐)
 │   │   └── api/            # Axios 封装 + 接口 (auth.js, song.js, request.js)
 │   ├── android/            # Capacitor Android 项目
 │   └── capacitor.config.json
 ├── vibeMusic-backend/      # Spring Boot 后端
 │   └── src/main/java/com/vibemusic/
 │       ├── controller/     # Auth, Song, Favorite, Playlist, Download, Recommend
-│       ├── service/        # UserService, SongService, NeteaseApiService, StorageService, DownloadService
+│       ├── service/        # UserService, SongService, RecommendService, StorageService, DownloadService, NeteaseApiService
 │       ├── entity/         # User, Song, UserFavorite, Playlist, PlayHistory
 │       ├── security/       # JwtAuthFilter, CustomUserDetails
 │       ├── dto/            # SongDTO
-│       ├── config/         # Security, Cors, Redis, NeteaseApi 配置
+│       ├── config/         # Security, Cors, Redis, NeteaseApi, AudioQualityTier
 │       └── mapper/         # MyBatis-Plus Mapper
 ├── scripts/                # 运维工具
 │   ├── start-tunnel.bat    # cpolar 自动重连脚本
@@ -84,8 +86,10 @@ vibeMusic/
 │   ├── start-cloudflare-tunnel.bat
 │   └── migration_profile.sql   # 个人资料迁移 SQL
 ├── musicapi/               # Node.js API 聚合网关 (端口 3000)
-│   ├── server.js           # 聚合搜索 + 独立平台搜索 + 质量过滤
-│   └── config.js           # QQ Cookie 配置
+│   ├── server.js           # 聚合搜索 + 音质分级 + Cookie注入 + 自动监控 + 日志系统
+│   ├── config.js           # 网易云+QQ Cookie 统一管理中心
+│   ├── logs/               # 分类日志 (api-errors / cookie-monitor / access)
+│   └── .gitignore          # 忽略 node_modules + *.log
 ├── natapp/                 # natapp 内网穿透
 │   └── run_natapp.bat
 └── .cloudflared/            # Cloudflare Tunnel 配置
@@ -180,6 +184,8 @@ cd android && gradlew clean assembleDebug
 | `/cloudsearch` | 网易云单平台搜索 |
 | `/song/url/v1` | 网易云播放URL |
 | `/song/url/qq` | QQ音乐播放URL |
+| `/cookie-status` | Cookie 存活状态查询 |
+| `/health` | 健康检查（含缓存大小+Cookie状态） |
 
 ## 聚合搜索算法 (v2)
 
@@ -210,8 +216,40 @@ cd android && gradlew clean assembleDebug
 ```
 
 - 用户播放歌曲后异步清除推荐缓存，确保推荐随行为更新
-- RustFS 离线校验：每首歌实时检查 `StorageService.exists()`，前端展示 ▲ 离线标识
 - 降级兜底：推荐接口异常 → `getRandomSongs()` 保底，Redis 异常 → 跳过缓存
+
+## 音质 SLA 分级（AudioQualityTier）
+
+```
+LOCAL (RustFS直出) → HIRES (96kHz/24bit) → EXHIGH (48kHz)
+  → HIGHER (320kbps) → STANDARD (128kbps) → FALLBACK (最终兜底)
+```
+
+- 六级音质枚举，逐级降级：高音质不可用自动尝试下一级
+- 网易云全部试听 → QQ音乐跨平台降级 → DB历史URL兜底
+- 每次降级记录 `degradationCount` 统计
+- 前端 PlayerBar / MPlayerView 实时显示音质标签（绿色）
+- 非用户权限，是系统资源的自适应调度策略
+
+## Cookie 统一管理中心
+
+```
+musicapi/config.js
+├── netease: "MUSIC_U=..."
+└── qq: { uin, qqmusic_key, psrf_* ... }
+         │
+    server.js 启动注入
+         │
+    ┌─────┴─────┐
+    ▼            ▼
+withNeteaseCookie()  qqMusic.setCookie()
+```
+
+- 网易云 + QQ 所有 Cookie 集中在 `musicapi/config.js`
+- 后端 `application.yml` / `NeteaseApiConfig` 已移除 cookie 字段
+- API 启动时自动执行 Cookie 存活检查，之后每小时检查一次
+- `GET /cookie-status` 查询实时状态，`GET /health` 反映 Cookie 可用性
+- 日志写入 `musicapi/logs/cookie-monitor.log`
 
 ## Pinia Favorite Store（收藏状态全局同步）
 
@@ -262,17 +300,17 @@ cd android && gradlew clean assembleDebug
 
 ## RustFS 离线兜底
 
-当 API 聚合网关（musicapi）不可用时，已下载到 RustFS 的歌曲仍可正常播放：
+**仅用户主动下载时存入 RustFS，播放不自动下载。**
 
 ```
-播放请求 → ① RustFS缓存? → 直接返回（不调API）
+播放请求 → ① RustFS缓存? → 直接返回（零API调用，最高SLA）
          → ② API可用? → 获取在线URL
          → ③ DB历史URL → 兜底
-         → ④ stream端点 → RustFS直读兜底
+         → ④ stream端点 → 远程代理直播
 ```
 
 - DB 中始终存**不过期的直接 URL**（`endpoint/bucket/objectName`），不存预签名 URL
-- `stream` 端点优先从 RustFS 直接读取，远程代理为降级方案
+- 下载/上传前去重：`StorageService.exists()` 检查 + `sourceId UNIQUE` 防重
 - 下载文件名格式：`歌手 - 歌曲名.mp3`
 
 ## 关键配置
