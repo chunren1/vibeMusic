@@ -30,15 +30,6 @@ const avatarInput = ref(null)
 const bgLoading = ref(false)
 const bgInput = ref(null)
 
-// 全屏
-const isFullscreen = ref(false)
-function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().then(() => isFullscreen.value = true)
-  } else {
-    document.exitFullscreen().then(() => isFullscreen.value = false)
-  }
-}
 
 const AVATAR_PALETTE = ['#e8b4b4', '#b4c8e8', '#b4e8c2', '#e8d9b4', '#d4b4e8', '#e8b4d4', '#b4e4e8', '#c2e8b4', '#e8c4b4', '#b4b4e8']
 
@@ -142,10 +133,6 @@ function getZodiac(month, day) {
           <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="m-hero-bg-img" />
         </div>
         <div class="m-hero-fade"></div>
-        <button class="m-fullscreen-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
-          <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
-          <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 8 4 3 9 3"/><polyline points="20 16 20 21 15 21"/><line x1="4" y1="3" x2="11" y2="10"/><line x1="20" y1="21" x2="13" y2="14"/></svg>
-        </button>
       </div>
 
       <!-- 用户信息卡片 -->
@@ -270,15 +257,6 @@ function getZodiac(month, day) {
   background: linear-gradient(to bottom, transparent 0%, rgba(10,10,10,0.7) 70%, #0a0a0a 100%);
   pointer-events: none;
 }
-
-.m-fullscreen-btn {
-  position: absolute; top: 12px; right: 12px; z-index: 5;
-  width: 36px; height: 36px; border: none; border-radius: 50%;
-  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; backdrop-filter: blur(6px);
-}
-.m-fullscreen-btn:active { background: rgba(255,255,255,0.2); color: #fff; }
 
 /* 用户信息卡片 */
 .m-user-card {

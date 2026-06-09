@@ -2,12 +2,14 @@
 import { ref, computed, onMounted } from 'vue'
 import { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
-import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
+import { searchSongs, playSong as apiPlaySong, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
 
 import { useAuthStore } from '@/stores/auth'
+import { useRecommendStore } from '@/stores/recommend'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
 const router = useRouter()
 const authStore = useAuthStore()
+const recommendStore = useRecommendStore()
 
 // ===== 全局音频播放器（与PlayerBar共享） =====
 const audio = window.vibeAudio || new Audio()
@@ -77,6 +79,15 @@ favStore.fetchFavIds()
 
 function toggleFav(song) {
   favStore.toggleFav(song)
+}
+
+// 全屏切换
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {})
+  } else {
+    document.exitFullscreen().catch(() => {})
+  }
 }
 
 // ===== 歌单弹窗 =====
@@ -163,37 +174,12 @@ onMounted(() => {
   startBanner()
 })
 
-// ===== 随机推荐歌曲（从后端获取） =====
-const randomSongs = ref([])
-
+// ===== 推荐歌曲（从 Store 获取） =====
 function shuffleSongs() {
-  apiRandomSongs(8).then(res => {
-    randomSongs.value = (res.data || []).map(s => ({
-      ...s,
-      coverColor: randomColor(),
-    }))
-  }).catch(() => {
-    // 后端不可用时用模拟数据
-    const pool = [
-      { sourceId: '1', name: '晴天', artist: '周杰伦', cover: '' },
-      { sourceId: '2', name: '孤勇者', artist: '陈奕迅', cover: '' },
-      { sourceId: '3', name: '起风了', artist: '买辣椒也用券', cover: '' },
-      { sourceId: '4', name: '错位时空', artist: '艾辰', cover: '' },
-      { sourceId: '5', name: '若月亮没来', artist: '黄绮珊', cover: '' },
-      { sourceId: '6', name: '罗生门', artist: '张子豪', cover: '' },
-      { sourceId: '7', name: '篇章', artist: '张韶涵 / 王赫野', cover: '' },
-      { sourceId: '8', name: '我记得', artist: '赵雷', cover: '' },
-    ]
-    randomSongs.value = pool.map(s => ({ ...s, coverColor: randomColor() }))
-  })
+  recommendStore.fetchRecommend()
 }
 
-function randomColor() {
-  const colors = ['#31c27c', '#ec4141', '#5b3cc4', '#d44455', '#3c7cc4', '#c48b3c']
-  return colors[Math.floor(Math.random() * colors.length)]
-}
-
-onMounted(() => shuffleSongs())
+onMounted(() => recommendStore.fetchRecommend())
 
 // ===== 推荐歌单 =====
 const playlists = ref([
@@ -374,6 +360,9 @@ function formatDuration(seconds) {
       </div>
 
       <div class="user-info">
+        <button class="topbar-fs" @click="toggleFullscreen" title="全屏">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        </button>
         <template v-if="authStore.isLoggedIn">
           <div class="user-avatar">👤</div>
           <span class="user-name">{{ username }}</span>
@@ -414,9 +403,11 @@ function formatDuration(seconds) {
         <h3>推荐歌曲</h3>
         <span class="refresh-btn" @click="shuffleSongs">🔄 换一批</span>
       </div>
-      <div class="song-scroll">
+      <div v-if="recommendStore.greeting" class="recommend-greeting">{{ recommendStore.greeting }}</div>
+      <div v-if="recommendStore.loading" class="recommend-loading">推荐加载中...</div>
+      <div v-else class="song-scroll">
         <div
-          v-for="song in randomSongs"
+          v-for="song in recommendStore.songs"
           :key="song.sourceId"
           class="song-card"
           @click="playSong(song)"
@@ -430,7 +421,7 @@ function formatDuration(seconds) {
             </div>
             <div class="play-overlay">▶</div>
           </div>
-          <p class="card-title">{{ song.name }}</p>
+          <p class="card-title">{{ song.name }}<span v-if="song.cached === true" class="card-offline" title="已离线缓存">▲</span></p>
           <p class="card-artist">{{ song.artist }}</p>
         </div>
       </div>
@@ -725,6 +716,13 @@ function formatDuration(seconds) {
 .user-info {
   display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0;
 }
+.topbar-fs {
+  width: 32px; height: 32px; border: 1px solid #ddd; border-radius: 50%;
+  background: #fff; color: #999; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: .15s;
+}
+.topbar-fs:hover { color: #31c27c; border-color: #31c27c; }
 .user-avatar {
   width: 40px; height: 40px; border-radius: 50%;
   background: #e8e8e8;
@@ -787,6 +785,8 @@ function formatDuration(seconds) {
   margin-bottom: 20px;
 }
 .section-header h3 { font-size: 20px; font-weight: 700; color: #1a1a1a; }
+.recommend-greeting { font-size: 13px; color: #31c27c; margin-bottom: 12px; }
+.recommend-loading { text-align: center; color: #999; font-size: 14px; padding: 32px 0; }
 .refresh-btn, .more {
   font-size: 14px; color: #666; cursor: pointer; transition: .2s;
 }
@@ -819,6 +819,7 @@ function formatDuration(seconds) {
   font-size: 15px; color: #1a1a1a; margin-bottom: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.card-offline { color: #31c27c; font-size: 11px; margin-left: 3px; }
 .card-artist {
   font-size: 13px; color: #888;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

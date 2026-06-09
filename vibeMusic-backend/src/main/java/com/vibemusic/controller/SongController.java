@@ -29,6 +29,7 @@ public class SongController {
     private final PlayHistoryService playHistoryService;
     private final NeteaseApiService neteaseApiService;
     private final StorageService storageService;
+    private final RecommendService recommendService;
 
     /** Banner 轮播（网易云推荐歌单） */
     @GetMapping("/banner")
@@ -91,6 +92,10 @@ public class SongController {
         Long userId = UserService.getCurrentUserId();
         if (userId != null) {
             playHistoryService.record(userId, sourceId, name, artist, coverUrl);
+            // 异步清除推荐缓存，确保下次推荐反映最新播放行为
+            CompletableFuture.runAsync(() -> {
+                try { recommendService.evictUserCache(userId); } catch (Exception ignored) {}
+            });
         }
 
         // 3. 返回（含 url, isTrial, platform）
