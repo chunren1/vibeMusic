@@ -14,6 +14,7 @@ const audio = store.audio
 // 从 store 解构（使用 storeToRefs 保持响应式）
 const {
   queue, currentIdx, currentSong, isPlaying, isTrialSong,
+  quality, qualityLabel,
   progress, currentTime, playMode, volume, isMuted
 } = storeToRefs(store)
 const modeLabels = store.modeLabels
@@ -138,7 +139,8 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
           </div>
           <div class="mini-song">
             <span class="mini-name">{{ currentSong.title }}</span>
-            <span v-if="isTrialSong" class="tag-vip">VIP</span>
+            <span v-if="isTrialSong" class="tag-trial">试听</span>
+            <span class="tag-quality">{{ qualityLabel }}</span>
             <span class="mini-artist"> - {{ currentSong.artist }}</span>
           </div>
           <button class="func-btn" :class="{ fav: favStore.isFav(currentSong.id) }" @click="toggleFav(currentSong)" title="收藏">
@@ -267,7 +269,8 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .mini-song { color: #666; font-size: 13px; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-name { color: #1a1a1a; font-weight: 500; }
 .mini-artist { color: #999; }
-.tag-vip { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 3px; margin-left: 4px; background: linear-gradient(135deg, #f5d06b, #e8b84b); color: #5c3d00; vertical-align: middle; line-height: 16px; font-weight: 500; }
+.tag-trial { display: inline-block; font-size: 9px; padding: 0 4px; border-radius: 3px; margin-left: 4px; background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; vertical-align: middle; line-height: 16px; }
+.tag-quality { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 3px; margin-left: 4px; background: rgba(49,194,124,0.12); color: #31c27c; font-weight: 500; vertical-align: middle; line-height: 16px; }
 .func-btn { width: 40px; height: 40px; border: none; background: none; border-radius: 50%; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .func-btn:hover { background: rgba(0,0,0,.05); color: #ec4141; }
 .func-btn.fav { color: #ec4141; }

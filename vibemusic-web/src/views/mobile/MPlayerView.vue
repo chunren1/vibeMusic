@@ -127,7 +127,7 @@ onUnmounted(() => {
     <div class="mp-bar">
       <button class="mp-back" @click="router.push('/m')">‹</button>
       <div class="mp-bar-center">
-        <div class="mp-name">{{ store.currentSong.title || '未在播放' }}</div>
+        <div class="mp-name">{{ store.currentSong.title || '未在播放' }}<span class="mp-quality">{{ store.qualityLabel }}</span></div>
         <div class="mp-artist">{{ store.currentSong.artist }}</div>
       </div>
       <div class="mp-spacer"></div>
@@ -224,6 +224,7 @@ onUnmounted(() => {
 }
 .mp-bar-center { flex: 1; text-align: center; min-width: 0; padding-top: 4px; }
 .mp-name { font-size: 17px; font-weight: 600; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-quality { font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 6px; background: rgba(49,194,124,0.15); color: #31c27c; font-weight: 500; vertical-align: middle; }
 .mp-artist { font-size: 13px; color: #888; margin-top: 2px; }
 .mp-spacer { width: 40px; }
 .mp-cover-section {
