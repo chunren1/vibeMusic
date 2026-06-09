@@ -45,7 +45,9 @@ router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
     authStore.openLoginWithRedirect(to.fullPath)
-    return next(false)
+    // 重定向到首页而非 next(false)，避免 RouterView 无内容渲染导致黑屏
+    if (isMobileDevice()) return next('/m')
+    return next('/')
   }
 
   // 移动端自动跳转：桌面路由路径在移动设备上 → 映射到 /m 路由

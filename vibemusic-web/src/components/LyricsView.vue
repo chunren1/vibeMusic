@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { getLyric, toggleFavorite } from '@/api/song'
+import { getLyric, toggleFavorite, downloadSong as apiDownload } from '@/api/song'
+import { API_HOST } from '@/api/request'
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -266,18 +267,17 @@ async function handleDownload() {
   if (!props.currentSong.id || downloading.value) return
   downloading.value = true
   try {
-    // 获取播放URL
-    const audioUrl = window.vibeAudio?.src
-    if (audioUrl && audioUrl.startsWith('http')) {
-      const resp = await fetch(audioUrl)
-      const blob = await resp.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${props.currentSong.title} - ${props.currentSong.artist}.mp3`
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-    }
+    // 走后端 API 下载到 RustFS + 浏览器下载
+    await apiDownload(props.currentSong.id, {
+      name: props.currentSong.title,
+      artist: props.currentSong.artist,
+      coverUrl: props.currentSong.coverUrl || '',
+    })
+    // 后端已存 RustFS，触发浏览器下载
+    const a = document.createElement('a')
+    a.href = `${API_HOST}/api/download/file/${props.currentSong.id}`
+    a.download = `${props.currentSong.title || props.currentSong.id}.mp3`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a)
   } catch (e) { console.error('下载失败:', e) }
   finally { downloading.value = false }
 }

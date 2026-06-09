@@ -15,6 +15,7 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -80,8 +81,8 @@ public class SongController {
             @RequestParam(defaultValue = "未知歌手") String artist,
             @RequestParam(required = false, defaultValue = "") String coverUrl) {
 
-        // 1. 获取播放信息（含试听标记）
-        Map<String, Object> playInfo = songService.getPlayInfo(sourceId);
+        // 1. 获取播放信息（含试听标记，传歌名/歌手以支持QQ降级）
+        Map<String, Object> playInfo = songService.getPlayInfo(sourceId, name, artist);
         if (playInfo == null || playInfo.get("url") == null) {
             return Result.error("无法获取播放链接");
         }
@@ -168,10 +169,10 @@ public class SongController {
 
     /**
      * 音频流代理 — 解决 Web Audio API CORS 限制
-     * 优先级：RustFS直读 → 远程URL代理
+     * 优先级：RustFS直读 → 远程URL代理（同时写入RustFS缓存）
      */
     @GetMapping("/stream")
-    @Operation(summary = "代理音频流（支持Range请求，RustFS兜底）")
+    @Operation(summary = "代理音频流（支持Range请求，RustFS兜底，自动缓存）")
     public void stream(@RequestParam String sourceId,
                        HttpServletRequest request,
                        HttpServletResponse response) {
@@ -202,12 +203,12 @@ public class SongController {
             }
         }
 
-        // 2. 远程 URL 代理（原有逻辑）
+        // 2. 远程 URL 代理（同时缓存到 RustFS）
         HttpURLConnection conn = null;
         InputStream in = null;
         OutputStream out = null;
         try {
-            String audioUrl = songService.getPlayUrl(sourceId);
+            String audioUrl = songService.getPlayUrl(sourceId, null, null);
             if (audioUrl == null) {
                 response.setStatus(404);
                 return;
@@ -253,12 +254,33 @@ public class SongController {
 
             in = conn.getInputStream();
             out = response.getOutputStream();
+
+            // 旁路缓存：Range 请求（seek）不缓存，只缓存完整请求
+            boolean shouldCache = (rangeHeader == null || rangeHeader.isEmpty()) && contentLength > 0;
+            java.io.ByteArrayOutputStream cacheBuffer = shouldCache ? new java.io.ByteArrayOutputStream() : null;
+
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) != -1) {
                 out.write(buf, 0, n);
+                if (cacheBuffer != null) {
+                    cacheBuffer.write(buf, 0, n);
+                }
             }
             out.flush();
+
+            // 异步写入 RustFS 缓存（不阻塞响应）
+            if (cacheBuffer != null && cacheBuffer.size() > 0) {
+                final byte[] cacheData = cacheBuffer.toByteArray();
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        storageService.upload(rustfsObjectName, cacheData, "audio/mpeg");
+                        log.info("stream 缓存到 RustFS: {} ({} bytes)", sourceId, cacheData.length);
+                    } catch (Exception e) {
+                        log.warn("stream 缓存写入 RustFS 失败: {} - {}", sourceId, e.getMessage());
+                    }
+                });
+            }
 
         } catch (Exception e) {
             log.error("音频流代理失败 sourceId={}: {}", sourceId, e.getMessage());

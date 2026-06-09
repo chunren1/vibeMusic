@@ -5,7 +5,6 @@ import { useRouter } from 'vue-router'
 import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
 
 import { useAuthStore } from '@/stores/auth'
-import LoginModal from '@/components/LoginModal.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
 const router = useRouter()
 const authStore = useAuthStore()
@@ -59,6 +58,9 @@ function playSong(song) {
         sourceId: song.sourceId,
         coverUrl: song.coverUrl,
         duration: song.duration,
+        isTrial: res.data?.isTrial || false,
+        platform: res.data?.platform || song.platform,
+        fallbackFrom: res.data?.fallbackFrom || null,
       }
     }))
   }).catch(err => {
@@ -103,32 +105,12 @@ const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
 function openPlaylistPopup(song) { playlistTargetSong.value = song; showPlaylistPopup.value = true }
 
-// 下载歌曲（复用 LyricsView 方式：直接获取音频流 → blob → 浏览器下载）
+// 下载歌曲（走后端 API 存 RustFS + 浏览器下载）
 const downloadingIds = ref(new Set())
 function handleDownload(song) {
   if (downloadingIds.value.has(song.sourceId)) return
   downloadingIds.value.add(song.sourceId)
-
-  // 先尝试从当前播放的 audio 流直接下载（最快）
-  const audioUrl = window.vibeAudio?.src
-  const isPlayingThis = currentPlaySong.value?.sourceId === song.sourceId && audioUrl?.startsWith('http')
-
-  if (isPlayingThis) {
-    fetch(audioUrl).then(resp => resp.blob()).then(blob => {
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${song.name || song.sourceId}.mp3`
-      document.body.appendChild(a); a.click(); document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      downloadingIds.value.delete(song.sourceId)
-    }).catch(() => {
-      // fallback to RustFS
-      downloadViaBackend(song)
-    })
-  } else {
-    downloadViaBackend(song)
-  }
+  downloadViaBackend(song)
 }
 
 function downloadViaBackend(song) {
@@ -591,10 +573,6 @@ function formatDuration(seconds) {
     :song="playlistTargetSong"
     @close="showPlaylistPopup = false"
     @done="showPlaylistPopup = false"
-  />
-  <LoginModal
-    v-model:visible="authStore.showLoginModal"
-    @success="authStore.closeLogin()"
   />
 </template>
 

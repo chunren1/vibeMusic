@@ -39,6 +39,7 @@ const currentSong = ref(cachedSong || { id: '', title: '未播放', artist: '', 
 watch(currentSong, () => saveQueue(), { deep: true })
 const showLyrics = ref(false)
 const isPlaying = ref(false)
+const isTrialSong = ref(false)  // 当前歌曲是否为试听版
 const progress = ref(0)
 const currentTime = ref('0:00')
 const totalTime = ref('0:00')
@@ -125,9 +126,7 @@ function playCurrent() {
   totalTime.value = fmtSec(song.duration || 0)
 
   const baseURL = API_HOST
-  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
-    if (res.data?.url) audio.src = res.data.url  // 直接用 CDN 地址
-  }).catch(() => {})
+  // 始终走 /stream 代理，避免 AudioContext CORS 限制
   audio.src = `${baseURL}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
   resumeAudioContext()
   audio.play().catch(() => {})
@@ -207,17 +206,22 @@ function removeFromQueue(idx) {
 // ===== 监听外部播放（HomeView → PlayerBar） =====
 function onSongChange(e) {
   const d = e.detail
+  const sourceId = d.id || d.sourceId
   const cover = d.coverUrl || ''
   addToQueue({
-    sourceId: d.id || d.sourceId,
+    sourceId: sourceId,
     name: d.title || d.name,
     artist: d.artist || '',
     coverUrl: cover,
     duration: d.duration || 0,
   })
-  const existIdx = queue.value.findIndex(s => s.sourceId === (d.id || d.sourceId))
-  if (existIdx >= 0 && cover && !queue.value[existIdx].coverUrl) {
-    queue.value[existIdx].coverUrl = cover
+  // 关键修复：将 currentIdx 指向新加入的歌曲
+  const newIdx = queue.value.findIndex(s => s.sourceId === sourceId)
+  if (newIdx >= 0) {
+    currentIdx.value = newIdx
+  }
+  if (newIdx >= 0 && cover && !queue.value[newIdx].coverUrl) {
+    queue.value[newIdx].coverUrl = cover
   }
   if (currentIdx.value >= 0) {
     const song = queue.value[currentIdx.value]
@@ -227,15 +231,17 @@ function onSongChange(e) {
     }
     totalTime.value = fmtSec(song.duration || 0)
   }
+  // 试听标记
+  isTrialSong.value = d.isTrial || false
+  saveQueue()
 }
 
 // HomeView 播放歌曲时设置 Audio 源
 function setAudioSrc(url, sourceId, songName, songArtist, coverUrl) {
   if (!url && !sourceId) return
-  // 优先用 CDN URL，没有则走 stream
-  const finalUrl = url && url.startsWith('http')
-    ? url
-    : `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
+  // 始终走 /stream 代理，避免 AudioContext CORS 限制
+  // 直接用远程URL会导致 MediaElementAudioSource outputs zeroes
+  const finalUrl = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
   console.log('[PlayerBar] setAudioSrc:', songName, 'url:', finalUrl.substring(0, 60) + '...')
   audio.src = finalUrl
   resumeAudioContext()
@@ -366,6 +372,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
           </div>
           <div class="mini-song">
             <span class="mini-name">{{ currentSong.title }}</span>
+            <span v-if="isTrialSong" class="tag-trial">试听</span>
             <span class="mini-artist"> - {{ currentSong.artist }}</span>
           </div>
           <button class="func-btn" :class="{ fav: favIds.has(currentSong.id) }" @click="toggleFav(currentSong)" title="收藏">
@@ -489,6 +496,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .mini-song { color: #666; font-size: 13px; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-name { color: #1a1a1a; font-weight: 500; }
 .mini-artist { color: #999; }
+.tag-trial { display: inline-block; font-size: 9px; padding: 0 4px; border-radius: 3px; margin-left: 4px; background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; vertical-align: middle; line-height: 16px; }
 .func-btn { width: 40px; height: 40px; border: none; background: none; border-radius: 50%; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .func-btn:hover { background: rgba(0,0,0,.05); color: #ec4141; }
 .func-btn.fav { color: #ec4141; }

@@ -17,6 +17,34 @@ const hasMore = ref(false)
 const hasSearched = ref(false)
 const PAGE_SIZE = 20
 
+const HISTORY_KEY = 'vibe_search_history'
+const MAX_HISTORY = 10
+const searchHistory = ref(loadHistory())
+const showHistory = ref(false)
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
+}
+function saveHistory(kw) {
+  const list = searchHistory.value.filter(k => k !== kw)
+  list.unshift(kw)
+  searchHistory.value = list.slice(0, MAX_HISTORY)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(searchHistory.value))
+}
+function removeHistory(idx) {
+  searchHistory.value.splice(idx, 1)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(searchHistory.value))
+}
+function clearHistory() {
+  searchHistory.value = []
+  localStorage.removeItem(HISTORY_KEY)
+}
+function useHistory(kw) {
+  keyword.value = kw
+  showHistory.value = false
+  doSearch(true, true)
+}
+
 const currentPlaySong = ref(null)
 const isPlaying = ref(false)
 const favIds = ref(new Set())
@@ -31,9 +59,11 @@ window.addEventListener('song-change', _onSongChange)
 
 getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
 
-async function doSearch(reset = true) {
+async function doSearch(reset = true, saveHist = false) {
   const kw = keyword.value.trim()
-  if (!kw) { results.value = []; hasSearched.value = false; return }
+  if (!kw) { results.value = []; hasSearched.value = false; showHistory.value = true; return }
+  showHistory.value = false
+  if (saveHist) saveHistory(kw)
   loading.value = true
   hasSearched.value = true
   if (reset) { page.value = 1; results.value = [] }
@@ -52,7 +82,8 @@ let debounceTimer = null
 watch(keyword, () => {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
-    if (!keyword.value.trim()) { results.value = []; hasSearched.value = false; return }
+    if (!keyword.value.trim()) { results.value = []; hasSearched.value = false; showHistory.value = true; return }
+    showHistory.value = false
     doSearch(true)
   }, 400)
 })
@@ -73,7 +104,7 @@ function playSong(song) {
     else { audio.src = url; audio.play().catch(() => {}) }
     currentPlaySong.value = song
     window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: song.name, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl }
+      detail: { title: song.name, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl, isTrial: res.data?.isTrial || false, platform: res.data?.platform || song.platform, fallbackFrom: res.data?.fallbackFrom || null }
     }))
     // 跳转歌词页
     router.push('/m/player')
@@ -96,14 +127,7 @@ function toggleFav(song) {
 function handleDownload(song) {
   if (downloadingIds.value.has(song.sourceId)) return
   downloadingIds.value.add(song.sourceId)
-  const audioUrl = window.vibeAudio?.src
-  if (currentPlaySong.value?.sourceId === song.sourceId && audioUrl?.startsWith('http')) {
-    fetch(audioUrl).then(r => r.blob()).then(blob => {
-      const u = URL.createObjectURL(blob); const a = document.createElement('a')
-      a.href = u; a.download = `${song.name}.mp3`; a.click(); URL.revokeObjectURL(u)
-      downloadingIds.value.delete(song.sourceId)
-    }).catch(() => downloadViaBackend(song))
-  } else { downloadViaBackend(song) }
+  downloadViaBackend(song)
 }
 
 function downloadViaBackend(song) {
@@ -142,9 +166,25 @@ onUnmounted(() => {
       </button>
       <div class="m-search-bar">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#888" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input v-model="keyword" @keyup.enter="doSearch(true)" placeholder="搜索歌曲、歌手..." class="m-search-input" autofocus />
+        <input v-model="keyword" @keyup.enter="doSearch(true, true)" @focus="!keyword.trim() && (showHistory = true)" placeholder="搜索歌曲、歌手..." class="m-search-input" autofocus />
       </div>
-      <span class="m-search-btn" @click="doSearch(true)">搜索</span>
+      <span class="m-search-btn" @click="doSearch(true, true)">搜索</span>
+    </div>
+
+    <!-- 搜索历史 -->
+    <div v-if="showHistory && searchHistory.length && !hasSearched" class="m-history">
+      <div class="m-history-header">
+        <span class="m-history-title">搜索历史</span>
+        <button class="m-history-clear" @click="clearHistory">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#888" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
+      <div class="m-history-tags">
+        <span v-for="(kw, idx) in searchHistory" :key="idx" class="m-history-tag" @click="useHistory(kw)">
+          {{ kw }}
+          <button class="m-history-del" @click.stop="removeHistory(idx)">&times;</button>
+        </span>
+      </div>
     </div>
 
     <!-- 筛选栏 -->
@@ -267,4 +307,23 @@ onUnmounted(() => {
 }
 .m-load-more button:disabled { opacity: .4; }
 .m-loading, .m-empty { text-align: center; padding: 60px 0; color: #666; font-size: 14px; }
+
+/* 搜索历史 */
+.m-history { padding: 16px 0; }
+.m-history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.m-history-title { font-size: 13px; color: #999; }
+.m-history-clear { border: none; background: none; color: #666; cursor: pointer; padding: 2px; display: flex; align-items: center; }
+.m-history-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.m-history-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 12px; border-radius: 16px;
+  background: rgba(255,255,255,0.06); color: #ccc; font-size: 13px;
+  cursor: pointer; transition: .15s;
+}
+.m-history-tag:active { background: rgba(49,194,124,0.15); color: #31c27c; }
+.m-history-del {
+  border: none; background: none; color: #666; font-size: 14px;
+  cursor: pointer; padding: 0; line-height: 1; margin-left: 2px;
+}
+.m-history-del:hover { color: #cf1322; }
 </style>

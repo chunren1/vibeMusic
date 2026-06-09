@@ -37,19 +37,12 @@ function toggleFav() {
   })
 }
 
-// 下载
+// 下载（走后端 API 存 RustFS + 浏览器下载）
 const downloading = ref(false)
 function doDownload() {
   if (downloading.value || !song.value.id) return
   downloading.value = true
-  const audioUrl = window.vibeAudio?.src
-  if (audioUrl?.startsWith('http')) {
-    fetch(audioUrl).then(r => r.blob()).then(blob => {
-      const u = URL.createObjectURL(blob)
-      const a = document.createElement('a'); a.href = u; a.download = `${song.value.title}.mp3`; a.click()
-      URL.revokeObjectURL(u)
-    }).catch(() => downloadViaBackend()).finally(() => { downloading.value = false })
-  } else { downloadViaBackend() }
+  downloadViaBackend()
 }
 function downloadViaBackend() {
   apiDownload(song.value.id, { name: song.value.title, artist: song.value.artist, coverUrl: song.value.coverUrl }).then(res => {

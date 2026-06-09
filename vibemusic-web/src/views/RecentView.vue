@@ -45,7 +45,7 @@ function play(item) {
   apiPlaySong(item.sourceId, item.songName, item.artist, item.coverUrl || '').then(res => {
     const url = res.data?.url
     if (!url) return
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
+    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, item.sourceId, item.songName, item.artist, item.coverUrl || '')
     else { audio.src = url; audio.play().catch(() => {}) }
     window.dispatchEvent(new CustomEvent('song-change', {
       detail: { title: item.songName, artist: item.artist, sourceId: item.sourceId, coverUrl: item.coverUrl || '', duration: 0 }
