@@ -158,7 +158,7 @@ function shuffleSongs() {
           <div class="m-song-info">
             <div class="m-song-name">
               {{ song.name }}
-              <span v-if="song.cached === true" class="m-offline-badge" title="已离线缓存">▲</span>
+              <span v-if="song.duration != null && song.duration <= 30" class="m-vip-badge">VIP</span>
             </div>
             <div class="m-song-artist">{{ song.artist }}</div>
           </div>
@@ -248,7 +248,10 @@ function shuffleSongs() {
 .m-shuffle-btn:active { background: rgba(255,255,255,0.04); }
 .m-section-greeting { font-size: 12px; color: #31c27c; margin-bottom: 10px; }
 .m-section-loading { text-align: center; color: #666; font-size: 13px; padding: 24px 0; }
-.m-offline-badge { color: #31c27c; font-size: 10px; margin-left: 4px; vertical-align: middle; }
+.m-vip-badge {
+  font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; vertical-align: middle;
+  background: linear-gradient(135deg, #f5d06b, #e8b84b); color: #5c3d00; font-weight: 500;
+}
 
 .m-song-list { display: flex; flex-direction: column; gap: 2px; }
 .m-song-item {
