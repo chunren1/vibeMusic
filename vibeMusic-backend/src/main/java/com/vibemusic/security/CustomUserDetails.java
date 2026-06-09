@@ -21,6 +21,18 @@ public class CustomUserDetails implements UserDetails {
         return user.getNickname() != null ? user.getNickname() : user.getUsername();
     }
 
+    public String getAvatar() {
+        return user.getAvatar();
+    }
+
+    public String getGender() {
+        return user.getGender();
+    }
+
+    public String getBirthday() {
+        return user.getBirthday();
+    }
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of();

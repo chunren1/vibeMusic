@@ -78,6 +78,9 @@ async function handleLogin() {
         userId: res.data.userId,
         username: res.data.username,
         nickname: res.data.nickname,
+        avatar: res.data.avatar,
+        gender: res.data.gender,
+        birthday: res.data.birthday,
       })
       onAuthSuccess()
     } else {
@@ -114,6 +117,9 @@ async function handleRegister() {
         userId: res.data.userId,
         username: res.data.username,
         nickname: res.data.nickname,
+        avatar: res.data.avatar,
+        gender: res.data.gender,
+        birthday: res.data.birthday,
       })
       onAuthSuccess()
     } else {

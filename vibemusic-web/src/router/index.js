@@ -10,6 +10,7 @@ const routes = [
   { path: '/likes', name: 'likes', meta: { requiresAuth: true }, component: () => import('@/views/LikesView.vue') },
   { path: '/recent', name: 'recent', meta: { requiresAuth: true }, component: () => import('@/views/RecentView.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue') },
+  { path: '/profile/detail', name: 'profile-detail', component: () => import('@/views/ProfileDetailView.vue') },
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
 
   // ===== 移动端路由 (/m) =====
@@ -23,6 +24,7 @@ const routes = [
       { path: 'recent', name: 'm-recent', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MRecentView.vue') },
       { path: 'playlists', name: 'm-playlists', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistsView.vue') },
       { path: 'profile', name: 'm-profile', component: () => import('@/views/mobile/MProfileView.vue') },
+      { path: 'profile/detail', name: 'm-profile-detail', component: () => import('@/views/mobile/MProfileDetailView.vue') },
       { path: 'player', name: 'm-player', component: () => import('@/views/mobile/MPlayerView.vue') },
     ]
   },
@@ -57,6 +59,8 @@ router.beforeEach((to, from, next) => {
       '/search': '/m/search',
       '/likes': '/m/likes',
       '/recent': '/m/recent',
+      '/profile': '/m/profile',
+      '/profile/detail': '/m/profile/detail',
     }
     if (map[to.path]) return next(map[to.path])
   }

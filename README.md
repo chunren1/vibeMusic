@@ -34,7 +34,7 @@
 
 | 功能 | 说明 |
 |------|------|
-| 👤 用户认证 | JWT 登录/注册，BCrypt 加密，弹窗式无跳转，支持修改密码 |
+| 👤 用户中心 | JWT 登录/注册，弹窗式无跳转，个人主页编辑资料（昵称/性别/生日/头像），详情页展示完整信息 |
 | 🔍 多平台搜索 | 聚合网易云 + QQ音乐结果，去重打分排序，分源筛选，400ms 防抖实时搜索 |
 | ▶️ VIP音质播放 | 自有 VIP Cookie，exhigh / hires 品质 |
 | ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录 |
@@ -56,10 +56,13 @@ vibeMusic/
 ├── vibemusic-web/          # Vue 3 前端
 │   ├── src/
 │   │   ├── views/          # 桌面视图 + mobile/ 移动视图
+│   │   ├── ProfileView.vue       # 个人主页 (背景图+可编辑表单)
+│   │   ├── ProfileDetailView.vue # 个人详情页
+│   │   └── ...
 │   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView + mobile/
 │   │   ├── composables/    # useIsMobile (设备检测)
 │   │   ├── stores/         # Pinia: auth (JWT + 弹窗状态), player (播放状态管理中心)
-│   │   └── api/            # Axios 封装 + 接口定义 (song.js, request.js)
+│   │   └── api/            # Axios 封装 + 接口 (auth.js, song.js, request.js)
 │   ├── android/            # Capacitor Android 项目
 │   └── capacitor.config.json
 ├── vibeMusic-backend/      # Spring Boot 后端
