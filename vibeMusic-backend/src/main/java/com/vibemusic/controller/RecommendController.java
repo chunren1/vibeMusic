@@ -25,6 +25,7 @@ public class RecommendController {
     @GetMapping("/personalized")
     @Operation(summary = "个性化推荐歌曲")
     public Result<RecommendResult> personalized(
+            @RequestParam(value = "refresh", defaultValue = "false") boolean refresh,
             @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
             @RequestParam(value = "deviceId", required = false) String paramDeviceId,
             HttpServletRequest request) {
@@ -37,8 +38,8 @@ public class RecommendController {
                 ? (paramDeviceId != null ? paramDeviceId : headerDeviceId)
                 : null;
 
-        log.debug("推荐请求: userId={}, deviceId={}", userId, deviceId);
-        RecommendResult result = recommendService.getPersonalized(userId, deviceId);
+        log.debug("推荐请求: userId={}, deviceId={}, refresh={}", userId, deviceId, refresh);
+        RecommendResult result = recommendService.getPersonalized(userId, deviceId, refresh);
         return Result.ok(result);
     }
 }

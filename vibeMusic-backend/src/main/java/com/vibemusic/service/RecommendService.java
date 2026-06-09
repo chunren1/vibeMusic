@@ -1,6 +1,5 @@
 package com.vibemusic.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.dto.RecommendResult;
 import com.vibemusic.dto.SongDTO;
@@ -38,19 +37,23 @@ public class RecommendService {
      * 个性化推荐入口
      * @param userId   用户ID（null=未登录）
      * @param deviceId 设备标识（未登录时用于缓存隔离）
+     * @param refresh  是否跳过缓存强制刷新（如用户点击"换一批"）
      */
-    public RecommendResult getPersonalized(Long userId, String deviceId) {
-        // 1. 尝试读缓存
+    public RecommendResult getPersonalized(Long userId, String deviceId, boolean refresh) {
         String cacheKey = userId != null
                 ? "recommend:user:" + userId
                 : "recommend:guest:" + (deviceId != null ? deviceId : "anon");
-        RecommendResult cached = readCache(cacheKey);
-        if (cached != null) {
-            log.debug("推荐缓存命中: {}", cacheKey);
-            return cached;
+
+        // 非刷新模式：尝试读缓存
+        if (!refresh) {
+            RecommendResult cached = readCache(cacheKey);
+            if (cached != null) {
+                log.debug("推荐缓存命中: {}", cacheKey);
+                return cached;
+            }
         }
 
-        // 2. 未命中 → 执行推荐
+        // 执行推荐
         RecommendResult result;
         Duration ttl;
         try {
@@ -67,9 +70,13 @@ public class RecommendService {
             ttl = GUEST_CACHE_TTL;
         }
 
-        // 3. 回写缓存
         writeCache(cacheKey, result, ttl);
         return result;
+    }
+
+    /** 兼容旧调用（默认不走刷新） */
+    public RecommendResult getPersonalized(Long userId, String deviceId) {
+        return getPersonalized(userId, deviceId, false);
     }
 
     /**
@@ -105,28 +112,33 @@ public class RecommendService {
             return buildGuestResult("最近没有听过歌？试试这些吧~");
         }
 
-        // 按歌手聚合兴趣权重（播放次数越多权重越高）
+        // 已听过的 sourceId 集合（用于过滤）
+        Set<String> playedIds = history.stream()
+                .map(PlayHistory::getSourceId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        // 按歌手聚合兴趣权重
         Map<String, Long> artistWeight = history.stream()
                 .filter(h -> h.getArtist() != null && !h.getArtist().isEmpty())
                 .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()));
 
-        // 提取最常听的歌手（最多3个）
+        // 提取最常听的歌手（最多5个，增加多样性）
         List<String> topArtists = artistWeight.entrySet().stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(3)
+                .limit(5)
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
 
-        // 搜索最常听歌手的歌，汇总去重
-        Set<String> seenSourceIds = new HashSet<>();
+        // 搜索歌手的歌，汇总去重，过滤已听
+        Set<String> seenSourceIds = new HashSet<>(playedIds); // 直接从已听开始排除
         List<SongDTO> candidates = new ArrayList<>();
 
         for (String artist : topArtists) {
             try {
-                List<SongDTO> songs = songService.search(artist, 1, 10, null);
+                List<SongDTO> songs = songService.search(artist, 1, 20, null); // 每位歌手搜20首
                 for (SongDTO s : songs) {
                     if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
-                        // 过滤试听版
                         if (s.getDuration() != null && s.getDuration() <= 30) continue;
                         candidates.add(s);
                     }
@@ -136,7 +148,8 @@ public class RecommendService {
             }
         }
 
-        // 按 RustFS 缓存状态排序：已缓存优先
+        // 先随机打乱，再按 RustFS 缓存优先排列（保证多样性 + 离线优先）
+        Collections.shuffle(candidates);
         candidates.sort((a, b) -> {
             boolean aCached = checkCached(a.getSourceId());
             boolean bCached = checkCached(b.getSourceId());
@@ -144,9 +157,10 @@ public class RecommendService {
         });
 
         // 截取
-        List<SongDTO> result = candidates.subList(0, Math.min(candidates.size(), RECOMMEND_COUNT));
+        int take = Math.min(candidates.size(), RECOMMEND_COUNT);
+        List<SongDTO> result = new ArrayList<>(candidates.subList(0, take));
 
-        // 如果不满足需求数量，补充随机
+        // 不够补充随机
         if (result.size() < RECOMMEND_COUNT) {
             try {
                 List<SongDTO> supplement = songService.getRandomSongs(RECOMMEND_COUNT - result.size());
@@ -160,6 +174,9 @@ public class RecommendService {
                 log.warn("补充随机歌曲失败", e);
             }
         }
+
+        // 再次随机打乱
+        Collections.shuffle(result);
 
         // 标记离线状态
         markOfflineStatus(result);

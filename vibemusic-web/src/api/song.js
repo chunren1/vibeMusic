@@ -23,11 +23,14 @@ export function getRandomSongs(count = 8) {
 }
 
 /** 个性化推荐 */
-export function getPersonalizedRecommend(deviceId = null) {
-  const config = {}
+export function getPersonalizedRecommend(deviceId = null, refresh = false) {
+  const config = { params: {} }
   if (deviceId) {
     config.headers = { 'X-Device-Id': deviceId }
-    config.params = { deviceId }
+    config.params.deviceId = deviceId
+  }
+  if (refresh) {
+    config.params.refresh = true
   }
   return request.get('/recommend/personalized', config)
 }

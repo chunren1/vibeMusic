@@ -33,14 +33,14 @@ export const useRecommendStore = defineStore('recommend', () => {
   /** 是否有数据 */
   const hasData = computed(() => songs.value.length > 0)
 
-  /** 获取推荐数据 */
-  async function fetchRecommend() {
+  /** 获取推荐数据（refresh=true 跳过缓存） */
+  async function fetchRecommend(refresh = false) {
     if (loading.value) return
     loading.value = true
     error.value = ''
 
     try {
-      const res = await getPersonalizedRecommend(deviceId)
+      const res = await getPersonalizedRecommend(deviceId, refresh)
       const data = res.data
       if (data) {
         songs.value = (data.songs || []).map(s => ({

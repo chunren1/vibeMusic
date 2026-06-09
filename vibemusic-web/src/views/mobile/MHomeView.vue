@@ -91,7 +91,7 @@ onUnmounted(() => {
 })
 
 function shuffleSongs() {
-  recommendStore.fetchRecommend()
+  recommendStore.fetchRecommend(true) // refresh=true 跳过缓存
 }
 
 </script>

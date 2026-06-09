@@ -176,7 +176,7 @@ onMounted(() => {
 
 // ===== 推荐歌曲（从 Store 获取） =====
 function shuffleSongs() {
-  recommendStore.fetchRecommend()
+  recommendStore.fetchRecommend(true) // refresh=true 跳过缓存
 }
 
 onMounted(() => recommendStore.fetchRecommend())
