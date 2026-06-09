@@ -57,16 +57,22 @@ function downloadViaBackend() {
 const showPlaylistPopup = ref(false)
 const showQueuePopup = ref(false)
 
-// 播放模式
-const playMode = ref(localStorage.getItem('vibe_play_mode') || 'sequential')
+// 播放模式：与 PlayerBar 同步
+const modeLabels = { 'list-loop': '列表循环', 'single': '单曲循环', 'shuffle': '随机播放', 'sequential': '顺序播放' }
+const playMode = ref(localStorage.getItem('vibe_play_mode') || 'list-loop')
 function toggleMode() {
-  const modes = ['sequential', 'random', 'single']
+  const modes = ['list-loop', 'single', 'shuffle', 'sequential']
   const idx = modes.indexOf(playMode.value)
-  playMode.value = modes[(idx + 1) % 3]
-  // 同步到 PlayerBar（如果存在）
-  window.vibePlayMode?.(playMode.value)
+  playMode.value = modes[(idx + 1) % modes.length]
   localStorage.setItem('vibe_play_mode', playMode.value)
+  // 同步到 PlayerBar
+  window.vibePlayMode?.(playMode.value)
 }
+// 监听 PlayerBar 的模式变更
+function onPlayModeChange(e) {
+  playMode.value = e.detail
+}
+window.addEventListener('play-mode-change', onPlayModeChange)
 
 // 后台播放支持
 const audioBg = useAudioBackground()
@@ -182,7 +188,12 @@ function prevSong() {
   const q = loadQueue()
   if (!q.length) return
   let idx = parseInt(localStorage.getItem('vibe_queue_idx') || '-1')
-  idx = idx <= 0 ? q.length - 1 : idx - 1
+  if (playMode.value === 'shuffle') {
+    const r = Math.floor(Math.random() * q.length)
+    idx = r === idx ? (r + 1) % q.length : r
+  } else {
+    idx = idx <= 0 ? q.length - 1 : idx - 1
+  }
   switchTo(idx)
 }
 
@@ -190,7 +201,16 @@ function nextSong() {
   const q = loadQueue()
   if (!q.length) return
   let idx = parseInt(localStorage.getItem('vibe_queue_idx') || '-1')
-  idx = idx >= q.length - 1 ? 0 : idx + 1
+  if (playMode.value === 'shuffle') {
+    const r = Math.floor(Math.random() * q.length)
+    idx = r === idx && q.length > 1 ? (r + 1) % q.length : r
+  } else if (playMode.value === 'sequential') {
+    if (idx >= q.length - 1) return
+    idx = idx + 1
+  } else {
+    // list-loop / single
+    idx = (idx + 1) % q.length
+  }
   switchTo(idx)
 }
 
@@ -201,6 +221,7 @@ onMounted(() => {
 onUnmounted(() => {
   stopTimeSync()
   window.removeEventListener('song-change', onSongChange)
+  window.removeEventListener('play-mode-change', onPlayModeChange)
 })
 </script>
 
@@ -268,10 +289,11 @@ onUnmounted(() => {
 
     <!-- 进度条下方控制按钮 -->
     <div class="mp-ctrls">
-      <button class="mp-ctrl sm" @click="toggleMode" title="切换模式">
-        <svg v-if="playMode === 'sequential'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-        <svg v-else-if="playMode === 'random'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-        <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="17" text-anchor="middle" font-size="9" fill="currentColor" stroke="none">1</text></svg>
+      <button class="mp-ctrl sm" :class="{ 'mode-active': playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabels[playMode]">
+        <svg v-if="playMode === 'list-loop'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        <svg v-else-if="playMode === 'single'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="16.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg>
+        <svg v-else-if="playMode === 'shuffle'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+        <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M3 13v2a4 4 0 0 0 4 4h7"/></svg>
       </button>
       <button class="mp-ctrl" @click="prevSong">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6l-8.5 6z"/></svg>
@@ -383,5 +405,6 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: center;
 }
 .mp-ctrl.sm { font-size: 18px; padding: 6px; color: #888; }
+.mp-ctrl.sm.mode-active { color: #31c27c; }
 .mp-ctrl-play { color: #31c27c; }
 </style>

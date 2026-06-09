@@ -144,13 +144,20 @@ function playCurrent() {
   }))
 }
 
-// 播放模式
-const playMode = ref(localStorage.getItem('vibe_play_mode') || 'sequential')
+// 播放模式：list-loop → single → shuffle → sequential
+const playMode = ref(localStorage.getItem('vibe_play_mode') || 'list-loop')
+const modeLabels = { 'list-loop': '列表循环', 'single': '单曲循环', 'shuffle': '随机播放', 'sequential': '顺序播放' }
 function toggleMode() {
-  const modes = ['sequential', 'random', 'single']
+  const modes = ['list-loop', 'single', 'shuffle', 'sequential']
   const idx = modes.indexOf(playMode.value)
-  playMode.value = modes[(idx + 1) % 3]
+  playMode.value = modes[(idx + 1) % modes.length]
   localStorage.setItem('vibe_play_mode', playMode.value)
+  syncPlayMode()
+}
+function syncPlayMode() {
+  // 通知移动端
+  window.vibePlayModeVal = playMode.value
+  window.dispatchEvent(new CustomEvent('play-mode-change', { detail: playMode.value }))
 }
 window.vibeAddToQueue = addToQueue
 window.vibePlayMode = (m) => { playMode.value = m; localStorage.setItem('vibe_play_mode', m) }
@@ -159,14 +166,23 @@ function onEnded() {
   if (playMode.value === 'single') {
     audio.currentTime = 0
     audio.play().catch(() => {})
-  } else {
+  } else if (playMode.value === 'shuffle') {
     next()
+  } else if (playMode.value === 'list-loop') {
+    next()
+  } else {
+    // sequential：播完最后一首停止
+    if (currentIdx.value >= queue.value.length - 1) {
+      isPlaying.value = false
+    } else {
+      next()
+    }
   }
 }
 
 function prev() {
   if (queue.value.length === 0) return
-  if (playMode.value === 'random') {
+  if (playMode.value === 'shuffle') {
     const r = Math.floor(Math.random() * queue.value.length)
     currentIdx.value = r === currentIdx.value ? (r + 1) % queue.value.length : r
   } else {
@@ -177,12 +193,16 @@ function prev() {
 
 function next() {
   if (queue.value.length === 0) return
-  if (playMode.value === 'random') {
+  if (playMode.value === 'shuffle') {
     const r = Math.floor(Math.random() * queue.value.length)
     currentIdx.value = r === currentIdx.value && queue.value.length > 1
       ? (r + 1) % queue.value.length : r
+  } else if (playMode.value === 'sequential') {
+    if (currentIdx.value >= queue.value.length - 1) return
+    currentIdx.value = currentIdx.value + 1
   } else {
-    currentIdx.value = currentIdx.value >= queue.value.length - 1 ? 0 : currentIdx.value + 1
+    // list-loop / single 的 next 逻辑一样（循环）
+    currentIdx.value = (currentIdx.value + 1) % queue.value.length
   }
   playCurrent()
 }
@@ -381,10 +401,15 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
         </div>
 
         <div class="center-ctrl">
-          <button class="ctrl-btn mode-btn" @click="toggleMode" :title="playMode === 'sequential' ? '顺序播放' : playMode === 'random' ? '随机播放' : '单曲循环'">
-            <svg v-if="playMode === 'sequential'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            <svg v-else-if="playMode === 'random'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><rect x="7" y="13" width="10" height="10" rx="2"/><text x="12" y="21" text-anchor="middle" font-size="8" fill="currentColor" stroke="none">1</text></svg>
+          <button class="ctrl-btn mode-btn" :class="{ active: playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabels[playMode]">
+            <!-- 列表循环：双箭头循环 -->
+            <svg v-if="playMode === 'list-loop'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            <!-- 单曲循环：循环箭头+1 -->
+            <svg v-else-if="playMode === 'single'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="16.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg>
+            <!-- 随机播放：交叉箭头 -->
+            <svg v-else-if="playMode === 'shuffle'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+            <!-- 顺序播放：单向箭头 -->
+            <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M3 13v2a4 4 0 0 0 4 4h7"/><line x1="21" y1="19" x2="21" y2="19" stroke-linecap="round"/></svg>
           </button>
           <button class="ctrl-btn skip" @click="prev" title="上一首">
             <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
@@ -506,6 +531,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .ctrl-btn:hover { color: #1a1a1a; }
 .ctrl-btn.mode-btn { width: 40px; height: 40px; border-radius: 50%; color: #999; }
 .ctrl-btn.mode-btn:hover { color: #31c27c; background: rgba(49,194,124,0.12); }
+.ctrl-btn.mode-btn.active { color: #31c27c; }
 .ctrl-btn.skip { opacity: 0.75; }
 .ctrl-btn.skip:hover { opacity: 1; }
 .ctrl-btn.main { width: 52px; height: 28px; border-radius: 7px; background: #31c27c; color: #fff; }
