@@ -211,9 +211,14 @@ public class SongService {
             int duration = 0;
             Object durObj = raw.get("duration");
             if (durObj instanceof Number) duration = ((Number) durObj).intValue() / 1000;
+            // 解析 VIP 标记（来自 musicapi 的 fee/pay_play）
+            Object vipObj = raw.get("vip");
+            boolean vip = vipObj instanceof Boolean ? (Boolean) vipObj : false;
+
             SongDTO dto = new SongDTO();
             dto.setSourceId(sourceId); dto.setName(name); dto.setArtist(artists);
             dto.setAlbum(album); dto.setCoverUrl(coverUrl); dto.setDuration(duration);
+            dto.setVip(vip);
             return dto;
         } catch (Exception e) {
             log.warn("Failed to parse platform song: {}", e.getMessage());

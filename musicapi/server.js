@@ -317,6 +317,7 @@ function toStandardFormat(list) {
   for (const s of list) {
     delete s._raw;
     delete s.finalScore;
+    // vip 字段保留，不做删除
   }
 }
 
@@ -333,7 +334,8 @@ async function searchNetease(keyword, limit) {
         album: s.al ? s.al.name : (s.album ? s.album.name : ''),
         cover: (s.al && s.al.picUrl) ? s.al.picUrl : (s.album && s.album.picUrl ? s.album.picUrl : ''),
         duration: s.dt || 0,
-        _raw: { playCount: s.id ? null : null }, // 网易云 cloudsearch 不返回 playCount，需额外查详情
+        vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1), // 网易云 fee: 1=VIP,4=购买,8=独家; st=-1=无版权需VIP
+        _raw: { playCount: s.id ? null : null },
       }));
     }
     return [];
@@ -361,6 +363,7 @@ async function searchQQ(keyword, limit) {
           album: s.albumname || '',
           cover: cover,
           duration: s.interval ? s.interval * 1000 : 0,
+          vip: !!(s.pay && s.pay.pay_play), // QQ pay_play=1 表示VIP歌曲
           _raw: { listenCount: s.listennum || 0 },
         };
       });
