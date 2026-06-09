@@ -2,10 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { usePlayerStore } from '@/stores/player'
 import PlayerBar from '@/components/PlayerBar.vue'
 import LoginModal from '@/components/LoginModal.vue'
 
 const authStore = useAuthStore()
+// 初始化播放器 store（确保移动端也有 vibeAudioSetSrc / onEnded 等功能）
+usePlayerStore()
+
 const isMobile = ref(checkDevice())
 
 function checkDevice() {

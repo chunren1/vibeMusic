@@ -1,97 +1,54 @@
 <script setup>
-import { API_HOST } from '@/api/request'
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { toggleFavorite, getFavoriteIds } from '@/api/song'
+import { usePlayerStore } from '@/stores/player'
 
 const route = useRoute()
 const router = useRouter()
-const audio = window.vibeAudio
+const store = usePlayerStore()
+const audio = store.audio
 
 // 收藏
 const favIds = ref(new Set())
 const isFaved = ref(false)
-getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
+getFavoriteIds().then(r => { if (r.data) { favIds.value = new Set(r.data); window.vibeFavIds = favIds.value } }).catch(() => {})
 
 function toggleFav(e) {
   e.stopPropagation()
-  const id = currentSong.value.id
+  const id = store.currentSong.id
   if (!id) return
   const was = favIds.value.has(id)
   favIds.value[was ? 'delete' : 'add'](id)
   isFaved.value = !was
-  toggleFavorite(id, currentSong.value.title, currentSong.value.artist, currentSong.value.coverUrl || '').catch(() => {
+  toggleFavorite(id, store.currentSong.title, store.currentSong.artist, store.currentSong.coverUrl || '').catch(() => {
     favIds.value[was ? 'add' : 'delete'](id)
     isFaved.value = was
   })
 }
 
+// 同步收藏状态
+const updateFaved = () => { isFaved.value = favIds.value.has(store.currentSong.id) }
+
 // 搜索页贴底，播放页隐藏（由 MobileShell 控制），其他页在 TabBar 上方
-const isPlayer = computed(() => route.path.startsWith('/m/player'))
 const isSearch = computed(() => route.path.startsWith('/m/search'))
 const bottomOffset = computed(() => isSearch.value ? 0 : 56)
-const currentSong = ref({ id: '', title: '', artist: '', coverUrl: '' })
-const isPlaying = ref(!audio.paused)
-const progress = ref(0)
 
-function fmtSec(s) {
-  if (!s || !isFinite(s)) return '0:00'
-  const m = Math.floor(s / 60), sec = Math.floor(s % 60)
-  return m + ':' + String(sec).padStart(2, '0')
-}
-
-const _onPlay = () => { isPlaying.value = true }
-const _onPause = () => { isPlaying.value = false }
-const _onEnded = () => { isPlaying.value = false }
-const _onTime = () => { if (audio.duration) progress.value = (audio.currentTime / audio.duration) * 100 }
-const _onSongChange = (e) => {
-  const d = e.detail
-  const song = { id: d.sourceId || '', title: d.title || '', artist: d.artist || '', coverUrl: d.coverUrl || '' }
-  currentSong.value = song
-  localStorage.setItem('vibe_current_song', JSON.stringify(song))
-  isFaved.value = favIds.value.has(song.id)
-  try {
-    const q = JSON.parse(localStorage.getItem('vibe_queue') || '[]')
-    const sid = d.sourceId || d.id
-    const existIdx = q.findIndex(s => s.sourceId === sid)
-    if (existIdx >= 0) q.splice(existIdx, 1)
-    q.push({ sourceId: sid, name: d.title, artist: d.artist, coverUrl: d.coverUrl || '', duration: d.duration || 0 })
-    localStorage.setItem('vibe_queue', JSON.stringify(q))
-    localStorage.setItem('vibe_queue_idx', String(q.length - 1))
-  } catch {}
-}
+// 只有有歌在播放时才显示
+const visible = computed(() => !!store.currentSong.id)
 
 onMounted(() => {
-  window.addEventListener('song-change', _onSongChange)
-  audio.addEventListener('play', _onPlay)
-  audio.addEventListener('pause', _onPause)
-  audio.addEventListener('ended', _onEnded)
-  audio.addEventListener('timeupdate', _onTime)
-
-  // 恢复已播放状态
-  const saved = localStorage.getItem('vibe_current_song')
-  if (saved) {
-    try {
-      const s = JSON.parse(saved)
-      if (s.id) {
-        currentSong.value = { id: s.id, title: s.title || '', artist: s.artist || '', coverUrl: s.coverUrl || '' }
-        isFaved.value = favIds.value.has(s.id)
-        // 恢复音频源（刷新后 audio 是新的，需要重新设 src）
-        if (!audio.src) {
-          audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(s.id)}`
-          const t = parseFloat(localStorage.getItem('vibe_playback_time') || '0')
-          if (t > 0) audio.currentTime = t
-        }
-      }
-    } catch {}
+  // 监听切歌同步收藏状态
+  window.addEventListener('song-change', updateFaved)
+  // 恢复收藏状态
+  isFaved.value = favIds.value.has(store.currentSong.id)
+  // 恢复音频源（刷新后 audio 是新的，需要重新设 src）
+  if (!audio.src || audio.src === window.location.href) {
+    store.restorePlayback()
   }
 })
 onUnmounted(() => {
-  window.removeEventListener('song-change', _onSongChange)
-  audio.removeEventListener('play', _onPlay)
-  audio.removeEventListener('pause', _onPause)
-  audio.removeEventListener('ended', _onEnded)
-  audio.removeEventListener('timeupdate', _onTime)
+  window.removeEventListener('song-change', updateFaved)
 })
 
 function goToPlayer() {
@@ -100,46 +57,21 @@ function goToPlayer() {
 
 function togglePlayPause(e) {
   e.stopPropagation()
-  if (audio.src) {
-    if (audio.paused) audio.play().catch(() => {})
-    else audio.pause()
-  }
+  store.togglePlay()
 }
 
-function switchQueue(delta) {
-  try {
-    const q = JSON.parse(localStorage.getItem('vibe_queue') || '[]')
-    if (!q.length) return
-    let idx = parseInt(localStorage.getItem('vibe_queue_idx') || '-1')
-    idx = delta > 0
-      ? (idx >= q.length - 1 ? 0 : idx + 1)
-      : (idx <= 0 ? q.length - 1 : idx - 1)
-    localStorage.setItem('vibe_queue_idx', String(idx))
-    const s = q[idx]
-    const baseURL = API_HOST
-    audio.src = `${baseURL}/api/songs/stream?sourceId=${encodeURIComponent(s.sourceId)}`
-    audio.play().catch(() => {})
-    const song = { sourceId: s.sourceId, title: s.name, artist: s.artist, coverUrl: s.coverUrl || '' }
-    localStorage.setItem('vibe_current_song', JSON.stringify({ id: s.sourceId, title: s.name, artist: s.artist, coverUrl: s.coverUrl || '' }))
-    window.dispatchEvent(new CustomEvent('song-change', { detail: song }))
-  } catch {}
-}
-
-function clickPrev(e) { e.stopPropagation(); switchQueue(-1) }
-function clickNext(e) { e.stopPropagation(); switchQueue(1) }
+function clickPrev(e) { e.stopPropagation(); store.prev() }
+function clickNext(e) { e.stopPropagation(); store.next() }
 function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
-
-// 只有有歌在播放时才显示
-const visible = computed(() => !!currentSong.value.id)
 </script>
 
 <template>
   <div v-if="visible" class="mbp" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
-    <div class="mbp-progress" :style="{ width: progress + '%' }"></div>
-    <div class="mbp-cover" :style="currentSong.coverUrl ? { backgroundImage: `url(${currentSong.coverUrl}?param=80y80)` } : {}"></div>
+    <div class="mbp-progress" :style="{ width: store.progress + '%' }"></div>
+    <div class="mbp-cover" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=80y80)` } : {}"></div>
     <div class="mbp-info" @click="goToPlayer">
-      <div class="mbp-title">{{ currentSong.title }}</div>
-      <div class="mbp-artist">{{ currentSong.artist }}</div>
+      <div class="mbp-title">{{ store.currentSong.title }}</div>
+      <div class="mbp-artist">{{ store.currentSong.artist }}</div>
     </div>
     <!-- 收藏按钮 -->
     <button class="mbp-btn sm" :class="{ faved: isFaved }" @click.stop="toggleFav" title="收藏">
@@ -151,7 +83,7 @@ const visible = computed(() => !!currentSong.value.id)
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
       </button>
       <button class="mbp-btn" @click.stop="togglePlayPause">
-        <svg v-if="isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        <svg v-if="store.isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
         <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
       </button>
       <button class="mbp-btn sm" @click.stop="clickNext" title="下一首">

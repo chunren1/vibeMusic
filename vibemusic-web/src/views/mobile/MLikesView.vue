@@ -1,19 +1,11 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { getFavorites, playSong as apiPlaySong, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { ref, onMounted } from 'vue'
+import { getFavorites, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { usePlayerStore } from '@/stores/player'
 
+const player = usePlayerStore()
 const songs = ref([])
-const currentPlayId = ref(null)
 const favIds = ref(new Set())
-const audio = window.vibeAudio
-const isPlaying = ref(false)
-
-const _onPlay = () => { isPlaying.value = true }
-const _onPause = () => { isPlaying.value = false }
-const _onSongChange = (e) => { currentPlayId.value = e.detail.sourceId }
-audio.addEventListener('play', _onPlay)
-audio.addEventListener('pause', _onPause)
-window.addEventListener('song-change', _onSongChange)
 
 getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
 
@@ -26,26 +18,11 @@ function toggleFav(song) {
 }
 
 function play(song) {
-  currentPlayId.value = song.sourceId
-  if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') window._vibeAudioCtx.resume()
-  apiPlaySong(song.sourceId, song.songName, song.artist, song.coverUrl || '').then(res => {
-    const url = res.data?.url
-    if (!url) return
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, song.sourceId, song.songName, song.artist, song.coverUrl)
-    else { audio.src = url; audio.play().catch(() => {}) }
-    window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: song.songName, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl }
-    }))
-  }).catch(() => {})
+  player.playSongFromApi(song.sourceId, song.songName, song.artist, song.coverUrl || '')
 }
 
 onMounted(() => {
   getFavorites().then(r => { songs.value = r.data || [] }).catch(() => {})
-})
-onUnmounted(() => {
-  audio.removeEventListener('play', _onPlay)
-  audio.removeEventListener('pause', _onPause)
-  window.removeEventListener('song-change', _onSongChange)
 })
 </script>
 
@@ -59,9 +36,9 @@ onUnmounted(() => {
 
     <div class="m-list">
       <div v-for="(s, i) in songs" :key="s.sourceId"
-        class="m-item" :class="{ playing: currentPlayId === s.sourceId && isPlaying }" @click="play(s)">
+        class="m-item" :class="{ playing: player.currentSong.id === s.sourceId && player.isPlaying }" @click="play(s)">
         <div class="m-cover" :style="s.coverUrl ? { backgroundImage: `url(${s.coverUrl}?param=80y80)` } : {}">
-          <span v-if="currentPlayId === s.sourceId && isPlaying" class="m-eq"><span></span><span></span><span></span></span>
+          <span v-if="player.currentSong.id === s.sourceId && player.isPlaying" class="m-eq"><span></span><span></span><span></span></span>
         </div>
         <div class="m-info">
           <div class="m-name">{{ s.songName }}</div>

@@ -1,21 +1,17 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { API_HOST } from '@/api/request'
-import { useAudioBackground } from '@/composables/useAudioBackground'
 import { useRouter } from 'vue-router'
 import { getLyric, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
-import PlaylistPopup from '@/components/PlaylistPopup.vue'
+import { API_HOST } from '@/api/request'
+import { usePlayerStore } from '@/stores/player'
+import { useAudioBackground } from '@/composables/useAudioBackground'
 import MQueuePopup from '@/components/mobile/MQueuePopup.vue'
 
 const router = useRouter()
-const audio = window.vibeAudio
+const store = usePlayerStore()
+const audio = store.audio
 
-// 当前歌曲：直接从 localStorage 读取（和底部栏同一数据源）
-const song = ref({ id: '', title: '', artist: '', coverUrl: '' })
-const isPlaying = ref(!audio.paused)
-const currentTime = ref(0)
-const duration = ref(0)
-const progress = ref(0)
+// 歌词
 const lyrics = ref([])
 const loadingLyric = ref(false)
 const currentLyricIdx = ref(-1)
@@ -25,89 +21,42 @@ const lastSongId = ref('')
 const favIds = ref(new Set())
 const isFaved = ref(false)
 getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
+
 function toggleFav() {
-  const id = song.value.id
+  const id = store.currentSong.id
   if (!id) return
   const was = favIds.value.has(id)
   favIds.value[was ? 'delete' : 'add'](id)
   isFaved.value = !was
-  toggleFavorite(id, song.value.title, song.value.artist, song.value.coverUrl || '').catch(() => {
+  toggleFavorite(id, store.currentSong.title, store.currentSong.artist, store.currentSong.coverUrl || '').catch(() => {
     favIds.value[was ? 'add' : 'delete'](id)
     isFaved.value = was
   })
 }
 
-// 下载（走后端 API 存 RustFS + 浏览器下载）
+// 下载
 const downloading = ref(false)
 function doDownload() {
-  if (downloading.value || !song.value.id) return
+  if (downloading.value || !store.currentSong.id) return
   downloading.value = true
-  downloadViaBackend()
-}
-function downloadViaBackend() {
-  apiDownload(song.value.id, { name: song.value.title, artist: song.value.artist, coverUrl: song.value.coverUrl }).then(res => {
-    const u = res.data?.fileUrl || `${API_HOST}/api/download/file/${song.value.id}`
-    const a = document.createElement('a'); a.href = u; a.download = `${song.value.title}.mp3`; a.click()
+  apiDownload(store.currentSong.id, { name: store.currentSong.title, artist: store.currentSong.artist, coverUrl: store.currentSong.coverUrl }).then(res => {
+    const u = res.data?.fileUrl || `${API_HOST}/api/download/file/${store.currentSong.id}`
+    const a = document.createElement('a'); a.href = u; a.download = `${store.currentSong.title}.mp3`; a.click()
   }).catch(() => {
-    const a = document.createElement('a'); a.href = `${API_HOST}/api/download/file/${song.value.id}`; a.download = `${song.value.title}.mp3`; a.click()
+    const a = document.createElement('a'); a.href = `${API_HOST}/api/download/file/${store.currentSong.id}`; a.download = `${store.currentSong.title}.mp3`; a.click()
   }).finally(() => { downloading.value = false })
 }
 
-// 加入歌单
-const showPlaylistPopup = ref(false)
+// 弹窗
 const showQueuePopup = ref(false)
 
-// 播放模式：与 PlayerBar 同步
-const modeLabels = { 'list-loop': '列表循环', 'single': '单曲循环', 'shuffle': '随机播放', 'sequential': '顺序播放' }
-const playMode = ref(localStorage.getItem('vibe_play_mode') || 'list-loop')
-function toggleMode() {
-  const modes = ['list-loop', 'single', 'shuffle', 'sequential']
-  const idx = modes.indexOf(playMode.value)
-  playMode.value = modes[(idx + 1) % modes.length]
-  localStorage.setItem('vibe_play_mode', playMode.value)
-  // 同步到 PlayerBar
-  window.vibePlayMode?.(playMode.value)
-}
-// 监听 PlayerBar 的模式变更
-function onPlayModeChange(e) {
-  playMode.value = e.detail
-}
-window.addEventListener('play-mode-change', onPlayModeChange)
+// 播放模式
+const modeLabels = store.modeLabels
 
 // 后台播放支持
 const audioBg = useAudioBackground()
-let timeSyncCleanup = null
 
-// 加载当前歌曲（从 localStorage）
-function loadCurrentSong() {
-  try {
-    const s = JSON.parse(localStorage.getItem('vibe_current_song') || 'null')
-    if (s?.id && s.id !== lastSongId.value) {
-      lastSongId.value = s.id
-      song.value = { id: s.id, title: s.title || '', artist: s.artist || '', coverUrl: s.coverUrl || '' }
-      isFaved.value = favIds.value.has(s.id)
-      lyrics.value = []
-      currentLyricIdx.value = -1
-      fetchLyric(s.id)
-    }
-  } catch {}
-}
-
-// 监听切歌事件（PlayerBar / 首页 / 搜索页 都会派发，底部栏已验证可用）
-function onSongChange(e) {
-  const d = e.detail
-  const id = d.sourceId || d.id
-  if (!id || id === lastSongId.value) return
-  lastSongId.value = id
-  song.value = { id, title: d.title || '', artist: d.artist || '', coverUrl: d.coverUrl || '' }
-  isFaved.value = favIds.value.has(id)
-  lyrics.value = []
-  currentLyricIdx.value = -1
-  fetchLyric(id)
-}
-
-window.addEventListener('song-change', onSongChange)
-
+// 歌词获取
 async function fetchLyric(sourceId) {
   if (!sourceId) { lyrics.value = []; return }
   loadingLyric.value = true
@@ -118,34 +67,21 @@ async function fetchLyric(sourceId) {
   finally { loadingLyric.value = false }
 }
 
-// 每 250ms 同步播放状态（不再轮询 localStorage，防止旧数据覆盖事件更新）
+// 监听切歌事件
+function onSongChange(e) {
+  const d = e.detail
+  const id = d.sourceId || d.id
+  if (!id || id === lastSongId.value) return
+  lastSongId.value = id
+  isFaved.value = favIds.value.has(id)
+  lyrics.value = []
+  currentLyricIdx.value = -1
+  fetchLyric(id)
+}
+
+// 时间同步（更新歌词索引）
 function tick() {
-  currentTime.value = audio.currentTime || 0
-  duration.value = audio.duration || 0
-  if (duration.value && duration.value > 0) progress.value = (currentTime.value / duration.value) * 100
-  isPlaying.value = !audio.paused
   currentLyricIdx.value = activeIdx()
-}
-function startTimeSync() {
-  audioBg.startWorkerTimer(tick, 250)
-}
-function stopTimeSync() { audioBg.stopWorkerTimer() }
-
-function fmt(s) {
-  if (!s || !isFinite(s)) return '0:00'
-  const m = Math.floor(s / 60), sec = Math.floor(s % 60)
-  return m + ':' + String(sec).padStart(2, '0')
-}
-
-function togglePlay() {
-  if (audio.paused) audio.play().catch(() => {})
-  else audio.pause()
-}
-
-function onSeek(e) {
-  const rect = e.target.getBoundingClientRect()
-  const pct = (e.clientX - rect.left) / rect.width
-  audio.currentTime = pct * audio.duration
 }
 
 function activeIdx() {
@@ -157,71 +93,34 @@ function activeIdx() {
   return -1
 }
 
-// 上一首 / 下一首
-function loadQueue() {
-  try { return JSON.parse(localStorage.getItem('vibe_queue') || '[]') } catch { return [] }
+function fmt(s) {
+  if (!s || !isFinite(s)) return '0:00'
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60)
+  return m + ':' + String(sec).padStart(2, '0')
 }
 
-function switchTo(idx) {
-  const q = loadQueue()
-  if (!q.length || idx < 0 || idx >= q.length) return
-  const s = q[idx]
-  localStorage.setItem('vibe_queue_idx', String(idx))
-  // 更新播放轨道
-  audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(s.sourceId)}`
-  audio.play().catch(() => {})
-  // 同步 localStorage（底部栏会读到这个）
-  localStorage.setItem('vibe_current_song', JSON.stringify({
-    id: s.sourceId, title: s.name, artist: s.artist,
-    coverUrl: s.coverUrl || '', duration: s.duration || 0,
-  }))
-  // 派发 song-change 通知所有监听者（包括本页面的 onSongChange）
-  window.dispatchEvent(new CustomEvent('song-change', {
-    detail: {
-      sourceId: s.sourceId, title: s.name, artist: s.artist,
-      coverUrl: s.coverUrl || '', duration: s.duration || 0,
-    }
-  }))
-}
+function togglePlay() { store.togglePlay() }
 
-function prevSong() {
-  const q = loadQueue()
-  if (!q.length) return
-  let idx = parseInt(localStorage.getItem('vibe_queue_idx') || '-1')
-  if (playMode.value === 'shuffle') {
-    const r = Math.floor(Math.random() * q.length)
-    idx = r === idx ? (r + 1) % q.length : r
-  } else {
-    idx = idx <= 0 ? q.length - 1 : idx - 1
-  }
-  switchTo(idx)
-}
-
-function nextSong() {
-  const q = loadQueue()
-  if (!q.length) return
-  let idx = parseInt(localStorage.getItem('vibe_queue_idx') || '-1')
-  if (playMode.value === 'shuffle') {
-    const r = Math.floor(Math.random() * q.length)
-    idx = r === idx && q.length > 1 ? (r + 1) % q.length : r
-  } else if (playMode.value === 'sequential') {
-    if (idx >= q.length - 1) return
-    idx = idx + 1
-  } else {
-    // list-loop / single
-    idx = (idx + 1) % q.length
-  }
-  switchTo(idx)
+function onSeek(e) {
+  const rect = e.target.getBoundingClientRect()
+  const pct = (e.clientX - rect.left) / rect.width
+  store.seekTo(pct)
 }
 
 onMounted(() => {
-  loadCurrentSong()
-  startTimeSync()
+  window.addEventListener('song-change', onSongChange)
+  // 加载当前歌曲歌词
+  const id = store.currentSong.id
+  if (id && id !== lastSongId.value) {
+    lastSongId.value = id
+    isFaved.value = favIds.value.has(id)
+    fetchLyric(id)
+  }
+  audioBg.startWorkerTimer(tick, 250)
 })
 onUnmounted(() => {
-  stopTimeSync()
   window.removeEventListener('song-change', onSongChange)
-  window.removeEventListener('play-mode-change', onPlayModeChange)
+  audioBg.stopWorkerTimer()
 })
 </script>
 
@@ -231,24 +130,24 @@ onUnmounted(() => {
     <div class="mp-bar">
       <button class="mp-back" @click="router.push('/m')">‹</button>
       <div class="mp-bar-center">
-        <div class="mp-name">{{ song.title || '未在播放' }}</div>
-        <div class="mp-artist">{{ song.artist }}</div>
+        <div class="mp-name">{{ store.currentSong.title || '未在播放' }}</div>
+        <div class="mp-artist">{{ store.currentSong.artist }}</div>
       </div>
       <div class="mp-spacer"></div>
     </div>
 
-    <!-- 封面（缩小） -->
+    <!-- 封面 -->
     <div class="mp-cover-section">
       <div
         class="mp-cover"
-        :class="{ spinning: isPlaying }"
-        :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=200y200)` } : {}"
+        :class="{ spinning: store.isPlaying }"
+        :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=200y200)` } : {}"
       >
-        <div v-if="!song.coverUrl" class="mp-cover-empty">♪</div>
+        <div v-if="!store.currentSong.coverUrl" class="mp-cover-empty">♪</div>
       </div>
     </div>
 
-    <!-- 歌词（四行） -->
+    <!-- 歌词 -->
     <div class="mp-lyric-section">
       <div v-if="loadingLyric" class="mp-lyric-placeholder">加载歌词中...</div>
       <div v-else-if="!lyrics.length" class="mp-lyric-placeholder">暂无歌词</div>
@@ -271,38 +170,38 @@ onUnmounted(() => {
       <button class="mp-top-btn" @click="doDownload" :disabled="downloading">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </button>
-      <button class="mp-top-btn" @click="showPlaylistPopup = true">
+      <button class="mp-top-btn" @click="showQueuePopup = true" title="播放列表">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
     </div>
 
     <!-- 进度条 -->
     <div class="mp-progress" @click="onSeek">
-      <div class="mp-progress-fill" :style="{ width: progress + '%' }">
+      <div class="mp-progress-fill" :style="{ width: store.progress + '%' }">
         <span class="mp-dot"></span>
       </div>
     </div>
     <div class="mp-time">
-      <span>{{ fmt(currentTime) }}</span>
-      <span>{{ fmt(duration) }}</span>
+      <span>{{ fmt(store.currentTime) }}</span>
+      <span>{{ fmt(store.duration) }}</span>
     </div>
 
     <!-- 进度条下方控制按钮 -->
     <div class="mp-ctrls">
-      <button class="mp-ctrl sm" :class="{ 'mode-active': playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabels[playMode]">
-        <svg v-if="playMode === 'list-loop'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-        <svg v-else-if="playMode === 'single'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="16.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg>
-        <svg v-else-if="playMode === 'shuffle'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+      <button class="mp-ctrl sm" :class="{ 'mode-active': store.playMode !== 'list-loop' }" @click="store.toggleMode()" :title="modeLabels[store.playMode]">
+        <svg v-if="store.playMode === 'list-loop'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        <svg v-else-if="store.playMode === 'single'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="16.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg>
+        <svg v-else-if="store.playMode === 'shuffle'" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
         <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M3 13v2a4 4 0 0 0 4 4h7"/></svg>
       </button>
-      <button class="mp-ctrl" @click="prevSong">
+      <button class="mp-ctrl" @click="store.prev()">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6l-8.5 6z"/></svg>
       </button>
       <button class="mp-ctrl mp-ctrl-play" @click="togglePlay">
-        <svg v-if="isPlaying" viewBox="0 0 24 24" width="52" height="52" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+        <svg v-if="store.isPlaying" viewBox="0 0 24 24" width="52" height="52" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
         <svg v-else viewBox="0 0 24 24" width="52" height="52" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
       </button>
-      <button class="mp-ctrl" @click="nextSong">
+      <button class="mp-ctrl" @click="store.next()">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zm8.5-12v12H16V6h-1.5z"/></svg>
       </button>
       <button class="mp-ctrl sm" @click="showQueuePopup = true" title="播放列表">
@@ -310,12 +209,6 @@ onUnmounted(() => {
       </button>
     </div>
   </div>
-  <PlaylistPopup
-    v-if="showPlaylistPopup"
-    :song="{ sourceId: song.id, name: song.title, artist: song.artist, coverUrl: song.coverUrl }"
-    @close="showPlaylistPopup = false"
-    @done="showPlaylistPopup = false"
-  />
   <MQueuePopup :visible="showQueuePopup" @close="showQueuePopup = false" />
 </template>
 
