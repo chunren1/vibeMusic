@@ -34,8 +34,8 @@
 
 | 功能 | 说明 |
 |------|------|
-| 👤 用户中心 | JWT 登录/注册，弹窗式无跳转，个人主页编辑资料（昵称/性别/生日/头像），详情页展示完整信息 |
-| 🔍 多平台搜索 | 聚合网易云 + QQ音乐结果，去重打分排序，分源筛选，400ms 防抖实时搜索 |
+| 👤 用户中心 | JWT 登录/注册，弹窗式无跳转；个人主页支持编辑资料（昵称/性别/生日/头像/背景图）；详情页展示完整信息 |
+| 🔍 多平台搜索 | 聚合网易云 + QQ音乐，多维加权评分(相关性+热度+排名)，信息指纹去重，LRU缓存加速，400ms 防抖 |
 | ▶️ VIP音质播放 | 自有 VIP Cookie，exhigh / hires 品质 |
 | ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录 |
 | 📋 歌单管理 | 创建/删除/添加歌曲，完整 CRUD，所有权校验 |
@@ -56,8 +56,11 @@ vibeMusic/
 ├── vibemusic-web/          # Vue 3 前端
 │   ├── src/
 │   │   ├── views/          # 桌面视图 + mobile/ 移动视图
-│   │   ├── ProfileView.vue       # 个人主页 (背景图+可编辑表单)
+│   │   ├── ProfileView.vue       # 个人主页 (展示+编辑面板)
 │   │   ├── ProfileDetailView.vue # 个人详情页
+│   │   ├── mobile/
+│   │   │   ├── MProfileView.vue       # 移动端个人主页
+│   │   │   └── MProfileDetailView.vue # 移动端详情页
 │   │   └── ...
 │   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView + mobile/
 │   │   ├── composables/    # useIsMobile (设备检测)
@@ -77,7 +80,8 @@ vibeMusic/
 ├── scripts/                # 运维工具
 │   ├── start-tunnel.bat    # cpolar 自动重连脚本
 │   ├── start-cpolar-tunnel.bat
-│   └── start-cloudflare-tunnel.bat
+│   ├── start-cloudflare-tunnel.bat
+│   └── migration_profile.sql   # 个人资料迁移 SQL
 ├── musicapi/               # Node.js API 聚合网关 (端口 3000)
 │   ├── server.js           # 聚合搜索 + 独立平台搜索 + 质量过滤
 │   └── config.js           # QQ Cookie 配置
@@ -147,8 +151,12 @@ cd android && gradlew clean assembleDebug
 |------|------|------|
 | `/api/auth/register` | POST | 用户注册 |
 | `/api/auth/login` | POST | 用户登录 |
-| `/api/auth/me` | GET | 当前用户信息 |
+| `/api/auth/me` | GET | 当前用户信息（含 avatar/bgImage/gender/birthday） |
 | `/api/auth/change-password` | POST | 修改密码 |
+| `/api/auth/profile` | PUT | 更新个人资料（昵称/性别/生日） |
+| `/api/auth/avatar` | POST | 上传头像（multipart, ≤2MB） |
+| `/api/auth/bg-image` | POST | 上传个人页背景图（multipart, ≤2MB） |
+| `/uploads/avatars/**` | GET | 头像/背景图静态资源 |
 | `/api/songs/search` | GET | 搜索歌曲 |
 | `/api/songs/play` | GET | 播放URL + 记录历史 |
 | `/api/songs/stream` | GET | 音频流代理 |
@@ -171,15 +179,24 @@ cd android && gradlew clean assembleDebug
 | `/song/url/v1` | 网易云播放URL |
 | `/song/url/qq` | QQ音乐播放URL |
 
-## 聚合搜索算法
+## 聚合搜索算法 (v2)
 
 ```
-最终得分 = 排名分 × 平台权重 + 跨平台加成
+最终得分 = (相关性×0.4 + 热度×0.3 + 原始排名×0.3) × 平台权重 + 同名加成 + 用户偏好
 
-- 网易云权重: 1.0
-- QQ音乐权重: 0.9
-- 同名歌曲加成: +0.3
-- 去重键: 歌曲名|歌手名
+- 相关性: 精确匹配=1.0, 前缀匹配=0.8, 包含匹配=0.5
+- 热度: log10(播放量/收藏数) 归一化到 0~1
+- 平台权重: 网易云 1.0, QQ音乐 0.9 (可配置常量)
+- 同名加成: 跨平台同名同歌手 +0.3
+- 用户偏好: 指定平台 +0.2 (支持 ?prefer= 参数)
+
+### 智能去重
+- 数据清洗: 正则剥离 (Live)/(Remix)/(Explicit)/(Cover)/feat. 后缀
+- 信息指纹: MD5(清洗歌名 || 歌手 || 专辑) 精准去重
+
+### 性能优化
+- Promise.all 并行请求网易云 + QQ
+- LRU 缓存 (max 200, TTL 5min)
 ```
 
 ## Pinia Player Store（播放状态管理中心）

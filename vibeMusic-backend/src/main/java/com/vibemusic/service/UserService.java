@@ -79,6 +79,14 @@ public class UserService implements UserDetailsService {
         return userMapper.selectById(userId);
     }
 
+    public User updateBgImage(Long userId, String bgImageUrl) {
+        User user = userMapper.selectById(userId);
+        if (user == null) throw new RuntimeException("用户不存在");
+        user.setBgImage(bgImageUrl);
+        userMapper.updateById(user);
+        return userMapper.selectById(userId);
+    }
+
     public static Long getCurrentUserId() {
         var auth = org.springframework.security.core.context.SecurityContextHolder
                 .getContext().getAuthentication();

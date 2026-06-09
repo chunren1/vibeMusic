@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginModal from '@/components/LoginModal.vue'
@@ -30,6 +30,13 @@ const pwdSuccess = ref(false)
 const avatarLoading = ref(false)
 const avatarInput = ref(null)
 
+// 背景图
+const bgLoading = ref(false)
+const bgInput = ref(null)
+
+// 头像占位图柔色色板
+const AVATAR_PALETTE = ['#e8b4b4', '#b4c8e8', '#b4e8c2', '#e8d9b4', '#d4b4e8', '#e8b4d4', '#b4e4e8', '#c2e8b4', '#e8c4b4', '#b4b4e8']
+
 onMounted(() => {
   if (auth.isLoggedIn) refreshForm()
 })
@@ -50,8 +57,34 @@ function openEdit() {
   editMode.value = true
 }
 
-function closeEdit() {
-  editMode.value = false
+function closeEdit() { editMode.value = false }
+
+// ===== 头像占位符背景色（取自昵称 hash） =====
+const avatarPlaceholderBg = computed(() => {
+  const name = auth.user?.nickname || auth.user?.username || '?'
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length]
+})
+
+// ===== 头像首字符 =====
+const avatarInitial = computed(() => {
+  return (auth.user?.nickname || auth.user?.username || '?')[0]?.toUpperCase()
+})
+
+// ===== 生日格式化 + 星座 =====
+function formatBirthday(dateStr) {
+  if (!dateStr) return '未设置'
+  const [y, m, d] = dateStr.split('-')
+  if (!m || !d) return dateStr
+  const zodiac = getZodiac(parseInt(m), parseInt(d))
+  return `${parseInt(m)}月${parseInt(d)}日 · ${zodiac}`
+}
+
+function getZodiac(month, day) {
+  const dates = [20, 19, 21, 20, 21, 22, 23, 23, 23, 24, 23, 22]
+  const signs = ['水瓶座', '双鱼座', '白羊座', '金牛座', '双子座', '巨蟹座', '狮子座', '处女座', '天秤座', '天蝎座', '射手座', '摩羯座']
+  return day < dates[month - 1] ? signs[month - 1] : signs[month % 12]
 }
 
 // ===== 保存资料 =====
@@ -102,6 +135,18 @@ async function onAvatarChange(e) {
   finally { avatarLoading.value = false }
 }
 
+// ===== 背景图上传 =====
+function triggerBg() { bgInput.value?.click() }
+async function onBgChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  if (file.size > 2 * 1024 * 1024) { alert('文件不能超过 2MB'); return }
+  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) { alert('仅支持 JPG/PNG/GIF/WebP'); return }
+  bgLoading.value = true
+  try { await auth.uploadUserBgImage(file) } catch (err) { alert(err.response?.data?.message || err.message || '上传失败') }
+  finally { bgLoading.value = false }
+}
+
 function genderLabel(v) {
   return { '男': '♂ 男', '女': '♀ 女', '保密': '保密' }[v] || '保密'
 }
@@ -116,44 +161,28 @@ function genderLabel(v) {
       <p class="ghost-sub">登录后同步收藏和歌单</p>
     </div>
 
-    <!-- ========== 已登录 - 展示模式 ========== -->
+    <!-- ========== 已登录 ========== -->
     <template v-else>
-      <!-- 顶部绿色背景横幅 -->
-      <div class="profile-banner">
-        <div class="banner-bg">
-          <div class="banner-circle banner-circle-1"></div>
-          <div class="banner-circle banner-circle-2"></div>
+      <!-- 头部区域：品牌渐变背景 + 自定义背景图 + 噪点纹理 -->
+      <div class="hero-area">
+        <div class="hero-bg" :class="{ 'has-image': auth.bgImageSrc }">
+          <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="hero-bg-img" />
         </div>
-        <!-- 头像 -->
-        <div class="avatar-section">
-          <div class="avatar-wrapper" @click="router.push('/profile/detail')" title="点击查看详情">
-            <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="avatar-img" />
-            <span v-else class="avatar-text">{{ (auth.user?.nickname || auth.user?.username)[0]?.toUpperCase() }}</span>
-          </div>
-        </div>
-        <h1 class="profile-name">{{ auth.user?.nickname || auth.user?.username }}</h1>
-        <p class="profile-uid">@{{ auth.user?.username }}</p>
-      </div>
 
-      <!-- 信息卡片 + 编辑按钮 -->
-      <div class="info-section">
-        <div class="info-card">
-          <div class="info-row">
-            <span class="info-label">昵称</span>
-            <span class="info-value">{{ auth.user?.nickname || auth.user?.username }}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">性别</span>
-            <span class="info-value">{{ genderLabel(auth.user?.gender) }}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">生日</span>
-            <span class="info-value">{{ auth.user?.birthday || '未设置' }}</span>
-          </div>
+        <!-- 头像 -->
+        <div class="hero-avatar" @click="router.push('/profile/detail')" title="查看详情">
+          <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="hero-av-img" />
+          <span v-else class="hero-av-text" :style="{ background: avatarPlaceholderBg }">{{ avatarInitial }}</span>
         </div>
-        <button class="edit-btn" @click="openEdit">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          编辑资料
+
+        <!-- 昵称 + ID -->
+        <h1 class="hero-name">{{ auth.user?.nickname || auth.user?.username }}</h1>
+        <p class="hero-id">@{{ auth.user?.username }}</p>
+
+        <!-- 胶囊编辑按钮 -->
+        <button class="hero-edit-btn" @click="openEdit">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          编辑
         </button>
       </div>
 
@@ -190,6 +219,20 @@ function genderLabel(v) {
                 </div>
                 <input ref="avatarInput" type="file" accept="image/*" class="avatar-input" @change="onAvatarChange" />
                 <span class="avatar-hint">点击更换头像</span>
+              </div>
+
+              <!-- 背景图 -->
+              <div class="form-row">
+                <label>个人页背景</label>
+                <div class="bg-preview" @click="triggerBg">
+                  <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="bg-preview-img" />
+                  <div v-else class="bg-preview-empty">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <span>点击上传</span>
+                  </div>
+                  <div v-if="bgLoading" class="avatar-spinner"></div>
+                </div>
+                <input ref="bgInput" type="file" accept="image/*" class="avatar-input" @change="onBgChange" />
               </div>
 
               <!-- 昵称 -->
@@ -257,63 +300,86 @@ function genderLabel(v) {
 .ghost-title { font-size: 20px; color: #555; cursor: pointer; }
 .ghost-sub { font-size: 13px; color: #999; }
 
-/* ===== 顶部横幅 ===== */
-.profile-banner {
-  position: relative; padding: 56px 40px 36px; text-align: center;
-}
-.banner-bg {
-  position: absolute; inset: 0;
-  background: linear-gradient(160deg, #1a6b3a 0%, #31c27c 50%, #5ddb92 100%);
+/* ===== 头部区域 ===== */
+.hero-area {
+  position: relative; padding: 64px 40px 40px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
   overflow: hidden;
 }
-.banner-circle {
-  position: absolute; border-radius: 50%;
-  background: rgba(255,255,255,0.08);
-}
-.banner-circle-1 { width: 200px; height: 200px; top: -60px; right: -40px; }
-.banner-circle-2 { width: 140px; height: 140px; bottom: -30px; left: -20px; }
 
-.avatar-section { position: relative; margin-bottom: 16px; }
-.avatar-wrapper {
-  width: 88px; height: 88px; border-radius: 50%; margin: 0 auto;
-  border: 3px solid rgba(255,255,255,0.5); cursor: pointer; overflow: hidden;
-  background: rgba(255,255,255,0.2);
-  display: flex; align-items: center; justify-content: center;
-  transition: transform .2s;
+/* 品牌渐变 + 自定义背景图 + SVG 噪点纹理叠加 */
+.hero-bg {
+  position: absolute; inset: 0;
+  background: linear-gradient(160deg, #1a6b3a 0%, #28a86b 40%, #31c27c 70%, #5ddb92 100%);
 }
-.avatar-wrapper:hover { transform: scale(1.04); }
-.avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.avatar-text { font-size: 36px; font-weight: 700; color: #fff; }
-.profile-name { position: relative; font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-.profile-uid { position: relative; font-size: 13px; color: rgba(255,255,255,0.7); }
+.hero-bg.has-image { background: none; }
+.hero-bg-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.hero-bg::after {
+  content: ''; position: absolute; inset: 0; opacity: 0.25;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat; background-size: 128px 128px;
+}
+
+/* 头像 */
+.hero-avatar {
+  position: relative; z-index: 1;
+  width: 96px; height: 96px; border-radius: 50%; margin-bottom: 18px;
+  border: 3px solid rgba(255,255,255,0.4); cursor: pointer;
+  overflow: hidden; transition: transform .2s, border-color .2s;
+}
+.hero-avatar:hover { transform: scale(1.04); border-color: rgba(255,255,255,0.7); }
+.hero-av-img { width: 100%; height: 100%; object-fit: cover; }
+.hero-av-text {
+  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 42px; font-weight: 700; color: #fff; user-select: none;
+}
+
+/* 昵称 */
+.hero-name {
+  position: relative; z-index: 1;
+  font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px;
+}
+
+/* ID */
+.hero-id {
+  position: relative; z-index: 1;
+  font-size: 13px; color: rgba(255,255,255,0.55); margin-bottom: 16px;
+}
+
+/* 胶囊编辑按钮 */
+.hero-edit-btn {
+  position: relative; z-index: 1;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 20px; border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 20px; background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all .2s;
+  backdrop-filter: blur(4px);
+}
+.hero-edit-btn:hover {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.6);
+  color: #fff;
+}
 
 /* ===== 信息卡片 ===== */
-.info-section {
-  margin: -16px 32px 20px; position: relative; z-index: 1;
-}
 .info-card {
-  background: #fff; border-radius: 14px 14px 0 0; overflow: hidden;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+  margin: -12px 28px 20px; position: relative; z-index: 1;
+  background: #fff; border-radius: 14px; padding: 8px 0;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
 }
 .info-row {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 16px 24px; border-bottom: 1px solid #f5f5f5;
+  padding: 15px 24px;
 }
-.info-row:last-child { border-bottom: none; }
 .info-label { font-size: 14px; color: #999; }
 .info-value { font-size: 14px; color: #333; font-weight: 500; }
 
-.edit-btn {
-  width: 100%; padding: 14px; border: none; border-radius: 0 0 14px 14px;
-  background: #31c27c; color: #fff; font-size: 15px; font-weight: 500;
-  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
-  transition: background .2s;
-}
-.edit-btn:hover { background: #28a86b; }
-
 /* ===== 快捷入口 ===== */
 .menu-card {
-  margin: 0 32px 32px; background: #fff; border-radius: 14px;
+  margin: 0 28px 32px; background: #fff; border-radius: 14px;
   overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.04);
 }
 .menu-item {
@@ -375,6 +441,20 @@ function genderLabel(v) {
 @keyframes spin { to { transform: rotate(360deg); } }
 .avatar-input { display: none; }
 .avatar-hint { font-size: 12px; color: #999; }
+
+/* 背景图预览 */
+.bg-preview {
+  width: 100%; height: 100px; border-radius: 10px; overflow: hidden;
+  border: 2px dashed #ddd; cursor: pointer; position: relative;
+  transition: border-color .2s;
+}
+.bg-preview:hover { border-color: #31c27c; }
+.bg-preview-img { width: 100%; height: 100%; object-fit: cover; }
+.bg-preview-empty {
+  width: 100%; height: 100%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  color: #bbb; font-size: 13px; background: #f9f9f9;
+}
 
 .form-row { margin-bottom: 18px; }
 .form-row label { display: block; font-size: 13px; font-weight: 500; color: #666; margin-bottom: 8px; }

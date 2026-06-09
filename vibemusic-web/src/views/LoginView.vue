@@ -33,6 +33,7 @@ async function handleLogin() {
         username: res.data.username,
         nickname: res.data.nickname,
         avatar: res.data.avatar,
+        bgImage: res.data.bgImage,
         gender: res.data.gender,
         birthday: res.data.birthday,
       })
@@ -71,6 +72,7 @@ async function handleRegister() {
         username: res.data.username,
         nickname: res.data.nickname,
         avatar: res.data.avatar,
+        bgImage: res.data.bgImage,
         gender: res.data.gender,
         birthday: res.data.birthday,
       })

@@ -79,45 +79,7 @@ async function handleLogin() {
         username: res.data.username,
         nickname: res.data.nickname,
         avatar: res.data.avatar,
-        gender: res.data.gender,
-        birthday: res.data.birthday,
-      })
-      onAuthSuccess()
-    } else {
-      errorMsg.value = res.message || '登录失败'
-    }
-  } catch (e) {
-    // 优先取 axios 响应中的 msg，其次取拦截器 reject 的 error.message
-    const msg = e.response?.data?.message || e.message || '登录失败，请检查用户名密码'
-    errorMsg.value = msg
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleRegister() {
-  errorMsg.value = ''
-  if (!username.value || !password.value) {
-    errorMsg.value = '请输入用户名和密码'
-    return
-  }
-  if (password.value.length < 4) {
-    errorMsg.value = '密码至少4位'
-    return
-  }
-  loading.value = true
-  try {
-    const res = await request.post('/auth/register', {
-      username: username.value,
-      password: password.value,
-      nickname: nickname.value || username.value,
-    })
-    if (res.code === 200) {
-      authStore.login(res.data.token, {
-        userId: res.data.userId,
-        username: res.data.username,
-        nickname: res.data.nickname,
-        avatar: res.data.avatar,
+        bgImage: res.data.bgImage,
         gender: res.data.gender,
         birthday: res.data.birthday,
       })
