@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { getPlayHistory, playSong as apiPlaySong, toggleFavorite, getFavoriteIds } from '@/api/song'
 
 const songs = ref([])
@@ -8,9 +8,12 @@ const favIds = ref(new Set())
 const audio = window.vibeAudio
 const isPlaying = ref(false)
 
-audio.addEventListener('play', () => { isPlaying.value = true })
-audio.addEventListener('pause', () => { isPlaying.value = false })
-window.addEventListener('song-change', e => { currentPlayId.value = e.detail.sourceId })
+const _onPlay = () => { isPlaying.value = true }
+const _onPause = () => { isPlaying.value = false }
+const _onSongChange = (e) => { currentPlayId.value = e.detail.sourceId }
+audio.addEventListener('play', _onPlay)
+audio.addEventListener('pause', _onPause)
+window.addEventListener('song-change', _onSongChange)
 getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
 
 function formatTime(dt) {
@@ -46,6 +49,11 @@ function play(song) {
 
 onMounted(() => {
   getPlayHistory().then(r => { songs.value = r.data || [] }).catch(() => {})
+})
+onUnmounted(() => {
+  audio.removeEventListener('play', _onPlay)
+  audio.removeEventListener('pause', _onPause)
+  window.removeEventListener('song-change', _onSongChange)
 })
 </script>
 

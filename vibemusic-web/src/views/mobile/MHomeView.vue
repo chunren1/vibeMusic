@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
@@ -13,11 +13,10 @@ window.vibeAudio = audio
 const currentPlaySong = ref(null)
 const isPlaying = ref(!audio.paused)
 
-audio.addEventListener('play', () => { isPlaying.value = true })
-audio.addEventListener('pause', () => { isPlaying.value = false })
-audio.addEventListener('ended', () => { isPlaying.value = false })
-
-window.addEventListener('song-change', e => {
+const _onPlay = () => { isPlaying.value = true }
+const _onPause = () => { isPlaying.value = false }
+const _onEnded = () => { isPlaying.value = false }
+const _onSongChange = (e) => {
   currentPlaySong.value = {
     sourceId: e.detail.sourceId,
     name: e.detail.title,
@@ -25,7 +24,12 @@ window.addEventListener('song-change', e => {
     coverUrl: e.detail.coverUrl,
   }
   isPlaying.value = true
-})
+}
+
+audio.addEventListener('play', _onPlay)
+audio.addEventListener('pause', _onPause)
+audio.addEventListener('ended', _onEnded)
+window.addEventListener('song-change', _onSongChange)
 
 // ===== Play =====
 function playSong(song) {
@@ -92,16 +96,17 @@ function resetBannerTimer() {
 }
 
 onMounted(() => {
-  // 恢复当前播放状态（从歌词页返回时）
-  try {
-    const s = JSON.parse(localStorage.getItem('vibe_current_song') || 'null')
-    if (s?.id) currentPlaySong.value = { sourceId: s.id, name: s.title, artist: s.artist, coverUrl: s.coverUrl }
-  } catch {}
   isPlaying.value = !audio.paused
-
   loadBanners()
   bannerTimer = setInterval(nextBanner, 4000)
   shuffleSongs()
+})
+onUnmounted(() => {
+  audio.removeEventListener('play', _onPlay)
+  audio.removeEventListener('pause', _onPause)
+  audio.removeEventListener('ended', _onEnded)
+  window.removeEventListener('song-change', _onSongChange)
+  clearInterval(bannerTimer)
 })
 
 // ===== Random Songs =====
@@ -166,7 +171,7 @@ function randomColor() {
           class="m-song-item"
           :class="{ playing: currentPlaySong?.sourceId === song.sourceId && isPlaying }"
           @click="playSong(song)">
-          <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=60y60)` } : { background: song.coverColor }">
+          <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=60y60)`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: song.coverColor }">
             <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="m-eq">
               <span></span><span></span><span></span>
             </span>
@@ -260,6 +265,10 @@ function randomColor() {
 .m-song-cover {
   width: 42px; height: 42px; border-radius: 8px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #1a1a2e;
 }
 .m-eq { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
 .m-eq span { width: 3px; background: #31c27c; border-radius: 1px; animation: eq .8s ease-in-out infinite alternate; }

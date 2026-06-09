@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { API_HOST } from '@/api/request'
+import { useAudioBackground } from '@/composables/useAudioBackground'
 import { useRouter } from 'vue-router'
 import { getLyric, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
@@ -64,7 +65,7 @@ const showPlaylistPopup = ref(false)
 const showQueuePopup = ref(false)
 
 // 播放模式
-const playMode = ref('sequential')
+const playMode = ref(localStorage.getItem('vibe_play_mode') || 'sequential')
 function toggleMode() {
   const modes = ['sequential', 'random', 'single']
   const idx = modes.indexOf(playMode.value)
@@ -74,7 +75,9 @@ function toggleMode() {
   localStorage.setItem('vibe_play_mode', playMode.value)
 }
 
-let timeSync = null
+// 后台播放支持
+const audioBg = useAudioBackground()
+let timeSyncCleanup = null
 
 // 加载当前歌曲（从 localStorage）
 function loadCurrentSong() {
@@ -117,17 +120,17 @@ async function fetchLyric(sourceId) {
 }
 
 // 每 250ms 同步播放状态（不再轮询 localStorage，防止旧数据覆盖事件更新）
-function startTimeSync() {
-  stopTimeSync()
-  timeSync = setInterval(() => {
-    currentTime.value = audio.currentTime || 0
-    duration.value = audio.duration || 0
-    if (duration.value && duration.value > 0) progress.value = (currentTime.value / duration.value) * 100
-    isPlaying.value = !audio.paused
-    currentLyricIdx.value = activeIdx()
-  }, 250)
+function tick() {
+  currentTime.value = audio.currentTime || 0
+  duration.value = audio.duration || 0
+  if (duration.value && duration.value > 0) progress.value = (currentTime.value / duration.value) * 100
+  isPlaying.value = !audio.paused
+  currentLyricIdx.value = activeIdx()
 }
-function stopTimeSync() { if (timeSync) { clearInterval(timeSync); timeSync = null } }
+function startTimeSync() {
+  audioBg.startWorkerTimer(tick, 250)
+}
+function stopTimeSync() { audioBg.stopWorkerTimer() }
 
 function fmt(s) {
   if (!s || !isFinite(s)) return '0:00'

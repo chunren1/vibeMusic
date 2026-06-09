@@ -79,6 +79,8 @@ html, body, #app { height: 100%; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #0a0a0a; color: #e0e0e0;
+  touch-action: manipulation;  /* 消除移动端 300ms 点击延迟 */
+  -webkit-tap-highlight-color: transparent;  /* 去掉点击高亮 */
 }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 3px; }

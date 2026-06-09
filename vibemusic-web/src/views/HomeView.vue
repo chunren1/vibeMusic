@@ -340,6 +340,12 @@ function goResultPage() {
   showResultPage.value = true
 }
 
+function addToQueueDesktop(song) {
+  if (window.vibeAddToQueue) {
+    window.vibeAddToQueue({ sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration })
+  }
+}
+
 // 格式化秒数为 mm:ss
 function formatDuration(seconds) {
   if (!seconds && seconds !== 0) return ''
@@ -396,6 +402,7 @@ function formatDuration(seconds) {
                   </span>
                   <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
                 </div>
+                <button class="drop-queue-btn" @mousedown.stop="addToQueueDesktop(song)" title="加入队列">+</button>
               </div>
               <div class="drop-footer" @mousedown.prevent="goResultPage">
                 查看全部结果 →
@@ -546,6 +553,7 @@ function formatDuration(seconds) {
           <span class="rp-album" @click="playSong(song)">{{ song.album || '-' }}</span>
           <span class="rp-time" @click="playSong(song)">{{ formatDuration(song.duration) }}</span>
           <div class="rp-actions">
+            <button class="action-btn queue-btn" @click.stop="addToQueueDesktop(song)" title="加入队列">+</button>
             <button
               class="action-btn fav-btn"
               :class="{ faved: favIds.has(song.sourceId) }"

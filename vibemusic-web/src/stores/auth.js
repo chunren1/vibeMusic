@@ -1,8 +1,9 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
+import { getToken, setToken } from '@/api/request'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('token'))
+  const token = ref(getToken())
   const user = ref(tryParse(localStorage.getItem('user')))
   const showLoginModal = ref(false)
   const redirectPath = ref(null)  // Bug2: 登录后跳转目标页面
@@ -16,7 +17,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = newToken
     user.value = newUser
-    localStorage.setItem('token', newToken)
+    setToken(newToken)
     localStorage.setItem('user', JSON.stringify(newUser))
     return true
   }
@@ -24,9 +25,9 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     token.value = null
     user.value = null
-    redirectPath.value = null       // 清空跳转目标
-    showLoginModal.value = false    // 关闭登录弹窗
-    localStorage.removeItem('token')
+    redirectPath.value = null
+    showLoginModal.value = false
+    setToken(null)
     localStorage.removeItem('user')
   }
 

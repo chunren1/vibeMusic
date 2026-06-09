@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { API_HOST } from '@/api/request'
 import { playSong as apiPlaySong, downloadSong as apiDownload, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { useAudioBackground } from '@/composables/useAudioBackground'
 import LyricsView from '@/components/LyricsView.vue'
 
 // ===== 全局播放队列（localStorage 持久化） =====
@@ -106,10 +107,8 @@ function addToQueue(song) {
   const exists = queue.value.findIndex(s => s.sourceId === song.sourceId)
   if (exists >= 0) {
     Object.assign(queue.value[exists], song)
-    currentIdx.value = exists
   } else {
     queue.value.push(song)
-    currentIdx.value = queue.value.length - 1
   }
 }
 
@@ -147,13 +146,15 @@ function playCurrent() {
 }
 
 // 播放模式
-const playMode = ref('sequential')
+const playMode = ref(localStorage.getItem('vibe_play_mode') || 'sequential')
 function toggleMode() {
   const modes = ['sequential', 'random', 'single']
   const idx = modes.indexOf(playMode.value)
   playMode.value = modes[(idx + 1) % 3]
+  localStorage.setItem('vibe_play_mode', playMode.value)
 }
-window.vibePlayMode = (m) => { playMode.value = m }
+window.vibeAddToQueue = addToQueue
+window.vibePlayMode = (m) => { playMode.value = m; localStorage.setItem('vibe_play_mode', m) }
 
 function onEnded() {
   if (playMode.value === 'single') {
@@ -230,11 +231,12 @@ function onSongChange(e) {
 
 // HomeView 播放歌曲时设置 Audio 源
 function setAudioSrc(url, sourceId, songName, songArtist, coverUrl) {
-  if (!url) return
-  const finalUrl = sourceId
-    ? `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
-    : url
-  console.log('[PlayerBar] setAudioSrc:', songName, 'sourceId:', sourceId)
+  if (!url && !sourceId) return
+  // 优先用 CDN URL，没有则走 stream
+  const finalUrl = url && url.startsWith('http')
+    ? url
+    : `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
+  console.log('[PlayerBar] setAudioSrc:', songName, 'url:', finalUrl.substring(0, 60) + '...')
   audio.src = finalUrl
   resumeAudioContext()
   audio.play().then(() => {
@@ -264,14 +266,19 @@ audio.addEventListener('play', () => { isPlaying.value = true })
 audio.addEventListener('pause', () => { isPlaying.value = false })
 audio.addEventListener('ended', () => { onEnded() })
 
+// 后台播放支持
+const audioBg = useAudioBackground()
+
 onMounted(() => {
   window.addEventListener('song-change', onSongChange)
   restorePlayback()
-  setInterval(savePlaybackTime, 5000)
+  // 用 Worker 心跳代替 setInterval，避免后台降频
+  audioBg.startWorkerTimer(savePlaybackTime, 5000)
   window.addEventListener('beforeunload', savePlaybackTime)
 })
 onUnmounted(() => {
   window.removeEventListener('song-change', onSongChange)
+  audioBg.stopWorkerTimer()
   savePlaybackTime()
 })
 

@@ -8,15 +8,19 @@ const API_BASE = import.meta.env.PROD
   ? API_HOST + '/api'
   : '/api'
 
+// token 内存缓存 — 避免每次请求都读 localStorage（同步 I/O）
+let _tokenCache = localStorage.getItem('token') || null
+export function getToken() { return _tokenCache }
+export function setToken(t) { _tokenCache = t; if (t) localStorage.setItem('token', t); else localStorage.removeItem('token') }
+
 const request = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
 })
 
 request.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  if (_tokenCache) {
+    config.headers.Authorization = `Bearer ${_tokenCache}`
   }
   return config
 })

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { API_HOST } from '@/api/request'
 import { useRoute, useRouter } from 'vue-router'
 import { searchSongs, playSong as apiPlaySong, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
@@ -22,12 +22,12 @@ const isPlaying = ref(false)
 const favIds = ref(new Set())
 const downloadingIds = ref(new Set())
 
-audio.addEventListener('play', () => { isPlaying.value = true })
-audio.addEventListener('pause', () => { isPlaying.value = false })
-
-window.addEventListener('song-change', e => {
-  currentPlaySong.value = { sourceId: e.detail.sourceId }
-})
+const _onPlay = () => { isPlaying.value = true }
+const _onPause = () => { isPlaying.value = false }
+const _onSongChange = (e) => { currentPlaySong.value = { sourceId: e.detail.sourceId } }
+audio.addEventListener('play', _onPlay)
+audio.addEventListener('pause', _onPause)
+window.addEventListener('song-change', _onSongChange)
 
 getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
 
@@ -80,6 +80,12 @@ function playSong(song) {
   }).catch(() => {})
 }
 
+function addToQueueFn(song) {
+  if (window.vibeAddToQueue) {
+    window.vibeAddToQueue({ sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration })
+  }
+}
+
 function toggleFav(song) {
   const was = favIds.value.has(song.sourceId)
   favIds.value[was ? 'delete' : 'add'](song.sourceId)
@@ -120,6 +126,11 @@ function goBack() { router.push('/m') }
 onMounted(() => {
   if (keyword.value) doSearch(true)
 })
+onUnmounted(() => {
+  audio.removeEventListener('play', _onPlay)
+  audio.removeEventListener('pause', _onPause)
+  window.removeEventListener('song-change', _onSongChange)
+})
 </script>
 
 <template>
@@ -149,7 +160,8 @@ onMounted(() => {
     <div v-if="results.length" class="m-result-list">
       <div v-for="(song, idx) in results" :key="song.sourceId"
         class="m-song-item" :class="{ playing: currentPlaySong?.sourceId === song.sourceId && isPlaying }"
-        @click="playSong(song)">
+        @click="playSong(song)"
+        v-memo="[song.sourceId, currentPlaySong?.sourceId === song.sourceId, isPlaying, favIds.has(song.sourceId)]">
         <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=80y80)` } : {}">
           <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="m-eq"><span></span><span></span><span></span></span>
         </div>
@@ -164,6 +176,9 @@ onMounted(() => {
         <div class="m-song-acts">
           <button :class="{ faved: favIds.has(song.sourceId) }" @click.stop="toggleFav(song)">
             <svg viewBox="0 0 24 24" width="17" height="17" :fill="favIds.has(song.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+          </button>
+          <button @click.stop="addToQueueFn(song)" title="加入队列">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <button @click.stop="handleDownload(song)">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>

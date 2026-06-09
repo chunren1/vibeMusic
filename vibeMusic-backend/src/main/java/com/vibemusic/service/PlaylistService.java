@@ -32,19 +32,26 @@ public class PlaylistService {
             m.put("description", pl.getDescription());
             m.put("songCount", songMapper.selectCount(new LambdaQueryWrapper<PlaylistSong>()
                     .eq(PlaylistSong::getPlaylistId, pl.getId())));
+            // 自动封面：取最新添加的歌曲封面
+            List<PlaylistSong> songs = songMapper.selectList(new LambdaQueryWrapper<PlaylistSong>()
+                    .eq(PlaylistSong::getPlaylistId, pl.getId())
+                    .orderByDesc(PlaylistSong::getAddedAt)
+                    .last("LIMIT 1"));
+            m.put("coverUrl", songs.isEmpty() ? "" : songs.get(0).getCoverUrl());
             m.put("createdAt", pl.getCreatedAt());
             return m;
         }).collect(Collectors.toList());
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> create(Long userId, String name, String description) {
+    public Map<String, Object> create(Long userId, String name, String description, String coverUrl) {
         Playlist pl = Playlist.builder().userId(userId).name(name).description(description).build();
         playlistMapper.insert(pl);
         Map<String, Object> m = new HashMap<>();
         m.put("id", pl.getId());
         m.put("name", pl.getName());
         m.put("description", pl.getDescription());
+        m.put("coverUrl", coverUrl != null ? coverUrl : "");
         m.put("songCount", 0L);
         m.put("createdAt", pl.getCreatedAt());
         return m;
