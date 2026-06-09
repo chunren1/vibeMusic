@@ -1,34 +1,30 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { toggleFavorite, getFavoriteIds } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 
 const route = useRoute()
 const router = useRouter()
 const store = usePlayerStore()
+const favStore = useFavoriteStore()
 const audio = store.audio
 
 // 收藏
-const favIds = ref(new Set())
 const isFaved = ref(false)
-getFavoriteIds().then(r => { if (r.data) { favIds.value = new Set(r.data); window.vibeFavIds = favIds.value } }).catch(() => {})
+favStore.fetchFavIds()
 
 function toggleFav(e) {
   e.stopPropagation()
   const id = store.currentSong.id
   if (!id) return
-  const was = favIds.value.has(id)
-  favIds.value[was ? 'delete' : 'add'](id)
+  const was = favStore.isFav(id)
   isFaved.value = !was
-  toggleFavorite(id, store.currentSong.title, store.currentSong.artist, store.currentSong.coverUrl || '').catch(() => {
-    favIds.value[was ? 'add' : 'delete'](id)
-    isFaved.value = was
-  })
+  favStore.toggleFav({ sourceId: id, name: store.currentSong.title, artist: store.currentSong.artist, coverUrl: store.currentSong.coverUrl })
 }
 
 // 同步收藏状态
-const updateFaved = () => { isFaved.value = favIds.value.has(store.currentSong.id) }
+const updateFaved = () => { isFaved.value = favStore.isFav(store.currentSong.id) }
 
 // 搜索页贴底，播放页隐藏（由 MobileShell 控制），其他页在 TabBar 上方
 const isSearch = computed(() => route.path.startsWith('/m/search'))
@@ -41,7 +37,7 @@ onMounted(() => {
   // 监听切歌同步收藏状态
   window.addEventListener('song-change', updateFaved)
   // 恢复收藏状态
-  isFaved.value = favIds.value.has(store.currentSong.id)
+  isFaved.value = favStore.isFav(store.currentSong.id)
   // 恢复音频源（刷新后 audio 是新的，需要重新设 src）
   if (!audio.src || audio.src === window.location.href) {
     store.restorePlayback()

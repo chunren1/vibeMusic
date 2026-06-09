@@ -1,21 +1,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getFavorites, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { getFavorites } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 
 const player = usePlayerStore()
+const favStore = useFavoriteStore()
 const songs = ref([])
-const favIds = ref(new Set())
 
-getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
-
-function toggleFav(song) {
-  const was = favIds.value.has(song.sourceId)
-  favIds.value[was ? 'delete' : 'add'](song.sourceId)
-  toggleFavorite(song.sourceId, song.songName, song.artist, song.coverUrl || '').catch(() => {
-    favIds.value[was ? 'add' : 'delete'](song.sourceId)
-  })
-}
+favStore.fetchFavIds()
 
 function play(song) {
   player.playSongFromApi(song.sourceId, song.songName, song.artist, song.coverUrl || '')
@@ -44,8 +37,8 @@ onMounted(() => {
           <div class="m-name">{{ s.songName }}</div>
           <div class="m-artist">{{ s.artist }}</div>
         </div>
-        <button :class="{ faved: favIds.has(s.sourceId) }" @click.stop="toggleFav(s)">
-          <svg viewBox="0 0 24 24" width="18" height="18" :fill="favIds.has(s.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+        <button :class="{ faved: favStore.isFav(s.sourceId) }" @click.stop="favStore.toggleFav(s)">
+          <svg viewBox="0 0 24 24" width="18" height="18" :fill="favStore.isFav(s.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
         </button>
       </div>
     </div>

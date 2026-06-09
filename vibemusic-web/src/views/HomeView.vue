@@ -69,35 +69,14 @@ function playSong(song) {
 }
 
 // 收藏歌曲（调用后端API）
-import { toggleFavorite, getFavoriteIds } from '@/api/song'
-const favIds = ref(new Set())
+import { useFavoriteStore } from '@/stores/favorite'
+const favStore = useFavoriteStore()
 
 // 初始化时加载收藏列表
-getFavoriteIds().then(res => {
-  if (res.data) favIds.value = new Set(res.data)
-}).catch(() => {})
+favStore.fetchFavIds()
 
 function toggleFav(song) {
-  const isFav = favIds.value.has(song.sourceId)
-  if (isFav) {
-    favIds.value.delete(song.sourceId)
-  } else {
-    favIds.value.add(song.sourceId)
-  }
-  toggleFavorite(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
-    if (res.data === true) {
-      favIds.value.add(song.sourceId)
-    } else {
-      favIds.value.delete(song.sourceId)
-    }
-  }).catch(err => {
-    console.error('收藏操作失败:', err)
-    if (isFav) {
-      favIds.value.add(song.sourceId)
-    } else {
-      favIds.value.delete(song.sourceId)
-    }
-  })
+  favStore.toggleFav(song)
 }
 
 // ===== 歌单弹窗 =====
@@ -538,11 +517,11 @@ function formatDuration(seconds) {
             <button class="action-btn queue-btn" @click.stop="addToQueueDesktop(song)" title="加入队列">+</button>
             <button
               class="action-btn fav-btn"
-              :class="{ faved: favIds.has(song.sourceId) }"
+              :class="{ faved: favStore.isFav(song.sourceId) }"
               @click.stop="toggleFav(song)"
-              :title="favIds.has(song.sourceId) ? '取消收藏' : '收藏'"
+              :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'"
             >
-              {{ favIds.has(song.sourceId) ? '⭐' : '☆' }}
+              {{ favStore.isFav(song.sourceId) ? '⭐' : '☆' }}
             </button>
             <button
               class="action-btn download-btn"

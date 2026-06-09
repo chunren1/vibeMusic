@@ -163,27 +163,31 @@ function genderLabel(v) {
 
     <!-- ========== 已登录 ========== -->
     <template v-else>
-      <!-- 头部区域：品牌渐变背景 + 自定义背景图 + 噪点纹理 -->
+      <!-- 头部背景区 -->
       <div class="hero-area">
         <div class="hero-bg" :class="{ 'has-image': auth.bgImageSrc }">
           <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="hero-bg-img" />
         </div>
+        <!-- 底部渐变过渡 -->
+        <div class="hero-fade"></div>
+      </div>
 
-        <!-- 头像 -->
-        <div class="hero-avatar" @click="router.push('/profile/detail')" title="查看详情">
-          <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="hero-av-img" />
-          <span v-else class="hero-av-text" :style="{ background: avatarPlaceholderBg }">{{ avatarInitial }}</span>
+      <!-- 用户信息卡片 -->
+      <div class="user-info-card">
+        <div class="user-info-row">
+          <div class="uic-avatar" @click="router.push('/profile/detail')" title="查看详情">
+            <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="uic-av-img" />
+            <span v-else class="uic-av-text" :style="{ background: avatarPlaceholderBg }">{{ avatarInitial }}</span>
+          </div>
+          <div class="uic-text">
+            <h1 class="uic-name">{{ auth.user?.nickname || auth.user?.username }}</h1>
+            <p class="uic-id">@{{ auth.user?.username }}</p>
+          </div>
+          <button class="uic-edit-btn" @click="openEdit">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            编辑
+          </button>
         </div>
-
-        <!-- 昵称 + ID -->
-        <h1 class="hero-name">{{ auth.user?.nickname || auth.user?.username }}</h1>
-        <p class="hero-id">@{{ auth.user?.username }}</p>
-
-        <!-- 胶囊编辑按钮 -->
-        <button class="hero-edit-btn" @click="openEdit">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          编辑
-        </button>
       </div>
 
       <!-- 快捷入口 -->
@@ -300,82 +304,57 @@ function genderLabel(v) {
 .ghost-title { font-size: 20px; color: #555; cursor: pointer; }
 .ghost-sub { font-size: 13px; color: #999; }
 
-/* ===== 头部区域 ===== */
+/* ===== 头部背景区 ===== */
 .hero-area {
-  position: relative; padding: 64px 40px 40px;
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  overflow: hidden;
+  position: relative; height: 260px; overflow: hidden;
+  width: 100vw; margin-left: calc(-50vw + 50%);
 }
-
-/* 品牌渐变 + 自定义背景图 + SVG 噪点纹理叠加 */
 .hero-bg {
   position: absolute; inset: 0;
   background: linear-gradient(160deg, #1a6b3a 0%, #28a86b 40%, #31c27c 70%, #5ddb92 100%);
 }
 .hero-bg.has-image { background: none; }
-.hero-bg-img {
-  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
-}
-.hero-bg::after {
-  content: ''; position: absolute; inset: 0; opacity: 0.25;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-repeat: repeat; background-size: 128px 128px;
+.hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hero-fade {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 60px; z-index: 2;
+  background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 40%, #fff 100%);
+  pointer-events: none;
 }
 
-/* 头像 */
-.hero-avatar {
-  position: relative; z-index: 1;
-  width: 96px; height: 96px; border-radius: 50%; margin-bottom: 18px;
-  border: 3px solid rgba(255,255,255,0.4); cursor: pointer;
-  overflow: hidden; transition: transform .2s, border-color .2s;
+/* ===== 用户信息卡片 ===== */
+.user-info-card {
+  margin: -30px 28px 20px; position: relative; z-index: 3;
+  background: #fff; border-radius: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  padding: 20px;
 }
-.hero-avatar:hover { transform: scale(1.04); border-color: rgba(255,255,255,0.7); }
-.hero-av-img { width: 100%; height: 100%; object-fit: cover; }
-.hero-av-text {
+.user-info-row { display: flex; align-items: center; gap: 14px; }
+.uic-avatar {
+  width: 60px; height: 60px; border-radius: 50%; flex-shrink: 0;
+  overflow: hidden; cursor: pointer; transition: transform .2s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+.uic-avatar:hover { transform: scale(1.05); }
+.uic-av-img { width: 100%; height: 100%; object-fit: cover; }
+.uic-av-text {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-  font-size: 42px; font-weight: 700; color: #fff; user-select: none;
+  font-size: 24px; font-weight: 700; color: #fff; user-select: none;
 }
-
-/* 昵称 */
-.hero-name {
-  position: relative; z-index: 1;
-  font-size: 24px; font-weight: 700; color: #fff; margin-bottom: 4px;
+.uic-text { flex: 1; min-width: 0; }
+.uic-name {
+  font-size: 18px; font-weight: 700; color: #1a1a1a;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-/* ID */
-.hero-id {
-  position: relative; z-index: 1;
-  font-size: 13px; color: rgba(255,255,255,0.55); margin-bottom: 16px;
+.uic-id {
+  font-size: 12px; color: #999; margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-
-/* 胶囊编辑按钮 */
-.hero-edit-btn {
-  position: relative; z-index: 1;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 20px; border: 1px solid rgba(255,255,255,0.35);
-  border-radius: 20px; background: rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.85); font-size: 13px; font-weight: 500;
+.uic-edit-btn {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 16px; border: 1px solid #ddd; border-radius: 18px;
+  background: transparent; color: #666; font-size: 13px;
   cursor: pointer; transition: all .2s;
-  backdrop-filter: blur(4px);
 }
-.hero-edit-btn:hover {
-  background: rgba(255,255,255,0.2);
-  border-color: rgba(255,255,255,0.6);
-  color: #fff;
-}
-
-/* ===== 信息卡片 ===== */
-.info-card {
-  margin: -12px 28px 20px; position: relative; z-index: 1;
-  background: #fff; border-radius: 14px; padding: 8px 0;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-}
-.info-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 15px 24px;
-}
-.info-label { font-size: 14px; color: #999; }
-.info-value { font-size: 14px; color: #333; font-weight: 500; }
+.uic-edit-btn:hover { border-color: #bbb; color: #333; background: #f9f9f9; }
 
 /* ===== 快捷入口 ===== */
 .menu-card {

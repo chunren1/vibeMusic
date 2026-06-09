@@ -2,29 +2,22 @@
 import { ref, onMounted } from 'vue'
 import TopBar from '@/components/TopBar.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
-import { getFavorites, playSong as apiPlaySong, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { getFavorites, playSong as apiPlaySong } from '@/api/song'
+import { useFavoriteStore } from '@/stores/favorite'
 
+const favStore = useFavoriteStore()
 const favorites = ref([])
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
-const favIds = ref(new Set())
 
 const audio = window.vibeAudio || new Audio()
 window.vibeAudio = audio
 
-getFavoriteIds().then(res => { if (res.data) favIds.value = new Set(res.data) }).catch(() => {})
+favStore.fetchFavIds()
 
 function toggleFav(fav) {
-  const isFav = favIds.value.has(fav.sourceId)
-  if (isFav) favIds.value.delete(fav.sourceId); else favIds.value.add(fav.sourceId)
-  toggleFavorite(fav.sourceId, fav.songName, fav.artist, fav.coverUrl || '').then(res => {
-    if (res.data === true) favIds.value.add(fav.sourceId)
-    else favIds.value.delete(fav.sourceId)
-  }).catch(err => {
-    console.error('收藏失败:', err)
-    if (isFav) favIds.value.add(fav.sourceId); else favIds.value.delete(fav.sourceId)
-  })
+  favStore.toggleFav({ sourceId: fav.sourceId, name: fav.songName, artist: fav.artist, coverUrl: fav.coverUrl })
 }
 
 function openPlaylistPopup(fav) { playlistTargetSong.value = fav; showPlaylistPopup.value = true }
@@ -79,7 +72,7 @@ onMounted(() => {
         </div>
         <span class="td-time">{{ fav.createdAt ? new Date(fav.createdAt).toLocaleDateString() : '' }}</span>
         <div class="td-actions">
-          <button class="action-btn fav-btn" :class="{ faved: favIds.has(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favIds.has(fav.sourceId) ? '取消收藏' : '收藏'">{{ favIds.has(fav.sourceId) ? '⭐' : '☆' }}</button>
+          <button class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'">{{ favStore.isFav(fav.sourceId) ? '⭐' : '☆' }}</button>
           <button class="action-btn add-btn" @click.stop="openPlaylistPopup(fav)" title="加入歌单">➕</button>
         </div>
       </div>

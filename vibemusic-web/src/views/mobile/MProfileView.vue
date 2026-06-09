@@ -30,6 +30,16 @@ const avatarInput = ref(null)
 const bgLoading = ref(false)
 const bgInput = ref(null)
 
+// 全屏
+const isFullscreen = ref(false)
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().then(() => isFullscreen.value = true)
+  } else {
+    document.exitFullscreen().then(() => isFullscreen.value = false)
+  }
+}
+
 const AVATAR_PALETTE = ['#e8b4b4', '#b4c8e8', '#b4e8c2', '#e8d9b4', '#d4b4e8', '#e8b4d4', '#b4e4e8', '#c2e8b4', '#e8c4b4', '#b4b4e8']
 
 onMounted(() => { if (auth.isLoggedIn) refreshForm() })
@@ -126,24 +136,34 @@ function getZodiac(month, day) {
     </div>
 
     <template v-else>
-      <!-- 头部区域 -->
+      <!-- 头部背景区 -->
       <div class="m-hero">
         <div class="m-hero-bg" :class="{ 'has-image': auth.bgImageSrc }">
           <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="m-hero-bg-img" />
         </div>
-
-        <div class="m-avatar" @click="router.push('/m/profile/detail')">
-          <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="m-av-img" />
-          <span v-else class="m-av-text" :style="{ background: avatarPlaceholderBg }">{{ avatarInitial }}</span>
-        </div>
-
-        <h1 class="m-name">{{ auth.user?.nickname || auth.user?.username }}</h1>
-        <p class="m-id">@{{ auth.user?.username }}</p>
-
-        <button class="m-edit-btn" @click="openEdit">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          编辑
+        <div class="m-hero-fade"></div>
+        <button class="m-fullscreen-btn" @click="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+          <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 8 4 3 9 3"/><polyline points="20 16 20 21 15 21"/><line x1="4" y1="3" x2="11" y2="10"/><line x1="20" y1="21" x2="13" y2="14"/></svg>
         </button>
+      </div>
+
+      <!-- 用户信息卡片 -->
+      <div class="m-user-card">
+        <div class="m-uc-row">
+          <div class="m-uc-av" @click="router.push('/m/profile/detail')">
+            <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="m-uc-av-img" />
+            <span v-else class="m-uc-av-text" :style="{ background: avatarPlaceholderBg }">{{ avatarInitial }}</span>
+          </div>
+          <div class="m-uc-info">
+            <h1 class="m-uc-name">{{ auth.user?.nickname || auth.user?.username }}</h1>
+            <p class="m-uc-id">@{{ auth.user?.username }}</p>
+          </div>
+          <button class="m-uc-edit" @click="openEdit">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            编辑
+          </button>
+        </div>
       </div>
 
       <!-- 快捷入口 -->
@@ -230,70 +250,80 @@ function getZodiac(month, day) {
 </template>
 
 <style scoped>
-.m-page { min-height: 100vh; min-height: 100dvh; padding-bottom: 80px; }
+.m-page { min-height: 100vh; min-height: 100dvh; padding-bottom: 80px; overflow-x: hidden; }
 
 .m-not-login { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 100px 32px; gap: 10px; }
 .m-ghost-avatar { width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700; color: #555; }
 .m-not-login h2 { font-size: 18px; color: #888; }
 .m-not-login p { font-size: 13px; color: #555; }
 
-/* 头部 */
-.m-hero {
-  position: relative; padding: 52px 20px 36px;
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  overflow: hidden;
-}
+/* 头部背景区 */
+.m-hero { position: relative; height: 35vh; min-height: 200px; overflow: hidden; width: 100vw; margin-left: calc(-50vw + 50%); }
 .m-hero-bg {
   position: absolute; inset: 0;
   background: linear-gradient(160deg, #1a6b3a 0%, #28a86b 40%, #31c27c 70%, #5ddb92 100%);
 }
 .m-hero-bg.has-image { background: none; }
 .m-hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.m-hero-bg::after {
-  content: ''; position: absolute; inset: 0; opacity: 0.22;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-repeat: repeat; background-size: 128px 128px;
+.m-hero-fade {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 50px; z-index: 2;
+  background: linear-gradient(to bottom, transparent 0%, rgba(10,10,10,0.7) 70%, #0a0a0a 100%);
+  pointer-events: none;
 }
 
-.m-avatar {
-  width: 88px; height: 88px; border-radius: 50%; margin-bottom: 16px; position: relative; z-index: 1;
-  border: 3px solid rgba(255,255,255,0.4); overflow: hidden;
+.m-fullscreen-btn {
+  position: absolute; top: 12px; right: 12px; z-index: 5;
+  width: 36px; height: 36px; border: none; border-radius: 50%;
+  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; backdrop-filter: blur(6px);
 }
-.m-avatar:active { transform: scale(0.96); }
-.m-av-img { width: 100%; height: 100%; object-fit: cover; }
-.m-av-text {
+.m-fullscreen-btn:active { background: rgba(255,255,255,0.2); color: #fff; }
+
+/* 用户信息卡片 */
+.m-user-card {
+  margin: -24px 16px 16px; position: relative; z-index: 3;
+  background: rgba(255,255,255,0.06); border-radius: 14px;
+  padding: 18px;
+}
+.m-uc-row { display: flex; align-items: center; gap: 14px; }
+.m-uc-av {
+  width: 56px; height: 56px; border-radius: 50%; flex-shrink: 0;
+  overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+.m-uc-av:active { transform: scale(0.95); }
+.m-uc-av-img { width: 100%; height: 100%; object-fit: cover; }
+.m-uc-av-text {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-  font-size: 36px; font-weight: 700; color: #fff; user-select: none;
+  font-size: 22px; font-weight: 700; color: #fff; user-select: none;
 }
-
-.m-name { position: relative; z-index: 1; font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 2px; }
-.m-id { position: relative; z-index: 1; font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 14px; }
-
-.m-edit-btn {
-  position: relative; z-index: 1;
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 18px; border: 1px solid rgba(255,255,255,0.3);
-  border-radius: 18px; background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.8); font-size: 12px; cursor: pointer;
-  backdrop-filter: blur(4px);
+.m-uc-info { flex: 1; min-width: 0; }
+.m-uc-name {
+  font-size: 17px; font-weight: 700; color: #ddd;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.m-edit-btn:active { background: rgba(255,255,255,0.18); }
-
-/* 信息卡片 */
-.m-info-card {
-  margin: -10px 16px 16px; position: relative; z-index: 1;
-  background: rgba(255,255,255,0.04); border-radius: 14px; padding: 4px 0;
+.m-uc-id {
+  font-size: 12px; color: #888; margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.m-info-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 15px 16px;
+.m-uc-edit {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 16px; border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 18px; background: transparent; color: #aaa; font-size: 12px;
+  cursor: pointer;
 }
-.m-info-k { font-size: 13px; color: #888; }
-.m-info-v { font-size: 14px; color: #ccc; }
+.m-uc-edit:active { background: rgba(255,255,255,0.06); color: #fff; }
 
 /* 菜单 */
-.m-menu { margin: 0 16px 20px; border-radius: 14px; overflow: hidden; background: rgba(255,255,255,0.04); }
-.m-menu-item { display: flex; justify-content: space-between; align-items: center; padding: 15px 16px; font-size: 14px; color: #ccc; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.m-menu {
+  margin: 0 16px 20px; border-radius: 14px; overflow: hidden;
+  background: rgba(255,255,255,0.04);
+}
+.m-menu-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 15px 16px; font-size: 14px; color: #ccc;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
 .m-menu-item:last-child { border-bottom: none; }
 .m-menu-item:active { background: rgba(255,255,255,0.02); }
 .m-arrow { font-size: 18px; color: #555; }
