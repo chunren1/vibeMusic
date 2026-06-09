@@ -1,0 +1,268 @@
+package com.vibemusic.service;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vibemusic.dto.RecommendResult;
+import com.vibemusic.dto.SongDTO;
+import com.vibemusic.entity.PlayHistory;
+import com.vibemusic.mapper.PlayHistoryMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class RecommendService {
+
+    private final PlayHistoryMapper playHistoryMapper;
+    private final SongService songService;
+    private final StorageService storageService;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+
+    private static final int RECOMMEND_COUNT = 8;
+    private static final int HISTORY_DAYS = 30;
+    private static final int HISTORY_SAMPLE = 100;
+    private static final Duration USER_CACHE_TTL = Duration.ofHours(6);
+    private static final Duration GUEST_CACHE_TTL = Duration.ofHours(1);
+
+    /**
+     * 个性化推荐入口
+     * @param userId   用户ID（null=未登录）
+     * @param deviceId 设备标识（未登录时用于缓存隔离）
+     */
+    public RecommendResult getPersonalized(Long userId, String deviceId) {
+        // 1. 尝试读缓存
+        String cacheKey = userId != null
+                ? "recommend:user:" + userId
+                : "recommend:guest:" + (deviceId != null ? deviceId : "anon");
+        RecommendResult cached = readCache(cacheKey);
+        if (cached != null) {
+            log.debug("推荐缓存命中: {}", cacheKey);
+            return cached;
+        }
+
+        // 2. 未命中 → 执行推荐
+        RecommendResult result;
+        Duration ttl;
+        try {
+            if (userId != null) {
+                result = buildPersonalized(userId);
+                ttl = USER_CACHE_TTL;
+            } else {
+                result = buildGuest();
+                ttl = GUEST_CACHE_TTL;
+            }
+        } catch (Exception e) {
+            log.warn("推荐逻辑异常，降级到随机推荐", e);
+            result = buildGuest();
+            ttl = GUEST_CACHE_TTL;
+        }
+
+        // 3. 回写缓存
+        writeCache(cacheKey, result, ttl);
+        return result;
+    }
+
+    /**
+     * 删除用户推荐缓存（播放新歌后触发）
+     */
+    public void evictUserCache(Long userId) {
+        try {
+            String key = "recommend:user:" + userId;
+            stringRedisTemplate.delete(key);
+            log.debug("删除推荐缓存: {}", key);
+        } catch (Exception e) {
+            log.warn("删除推荐缓存失败", e);
+        }
+    }
+
+    // ================== 私有方法 ==================
+
+    /**
+     * 已登录用户个性化推荐
+     */
+    private RecommendResult buildPersonalized(Long userId) {
+        // 获取近30天播放记录
+        LocalDateTime since = LocalDateTime.now().minusDays(HISTORY_DAYS);
+        List<PlayHistory> history = playHistoryMapper.selectList(
+                new LambdaQueryWrapper<PlayHistory>()
+                        .eq(PlayHistory::getUserId, userId)
+                        .ge(PlayHistory::getPlayedAt, since)
+                        .orderByDesc(PlayHistory::getPlayedAt)
+                        .last("LIMIT " + HISTORY_SAMPLE));
+
+        if (history.isEmpty()) {
+            log.info("用户{}无近期播放记录，降级随机推荐", userId);
+            return buildGuestResult("最近没有听过歌？试试这些吧~");
+        }
+
+        // 按歌手聚合兴趣权重（播放次数越多权重越高）
+        Map<String, Long> artistWeight = history.stream()
+                .filter(h -> h.getArtist() != null && !h.getArtist().isEmpty())
+                .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()));
+
+        // 提取最常听的歌手（最多3个）
+        List<String> topArtists = artistWeight.entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(3)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        // 搜索最常听歌手的歌，汇总去重
+        Set<String> seenSourceIds = new HashSet<>();
+        List<SongDTO> candidates = new ArrayList<>();
+
+        for (String artist : topArtists) {
+            try {
+                List<SongDTO> songs = songService.search(artist, 1, 10, null);
+                for (SongDTO s : songs) {
+                    if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
+                        // 过滤试听版
+                        if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                        candidates.add(s);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("搜索歌手 {} 失败", artist, e);
+            }
+        }
+
+        // 按 RustFS 缓存状态排序：已缓存优先
+        candidates.sort((a, b) -> {
+            boolean aCached = checkCached(a.getSourceId());
+            boolean bCached = checkCached(b.getSourceId());
+            return Boolean.compare(bCached, aCached);
+        });
+
+        // 截取
+        List<SongDTO> result = candidates.subList(0, Math.min(candidates.size(), RECOMMEND_COUNT));
+
+        // 如果不满足需求数量，补充随机
+        if (result.size() < RECOMMEND_COUNT) {
+            try {
+                List<SongDTO> supplement = songService.getRandomSongs(RECOMMEND_COUNT - result.size());
+                for (SongDTO s : supplement) {
+                    if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
+                        if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                        result.add(s);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("补充随机歌曲失败", e);
+            }
+        }
+
+        // 标记离线状态
+        markOfflineStatus(result);
+
+        // 生成欢迎语
+        String greeting = buildGreeting(history.size(), topArtists);
+
+        return RecommendResult.builder()
+                .songs(result)
+                .greeting(greeting)
+                .type("personalized")
+                .build();
+    }
+
+    /**
+     * 未登录游客推荐
+     */
+    private RecommendResult buildGuest() {
+        return buildGuestResult("登录后享受个性化推荐~");
+    }
+
+    private RecommendResult buildGuestResult(String greeting) {
+        try {
+            List<SongDTO> songs = songService.getRandomSongs(RECOMMEND_COUNT);
+            markOfflineStatus(songs);
+            return RecommendResult.builder()
+                    .songs(songs)
+                    .greeting(greeting)
+                    .type("random")
+                    .build();
+        } catch (Exception e) {
+            log.error("随机推荐失败", e);
+            return RecommendResult.builder()
+                    .songs(Collections.emptyList())
+                    .greeting("推荐服务暂时不可用")
+                    .type("random")
+                    .build();
+        }
+    }
+
+    /**
+     * 生成动态欢迎语
+     */
+    private String buildGreeting(int historyCount, List<String> topArtists) {
+        if (historyCount == 0) return "最近没有听过歌？试试这些吧~";
+        if (topArtists.isEmpty()) return "为你推荐一些好听的歌~";
+        String artist = topArtists.get(0);
+        if (historyCount < 5) return "最近在听 " + artist + "？试试这些~";
+        if (historyCount < 20) return "根据你的口味，为你推荐~";
+        return "你常听 " + artist + "，这些应该也会喜欢~";
+    }
+
+    /**
+     * 标记歌曲离线缓存状态，直接修改 SongDTO 的扩展字段
+     */
+    private void markOfflineStatus(List<SongDTO> songs) {
+        for (SongDTO s : songs) {
+            if (s.getSourceId() != null) {
+                try {
+                    s.setCached(storageService.exists("songs/" + s.getSourceId() + ".mp3"));
+                } catch (Exception e) {
+                    s.setCached(false);
+                }
+            }
+        }
+    }
+
+    /**
+     * 检查某首歌是否已缓存到 RustFS
+     */
+    private boolean checkCached(String sourceId) {
+        if (sourceId == null) return false;
+        try {
+            return storageService.exists("songs/" + sourceId + ".mp3");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 读 Redis 缓存
+     */
+    private RecommendResult readCache(String key) {
+        try {
+            String json = stringRedisTemplate.opsForValue().get(key);
+            if (json == null) return null;
+            return objectMapper.readValue(json, RecommendResult.class);
+        } catch (Exception e) {
+            log.warn("读取推荐缓存失败: {}", key, e);
+            return null;
+        }
+    }
+
+    /**
+     * 写 Redis 缓存
+     */
+    private void writeCache(String key, RecommendResult result, Duration ttl) {
+        try {
+            String json = objectMapper.writeValueAsString(result);
+            stringRedisTemplate.opsForValue().set(key, json, ttl);
+            log.debug("推荐缓存写入: {}, TTL={}", key, ttl);
+        } catch (Exception e) {
+            log.warn("写入推荐缓存失败: {}", key, e);
+        }
+    }
+}

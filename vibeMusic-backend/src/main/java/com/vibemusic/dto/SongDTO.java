@@ -42,4 +42,7 @@ public class SongDTO {
 
     /** 跨平台去重后的最终排名分（越高越靠前） */
     private Double finalScore;
+
+    /** RustFS 离线缓存状态（null=未校验，true=已缓存，false=未缓存） */
+    private Boolean cached;
 }

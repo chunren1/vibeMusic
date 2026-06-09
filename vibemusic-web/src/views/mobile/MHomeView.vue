@@ -1,13 +1,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getRandomSongs as apiRandomSongs, getBanners as apiBanners } from '@/api/song'
+import { getBanners as apiBanners } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
 import { usePlayerStore } from '@/stores/player'
+import { useRecommendStore } from '@/stores/recommend'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const player = usePlayerStore()
+const recommendStore = useRecommendStore()
 
 // ===== Play =====
 function playSong(song) {
@@ -29,6 +31,19 @@ function focusSearch() {
   // 跳转到搜索页，由搜索页的 autofocus 自动聚焦输入框
   router.push('/m/search')
 }
+
+// 全屏切换
+const isFullscreen = ref(false)
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().then(() => isFullscreen.value = true)
+  } else {
+    document.exitFullscreen().then(() => isFullscreen.value = false)
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  isFullscreen.value = !!document.fullscreenElement
+})
 
 // ===== Banners =====
 const slides = ref([{ name: '发现好音乐', desc: '从这里开始', coverUrl: '' }])
@@ -69,22 +84,14 @@ function resetBannerTimer() {
 onMounted(() => {
   loadBanners()
   bannerTimer = setInterval(nextBanner, 4000)
-  shuffleSongs()
+  recommendStore.fetchRecommend()
 })
 onUnmounted(() => {
   clearInterval(bannerTimer)
 })
 
-// ===== Random Songs =====
-const randomSongs = ref([])
 function shuffleSongs() {
-  apiRandomSongs(8).then(res => {
-    randomSongs.value = (res.data || []).map(s => ({ ...s, coverColor: randomColor() }))
-  }).catch(() => {})
-}
-function randomColor() {
-  const colors = ['#31c27c', '#ec4141', '#5b3cc4', '#d44455', '#3c7cc4', '#c48b3c']
-  return colors[Math.floor(Math.random() * colors.length)]
+  recommendStore.fetchRecommend()
 }
 
 </script>
@@ -100,6 +107,10 @@ function randomColor() {
       <div class="m-user" @click="authStore.isLoggedIn ? null : authStore.openLogin()">
         <span class="m-user-avatar">{{ authStore.user?.nickname?.[0] || authStore.user?.username?.[0] || '?' }}</span>
       </div>
+      <button class="m-fs-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+        <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 8 4 3 9 3"/><polyline points="20 16 20 21 15 21"/><line x1="4" y1="3" x2="11" y2="10"/><line x1="20" y1="21" x2="13" y2="14"/></svg>
+      </button>
     </div>
 
     <!-- Banner -->
@@ -132,8 +143,10 @@ function randomColor() {
           换一批
         </button>
       </div>
-      <div class="m-song-list">
-        <div v-for="(song, idx) in randomSongs" :key="song.sourceId || idx"
+      <div v-if="recommendStore.greeting" class="m-section-greeting">{{ recommendStore.greeting }}</div>
+      <div v-if="recommendStore.loading" class="m-section-loading">推荐加载中...</div>
+      <div v-else class="m-song-list">
+        <div v-for="(song, idx) in recommendStore.songs" :key="song.sourceId || idx"
           class="m-song-item"
           :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
           @click="playSong(song)">
@@ -143,7 +156,10 @@ function randomColor() {
             </span>
           </div>
           <div class="m-song-info">
-            <div class="m-song-name">{{ song.name }}</div>
+            <div class="m-song-name">
+              {{ song.name }}
+              <span v-if="song.cached === true" class="m-offline-badge" title="已离线缓存">▲</span>
+            </div>
             <div class="m-song-artist">{{ song.artist }}</div>
           </div>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" class="m-play-icon"><polygon points="6,4 20,12 6,20"/></svg>
@@ -177,6 +193,13 @@ function randomColor() {
   background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center;
   font-size: 14px; color: #ccc; cursor: pointer;
 }
+.m-fs-btn {
+  width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: rgba(255,255,255,0.08); color: #888;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+}
+.m-fs-btn:active { background: rgba(255,255,255,0.15); color: #ccc; }
 
 /* Banner */
 .m-banner {
@@ -223,6 +246,9 @@ function randomColor() {
   cursor: pointer; display: flex; align-items: center; gap: 4px;
 }
 .m-shuffle-btn:active { background: rgba(255,255,255,0.04); }
+.m-section-greeting { font-size: 12px; color: #31c27c; margin-bottom: 10px; }
+.m-section-loading { text-align: center; color: #666; font-size: 13px; padding: 24px 0; }
+.m-offline-badge { color: #31c27c; font-size: 10px; margin-left: 4px; vertical-align: middle; }
 
 .m-song-list { display: flex; flex-direction: column; gap: 2px; }
 .m-song-item {

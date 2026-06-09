@@ -22,6 +22,16 @@ export function getRandomSongs(count = 8) {
   return request.get('/songs/random', { params: { count } })
 }
 
+/** 个性化推荐 */
+export function getPersonalizedRecommend(deviceId = null) {
+  const config = {}
+  if (deviceId) {
+    config.headers = { 'X-Device-Id': deviceId }
+    config.params = { deviceId }
+  }
+  return request.get('/recommend/personalized', config)
+}
+
 /** 播放歌曲（获取 URL + 记录历史） */
 export function playSong(sourceId, name, artist, coverUrl) {
   return request.get('/songs/play', { params: { sourceId, name, artist, coverUrl } })

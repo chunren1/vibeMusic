@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/auth'
 import { usePlayerStore } from '@/stores/player'
 import PlayerBar from '@/components/PlayerBar.vue'
 import LoginModal from '@/components/LoginModal.vue'
-import GlobalFullscreenBtn from '@/components/GlobalFullscreenBtn.vue'
 
 const authStore = useAuthStore()
 // 初始化播放器 store（确保移动端也有 vibeAudioSetSrc / onEnded 等功能）
@@ -85,9 +84,6 @@ onMounted(() => {
     v-model:visible="authStore.showLoginModal"
     @success="authStore.closeLogin()"
   />
-
-  <!-- 全局全屏切换按钮（移动端 + 桌面端通用） -->
-  <GlobalFullscreenBtn />
 </template>
 
 <style>
