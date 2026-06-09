@@ -25,6 +25,10 @@ public class CustomUserDetails implements UserDetails {
         return user.getAvatar();
     }
 
+    public String getBgImage() {
+        return user.getBgImage();
+    }
+
     public String getGender() {
         return user.getGender();
     }

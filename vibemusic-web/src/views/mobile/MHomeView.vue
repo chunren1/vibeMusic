@@ -25,6 +25,11 @@ function doSearch() {
   router.push({ name: 'm-search', query: { q: kw } })
 }
 
+function focusSearch() {
+  // 跳转到搜索页，由搜索页的 autofocus 自动聚焦输入框
+  router.push('/m/search')
+}
+
 // ===== Banners =====
 const slides = ref([{ name: '发现好音乐', desc: '从这里开始', coverUrl: '' }])
 const activeSlide = ref(0)
@@ -88,9 +93,9 @@ function randomColor() {
   <div class="m-home">
     <!-- 顶部：搜索框 + 用户 -->
     <div class="m-top">
-      <div class="m-search-bar" @click="router.push('/m/search')">
+      <div class="m-search-bar" @click="focusSearch">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input v-model="searchKeyword" @keyup.enter="doSearch" placeholder="搜索歌曲..." class="m-search-input" readonly @click.prevent="router.push('/m/search')" />
+        <span class="m-search-placeholder">搜索歌曲...</span>
       </div>
       <div class="m-user" @click="authStore.isLoggedIn ? null : authStore.openLogin()">
         <span class="m-user-avatar">{{ authStore.user?.nickname?.[0] || authStore.user?.username?.[0] || '?' }}</span>
@@ -163,6 +168,9 @@ function randomColor() {
 }
 .m-search-input {
   flex: 1; border: none; background: none; color: #ccc; font-size: 14px; outline: none;
+}
+.m-search-placeholder {
+  flex: 1; color: #666; font-size: 14px; pointer-events: none;
 }
 .m-user-avatar {
   width: 32px; height: 32px; border-radius: 50%;

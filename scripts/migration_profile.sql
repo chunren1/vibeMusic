@@ -13,5 +13,8 @@ ALTER TABLE users ADD COLUMN birthday VARCHAR(10) DEFAULT NULL COMMENT '生日: 
 -- 添加 avatar 字段（头像URL）
 ALTER TABLE users ADD COLUMN avatar VARCHAR(500) DEFAULT NULL COMMENT '头像URL';
 
+-- 添加 bg_image 字段（个人页背景图URL）
+ALTER TABLE users ADD COLUMN bg_image VARCHAR(500) DEFAULT NULL COMMENT '个人页背景图URL';
+
 -- 查看修改后的表结构
 DESCRIBE users;

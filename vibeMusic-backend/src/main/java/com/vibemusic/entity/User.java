@@ -21,6 +21,8 @@ public class User {
 
     private String avatar;
 
+    private String bgImage;
+
     private String gender;
 
     private String birthday;

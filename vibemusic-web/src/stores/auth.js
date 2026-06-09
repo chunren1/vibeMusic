@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { getToken, setToken, API_HOST } from '@/api/request'
-import { getMe, updateProfile as apiUpdateProfile, uploadAvatar as apiUploadAvatar } from '@/api/auth'
+import { getMe, updateProfile as apiUpdateProfile, uploadAvatar as apiUploadAvatar, uploadBgImage as apiUploadBgImage } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(getToken())
@@ -11,12 +11,20 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isLoggedIn = computed(() => !!token.value)
 
-  // 头像完整 URL（开发环境用相对路径走 Vite proxy，生产环境用 API_HOST 前缀）
+  // 头像完整 URL
   const avatarSrc = computed(() => {
     const avatar = user.value?.avatar
     if (!avatar) return ''
     if (avatar.startsWith('http')) return avatar
     return API_HOST + avatar
+  })
+
+  // 背景图完整 URL
+  const bgImageSrc = computed(() => {
+    const bg = user.value?.bgImage
+    if (!bg) return ''
+    if (bg.startsWith('http')) return bg
+    return API_HOST + bg
   })
 
   function login(newToken, newUser) {
@@ -70,6 +78,7 @@ export const useAuthStore = defineStore('auth', () => {
           username: res.data.username,
           nickname: res.data.nickname,
           avatar: res.data.avatar,
+          bgImage: res.data.bgImage,
           gender: res.data.gender,
           birthday: res.data.birthday,
         }
@@ -103,12 +112,22 @@ export const useAuthStore = defineStore('auth', () => {
     return res
   }
 
+  /** 上传背景图 */
+  async function uploadUserBgImage(file) {
+    const res = await apiUploadBgImage(file)
+    if (res.code === 200 && res.data) {
+      user.value = { ...user.value, ...res.data }
+      localStorage.setItem('user', JSON.stringify(user.value))
+    }
+    return res
+  }
+
   return {
-    token, user, isLoggedIn, avatarSrc,
+    token, user, isLoggedIn, avatarSrc, bgImageSrc,
     login, logout,
     showLoginModal, openLogin, closeLogin,
     redirectPath, openLoginWithRedirect, consumeRedirect,
-    refreshUser, updateUserProfile, uploadUserAvatar,
+    refreshUser, updateUserProfile, uploadUserAvatar, uploadUserBgImage,
   }
 })
 

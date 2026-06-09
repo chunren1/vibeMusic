@@ -173,6 +173,45 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/bg-image")
+    @Operation(summary = "上传个人页背景图")
+    public Result<Map<String, Object>> uploadBgImage(@RequestParam("file") MultipartFile file) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "未登录");
+
+        if (file.isEmpty()) return Result.error("请选择文件");
+
+        String contentType = file.getContentType();
+        if (contentType == null || !ALLOWED_IMAGE_TYPES.contains(contentType)) {
+            return Result.error("不支持的文件类型，仅支持 JPG/PNG/GIF/WebP");
+        }
+
+        if (file.getSize() > MAX_AVATAR_SIZE) {
+            return Result.error("背景图文件不能超过 2MB");
+        }
+
+        try {
+            Path uploadPath = Paths.get(UPLOAD_DIR);
+            if (!Files.exists(uploadPath)) {
+                Files.createDirectories(uploadPath);
+            }
+
+            String ext = getExtension(Objects.requireNonNull(file.getOriginalFilename()));
+            String fileName = "bg_" + userId + "_" + System.currentTimeMillis() + "." + ext;
+            Path filePath = uploadPath.resolve(fileName);
+            file.transferTo(filePath.toFile());
+
+            String bgUrl = "/uploads/avatars/" + fileName;
+            User user = userService.updateBgImage(userId, bgUrl);
+
+            Map<String, Object> data = buildUserDataFromEntity(user);
+            data.put("bgImageUrl", bgUrl);
+            return Result.ok(data);
+        } catch (IOException e) {
+            return Result.error("背景图上传失败: " + e.getMessage());
+        }
+    }
+
     // ===== 辅助方法 =====
 
     private Map<String, Object> buildUserData(CustomUserDetails details) {
@@ -181,6 +220,7 @@ public class AuthController {
         data.put("username", details.getUsername());
         data.put("nickname", details.getNickname());
         data.put("avatar", details.getAvatar());
+        data.put("bgImage", details.getBgImage());
         data.put("gender", details.getGender());
         data.put("birthday", details.getBirthday());
         return data;
@@ -192,6 +232,7 @@ public class AuthController {
         data.put("username", user.getUsername());
         data.put("nickname", user.getNickname());
         data.put("avatar", user.getAvatar());
+        data.put("bgImage", user.getBgImage());
         data.put("gender", user.getGender());
         data.put("birthday", user.getBirthday());
         return data;

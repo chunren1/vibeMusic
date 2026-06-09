@@ -33,3 +33,12 @@ export function uploadAvatar(file) {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
+
+/** 上传背景图 */
+export function uploadBgImage(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request.post('/auth/bg-image', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
