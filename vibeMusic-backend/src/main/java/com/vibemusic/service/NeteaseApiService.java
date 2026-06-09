@@ -1,7 +1,6 @@
 package com.vibemusic.service;
 
 import com.vibemusic.config.NeteaseApiConfig;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
@@ -21,15 +20,7 @@ public class NeteaseApiService {
     private final NeteaseApiConfig config;
     private final RestTemplate restTemplate = new RestTemplate();
 
-    private String cookie;
-
-    @PostConstruct
-    public void init() {
-        this.cookie = config.getCookie();
-        if (this.cookie == null || this.cookie.isBlank()) {
-            log.warn("Netease cookie not configured (netease.api.cookie)");
-        }
-    }
+    // Cookie 已集中到 musicapi/config.js 统一管理，后端不再持有
 
     public Map<String, Object> search(String keyword, int limit) {
         URI uri = buildUri("/cloudsearch", "keywords", keyword, "limit", String.valueOf(limit));
@@ -122,7 +113,7 @@ public class NeteaseApiService {
 
     private HttpEntity<Void> buildHeaders() {
         HttpHeaders headers = new HttpHeaders();
-        headers.set("Cookie", cookie);
+        // Cookie 已由 musicapi 统一注入，后端不再传递
         headers.set("User-Agent", "Mozilla/5.0");
         return new HttpEntity<>(headers);
     }
