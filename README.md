@@ -36,8 +36,9 @@
 |------|------|
 | 👤 用户中心 | JWT 登录/注册，弹窗式无跳转；个人主页支持编辑资料（昵称/性别/生日/头像/背景图）；详情页展示完整信息 |
 | 🔍 多平台搜索 | 聚合网易云 + QQ音乐，多维加权评分(相关性+热度+排名)，信息指纹去重，LRU缓存加速，400ms 防抖 |
+| 🖥️ 全局全屏 | 所有页面右上角全屏切换按钮，fade 半透明毛玻璃，点击进入/退出浏览器全屏 |
 | ▶️ VIP音质播放 | 自有 VIP Cookie，exhigh / hires 品质 |
-| ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录 |
+| ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录；Pinia Store 全局实时同步，跨页面状态一致 |
 | 📋 歌单管理 | 创建/删除/添加歌曲，完整 CRUD，所有权校验 |
 | 🕐 最近播放 | 播放历史，自动保留最近 300 条，用户隔离 |
 | 📱 移动端适配 | 同项目路由分流 `/m`，独立 UI 组件，共享 API/Store，自动设备检测跳转 |
@@ -62,9 +63,9 @@ vibeMusic/
 │   │   │   ├── MProfileView.vue       # 移动端个人主页
 │   │   │   └── MProfileDetailView.vue # 移动端详情页
 │   │   └── ...
-│   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView + mobile/
+│   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView, GlobalFullscreenBtn + mobile/
 │   │   ├── composables/    # useIsMobile (设备检测)
-│   │   ├── stores/         # Pinia: auth (JWT + 弹窗状态), player (播放状态管理中心)
+│   │   ├── stores/         # Pinia: auth (JWT), player (播放状态), favorite (收藏全局同步)
 │   │   └── api/            # Axios 封装 + 接口 (auth.js, song.js, request.js)
 │   ├── android/            # Capacitor Android 项目
 │   └── capacitor.config.json
@@ -198,6 +199,14 @@ cd android && gradlew clean assembleDebug
 - Promise.all 并行请求网易云 + QQ
 - LRU 缓存 (max 200, TTL 5min)
 ```
+
+## Pinia Favorite Store（收藏状态全局同步）
+
+- **单一数据源**: `stores/favorite.js` 集中管理收藏 ID 集合（reactive Set）
+- **全局实时同步**: 任何页面收藏/取消收藏，其他页面（搜索/歌词/播放/收藏/最近播放）即时响应式更新
+- **乐观更新 + 回滚**: 先更新 UI，API 成功后以后端为准，失败回滚
+- **跨 10 个组件统一**: 桌面端 6 个 + 移动端 4 个全部从 Store 读写
+- **向后兼容**: 同步写入 `window.vibeFavIds`，旧代码不受影响
 
 ## Pinia Player Store（播放状态管理中心）
 
