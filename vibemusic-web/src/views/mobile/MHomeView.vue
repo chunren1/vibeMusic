@@ -1,53 +1,19 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { searchSongs, getRandomSongs as apiRandomSongs, playSong as apiPlaySong, getBanners as apiBanners } from '@/api/song'
+import { getRandomSongs as apiRandomSongs, getBanners as apiBanners } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
+import { usePlayerStore } from '@/stores/player'
 
 const router = useRouter()
 const authStore = useAuthStore()
-
-// ===== 全局音频 =====
-const audio = window.vibeAudio || new Audio()
-window.vibeAudio = audio
-const currentPlaySong = ref(null)
-const isPlaying = ref(!audio.paused)
-
-const _onPlay = () => { isPlaying.value = true }
-const _onPause = () => { isPlaying.value = false }
-const _onEnded = () => { isPlaying.value = false }
-const _onSongChange = (e) => {
-  currentPlaySong.value = {
-    sourceId: e.detail.sourceId,
-    name: e.detail.title,
-    artist: e.detail.artist,
-    coverUrl: e.detail.coverUrl,
-  }
-  isPlaying.value = true
-}
-
-audio.addEventListener('play', _onPlay)
-audio.addEventListener('pause', _onPause)
-audio.addEventListener('ended', _onEnded)
-window.addEventListener('song-change', _onSongChange)
+const player = usePlayerStore()
 
 // ===== Play =====
 function playSong(song) {
   if (!song.sourceId) return
-  if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
-    window._vibeAudioCtx.resume()
-  }
-  apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
-    const url = res.data?.url
-    if (!url) return
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
-    else { audio.src = url; audio.play().catch(() => {}) }
-    currentPlaySong.value = song
-    window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: song.name, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl, duration: song.duration }
-    }))
-    router.push('/m/player')
-  }).catch(() => {})
+  player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
+  router.push('/m/player')
 }
 
 // ===== Search =====
@@ -96,16 +62,11 @@ function resetBannerTimer() {
 }
 
 onMounted(() => {
-  isPlaying.value = !audio.paused
   loadBanners()
   bannerTimer = setInterval(nextBanner, 4000)
   shuffleSongs()
 })
 onUnmounted(() => {
-  audio.removeEventListener('play', _onPlay)
-  audio.removeEventListener('pause', _onPause)
-  audio.removeEventListener('ended', _onEnded)
-  window.removeEventListener('song-change', _onSongChange)
   clearInterval(bannerTimer)
 })
 
@@ -169,10 +130,10 @@ function randomColor() {
       <div class="m-song-list">
         <div v-for="(song, idx) in randomSongs" :key="song.sourceId || idx"
           class="m-song-item"
-          :class="{ playing: currentPlaySong?.sourceId === song.sourceId && isPlaying }"
+          :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
           @click="playSong(song)">
           <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=60y60)`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: song.coverColor }">
-            <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="m-eq">
+            <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq">
               <span></span><span></span><span></span>
             </span>
           </div>

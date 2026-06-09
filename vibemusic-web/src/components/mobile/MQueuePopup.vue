@@ -1,53 +1,24 @@
 <script setup>
-import { API_HOST } from '@/api/request'
-import { ref, watch, nextTick } from 'vue'
+import { usePlayerStore } from '@/stores/player'
 
-const props = defineProps({ visible: Boolean })
+defineProps({ visible: Boolean })
 const emit = defineEmits(['close'])
 
-const queue = ref([])
-const currentIdx = ref(-1)
-
-function loadQueue() {
-  try {
-    queue.value = JSON.parse(localStorage.getItem('vibe_queue') || '[]')
-    currentIdx.value = parseInt(localStorage.getItem('vibe_queue_idx') || '-1')
-  } catch { queue.value = []; currentIdx.value = -1 }
-}
-
-watch(() => props.visible, val => {
-  if (val) loadQueue()
-})
+const player = usePlayerStore()
 
 function playSong(song) {
-  const idx = queue.value.indexOf(song)
-  if (idx === -1) return
-  localStorage.setItem('vibe_queue_idx', String(idx))
-  const a = window.vibeAudio
-  a.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
-  a.play().catch(() => {})
-  const info = { sourceId: song.sourceId, title: song.name, artist: song.artist, coverUrl: song.coverUrl || '' }
-  localStorage.setItem('vibe_current_song', JSON.stringify({ id: song.sourceId, title: song.name, artist: song.artist, coverUrl: song.coverUrl || '' }))
-  window.dispatchEvent(new CustomEvent('song-change', { detail: info }))
+  const idx = player.queue.findIndex(s => s.sourceId === song.sourceId)
+  if (idx >= 0) player.playIndex(idx)
   emit('close')
 }
 
 function removeSong(idx, e) {
   e.stopPropagation()
-  queue.value.splice(idx, 1)
-  if (currentIdx.value >= queue.value.length) currentIdx.value = queue.value.length - 1
-  if (idx === currentIdx.value && queue.value.length > 0) playSong(queue.value[currentIdx.value])
-  localStorage.setItem('vibe_queue', JSON.stringify(queue.value))
-  localStorage.setItem('vibe_queue_idx', String(currentIdx.value))
+  player.removeFromQueue(idx)
 }
 
 function clearAll() {
-  queue.value = []
-  currentIdx.value = -1
-  localStorage.setItem('vibe_queue', '[]')
-  localStorage.setItem('vibe_queue_idx', '-1')
-  window.vibeAudio.pause()
-  window.vibeAudio.src = ''
+  player.clearQueue()
   emit('close')
 }
 </script>
@@ -62,21 +33,21 @@ function clearAll() {
 
           <!-- 标题栏 -->
           <div class="q-header">
-            <span class="q-title">播放列表 ({{ queue.length }})</span>
+            <span class="q-title">播放列表 ({{ player.queue.length }})</span>
             <button class="q-clear" @click="clearAll">清空</button>
           </div>
 
           <!-- 列表 -->
           <div class="q-list">
-            <div v-if="!queue.length" class="q-empty">列表为空</div>
+            <div v-if="!player.queue.length" class="q-empty">列表为空</div>
             <div
-              v-for="(s, i) in queue" :key="s.sourceId + '-' + i"
+              v-for="(s, i) in player.queue" :key="s.sourceId + '-' + i"
               class="q-item"
-              :class="{ current: i === currentIdx }"
+              :class="{ current: i === player.currentIdx }"
               @click="playSong(s)"
             >
               <span class="q-idx">
-                <span v-if="i === currentIdx" class="q-eq"><i></i><i></i><i></i></span>
+                <span v-if="i === player.currentIdx" class="q-eq"><i></i><i></i><i></i></span>
                 <span v-else>{{ i + 1 }}</span>
               </span>
               <div class="q-cover" :style="s.coverUrl ? { backgroundImage: `url(${s.coverUrl}?param=60y60)` } : {}"></div>

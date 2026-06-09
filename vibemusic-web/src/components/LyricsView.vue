@@ -2,6 +2,9 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { getLyric, toggleFavorite, downloadSong as apiDownload } from '@/api/song'
 import { API_HOST } from '@/api/request'
+import { usePlayerStore } from '@/stores/player'
+
+const player = usePlayerStore()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -219,33 +222,10 @@ function onVolumeClick(e) {
 }
 
 // ===== 播放模式 =====
-const modeLabels = { 'list-loop': '列表循环', 'single': '单曲循环', 'shuffle': '随机播放', 'sequential': '顺序播放' }
-const playMode = ref(localStorage.getItem('vibe_play_mode') || 'list-loop')
-const modeLabel = computed(() => modeLabels[playMode.value] || '列表循环')
-function toggleMode() {
-  const modes = ['list-loop', 'single', 'shuffle', 'sequential']
-  const i = modes.indexOf(playMode.value)
-  playMode.value = modes[(i + 1) % modes.length]
-  localStorage.setItem('vibe_play_mode', playMode.value)
-  // 同步到 PlayerBar
-  if (window.vibePlayMode) window.vibePlayMode(playMode.value)
-}
-// 监听 PlayerBar 的模式变更
-function onPlayModeChange(e) { playMode.value = e.detail }
-window.addEventListener('play-mode-change', onPlayModeChange)
+const modeLabel = computed(() => player.modeLabels[player.playMode] || '列表循环')
 
 // ===== 播放列表 =====
 const showPlaylist = ref(false)
-const queue = computed(() => window.vibeQueue?.value || [])
-const currentIdx = computed(() => parseInt(localStorage.getItem('vibe_queue_idx') || '-1'))
-function playFromQueue(idx) {
-  if (window.vibePlayQueue) window.vibePlayQueue(idx)
-}
-function removeFromQueue(idx, e) {
-  e.stopPropagation()
-  const q = window.vibeQueue?.value
-  if (q) q.splice(idx, 1)
-}
 
 // ===== 收藏 =====
 const isFav = ref(false)
@@ -327,7 +307,7 @@ watch(() => props.currentSong.id, (newId) => {
   if (props.visible && newId) fetchLyric(newId)
 })
 
-onUnmounted(() => { stopTimeSync(); stopSpectrum(); exitFullscreen(); window.removeEventListener('play-mode-change', onPlayModeChange) })
+onUnmounted(() => { stopTimeSync(); stopSpectrum(); exitFullscreen() })
 
 const currentLyricIndex = ref(0)
 watch(() => currentTime.value, () => {
@@ -466,13 +446,13 @@ function close() { emit('update:visible', false) }
 
             <!-- 中间：播放控制 -->
             <div class="center-ctrl">
-              <button class="ctrl-btn mode-btn" :class="{ active: playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabel">
+              <button class="ctrl-btn mode-btn" :class="{ active: player.playMode !== 'list-loop' }" @click="player.toggleMode()" :title="modeLabel">
                 <!-- 列表循环 -->
-                <svg v-if="playMode === 'list-loop'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+                <svg v-if="player.playMode === 'list-loop'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
                 <!-- 单曲循环 -->
-                <svg v-else-if="playMode === 'single'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="16.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg>
+                <svg v-else-if="player.playMode === 'single'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="16.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" fill="currentColor" stroke="none">1</text></svg>
                 <!-- 随机播放 -->
-                <svg v-else-if="playMode === 'shuffle'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+                <svg v-else-if="player.playMode === 'shuffle'" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
                 <!-- 顺序播放 -->
                 <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M3 13v2a4 4 0 0 0 4 4h7"/></svg>
               </button>
@@ -514,22 +494,22 @@ function close() { emit('update:visible', false) }
         <Transition name="panel-slide">
           <div v-if="showPlaylist" class="playlist-panel">
             <div class="panel-hd">
-              <span>播放队列 ({{ queue.length }})</span>
+              <span>播放队列 ({{ player.queue.length }})</span>
               <button class="panel-close" @click="showPlaylist = false">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
             <div class="panel-body">
-              <div v-if="queue.length === 0" class="panel-empty">队列为空</div>
-              <div v-for="(song, idx) in queue" :key="song.sourceId"
-                class="panel-item" :class="{ now: idx === currentIdx }"
-                @click="playFromQueue(idx)">
-                <span class="panel-idx">{{ idx === currentIdx ? '▶' : idx + 1 }}</span>
+              <div v-if="player.queue.length === 0" class="panel-empty">队列为空</div>
+              <div v-for="(song, idx) in player.queue" :key="song.sourceId"
+                class="panel-item" :class="{ now: idx === player.currentIdx }"
+                @click="player.playIndex(idx)">
+                <span class="panel-idx">{{ idx === player.currentIdx ? '▶' : idx + 1 }}</span>
                 <div class="panel-info">
                   <span class="panel-title">{{ song.name }}</span>
                   <span class="panel-art">{{ song.artist }}</span>
                 </div>
-                <button class="panel-del" @click="removeFromQueue(idx, $event)">✕</button>
+                <button class="panel-del" @click="player.removeFromQueue(idx)">✕</button>
               </div>
             </div>
           </div>

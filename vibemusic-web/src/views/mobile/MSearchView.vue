@@ -1,12 +1,13 @@
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { API_HOST } from '@/api/request'
 import { useRoute, useRouter } from 'vue-router'
-import { searchSongs, playSong as apiPlaySong, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
+import { searchSongs, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
+import { usePlayerStore } from '@/stores/player'
 
 const route = useRoute()
 const router = useRouter()
-const audio = window.vibeAudio
+const player = usePlayerStore()
 
 const keyword = ref(route.query.q || '')
 const results = ref([])
@@ -45,17 +46,8 @@ function useHistory(kw) {
   doSearch(true, true)
 }
 
-const currentPlaySong = ref(null)
-const isPlaying = ref(false)
 const favIds = ref(new Set())
 const downloadingIds = ref(new Set())
-
-const _onPlay = () => { isPlaying.value = true }
-const _onPause = () => { isPlaying.value = false }
-const _onSongChange = (e) => { currentPlaySong.value = { sourceId: e.detail.sourceId } }
-audio.addEventListener('play', _onPlay)
-audio.addEventListener('pause', _onPause)
-window.addEventListener('song-change', _onSongChange)
 
 getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
 
@@ -94,27 +86,12 @@ function onSourceChange() { page.value = 1; doSearch(true) }
 
 function playSong(song) {
   if (!song.sourceId) return
-  if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
-    window._vibeAudioCtx.resume()
-  }
-  apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
-    const url = res.data?.url
-    if (!url) return
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
-    else { audio.src = url; audio.play().catch(() => {}) }
-    currentPlaySong.value = song
-    window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: song.name, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl, isTrial: res.data?.isTrial || false, platform: res.data?.platform || song.platform, fallbackFrom: res.data?.fallbackFrom || null }
-    }))
-    // 跳转歌词页
-    router.push('/m/player')
-  }).catch(() => {})
+  player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
+  router.push('/m/player')
 }
 
 function addToQueueFn(song) {
-  if (window.vibeAddToQueue) {
-    window.vibeAddToQueue({ sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration })
-  }
+  player.addToQueue({ sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration })
 }
 
 function toggleFav(song) {
@@ -149,11 +126,6 @@ function goBack() { router.push('/m') }
 
 onMounted(() => {
   if (keyword.value) doSearch(true)
-})
-onUnmounted(() => {
-  audio.removeEventListener('play', _onPlay)
-  audio.removeEventListener('pause', _onPause)
-  window.removeEventListener('song-change', _onSongChange)
 })
 </script>
 
@@ -199,11 +171,11 @@ onUnmounted(() => {
 
     <div v-if="results.length" class="m-result-list">
       <div v-for="(song, idx) in results" :key="song.sourceId"
-        class="m-song-item" :class="{ playing: currentPlaySong?.sourceId === song.sourceId && isPlaying }"
+        class="m-song-item" :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
         @click="playSong(song)"
-        v-memo="[song.sourceId, currentPlaySong?.sourceId === song.sourceId, isPlaying, favIds.has(song.sourceId)]">
+        v-memo="[song.sourceId, player.currentSong.id === song.sourceId, player.isPlaying, favIds.has(song.sourceId)]">
         <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=80y80)` } : {}">
-          <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="m-eq"><span></span><span></span><span></span></span>
+          <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq"><span></span><span></span><span></span></span>
         </div>
         <div class="m-song-info">
           <div class="m-song-name">
