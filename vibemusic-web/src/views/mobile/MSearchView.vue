@@ -175,7 +175,7 @@ onMounted(() => {
           <div class="m-song-name">
             {{ song.name }}
             <span v-if="song.platform" class="tag" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-            <span v-if="song.duration != null && song.duration <= 30" class="tag trial">试听</span>
+            <span v-if="song.duration != null && song.duration <= 30" class="tag vip">VIP</span>
           </div>
           <div class="m-song-artist">{{ song.artist }} · {{ fmtSec(song.duration) }}</div>
         </div>
@@ -259,7 +259,10 @@ onMounted(() => {
 }
 .tag.qq { background: rgba(24,144,255,.15); color: #1890ff; }
 .tag.netease { background: rgba(250,84,28,.15); color: #fa541c; }
-.tag.trial { background: rgba(207,19,34,.15); color: #cf1322; }
+.tag.vip {
+  background: linear-gradient(135deg, rgba(245,208,107,.25), rgba(232,184,75,.2));
+  color: #f5d06b; font-weight: 500;
+}
 .m-song-acts { display: flex; gap: 8px; flex-shrink: 0; }
 .m-song-acts button {
   border: none; background: none; font-size: 16px; cursor: pointer; padding: 4px; color: #666;

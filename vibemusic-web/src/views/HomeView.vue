@@ -345,7 +345,7 @@ function formatDuration(seconds) {
                   <span class="drop-name" :class="{ hl: currentPlaySong?.sourceId === song.sourceId }">
                     {{ song.name }}
                     <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-                    <span v-if="song.duration != null && song.duration <= 30" class="tag-trial">试听</span>
+                    <span v-if="song.duration != null && song.duration <= 30" class="tag-vip">VIP</span>
                   </span>
                   <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
                 </div>
@@ -421,7 +421,7 @@ function formatDuration(seconds) {
             </div>
             <div class="play-overlay">▶</div>
           </div>
-          <p class="card-title">{{ song.name }}<span v-if="song.cached === true" class="card-offline" title="已离线缓存">▲</span></p>
+          <p class="card-title">{{ song.name }}<span v-if="song.duration != null && song.duration <= 30" class="card-vip">VIP</span></p>
           <p class="card-artist">{{ song.artist }}</p>
         </div>
       </div>
@@ -498,7 +498,7 @@ function formatDuration(seconds) {
             <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">
               {{ song.name }}
               <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-              <span v-if="song.duration != null && song.duration <= 30" class="tag-trial">试听</span>
+              <span v-if="song.duration != null && song.duration <= 30" class="tag-vip">VIP</span>
             </span>
             <span class="rp-artist">{{ song.artist }}</span>
           </div>
@@ -696,10 +696,10 @@ function formatDuration(seconds) {
 }
 .tag-platform.qq { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
 .tag-platform.netease { background: #fff7e6; color: #fa541c; border: 1px solid #ffd591; }
-.tag-trial {
-  display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
-  margin-left: 4px; vertical-align: middle;
-  background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e;
+.tag-vip {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 3px;
+  margin-left: 4px; vertical-align: middle; font-weight: 500;
+  background: linear-gradient(135deg, #f5d06b, #e8b84b); color: #5c3d00; border: 1px solid #e8b84b;
 }
 .rp-album { font-size: 13px; color: #777; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-time { font-size: 13px; color: #888; cursor: pointer; }
@@ -819,7 +819,10 @@ function formatDuration(seconds) {
   font-size: 15px; color: #1a1a1a; margin-bottom: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.card-offline { color: #31c27c; font-size: 11px; margin-left: 3px; }
+.card-vip {
+  font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; vertical-align: middle;
+  background: linear-gradient(135deg, #f5d06b, #e8b84b); color: #5c3d00;
+}
 .card-artist {
   font-size: 13px; color: #888;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
