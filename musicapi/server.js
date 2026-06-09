@@ -1,20 +1,105 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 
 const app = express();
 const PORT = 3000;
 
-// 中间件
+// ==================== 日志系统 ====================
+const LOG_DIR = path.join(__dirname, 'logs');
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+
+const logStreams = {
+  api: fs.createWriteStream(path.join(LOG_DIR, 'api-errors.log'), { flags: 'a' }),
+  cookie: fs.createWriteStream(path.join(LOG_DIR, 'cookie-monitor.log'), { flags: 'a' }),
+  degradation: fs.createWriteStream(path.join(LOG_DIR, 'degradation.log'), { flags: 'a' }),
+  access: fs.createWriteStream(path.join(LOG_DIR, 'access.log'), { flags: 'a' }),
+};
+
+function writeLog(category, level, message) {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] [${level}] ${message}\n`;
+  const stream = logStreams[category];
+  if (stream) stream.write(line);
+  if (category === 'api' || category === 'cookie') console.log(line.trim());
+}
+
+// ==================== 中间件 ====================
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// QQ音乐Cookie
-const qqCookie = require('./config.js');
-qqMusic.setCookie(qqCookie);
+// 访问日志中间件
+app.use((req, res, next) => {
+  writeLog('access', 'INFO', `${req.method} ${req.originalUrl}`);
+  next();
+});
+
+// ==================== Cookie 统一管理 ====================
+const config = require('./config.js');
+
+// QQ音乐 Cookie（进程级全局设置）
+qqMusic.setCookie(config.qq);
+writeLog('cookie', 'INFO', 'QQ音乐 Cookie 已加载');
+
+// 网易云 Cookie（注入到每次 API 调用的请求参数中）
+const NETEASE_COOKIE = config.netease;
+writeLog('cookie', 'INFO', `网易云 Cookie 已加载 (长度: ${NETEASE_COOKIE ? NETEASE_COOKIE.length : 0})`);
+
+/** 给网易云 API 参数注入 cookie */
+function withNeteaseCookie(extra = {}) {
+  return { ...extra, cookie: NETEASE_COOKIE };
+}
+
+// ==================== Cookie 存活监控（随 API 启动自动运行） ====================
+let cookieStatus = { netease: true, qq: true };
+
+async function checkCookies() {
+  writeLog('cookie', 'INFO', '🔄 Cookie 存活检查开始...');
+  
+  // 检查网易云
+  try {
+    const neRes = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords: '周杰伦', limit: 1, type: 1 }));
+    if (neRes.body.code === 200 && neRes.body.result) {
+      cookieStatus.netease = true;
+      writeLog('cookie', 'INFO', '✅ 网易云 Cookie 正常');
+    } else {
+      cookieStatus.netease = false;
+      writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 异常: ${JSON.stringify(neRes.body).slice(0, 200)}`);
+    }
+  } catch (e) {
+    cookieStatus.netease = false;
+    writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 检查失败: ${e.message}`);
+  }
+
+  // 检查QQ
+  try {
+    const qqRes = await qqMusic.api('search', { key: '周杰伦', limit: 1 });
+    if (qqRes && qqRes.list) {
+      cookieStatus.qq = true;
+      writeLog('cookie', 'INFO', '✅ QQ音乐 Cookie 正常');
+    } else {
+      cookieStatus.qq = false;
+      writeLog('cookie', 'ERROR', '❌ QQ音乐 Cookie 异常: 无搜索结果');
+    }
+  } catch (e) {
+    cookieStatus.qq = false;
+    writeLog('cookie', 'ERROR', `❌ QQ音乐 Cookie 检查失败: ${e.message}`);
+  }
+}
+
+// 启动时立即检查一次，之后每小时检查
+checkCookies();
+setInterval(checkCookies, 60 * 60 * 1000);
+
+// Cookie 状态查询端点
+app.get('/cookie-status', (req, res) => {
+  res.json({ code: 200, data: cookieStatus, timestamp: new Date().toISOString() });
+});
 
 // ==================== 搜索算法配置 (Scoring & Dedup) ====================
 
@@ -325,7 +410,7 @@ function toStandardFormat(list) {
 
 async function searchNetease(keyword, limit) {
   try {
-    const result = await NeteaseCloudMusicApi.cloudsearch({ keywords: keyword, limit, type: 1 });
+    const result = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords: keyword, limit, type: 1 }));
     if (result.body.code === 200 && result.body.result && result.body.result.songs) {
       return result.body.result.songs.map(s => ({
         id: s.id,
@@ -445,7 +530,7 @@ app.get('/lyric', async (req, res) => {
   try {
     const { id } = req.query;
     if (!id) return res.status(400).json({ code: 400, message: 'id is required' });
-    const result = await NeteaseCloudMusicApi.lyric({ id });
+    const result = await NeteaseCloudMusicApi.lyric(withNeteaseCookie({ id }));
     res.json(result.body);
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message });
@@ -455,7 +540,7 @@ app.get('/lyric', async (req, res) => {
 app.get('/cloudsearch', async (req, res) => {
   try {
     const { keywords, limit = 20, type = 1 } = req.query;
-    const result = await NeteaseCloudMusicApi.cloudsearch({ keywords, limit, type });
+    const result = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords, limit, type }));
     res.json(result.body);
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message });
@@ -465,7 +550,7 @@ app.get('/cloudsearch', async (req, res) => {
 app.get('/song/url/v1', async (req, res) => {
   try {
     const { id, level = 'exhigh' } = req.query;
-    const result = await NeteaseCloudMusicApi.song_url_v1({ id, level });
+    const result = await NeteaseCloudMusicApi.song_url_v1(withNeteaseCookie({ id, level }));
     res.json(result.body);
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message });
@@ -475,7 +560,7 @@ app.get('/song/url/v1', async (req, res) => {
 app.get('/song/detail', async (req, res) => {
   try {
     const { ids } = req.query;
-    const result = await NeteaseCloudMusicApi.song_detail({ ids });
+    const result = await NeteaseCloudMusicApi.song_detail(withNeteaseCookie({ ids }));
     res.json(result.body);
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message });
@@ -485,7 +570,7 @@ app.get('/song/detail', async (req, res) => {
 app.get('/personalized', async (req, res) => {
   try {
     const { limit = 10 } = req.query;
-    const result = await NeteaseCloudMusicApi.personalized({ limit });
+    const result = await NeteaseCloudMusicApi.personalized(withNeteaseCookie({ limit }));
     res.json(result.body);
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message });
@@ -541,7 +626,7 @@ app.all('/netease/*', async (req, res) => {
   try {
     const apiPath = req.path.replace('/netease/', '');
     const apiName = apiPath.replace(/\//g, '_');
-    const params = { ...req.query, ...req.body };
+    const params = withNeteaseCookie({ ...req.query, ...req.body });
     if (typeof NeteaseCloudMusicApi[apiName] === 'function') {
       const result = await NeteaseCloudMusicApi[apiName](params);
       res.json(result.body);
@@ -549,6 +634,7 @@ app.all('/netease/*', async (req, res) => {
       res.status(404).json({ code: 404, message: `API ${apiName} not found` });
     }
   } catch (error) {
+    writeLog('api', 'ERROR', `[/netease/*] ${error.message}`);
     res.status(500).json({ code: 500, message: error.message });
   }
 });
@@ -566,14 +652,21 @@ app.all('/qq/*', async (req, res) => {
 
 // ==================== 健康检查 ====================
 
+// 全局错误处理
+app.use((err, req, res, next) => {
+  writeLog('api', 'ERROR', `[${req.method} ${req.path}] ${err.message}`);
+  res.status(500).json({ code: 500, message: 'Internal Server Error' });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     code: 200,
-    message: 'Music API Service v2 (Upgraded Scoring)',
+    message: 'Music API Service v3 (Unified Cookie + SLA)',
     data: {
-      netease: 'available',
-      qq: 'available',
+      netease: cookieStatus.netease ? 'available' : 'degraded',
+      qq: cookieStatus.qq ? 'available' : 'degraded',
       cacheSize: searchCache.size,
+      uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     },
   });
@@ -582,8 +675,11 @@ app.get('/health', (req, res) => {
 // ==================== 启动 ====================
 
 app.listen(PORT, () => {
-  console.log(`Music API Service v2 on http://localhost:${PORT}`);
-  console.log('  - 升级: 多维加权评分 + 信息指纹去重 + LRU缓存');
-  console.log(`  - 聚合搜索: GET /search?keyword=xxx&prefer=netease`);
-  console.log(`  - 健康检查: GET /health (含缓存大小)`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  console.log(`  vibeMusic API v3`);
+  console.log(`  http://localhost:${PORT}`);
+  console.log(`  Cookie: 统一管理 (网易云 + QQ)`);
+  console.log(`  监控: 每小时自动检查 (GET /cookie-status)`);
+  console.log(`  日志: ./logs/ (api-errors / cookie / access)`);
+  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 });
