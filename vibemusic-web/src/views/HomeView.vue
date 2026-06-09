@@ -345,7 +345,7 @@ function formatDuration(seconds) {
                   <span class="drop-name" :class="{ hl: currentPlaySong?.sourceId === song.sourceId }">
                     {{ song.name }}
                     <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-                    <span v-if="song.duration != null && song.duration <= 30" class="tag-vip">VIP</span>
+                    <span v-if="song.vip === true" class="tag-vip">VIP</span>
                   </span>
                   <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
                 </div>
@@ -421,7 +421,7 @@ function formatDuration(seconds) {
             </div>
             <div class="play-overlay">▶</div>
           </div>
-          <p class="card-title">{{ song.name }}<span v-if="song.duration != null && song.duration <= 30" class="card-vip">VIP</span></p>
+          <p class="card-title">{{ song.name }}<span v-if="song.vip === true" class="card-vip">VIP</span></p>
           <p class="card-artist">{{ song.artist }}</p>
         </div>
       </div>
@@ -498,7 +498,7 @@ function formatDuration(seconds) {
             <span class="rp-title" :class="{ active: currentPlaySong?.sourceId === song.sourceId }">
               {{ song.name }}
               <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-              <span v-if="song.duration != null && song.duration <= 30" class="tag-vip">VIP</span>
+              <span v-if="song.vip === true" class="tag-vip">VIP</span>
             </span>
             <span class="rp-artist">{{ song.artist }}</span>
           </div>

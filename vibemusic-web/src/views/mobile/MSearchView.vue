@@ -175,7 +175,7 @@ onMounted(() => {
           <div class="m-song-name">
             {{ song.name }}
             <span v-if="song.platform" class="tag" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-            <span v-if="song.duration != null && song.duration <= 30" class="tag vip">VIP</span>
+            <span v-if="song.vip === true" class="tag vip">VIP</span>
           </div>
           <div class="m-song-artist">{{ song.artist }} · {{ fmtSec(song.duration) }}</div>
         </div>

@@ -158,7 +158,7 @@ function shuffleSongs() {
           <div class="m-song-info">
             <div class="m-song-name">
               {{ song.name }}
-              <span v-if="song.duration != null && song.duration <= 30" class="m-vip-badge">VIP</span>
+              <span v-if="song.vip === true" class="m-vip-badge">VIP</span>
             </div>
             <div class="m-song-artist">{{ song.artist }}</div>
           </div>
