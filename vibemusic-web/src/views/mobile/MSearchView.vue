@@ -2,12 +2,14 @@
 import { ref, watch, onMounted } from 'vue'
 import { API_HOST } from '@/api/request'
 import { useRoute, useRouter } from 'vue-router'
-import { searchSongs, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
+import { searchSongs, downloadSong as apiDownload } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 
 const route = useRoute()
 const router = useRouter()
 const player = usePlayerStore()
+const favStore = useFavoriteStore()
 
 const keyword = ref(route.query.q || '')
 const results = ref([])
@@ -46,10 +48,9 @@ function useHistory(kw) {
   doSearch(true, true)
 }
 
-const favIds = ref(new Set())
 const downloadingIds = ref(new Set())
 
-getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
+favStore.fetchFavIds()
 
 async function doSearch(reset = true, saveHist = false) {
   const kw = keyword.value.trim()
@@ -92,13 +93,6 @@ function playSong(song) {
 
 function addToQueueFn(song) {
   player.addToQueue({ sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration })
-}
-
-function toggleFav(song) {
-  const was = favIds.value.has(song.sourceId)
-  favIds.value[was ? 'delete' : 'add'](song.sourceId)
-  toggleFavorite(song.sourceId, song.name, song.artist, song.coverUrl || '')
-    .catch(() => { favIds.value[was ? 'add' : 'delete'](song.sourceId) })
 }
 
 function handleDownload(song) {
@@ -171,9 +165,9 @@ onMounted(() => {
 
     <div v-if="results.length" class="m-result-list">
       <div v-for="(song, idx) in results" :key="song.sourceId"
-        class="m-song-item" :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
+        class="m-song-item"         :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
         @click="playSong(song)"
-        v-memo="[song.sourceId, player.currentSong.id === song.sourceId, player.isPlaying, favIds.has(song.sourceId)]">
+        v-memo="[song.sourceId, player.currentSong.id === song.sourceId, player.isPlaying, favStore.isFav(song.sourceId)]">
         <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=80y80)` } : {}">
           <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq"><span></span><span></span><span></span></span>
         </div>
@@ -186,8 +180,8 @@ onMounted(() => {
           <div class="m-song-artist">{{ song.artist }} · {{ fmtSec(song.duration) }}</div>
         </div>
         <div class="m-song-acts">
-          <button :class="{ faved: favIds.has(song.sourceId) }" @click.stop="toggleFav(song)">
-            <svg viewBox="0 0 24 24" width="17" height="17" :fill="favIds.has(song.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+          <button :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="favStore.toggleFav(song)">
+            <svg viewBox="0 0 24 24" width="17" height="17" :fill="favStore.isFav(song.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
           </button>
           <button @click.stop="addToQueueFn(song)" title="加入队列">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>

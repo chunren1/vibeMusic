@@ -1,10 +1,12 @@
 <script setup>
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { getLyric, toggleFavorite, downloadSong as apiDownload } from '@/api/song'
+import { getLyric, downloadSong as apiDownload } from '@/api/song'
 import { API_HOST } from '@/api/request'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 
 const player = usePlayerStore()
+const favStore = useFavoriteStore()
 
 const props = defineProps({
   visible: { type: Boolean, default: false },
@@ -228,22 +230,15 @@ const modeLabel = computed(() => player.modeLabels[player.playMode] || '列表�
 const showPlaylist = ref(false)
 
 // ===== 收藏 =====
-const isFav = ref(false)
-watch(() => props.currentSong.id, (id) => {
-  if (id && window.vibeFavIds) {
-    isFav.value = window.vibeFavIds.has(id)
-  } else { isFav.value = false }
-})
+const isFav = computed(() => favStore.isFav(props.currentSong.id))
 async function handleFav() {
   if (!props.currentSong.id) return
-  isFav.value = !isFav.value
-  try {
-    await toggleFavorite(props.currentSong.id, props.currentSong.title, props.currentSong.artist, props.currentSong.coverUrl || '')
-    if (window.vibeFavIds) {
-      if (isFav.value) window.vibeFavIds.add(props.currentSong.id)
-      else window.vibeFavIds.delete(props.currentSong.id)
-    }
-  } catch { isFav.value = !isFav.value }
+  await favStore.toggleFav({
+    sourceId: props.currentSong.id,
+    name: props.currentSong.title,
+    artist: props.currentSong.artist,
+    coverUrl: props.currentSong.coverUrl
+  })
 }
 
 // ===== 下载 =====

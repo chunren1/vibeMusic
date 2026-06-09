@@ -2,9 +2,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { API_HOST } from '@/api/request'
-import { downloadSong as apiDownload, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { downloadSong as apiDownload } from '@/api/song'
 import { useAudioBackground } from '@/composables/useAudioBackground'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 import LyricsView from '@/components/LyricsView.vue'
 
 const store = usePlayerStore()
@@ -83,26 +84,13 @@ function prev() { store.prev() }
 function next() { store.next() }
 
 // 收藏 & 下载
-const favIds = ref(new Set())
+const favStore = useFavoriteStore()
 const downloadingIds = ref(new Set())
 
-getFavoriteIds().then(res => {
-  if (res.data) favIds.value = new Set(res.data)
-  window.vibeFavIds = favIds.value
-}).catch(() => {})
+favStore.fetchFavIds()
 
 function toggleFav(song) {
-  const isFav = favIds.value.has(song.sourceId)
-  if (isFav) favIds.value.delete(song.sourceId)
-  else favIds.value.add(song.sourceId)
-  toggleFavorite(song.sourceId, song.name, song.artist).then(res => {
-    if (res.data === true) favIds.value.add(song.sourceId)
-    else favIds.value.delete(song.sourceId)
-  }).catch(err => {
-    console.error('收藏失败:', err)
-    if (isFav) favIds.value.add(song.sourceId)
-    else favIds.value.delete(song.sourceId)
-  })
+  favStore.toggleFav(song)
 }
 
 function handleDownload(song) {
@@ -153,8 +141,8 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
             <span v-if="isTrialSong" class="tag-trial">试听</span>
             <span class="mini-artist"> - {{ currentSong.artist }}</span>
           </div>
-          <button class="func-btn" :class="{ fav: favIds.has(currentSong.id) }" @click="toggleFav(currentSong)" title="收藏">
-            <svg viewBox="0 0 24 24" width="22" height="22" :fill="favIds.has(currentSong.id) ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <button class="func-btn" :class="{ fav: favStore.isFav(currentSong.id) }" @click="toggleFav(currentSong)" title="收藏">
+            <svg viewBox="0 0 24 24" width="22" height="22" :fill="favStore.isFav(currentSong.id) ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           </button>
         </div>
 
@@ -226,7 +214,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
               <span class="pi-name" :class="{ hl: idx === currentIdx }">{{ song.name }}</span>
               <span class="pi-artist">{{ song.artist }}</span>
             </div>
-            <button class="pi-fav" :class="{ faved: favIds.has(song.sourceId) }" @click.stop="toggleFav(song)" :title="favIds.has(song.sourceId) ? '取消收藏' : '收藏'">⭐</button>
+            <button class="pi-fav" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'">⭐</button>
             <button class="pi-dl" @click.stop="handleDownload(song)" :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'">{{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}</button>
             <button class="pi-remove" @click.stop="store.removeFromQueue(idx)" title="移除">✕</button>
           </div>

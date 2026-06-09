@@ -1,14 +1,16 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getLyric, toggleFavorite, getFavoriteIds, downloadSong as apiDownload } from '@/api/song'
+import { getLyric, downloadSong as apiDownload } from '@/api/song'
 import { API_HOST } from '@/api/request'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 import { useAudioBackground } from '@/composables/useAudioBackground'
 import MQueuePopup from '@/components/mobile/MQueuePopup.vue'
 
 const router = useRouter()
 const store = usePlayerStore()
+const favStore = useFavoriteStore()
 const audio = store.audio
 
 // 歌词
@@ -18,20 +20,15 @@ const currentLyricIdx = ref(-1)
 const lastSongId = ref('')
 
 // 收藏
-const favIds = ref(new Set())
 const isFaved = ref(false)
-getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
+favStore.fetchFavIds()
 
 function toggleFav() {
   const id = store.currentSong.id
   if (!id) return
-  const was = favIds.value.has(id)
-  favIds.value[was ? 'delete' : 'add'](id)
+  const was = favStore.isFav(id)
   isFaved.value = !was
-  toggleFavorite(id, store.currentSong.title, store.currentSong.artist, store.currentSong.coverUrl || '').catch(() => {
-    favIds.value[was ? 'add' : 'delete'](id)
-    isFaved.value = was
-  })
+  favStore.toggleFav({ sourceId: id, name: store.currentSong.title, artist: store.currentSong.artist, coverUrl: store.currentSong.coverUrl })
 }
 
 // 下载
@@ -73,7 +70,7 @@ function onSongChange(e) {
   const id = d.sourceId || d.id
   if (!id || id === lastSongId.value) return
   lastSongId.value = id
-  isFaved.value = favIds.value.has(id)
+  isFaved.value = favStore.isFav(id)
   lyrics.value = []
   currentLyricIdx.value = -1
   fetchLyric(id)
@@ -113,7 +110,7 @@ onMounted(() => {
   const id = store.currentSong.id
   if (id && id !== lastSongId.value) {
     lastSongId.value = id
-    isFaved.value = favIds.value.has(id)
+    isFaved.value = favStore.isFav(id)
     fetchLyric(id)
   }
   audioBg.startWorkerTimer(tick, 250)
