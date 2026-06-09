@@ -33,7 +33,7 @@ public class DownloadService {
         String objectName = "songs/" + sourceId + ".mp3";
         if (storageService.exists(objectName)) {
             log.info("歌曲 {} 已缓存，直接入库", name);
-            String url = storageService.getPresignedUrl(objectName);
+            String url = storageService.getDirectUrl(objectName);  // 使用不过期的直接URL
             songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, url);
             return url;
         }

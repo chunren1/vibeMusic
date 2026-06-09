@@ -21,6 +21,7 @@ public class SongService {
     private final SongMapper songMapper;
     private final NeteaseApiService neteaseApiService;
     private final SongCacheService cacheService;
+    private final StorageService storageService;
 
     private static final double NET_WEIGHT = 1.0;
     private static final double QQ_WEIGHT = 0.9;
@@ -231,7 +232,8 @@ public class SongService {
     private SongDTO parseAggregatedToDTO(Map<String, Object> raw) { return null; }
 
     /**
-     * 获取播放信息（含试听标记和平台），区分纯 URL 返回值
+     * 获取播放信息（含试听标记和平台）
+     * 优先级：API → RustFS缓存 → DB历史URL
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPlayInfo(String sourceId) {
@@ -239,6 +241,17 @@ public class SongService {
         info.put("isTrial", false);
         info.put("platform", sourceId.matches("\\d+") ? "netease" : "qq");
 
+        // 1. 优先检查 RustFS 缓存（已下载的歌曲直接用，无需调API）
+        String rustfsObjectName = "songs/" + sourceId + ".mp3";
+        if (storageService.exists(rustfsObjectName)) {
+            String directUrl = storageService.getDirectUrl(rustfsObjectName);
+            info.put("url", directUrl);
+            info.put("fromCache", true);
+            log.info("歌曲 {} 命中RustFS缓存，直接返回", sourceId);
+            return info;
+        }
+
+        // 2. 尝试从 API 获取
         try {
             if (sourceId.matches("\\d+")) {
                 String[] levels = {"exhigh", "higher", "standard"};
@@ -271,16 +284,32 @@ public class SongService {
                     if (data != null && !data.isEmpty()) info.put("url", data.get(0).get("url"));
                 }
             }
-        } catch (Exception e) { log.error("Failed to get playback info: {}", e.getMessage()); }
+        } catch (Exception e) {
+            log.warn("API获取播放链接失败, sourceId={}, 尝试RustFS兜底: {}", sourceId, e.getMessage());
+        }
+
+        // 3. API 失败 → 从 DB 历史URL兜底
         if (info.get("url") == null) {
             Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
-            if (song != null) info.put("url", song.getUrl());
+            if (song != null && song.getUrl() != null) {
+                info.put("url", song.getUrl());
+                info.put("fromCache", true);
+            }
         }
         return info;
     }
 
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId) {
+        // 1. 优先检查 RustFS 缓存
+        String rustfsObjectName = "songs/" + sourceId + ".mp3";
+        if (storageService.exists(rustfsObjectName)) {
+            String directUrl = storageService.getDirectUrl(rustfsObjectName);
+            log.info("getPlayUrl: {} 命中RustFS缓存", sourceId);
+            return directUrl;
+        }
+
+        // 2. 尝试从 API 获取
         try {
             if (sourceId.matches("\\d+")) {
                 String[] levels = {"exhigh", "higher", "standard"};
@@ -312,7 +341,11 @@ public class SongService {
                     if (data != null && !data.isEmpty()) return (String) data.get(0).get("url");
                 }
             }
-        } catch (Exception e) { log.error("Failed to get playback URL: {}", e.getMessage()); }
+        } catch (Exception e) {
+            log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage());
+        }
+
+        // 3. API 失败 → 从 DB 兜底
         Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
         return song != null ? song.getUrl() : null;
     }
@@ -353,4 +386,8 @@ public class SongService {
     }
 
     public Song getById(Long id) { return songMapper.selectById(id); }
+
+    public Song getBySourceId(String sourceId) {
+        return songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
+    }
 }

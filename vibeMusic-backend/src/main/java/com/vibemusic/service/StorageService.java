@@ -91,6 +91,13 @@ public class StorageService {
     }
 
     /**
+     * 获取直接访问URL（不过期，依赖RustFS公开访问策略）
+     */
+    public String getDirectUrl(String objectName) {
+        return config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
+    }
+
+    /**
      * 获取临时访问URL（有效期7天）
      */
     public String getPresignedUrl(String objectName) {

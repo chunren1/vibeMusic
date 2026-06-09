@@ -2,10 +2,7 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.dto.SongDTO;
-import com.vibemusic.service.NeteaseApiService;
-import com.vibemusic.service.PlayHistoryService;
-import com.vibemusic.service.SongService;
-import com.vibemusic.service.UserService;
+import com.vibemusic.service.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +27,7 @@ public class SongController {
     private final SongService songService;
     private final PlayHistoryService playHistoryService;
     private final NeteaseApiService neteaseApiService;
+    private final StorageService storageService;
 
     /** Banner 轮播（网易云推荐歌单） */
     @GetMapping("/banner")
@@ -170,13 +168,41 @@ public class SongController {
 
     /**
      * 音频流代理 — 解决 Web Audio API CORS 限制
-     * 后端从网易云/QQ 获取音频然后流式返回给前端，同源访问，无跨域问题
+     * 优先级：RustFS直读 → 远程URL代理
      */
     @GetMapping("/stream")
-    @Operation(summary = "代理音频流（支持Range请求）")
+    @Operation(summary = "代理音频流（支持Range请求，RustFS兜底）")
     public void stream(@RequestParam String sourceId,
                        HttpServletRequest request,
                        HttpServletResponse response) {
+        // 1. 优先从 RustFS 直读（API挂了也能播放）
+        String rustfsObjectName = "songs/" + sourceId + ".mp3";
+        if (storageService.exists(rustfsObjectName)) {
+            try (InputStream in = storageService.getObject(rustfsObjectName);
+                 OutputStream out = response.getOutputStream()) {
+                response.setContentType("audio/mpeg");
+                response.setHeader("Accept-Ranges", "bytes");
+                response.setHeader("Cache-Control", "public, max-age=86400");
+
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                }
+                out.flush();
+                log.debug("stream from RustFS: {}", sourceId);
+                return;
+            } catch (Exception e) {
+                log.warn("RustFS直读失败, 尝试远程代理: {}", e.getMessage());
+                if (!response.isCommitted()) {
+                    // 继续 try remote proxy
+                } else {
+                    return;
+                }
+            }
+        }
+
+        // 2. 远程 URL 代理（原有逻辑）
         HttpURLConnection conn = null;
         InputStream in = null;
         OutputStream out = null;
