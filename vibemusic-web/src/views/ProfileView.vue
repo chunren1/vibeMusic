@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginModal from '@/components/LoginModal.vue'
@@ -40,6 +40,15 @@ const AVATAR_PALETTE = ['#e8b4b4', '#b4c8e8', '#b4e8c2', '#e8d9b4', '#d4b4e8', '
 onMounted(() => {
   if (auth.isLoggedIn) refreshForm()
 })
+
+// 图片预加载：加速头像和背景图显示
+function preloadImage(url) {
+  if (!url) return
+  const img = new Image()
+  img.src = url
+}
+watch(() => auth.avatarSrc, (url) => preloadImage(url), { immediate: true })
+watch(() => auth.bgImageSrc, (url) => preloadImage(url), { immediate: true })
 
 function refreshForm() {
   nickname.value = auth.user?.nickname || ''
