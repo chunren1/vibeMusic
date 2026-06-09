@@ -46,6 +46,7 @@
 | 🤖 Android APK | Capacitor 打包，HTTPS 公网接口，安装即用 |
 | 🌐 内网穿透 | natapp + cpolar 双方案，公网可访问 |
 | 🛡️ Cookie 监控 | Python 脚本，Windows 任务计划，Server酱微信告警 |
+| 💾 RustFS 离线缓存 | 歌曲下载到对象存储，API 挂了也能播放已缓存歌曲，stream 直读兜底 |
 | 🎨 响应式 UI | 桌面侧栏 + 移动底部TabBar，暗色/亮色双主题 |
 
 ## 目录结构
@@ -64,7 +65,7 @@ vibeMusic/
 ├── vibeMusic-backend/      # Spring Boot 后端
 │   └── src/main/java/com/vibemusic/
 │       ├── controller/     # Auth, Song, Favorite, Playlist, Download
-│       ├── service/        # UserService, SongService, NeteaseApiService
+│       ├── service/        # UserService, SongService, NeteaseApiService, StorageService, DownloadService
 │       ├── entity/         # User, Song, UserFavorite, Playlist, PlayHistory
 │       ├── security/       # JwtAuthFilter, CustomUserDetails
 │       ├── dto/            # SongDTO
@@ -154,7 +155,9 @@ cd android && gradlew clean assembleDebug
 | `/api/favorites/toggle` | POST | 切换收藏 |
 | `/api/favorites/list` | GET | 收藏列表 |
 | `/api/playlists/*` | CRUD | 歌单管理 |
-| `/api/download/file/{id}` | GET | 下载歌曲文件 |
+| `/api/download/{sourceId}` | POST | 下载歌曲到RustFS |
+| `/api/download/file/{id}` | GET | 下载歌曲文件（文件名：歌手 - 歌曲名.mp3） |
+| `/api/download/check/{id}` | GET | 检查歌曲是否已缓存 |
 
 ### API 网关 (Express, port 3000)
 
@@ -205,6 +208,22 @@ cd android && gradlew clean assembleDebug
 |------|------|-----|------|
 | 搜索结果 | Redis | 1h | Key: `song:search:v2:{keyword}` |
 | 播放历史 | MySQL | 最多300条 | 自动删除旧记录 |
+| 歌曲文件 | RustFS | 永久 | 已下载歌曲缓存到对象存储 |
+
+## RustFS 离线兜底
+
+当 API 聚合网关（musicapi）不可用时，已下载到 RustFS 的歌曲仍可正常播放：
+
+```
+播放请求 → ① RustFS缓存? → 直接返回（不调API）
+         → ② API可用? → 获取在线URL
+         → ③ DB历史URL → 兜底
+         → ④ stream端点 → RustFS直读兜底
+```
+
+- DB 中始终存**不过期的直接 URL**（`endpoint/bucket/objectName`），不存预签名 URL
+- `stream` 端点优先从 RustFS 直接读取，远程代理为降级方案
+- 下载文件名格式：`歌手 - 歌曲名.mp3`
 
 ## 关键配置
 
@@ -219,6 +238,13 @@ cd android && gradlew clean assembleDebug
 ### 前端公网地址
 
 修改 `vibemusic-web/src/api/request.js` 中的 `API_HOST` 常量。
+
+### RustFS 对象存储
+
+在 `vibeMusic-backend/src/main/resources/application.yml` 中配置 `storage.rustfs.*`：
+- `endpoint`: RustFS 服务地址（默认 `http://127.0.0.1:9000`）
+- `bucket-name`: 存储桶名（默认 `vibemusic`）
+- `access-key` / `secret-key`: 访问凭证
 
 ## 注意事项
 

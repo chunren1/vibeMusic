@@ -1,7 +1,9 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.entity.Song;
 import com.vibemusic.service.DownloadService;
+import com.vibemusic.service.SongService;
 import com.vibemusic.service.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -22,6 +24,7 @@ public class DownloadController {
 
     private final DownloadService downloadService;
     private final StorageService storageService;
+    private final SongService songService;
 
     /**
      * 下载歌曲到 RustFS（已缓存直接返回成功 + 文件下载链接）
@@ -64,11 +67,18 @@ public class DownloadController {
     @Operation(summary = "从 RustFS 下载文件到浏览器")
     public void fileDownload(@PathVariable String sourceId, HttpServletResponse response) {
         String objectName = "songs/" + sourceId + ".mp3";
+        // 查询歌曲名用于下载文件名
+        Song song = songService.getBySourceId(sourceId);
+        String fileName = (song != null && song.getName() != null && !song.getName().isEmpty())
+                ? sanitizeFileName(song.getArtist() + " - " + song.getName())
+                : sourceId;
+
         try (InputStream in = storageService.getObject(objectName);
              OutputStream out = response.getOutputStream()) {
 
             response.setContentType("audio/mpeg");
-            response.setHeader("Content-Disposition", "attachment; filename=\"" + sourceId + ".mp3\"");
+            response.setHeader("Content-Disposition",
+                    "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName + ".mp3", "UTF-8"));
             response.setHeader("Cache-Control", "public, max-age=86400");
 
             byte[] buf = new byte[8192];
@@ -82,6 +92,12 @@ public class DownloadController {
                 response.setStatus(404);
             }
         }
+    }
+
+    /** 清理文件名中的非法字符 */
+    private String sanitizeFileName(String name) {
+        if (name == null) return "unknown";
+        return name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
     }
 
     /**
