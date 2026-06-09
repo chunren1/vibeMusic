@@ -58,7 +58,7 @@ vibeMusic/
 │   │   ├── views/          # 桌面视图 + mobile/ 移动视图
 │   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView + mobile/
 │   │   ├── composables/    # useIsMobile (设备检测)
-│   │   ├── stores/         # Pinia: auth (JWT + 弹窗状态)
+│   │   ├── stores/         # Pinia: auth (JWT + 弹窗状态), player (播放状态管理中心)
 │   │   └── api/            # Axios 封装 + 接口定义 (song.js, request.js)
 │   ├── android/            # Capacitor Android 项目
 │   └── capacitor.config.json
@@ -178,6 +178,14 @@ cd android && gradlew clean assembleDebug
 - 同名歌曲加成: +0.3
 - 去重键: 歌曲名|歌手名
 ```
+
+## Pinia Player Store（播放状态管理中心）
+
+- **单一数据源**: `stores/player.js` 集中管理 `Audio` 元素、播放队列、播放模式、切歌、进度、音量
+- **桌面/移动共享**: 所有组件共享同一套播放逻辑，消除状态分散
+- **localStorage 持久化**: 队列、当前歌曲、播放进度、音量、播放模式自动保存
+- **统一事件派发**: `song-change` 事件由 store 统一派发，各组件监听即可
+- **全局兼容**: `window.vibeAudio` / `window.vibeQueue` / `window.vibePlay` 等向后兼容
 
 ## 移动端适配
 
