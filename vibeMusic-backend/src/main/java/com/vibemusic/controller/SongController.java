@@ -208,7 +208,7 @@ public class SongController {
             }
         }
 
-        // 2. 远程 URL 代理（同时缓存到 RustFS）
+        // 2. 远程 URL 代理
         HttpURLConnection conn = null;
         InputStream in = null;
         OutputStream out = null;
@@ -260,32 +260,12 @@ public class SongController {
             in = conn.getInputStream();
             out = response.getOutputStream();
 
-            // 旁路缓存：Range 请求（seek）不缓存，只缓存完整请求
-            boolean shouldCache = (rangeHeader == null || rangeHeader.isEmpty()) && contentLength > 0;
-            java.io.ByteArrayOutputStream cacheBuffer = shouldCache ? new java.io.ByteArrayOutputStream() : null;
-
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) != -1) {
                 out.write(buf, 0, n);
-                if (cacheBuffer != null) {
-                    cacheBuffer.write(buf, 0, n);
-                }
             }
             out.flush();
-
-            // 异步写入 RustFS 缓存（不阻塞响应）
-            if (cacheBuffer != null && cacheBuffer.size() > 0) {
-                final byte[] cacheData = cacheBuffer.toByteArray();
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        storageService.upload(rustfsObjectName, cacheData, "audio/mpeg");
-                        log.info("stream 缓存到 RustFS: {} ({} bytes)", sourceId, cacheData.length);
-                    } catch (Exception e) {
-                        log.warn("stream 缓存写入 RustFS 失败: {} - {}", sourceId, e.getMessage());
-                    }
-                });
-            }
 
         } catch (Exception e) {
             log.error("音频流代理失败 sourceId={}: {}", sourceId, e.getMessage());
