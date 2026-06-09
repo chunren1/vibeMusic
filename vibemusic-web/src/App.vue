@@ -1,8 +1,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { RouterView } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import PlayerBar from '@/components/PlayerBar.vue'
+import LoginModal from '@/components/LoginModal.vue'
 
+const authStore = useAuthStore()
 const isMobile = ref(checkDevice())
 
 function checkDevice() {
@@ -71,6 +74,12 @@ onMounted(() => {
     </main>
     <PlayerBar />
   </div>
+
+  <!-- 全局登录弹窗（Teleport 到 body） -->
+  <LoginModal
+    v-model:visible="authStore.showLoginModal"
+    @success="authStore.closeLogin()"
+  />
 </template>
 
 <style>

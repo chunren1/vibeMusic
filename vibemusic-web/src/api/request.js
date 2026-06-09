@@ -29,7 +29,7 @@ request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code !== 200) {
-      if (res.code === 401 && !response.config.url.includes('/auth/')) {
+      if ((res.code === 401 || res.code === 403) && !response.config.url.includes('/auth/')) {
         handleUnauthorized()
       }
       return Promise.reject(new Error(res.message || '请求失败'))
@@ -37,7 +37,8 @@ request.interceptors.response.use(
     return res
   },
   (error) => {
-    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/')) {
+    const status = error.response?.status
+    if ((status === 401 || status === 403) && !error.config?.url?.includes('/auth/')) {
       handleUnauthorized()
     }
     return Promise.reject(error)

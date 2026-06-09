@@ -34,7 +34,7 @@ function play(fav) {
   apiPlaySong(fav.sourceId, fav.songName, fav.artist, fav.coverUrl || '').then(res => {
     const url = res.data?.url
     if (!url) return
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
+    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, fav.sourceId, fav.songName, fav.artist, fav.coverUrl || '')
     else { audio.src = url; audio.play().catch(() => {}) }
     window.dispatchEvent(new CustomEvent('song-change', {
       detail: { title: fav.songName, artist: fav.artist, sourceId: fav.sourceId, coverUrl: fav.coverUrl || '', duration: 0 }

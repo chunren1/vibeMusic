@@ -48,7 +48,7 @@ function play(song) {
     const url = res.data?.url
     if (!url) return
     if (window.vibeAudioSetSrc) {
-      window.vibeAudioSetSrc(url)
+      window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
     } else {
       audio.src = url
       audio.play().catch(() => {})

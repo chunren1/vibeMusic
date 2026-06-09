@@ -233,10 +233,15 @@ public class SongService {
 
     /**
      * 获取播放信息（含试听标记和平台）
-     * 优先级：API → RustFS缓存 → DB历史URL
+     * 优先级：RustFS缓存 → 原平台API → QQ音乐降级(网易云试听时) → DB历史URL
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPlayInfo(String sourceId) {
+        return getPlayInfo(sourceId, null, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getPlayInfo(String sourceId, String songName, String artist) {
         Map<String, Object> info = new HashMap<>();
         info.put("isTrial", false);
         info.put("platform", sourceId.matches("\\d+") ? "netease" : "qq");
@@ -265,12 +270,22 @@ public class SongService {
                     Object trial = data.get(0).get("freeTrialInfo");
                     Object time = data.get(0).get("time");
                     if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
+                        log.info("歌曲 {} 音质 {} 为试听, 尝试降级", sourceId, level);
                         continue;
                     }
                     info.put("url", url);
                     return info;
                 }
-                // 所有音质都是试听
+                // 所有音质都是试听 → 尝试 QQ 音乐降级
+                log.info("歌曲 {} 所有网易云音质均为试听，尝试QQ降级", sourceId);
+                String qqUrl = tryQQFallback(songName, artist, sourceId);
+                if (qqUrl != null) {
+                    info.put("url", qqUrl);
+                    info.put("platform", "qq");
+                    info.put("fallbackFrom", "netease-trial");
+                    return info;
+                }
+                // QQ 也没找到，返回试听版
                 info.put("isTrial", true);
                 Map<String, Object> f = neteaseApiService.getSongUrl(sourceId, "standard");
                 if (f != null) {
@@ -278,10 +293,26 @@ public class SongService {
                     if (d != null && !d.isEmpty()) info.put("url", d.get(0).get("url"));
                 }
             } else {
+                // QQ 音乐 → 尝试获取 URL
                 Map<String, Object> result = neteaseApiService.getQQSongUrl(sourceId);
                 if (result != null) {
                     List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                    if (data != null && !data.isEmpty()) info.put("url", data.get(0).get("url"));
+                    if (data != null && !data.isEmpty()) {
+                        String qqUrl = (String) data.get(0).get("url");
+                        if (qqUrl != null && !qqUrl.isEmpty()) {
+                            info.put("url", qqUrl);
+                            return info;
+                        }
+                    }
+                }
+                // QQ 音乐获取失败/无URL → 尝试网易云降级
+                log.info("QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) {
+                    info.put("url", neteaseUrl);
+                    info.put("platform", "netease");
+                    info.put("fallbackFrom", "qq-no-url");
+                    return info;
                 }
             }
         } catch (Exception e) {
@@ -299,8 +330,105 @@ public class SongService {
         return info;
     }
 
+    /**
+     * QQ 音乐降级：当网易云返回试听时，搜索同名歌曲从 QQ 获取完整版
+     */
+    @SuppressWarnings("unchecked")
+    private String tryQQFallback(String songName, String artist, String neteaseId) {
+        if (songName == null || songName.isBlank()) {
+            // 尝试从 DB 查歌名
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, neteaseId));
+            if (song == null || song.getName() == null) return null;
+            songName = song.getName();
+            artist = song.getArtist();
+        }
+        try {
+            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
+            Map<String, Object> result = neteaseApiService.searchQQ(keyword, 5);
+            if (result == null) return null;
+            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+            if (data == null || data.isEmpty()) return null;
+            // 取第一个结果获取 QQ sourceId
+            String qqSourceId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
+            if (qqSourceId == null) return null;
+            // 检查时长，避免又拿到试听版
+            Object durObj = data.get(0).get("duration");
+            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
+                log.info("QQ降级: {} 也只有试听版，跳过", keyword);
+                return null;
+            }
+            Map<String, Object> urlResult = neteaseApiService.getQQSongUrl(qqSourceId);
+            if (urlResult != null) {
+                List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
+                if (urlData != null && !urlData.isEmpty()) {
+                    String url = (String) urlData.get(0).get("url");
+                    if (url != null && !url.isEmpty()) {
+                        log.info("QQ降级成功: {} → QQ sourceId={}", keyword, qqSourceId);
+                        return url;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("QQ降级搜索失败: {} - {}", songName, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 网易云降级：当 QQ 音乐无播放链接时，搜索同名歌曲从网易云获取
+     */
+    @SuppressWarnings("unchecked")
+    private String tryNeteaseFallback(String songName, String artist, String qqSourceId) {
+        if (songName == null || songName.isBlank()) {
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, qqSourceId));
+            if (song == null || song.getName() == null) return null;
+            songName = song.getName();
+            artist = song.getArtist();
+        }
+        try {
+            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
+            Map<String, Object> result = neteaseApiService.searchNetease(keyword, 5);
+            if (result == null) return null;
+            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+            if (data == null || data.isEmpty()) return null;
+            // 取第一个结果获取网易云 sourceId
+            String neteaseId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
+            if (neteaseId == null) return null;
+            // 检查时长，避免拿到试听版
+            Object durObj = data.get(0).get("duration");
+            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
+                log.info("网易云降级: {} 也只有试听版，跳过", keyword);
+                return null;
+            }
+            // 尝试各音质
+            String[] levels = {"exhigh", "higher", "standard"};
+            for (String level : levels) {
+                Map<String, Object> urlResult = neteaseApiService.getSongUrl(neteaseId, level);
+                if (urlResult == null) continue;
+                List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
+                if (urlData == null || urlData.isEmpty()) continue;
+                String url = (String) urlData.get(0).get("url");
+                if (url == null || url.isEmpty()) continue;
+                Object trial = urlData.get(0).get("freeTrialInfo");
+                Object time = urlData.get(0).get("time");
+                if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) continue;
+                log.info("网易云降级成功: {} → neteaseId={}, level={}", keyword, neteaseId, level);
+                return url;
+            }
+            log.info("网易云降级: {} 所有音质均为试听，跳过", keyword);
+        } catch (Exception e) {
+            log.warn("网易云降级搜索失败: {} - {}", songName, e.getMessage());
+        }
+        return null;
+    }
+
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId) {
+        return getPlayUrl(sourceId, null, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public String getPlayUrl(String sourceId, String songName, String artist) {
         // 1. 优先检查 RustFS 缓存
         String rustfsObjectName = "songs/" + sourceId + ".mp3";
         if (storageService.exists(rustfsObjectName)) {
@@ -328,7 +456,12 @@ public class SongService {
                     }
                     return url;
                 }
-                log.warn("歌曲 {} 所有音质都是试听", sourceId);
+                // 所有音质都是试听 → 尝试 QQ 音乐降级
+                log.info("getPlayUrl: 歌曲 {} 所有网易云音质均为试听，尝试QQ降级", sourceId);
+                String qqUrl = tryQQFallback(songName, artist, sourceId);
+                if (qqUrl != null) return qqUrl;
+
+                log.warn("歌曲 {} 所有音质都是试听（含QQ降级）", sourceId);
                 Map<String, Object> f = neteaseApiService.getSongUrl(sourceId, "standard");
                 if (f != null) {
                     List<Map<String, Object>> d = (List<Map<String, Object>>) f.get("data");
@@ -338,8 +471,15 @@ public class SongService {
                 Map<String, Object> result = neteaseApiService.getQQSongUrl(sourceId);
                 if (result != null) {
                     List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                    if (data != null && !data.isEmpty()) return (String) data.get(0).get("url");
+                    if (data != null && !data.isEmpty()) {
+                        String qqUrl = (String) data.get(0).get("url");
+                        if (qqUrl != null && !qqUrl.isEmpty()) return qqUrl;
+                    }
                 }
+                // QQ 无URL → 尝试网易云降级
+                log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) return neteaseUrl;
             }
         } catch (Exception e) {
             log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage());
