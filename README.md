@@ -36,7 +36,7 @@
 |------|------|
 | 👤 用户中心 | JWT 登录/注册，弹窗式无跳转；个人主页支持编辑资料（昵称/性别/生日/头像/背景图）；详情页展示完整信息 |
 | 🔍 多平台搜索 | 聚合网易云 + QQ音乐，多维加权评分(相关性+热度+排名)，信息指纹去重，LRU缓存加速，400ms 防抖 |
-| 🖥️ 全局全屏 | 所有页面右上角全屏切换按钮，fade 半透明毛玻璃，点击进入/退出浏览器全屏 |
+| 🎯 个性化推荐 | 基于播放历史聚合歌手权重，优先匹配 RustFS 已缓存歌曲；Redis 缓存加速；未登录降级随机推荐 |
 | ▶️ VIP音质播放 | 自有 VIP Cookie，exhigh / hires 品质 |
 | ❤️ 收藏管理 | 乐观更新，按用户隔离，401 自动弹窗登录；Pinia Store 全局实时同步，跨页面状态一致 |
 | 📋 歌单管理 | 创建/删除/添加歌曲，完整 CRUD，所有权校验 |
@@ -65,13 +65,13 @@ vibeMusic/
 │   │   └── ...
 │   │   ├── components/     # PlayerBar, PlaylistPopup, LoginModal, LyricsView, GlobalFullscreenBtn + mobile/
 │   │   ├── composables/    # useIsMobile (设备检测)
-│   │   ├── stores/         # Pinia: auth (JWT), player (播放状态), favorite (收藏全局同步)
+│   │   ├── stores/         # Pinia: auth (JWT), player (播放), favorite (收藏), recommend (推荐)
 │   │   └── api/            # Axios 封装 + 接口 (auth.js, song.js, request.js)
 │   ├── android/            # Capacitor Android 项目
 │   └── capacitor.config.json
 ├── vibeMusic-backend/      # Spring Boot 后端
 │   └── src/main/java/com/vibemusic/
-│       ├── controller/     # Auth, Song, Favorite, Playlist, Download
+│       ├── controller/     # Auth, Song, Favorite, Playlist, Download, Recommend
 │       ├── service/        # UserService, SongService, NeteaseApiService, StorageService, DownloadService
 │       ├── entity/         # User, Song, UserFavorite, Playlist, PlayHistory
 │       ├── security/       # JwtAuthFilter, CustomUserDetails
@@ -164,6 +164,7 @@ cd android && gradlew clean assembleDebug
 | `/api/songs/history` | GET | 最近播放列表 |
 | `/api/songs/banner` | GET | 首页轮播推荐 |
 | `/api/songs/random` | GET | 随机推荐 |
+| `/api/recommend/personalized` | GET | 个性化推荐（播放历史聚合+Redis缓存） |
 | `/api/favorites/toggle` | POST | 切换收藏 |
 | `/api/favorites/list` | GET | 收藏列表 |
 | `/api/playlists/*` | CRUD | 歌单管理 |
@@ -199,6 +200,18 @@ cd android && gradlew clean assembleDebug
 - Promise.all 并行请求网易云 + QQ
 - LRU 缓存 (max 200, TTL 5min)
 ```
+
+## 个性化推荐引擎
+
+```
+播放行为 → play_history 表 → 歌手兴趣权重聚合 → 优先匹配 RustFS 已缓存歌曲
+                                                      ↓
+未登录/无历史 → /api/songs/random 降级 ← Redis 缓存 (user:6h / guest:1h)
+```
+
+- 用户播放歌曲后异步清除推荐缓存，确保推荐随行为更新
+- RustFS 离线校验：每首歌实时检查 `StorageService.exists()`，前端展示 ▲ 离线标识
+- 降级兜底：推荐接口异常 → `getRandomSongs()` 保底，Redis 异常 → 跳过缓存
 
 ## Pinia Favorite Store（收藏状态全局同步）
 
