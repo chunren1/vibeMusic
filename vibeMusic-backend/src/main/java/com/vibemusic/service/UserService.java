@@ -61,6 +61,24 @@ public class UserService implements UserDetailsService {
         userMapper.updateById(user);
     }
 
+    public User updateProfile(Long userId, String nickname, String gender, String birthday) {
+        User user = userMapper.selectById(userId);
+        if (user == null) throw new RuntimeException("用户不存在");
+        if (nickname != null) user.setNickname(nickname.trim());
+        if (gender != null) user.setGender(gender);
+        if (birthday != null) user.setBirthday(birthday);
+        userMapper.updateById(user);
+        return userMapper.selectById(userId);
+    }
+
+    public User updateAvatar(Long userId, String avatarUrl) {
+        User user = userMapper.selectById(userId);
+        if (user == null) throw new RuntimeException("用户不存在");
+        user.setAvatar(avatarUrl);
+        userMapper.updateById(user);
+        return userMapper.selectById(userId);
+    }
+
     public static Long getCurrentUserId() {
         var auth = org.springframework.security.core.context.SecurityContextHolder
                 .getContext().getAuthentication();

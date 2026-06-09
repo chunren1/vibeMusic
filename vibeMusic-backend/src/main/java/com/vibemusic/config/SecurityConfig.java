@@ -43,7 +43,8 @@ public class SecurityConfig {
                 // 公开接口
                 .requestMatchers(
                     "/api/auth/**",
-                    "/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/favicon.ico"
+                    "/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/favicon.ico",
+                    "/uploads/**"
                 ).permitAll()
 
                 // 歌曲搜索/浏览 GET 公开（注意：/api/song/ 和 /api/songs/ 两个路径）

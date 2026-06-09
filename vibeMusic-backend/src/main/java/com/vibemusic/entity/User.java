@@ -21,6 +21,10 @@ public class User {
 
     private String avatar;
 
+    private String gender;
+
+    private String birthday;
+
     @Builder.Default
     private Boolean enabled = true;
 }

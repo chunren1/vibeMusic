@@ -1,14 +1,23 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { getToken, setToken } from '@/api/request'
+import { getToken, setToken, API_HOST } from '@/api/request'
+import { getMe, updateProfile as apiUpdateProfile, uploadAvatar as apiUploadAvatar } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(getToken())
   const user = ref(tryParse(localStorage.getItem('user')))
   const showLoginModal = ref(false)
-  const redirectPath = ref(null)  // Bug2: 登录后跳转目标页面
+  const redirectPath = ref(null)
 
   const isLoggedIn = computed(() => !!token.value)
+
+  // 头像完整 URL（开发环境用相对路径走 Vite proxy，生产环境用 API_HOST 前缀）
+  const avatarSrc = computed(() => {
+    const avatar = user.value?.avatar
+    if (!avatar) return ''
+    if (avatar.startsWith('http')) return avatar
+    return API_HOST + avatar
+  })
 
   function login(newToken, newUser) {
     if (!newToken) {
@@ -50,7 +59,57 @@ export const useAuthStore = defineStore('auth', () => {
     return p
   }
 
-  return { token, user, isLoggedIn, login, logout, showLoginModal, openLogin, closeLogin, redirectPath, openLoginWithRedirect, consumeRedirect }
+  /** 从后端刷新用户信息 */
+  async function refreshUser() {
+    if (!token.value) return null
+    try {
+      const res = await getMe()
+      if (res.code === 200 && res.data) {
+        user.value = {
+          userId: res.data.userId,
+          username: res.data.username,
+          nickname: res.data.nickname,
+          avatar: res.data.avatar,
+          gender: res.data.gender,
+          birthday: res.data.birthday,
+        }
+        localStorage.setItem('user', JSON.stringify(user.value))
+        return user.value
+      }
+    } catch (e) {
+      console.warn('[Auth] refreshUser failed:', e.message)
+    }
+    return null
+  }
+
+  /** 更新用户资料 */
+  async function updateUserProfile(data) {
+    const res = await apiUpdateProfile(data)
+    if (res.code === 200 && res.data) {
+      // 合并更新本地 user
+      user.value = { ...user.value, ...res.data }
+      localStorage.setItem('user', JSON.stringify(user.value))
+    }
+    return res
+  }
+
+  /** 上传头像 */
+  async function uploadUserAvatar(file) {
+    const res = await apiUploadAvatar(file)
+    if (res.code === 200 && res.data) {
+      user.value = { ...user.value, ...res.data }
+      localStorage.setItem('user', JSON.stringify(user.value))
+    }
+    return res
+  }
+
+  return {
+    token, user, isLoggedIn, avatarSrc,
+    login, logout,
+    showLoginModal, openLogin, closeLogin,
+    redirectPath, openLoginWithRedirect, consumeRedirect,
+    refreshUser, updateUserProfile, uploadUserAvatar,
+  }
 })
 
 function tryParse(str) {

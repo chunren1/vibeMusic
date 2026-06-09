@@ -32,6 +32,9 @@ async function handleLogin() {
         userId: res.data.userId,
         username: res.data.username,
         nickname: res.data.nickname,
+        avatar: res.data.avatar,
+        gender: res.data.gender,
+        birthday: res.data.birthday,
       })
       const redirect = route.query.redirect || '/'
       router.push(redirect)
@@ -67,6 +70,9 @@ async function handleRegister() {
         userId: res.data.userId,
         username: res.data.username,
         nickname: res.data.nickname,
+        avatar: res.data.avatar,
+        gender: res.data.gender,
+        birthday: res.data.birthday,
       })
       router.push('/')
     } else {
