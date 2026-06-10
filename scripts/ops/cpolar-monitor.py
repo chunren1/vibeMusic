@@ -81,7 +81,6 @@ def check_url(url, timeout=10):
 
 
 # ==================== cpolar 进程管理 ====================
-cpolar_process = None
 current_url = None
 
 def get_cpolar_url():
@@ -97,52 +96,50 @@ def get_cpolar_url():
                     return public_url
                 elif public_url.startswith("http://"):
                     return public_url
-    except Exception:
-        pass
+        else:
+            logging.debug(f"cpolar API 返回 {resp.status_code}")
+    except requests.ConnectionError:
+        pass  # 还没启动完成
+    except Exception as e:
+        logging.debug(f"cpolar API 查询异常: {e}")
     return None
 
 def start_cpolar():
-    """启动 cpolar 进程"""
-    global cpolar_process
+    """启动 cpolar（Windows: 独立窗口；其他: 后台进程）"""
     try:
         logging.info(f"启动 cpolar http {CPOLAR_PORT} ...")
-        cpolar_process = subprocess.Popen(
-            ["cpolar", "http", str(CPOLAR_PORT)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
-        )
+        if sys.platform == 'win32':
+            # Windows: 用 start /min 启动独立窗口，不依赖 Popen 生命周期
+            subprocess.Popen(
+                ["cmd", "/c", "start", "/min", "cpolar", "http", str(CPOLAR_PORT)],
+                shell=True
+            )
+        else:
+            subprocess.Popen(
+                ["cpolar", "http", str(CPOLAR_PORT)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
         return True
     except FileNotFoundError:
-        logging.error("cpolar 命令未找到，请确认已安装并加入 PATH")
-        logging.error("下载: https://www.cpolar.com/")
+        logging.error("cpolar 未安装，下载: https://www.cpolar.com/")
         return False
     except Exception as e:
         logging.error(f"启动 cpolar 失败: {e}")
         return False
 
 def stop_cpolar():
-    """强制终止 cpolar 进程"""
-    global cpolar_process
-    if cpolar_process and cpolar_process.poll() is None:
-        logging.info("正在终止 cpolar 进程...")
-        try:
-            if sys.platform == 'win32':
-                subprocess.run(["taskkill", "/F", "/PID", str(cpolar_process.pid)],
-                             capture_output=True)
-            else:
-                cpolar_process.terminate()
-                try:
-                    cpolar_process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    cpolar_process.kill()
-        except Exception as e:
-            logging.warning(f"终止 cpolar 失败: {e}")
-    cpolar_process = None
+    """终止所有 cpolar 进程"""
+    logging.info("正在终止 cpolar ...")
+    try:
+        if sys.platform == 'win32':
+            subprocess.run(["taskkill", "/F", "/IM", "cpolar.exe"], capture_output=True)
+        else:
+            subprocess.run(["pkill", "-f", "cpolar"], capture_output=True)
+    except Exception as e:
+        logging.warning(f"终止 cpolar 失败: {e}")
 
-
-def read_output():
-    """通过本地 API 获取最新 URL（替代解析 stdout）"""
+def poll_url():
+    """轮询 API 获取 URL，同时更新全局变量"""
     global current_url
     url = get_cpolar_url()
     if url and url != current_url:
@@ -170,64 +167,54 @@ def main():
         logging.critical("无法启动 cpolar，退出")
         sys.exit(1)
 
-    # 等待首次 URL 出现（最多30秒）
-    logging.info("等待 cpolar 建立隧道...")
+    # 等待 cpolar API 就绪 + 获取首次 URL（轮询最多60秒）
+    logging.info("等待 cpolar 隧道建立 (轮询 localhost:4040)...")
     waited = 0
-    while not current_url and waited < 30:
-        read_output()
+    while not current_url and waited < 60:
+        poll_url()
         if not current_url:
-            time.sleep(1)
-            waited += 1
+            time.sleep(2)
+            waited += 2
+            if waited % 10 == 0:
+                logging.info(f"  等待中... ({waited}s)")
 
     if not current_url:
-        logging.critical("30秒内未检测到 cpolar URL")
-        logging.critical("请检查:")
-        logging.critical("  1. cpolar 是否已安装并加入 PATH")
-        logging.critical("  2. 是否已执行 cpolar authtoken <你的token>")
-        logging.critical("  3. 端口 5173 是否有服务在运行")
-        logging.critical("以上 cpolar 输出日志可帮助定位问题")
+        logging.critical("60秒内未获取到 cpolar URL")
+        logging.critical("请确认 cpolar 是否已在运行: 浏览器打开 http://127.0.0.1:4040")
         stop_cpolar()
         sys.exit(1)
 
     # 首次接通通知
     send_wechat(
-        "✅ vibeMusic 内网穿透已启动",
-        f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-        f"**地址**: {current_url}\n"
-        f"**端口**: {CPOLAR_PORT}\n"
-        f"**监控**: 每 {CHECK_INTERVAL_MIN}~{CHECK_INTERVAL_MAX} 秒检测一次"
+        "vibeMusic 内网穿透已启动",
+        f"时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        f"地址: {current_url}\n"
+        f"端口: {CPOLAR_PORT}\n"
+        f"监控: 每 {CHECK_INTERVAL_MIN}~{CHECK_INTERVAL_MAX} 秒检测"
     )
 
     failure_count = 0
-    url_sent = current_url  # 记录上次发送的 URL，避免重复
+    url_sent = current_url
 
     while True:
-        # 随机间隔
         interval = random.randint(CHECK_INTERVAL_MIN, CHECK_INTERVAL_MAX)
         time.sleep(interval)
 
-        # 检查 cpolar 是否还活着
-        if cpolar_process and cpolar_process.poll() is not None:
-            logging.warning("cpolar 进程已退出，重启中...")
-            failure_count = MAX_FAILURES  # 直接触发重启
-
-        # 读取最新输出
-        url_changed = read_output()
+        # 轮询获取最新 URL
+        url_changed = poll_url()
 
         # 健康检查
         url_to_check = current_url + HEALTH_PATH if current_url else None
         if check_url(url_to_check):
             if failure_count > 0:
-                logging.info(f"健康检查恢复正常 (连续失败 {failure_count} 次)")
+                logging.info(f"健康检查恢复正常 (之前失败 {failure_count} 次)")
             failure_count = 0
-
-            # URL 变更通知
             if url_changed and current_url != url_sent:
                 send_wechat(
-                    "🔄 vibeMusic 内网穿透地址已变更",
-                    f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"**新地址**: {current_url}\n"
-                    f"**端口**: {CPOLAR_PORT}"
+                    "vibeMusic 内网穿透地址已变更",
+                    f"时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"新地址: {current_url}\n"
+                    f"端口: {CPOLAR_PORT}"
                 )
                 url_sent = current_url
         else:
@@ -248,27 +235,26 @@ def main():
             # 等待新 URL
             waited = 0
             while not current_url and waited < 60:
-                read_output()
+                poll_url()
                 if not current_url:
-                    time.sleep(1)
-                    waited += 1
+                    time.sleep(2)
+                    waited += 2
 
             if current_url:
                 logging.info(f"cpolar 重启成功，新地址: {current_url}")
                 send_wechat(
-                    "🔴 vibeMusic 内网穿透已重启",
-                    f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"**新地址**: {current_url}\n"
-                    f"**原因**: 连续 {MAX_FAILURES} 次健康检查失败"
+                    "vibeMusic 内网穿透已重启",
+                    f"时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"新地址: {current_url}\n"
+                    f"原因: 连续 {MAX_FAILURES} 次健康检查失败"
                 )
                 url_sent = current_url
             else:
                 logging.critical("重启后60秒仍未获取到 URL")
                 send_wechat(
-                    "🚨 vibeMusic 内网穿透异常",
-                    f"**时间**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"**问题**: 重启 cpolar 后 60 秒未获取到隧道地址\n"
-                    f"**请检查**: cpolar 账号是否有效、网络是否正常"
+                    "vibeMusic 内网穿透异常",
+                    f"时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"问题: 重启 cpolar 60 秒未获取隧道地址"
                 )
             failure_count = 0
 
