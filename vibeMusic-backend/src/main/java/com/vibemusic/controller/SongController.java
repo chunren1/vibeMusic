@@ -181,22 +181,49 @@ public class SongController {
     public void stream(@RequestParam String sourceId,
                        HttpServletRequest request,
                        HttpServletResponse response) {
-        // 1. 优先从 RustFS 直读（API挂了也能播放）
+        // 1. 优先从 RustFS 直读（支持 Range 请求，seek 秒级响应）
         String rustfsObjectName = "songs/" + sourceId + ".mp3";
         if (storageService.exists(rustfsObjectName)) {
-            try (InputStream in = storageService.getObject(rustfsObjectName);
-                 OutputStream out = response.getOutputStream()) {
+            try {
+                long fileSize = storageService.getObjectSize(rustfsObjectName);
+                String rangeHeader = request.getHeader("Range");
                 response.setContentType("audio/mpeg");
                 response.setHeader("Accept-Ranges", "bytes");
                 response.setHeader("Cache-Control", "public, max-age=86400");
 
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) != -1) {
-                    out.write(buf, 0, n);
+                if (rangeHeader != null && rangeHeader.startsWith("bytes=") && fileSize > 0) {
+                    // 解析 Range: bytes=start-end
+                    long start = 0, end = fileSize - 1;
+                    String rangeValue = rangeHeader.substring(6);
+                    String[] parts = rangeValue.split("-");
+                    if (parts.length > 0 && !parts[0].isEmpty()) start = Long.parseLong(parts[0]);
+                    if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
+                    if (start >= fileSize) start = fileSize - 1;
+                    
+                    long length = end - start + 1;
+                    response.setStatus(206);
+                    response.setHeader("Content-Range", "bytes " + start + "-" + end + "/" + fileSize);
+                    response.setContentLength((int) length);
+
+                    try (InputStream in = storageService.getObjectRange(rustfsObjectName, start, length);
+                         OutputStream out = response.getOutputStream()) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                        out.flush();
+                    }
+                } else {
+                    // 完整读取
+                    response.setContentLength((int) fileSize);
+                    try (InputStream in = storageService.getObject(rustfsObjectName);
+                         OutputStream out = response.getOutputStream()) {
+                        byte[] buf = new byte[8192];
+                        int n;
+                        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                        out.flush();
+                    }
                 }
-                out.flush();
-                log.debug("stream from RustFS: {}", sourceId);
+                log.debug("stream from RustFS: {} (Range={})", sourceId, rangeHeader != null ? "yes" : "no");
                 return;
             } catch (Exception e) {
                 log.warn("RustFS直读失败, 尝试远程代理: {}", e.getMessage());
