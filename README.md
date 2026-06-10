@@ -80,15 +80,17 @@ vibeMusic/
 │       ├── dto/            # SongDTO
 │       ├── config/         # Security, Cors, Redis, NeteaseApi, AudioQualityTier
 │       └── mapper/         # MyBatis-Plus Mapper
-├── scripts/                # 运维工具
-│   ├── start-tunnel.bat    # cpolar 自动重连脚本
-│   ├── start-cpolar-tunnel.bat
-│   ├── start-cloudflare-tunnel.bat
-│   └── migration_profile.sql   # 个人资料迁移 SQL
+├── scripts/                # 运维脚本
+│   ├── ops/                # 运维工具集
+│   │   ├── cpolar-monitor.py        # cpolar 隧道存活监控 + 自动重启
+│   │   ├── cookie-monitor.py        # Cookie 定时巡检
+│   │   ├── check-cookies.py         # Cookie 快速检测
+│   │   └── start-cpolar-monitor.bat # cpolar 监控 Windows 启动器
+│   └── ops.cjs             # 跨平台运维面板 (npm run ops)
 ├── musicapi/               # Node.js API 聚合网关 (端口 3000)
 │   ├── server.js           # 聚合搜索 + 音质分级 + Cookie注入 + 自动监控 + 日志系统
 │   ├── config.js           # 网易云+QQ Cookie 统一管理中心
-│   ├── logs/               # 分类日志 (api-errors / cookie-monitor / access)
+│   ├── logs/               # 分类日志 (api-errors / cookie-monitor / access / degradation)
 │   └── .gitignore          # 忽略 node_modules + *.log
 ├── natapp/                 # natapp 内网穿透
 │   └── run_natapp.bat
@@ -104,18 +106,21 @@ vibeMusic/
 - MySQL 8.0+
 - Redis 7+
 - Maven 3.8+
-- Android SDK (构建 APK 需要)
 
-### 1. 启动 API 聚合网关
+### 1. 一键安装依赖
 
 ```bash
-cd musicapi
-npm install
-node server.js
-# → http://localhost:3000
+npm install              # 安装 concurrently（工作区编排）
+npm run install:all      # 安装 musicapi + 前端依赖
 ```
 
-### 2. 启动后端
+### 2. 数据库初始化
+
+```bash
+mysql -u root -p < vibeMusic-backend/sql/init.sql
+```
+
+### 3. 启动后端
 
 ```bash
 cd vibeMusic-backend
@@ -123,29 +128,26 @@ mvn spring-boot:run
 # → http://localhost:8080
 ```
 
-### 3. 启动前端 (开发)
+### 4. 启动 API 网关 + 前端
 
 ```bash
-cd vibemusic-web
-npm install
-npm run dev
-# → http://localhost:5173
+npm run dev              # concurrently 同时启动 musicapi(3000) + 前端(5173)
 ```
 
-### 4. 数据库初始化
+### 5. 运维面板（可选）
 
 ```bash
-mysql -u root -p < vibeMusic-backend/sql/init.sql
+npm run ops              # 跨平台运维控制台（日志/监控/状态检查）
 ```
 
-### 5. 构建 Android APK
+### 内网穿透 + 监控
 
 ```bash
-cd vibemusic-web
-npm run build
-npx cap sync android
-cd android && gradlew clean assembleDebug
-# APK: android/app/build/outputs/apk/debug/app-debug.apk
+# Windows
+scripts\ops\start-cpolar-monitor.bat
+
+# 或通过运维面板
+npm run ops → [1] cpolar 隧道监控
 ```
 
 ## API 端点
