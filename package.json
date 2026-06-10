@@ -1,0 +1,17 @@
+{
+  "name": "vibemusic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "vibeMusic 全栈音乐项目 - 工作区根配置",
+  "scripts": {
+    "dev": "concurrently -n musicapi,web -c cyan,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cd musicapi && node server.js",
+    "dev:web": "cd vibemusic-web && npm run dev",
+    "build": "cd vibemusic-web && npm run build",
+    "ops": "node scripts/ops.cjs",
+    "install:all": "cd musicapi && npm install && cd ../vibemusic-web && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
