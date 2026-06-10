@@ -19,7 +19,7 @@ onMounted(() => {
 
 <template>
   <div class="mobile-shell" :class="{ 'no-padding': isPlayerPage }">
-    <RouterView :key="$route.fullPath" />
+    <RouterView />
     <MBottomPlayer v-if="showBottomPlayer" />
     <MTabBar v-if="showTabBar" />
     <MQueuePopup :visible="showQueue" @close="showQueue = false" />

@@ -74,8 +74,8 @@ export function useAudioBackground(audioRef) {
   let unsubscribes = []
 
   /**
-   * 1. Page Visibility API — 检测前后台切换
-   *    进入后台时记录状态，回到前台时恢复播放
+   * 1. Page Visibility API — 前后台切换
+   *    关键改动：进后台不暂停，继续播放；回前台不自动播放
    */
   function handleVisibilityChange() {
     const hidden = document.hidden || document.visibilityState === 'hidden'
@@ -84,38 +84,54 @@ export function useAudioBackground(audioRef) {
     if (hidden) {
       isBackground.value = true
       bgSince.value = Date.now()
-      // 如果正在播放，标记为"因后台而暂停"
-      wasPausedByBg.value = !audio?.paused
+      // IMPORTANT: Don't pause! Keep playing in background
+      wasPausedByBg.value = false
     } else {
       isBackground.value = false
       bgSince.value = null
-
-      // 自动恢复播放
-      if (wasPausedByBg.value && audio?.src && audio.paused) {
+      // 回到前台如果因某些原因暂停了，尝试恢复
+      if (audio?.src && audio.paused && audio.readyState >= 2) {
         resumePlayback(audio)
       }
-      wasPausedByBg.value = false
     }
   }
 
-  /** 恢复播放（处理 AudioContext 挂起 + 播放失败重试） */
-  function resumePlayback(audio, retries = 3) {
+  /** 恢复播放 */
+  function resumePlayback(audio, retries = 2) {
     if (!audio?.src) return
-
-    // 恢复 AudioContext
     if (window._vibeAudioCtx?.state === 'suspended') {
       window._vibeAudioCtx.resume().catch(() => {})
     }
-
-    // 尝试播放（移动端需要用户手势，这里做重试）
-    audio.play().then(() => {
-      console.log('[AudioBG] 播放已恢复')
-    }).catch(err => {
-      console.warn('[AudioBG] 自动恢复播放失败:', err.message)
+    audio.play().catch(err => {
       if (retries > 0) {
-        setTimeout(() => resumePlayback(audio, retries - 1), 500)
+        setTimeout(() => resumePlayback(audio, retries - 1), 800)
       }
     })
+  }
+
+  /**
+   * 2. 后台播放心跳 — 检测音频是否结束（浏览器在后台可能不触发 ended 事件）
+   *    每2秒检查一次，如果音频因播放完毕而停止则调用 next()
+   */
+  let bgEndedTimer = null
+  function startBgEndedCheck() {
+    stopBgEndedCheck()
+    bgEndedTimer = setInterval(() => {
+      const audio = window.vibeAudio
+      // 音频已结束（非暂停、非循环、时长>0、已播完）
+      if (audio && !audio.loop && audio.duration > 0 && audio.ended) {
+        if (window.vibeNext) {
+          window.vibeNext()
+        }
+      }
+    }, 2000)
+  }
+
+  function stopBgEndedCheck() {
+    if (bgEndedTimer) {
+      clearInterval(bgEndedTimer)
+      bgEndedTimer = null
+    }
   }
 
   /**
@@ -286,8 +302,8 @@ export function useAudioBackground(audioRef) {
     setupMediaSession()
     setupStatePersistence()
     document.addEventListener('visibilitychange', handleVisibilityChange)
+    startBgEndedCheck() // 启动后台 ended 轮询
 
-    // 当播放开始时尝试获取 Wake Lock
     const onPlay = () => {
       try { navigator.mediaSession.playbackState = 'playing' } catch {}
       requestWakeLock()
@@ -307,6 +323,7 @@ export function useAudioBackground(audioRef) {
   onUnmounted(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     stopWorkerTimer()
+    stopBgEndedCheck()
     releaseWorker()
     releaseWakeLock()
     unsubscribes.forEach(fn => { try { fn() } catch {} })
