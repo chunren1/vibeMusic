@@ -150,9 +150,11 @@ function shuffleSongs() {
           class="m-song-item"
           :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
           @click="playSong(song)">
-          <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=60y60)`, backgroundSize: 'cover', backgroundPosition: 'center' } : { background: song.coverColor }">
+          <div class="m-song-cover"
+            v-lazy-img:bg="song.coverUrl ? `${song.coverUrl}?param=60y60` : null"
+            :style="!song.coverUrl ? { background: song.coverColor } : {}">
             <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq">
-              <span></span><span></span><span></span>
+              <span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span>
             </span>
           </div>
           <div class="m-song-info">
@@ -209,6 +211,8 @@ function shuffleSongs() {
   background-position: center;
   background-repeat: no-repeat;
   opacity: 0; transition: opacity .5s;
+  will-change: opacity; transform: translateZ(0);
+  backface-visibility: hidden;
 }
 .m-banner-slide.active { opacity: 1; }
 .m-banner-mask {
@@ -261,11 +265,10 @@ function shuffleSongs() {
   background-color: #1a1a2e;
 }
 .m-eq { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
-.m-eq span { width: 3px; background: #31c27c; border-radius: 1px; animation: eq .8s ease-in-out infinite alternate; }
-.m-eq span:nth-child(1) { height: 8px; animation-delay: 0s; }
-.m-eq span:nth-child(2) { height: 14px; animation-delay: .2s; }
-.m-eq span:nth-child(3) { height: 6px; animation-delay: .4s; }
-@keyframes eq { to { height: 4px; } }
+.m-eq .eq-bar { width: 3px; }
+.m-eq .eq-bar:nth-child(1) { height: 8px; }
+.m-eq .eq-bar:nth-child(2) { height: 14px; }
+.m-eq .eq-bar:nth-child(3) { height: 6px; }
 .m-song-info { flex: 1; min-width: 0; }
 .m-song-name { font-size: 14px; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m-song-artist { font-size: 12px; color: #888; margin-top: 2px; }

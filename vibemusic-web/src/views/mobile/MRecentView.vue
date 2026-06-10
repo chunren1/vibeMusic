@@ -43,8 +43,8 @@ onMounted(() => {
     <div class="m-list">
       <div v-for="(s, i) in songs" :key="s.sourceId + '-' + s.playedAt"
         class="m-item" :class="{ playing: player.currentSong.id === s.sourceId && player.isPlaying }" @click="play(s)">
-        <div class="m-cover" :style="s.coverUrl ? { backgroundImage: `url(${s.coverUrl}?param=80y80)` } : {}">
-          <span v-if="player.currentSong.id === s.sourceId && player.isPlaying" class="m-eq"><span></span><span></span><span></span></span>
+        <div class="m-cover" v-lazy-img:bg="s.coverUrl ? `${s.coverUrl}?param=80y80` : null">
+          <span v-if="player.currentSong.id === s.sourceId && player.isPlaying" class="m-eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
         </div>
         <div class="m-info">
           <div class="m-name">{{ s.songName }}</div>
@@ -76,11 +76,10 @@ onMounted(() => {
   display: flex; align-items: center; justify-content: center;
 }
 .m-eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
-.m-eq span { width: 2px; background: #31c27c; border-radius: 1px; animation: eq .7s ease-in-out infinite alternate; }
-.m-eq span:nth-child(1) { height: 7px; }
-.m-eq span:nth-child(2) { height: 12px; animation-delay: .15s; }
-.m-eq span:nth-child(3) { height: 5px; animation-delay: .3s; }
-@keyframes eq { to { height: 3px; } }
+.m-eq .eq-bar { width: 2px; }
+.m-eq .eq-bar:nth-child(1) { height: 7px; }
+.m-eq .eq-bar:nth-child(2) { height: 12px; }
+.m-eq .eq-bar:nth-child(3) { height: 5px; }
 .m-info { flex: 1; min-width: 0; }
 .m-name { font-size: 14px; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m-artist { font-size: 12px; color: #888; margin-top: 2px; }

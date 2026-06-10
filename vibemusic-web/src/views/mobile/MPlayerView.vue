@@ -174,7 +174,7 @@ onUnmounted(() => {
 
     <!-- 进度条 -->
     <div class="mp-progress" @click="onSeek">
-      <div class="mp-progress-fill" :style="{ width: store.progress + '%' }">
+      <div class="mp-progress-fill" :style="{ transform: `scaleX(${store.progress / 100})` }">
         <span class="mp-dot"></span>
       </div>
     </div>
@@ -239,8 +239,7 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: center;
   height: 100%; font-size: 40px; color: #333;
 }
-@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
-.mp-cover.spinning { animation: spin 20s linear infinite; }
+.mp-cover.spinning { animation: cover-spin 20s linear infinite; will-change: transform; }
 .mp-lyric-section {
   flex: 1; display: flex; flex-direction: column; justify-content: center;
   padding: 0 24px; min-height: 100px; overflow: hidden;
@@ -273,8 +272,9 @@ onUnmounted(() => {
   border-radius: 2px; cursor: pointer; flex-shrink: 0; position: relative;
 }
 .mp-progress-fill {
-  height: 100%; background: #31c27c; border-radius: 2px;
-  min-width: 4px; position: relative; transition: width .2s linear;
+  height: 100%; width: 100%; background: #31c27c; border-radius: 2px;
+  position: relative; transform-origin: left;
+  will-change: transform;
 }
 .mp-dot {
   position: absolute; right: -6px; top: 50%; transform: translateY(-50%);

@@ -1,8 +1,24 @@
-/* ===== vibeMusic 全局样式（浅色主题） ===== */
+/* ===== vibeMusic 全局性能基座 ===== */
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #app { height: 100%; }
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+html {
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  scroll-behavior: smooth;
+}
+
+body, #app {
+  height: 100%;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* -- 浅色主题 -- */
 :root {
   --color-primary: #31c27c;
   --color-bg: #f5f5f5;
@@ -11,4 +27,69 @@ html, body, #app { height: 100%; }
   --color-text: #333333;
   --color-text-secondary: #888888;
   --color-border: #e0e0e0;
+
+  /* Safe area 兼容 */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+/* -- ===== GPU 合成层加速 ===== -- */
+.gpu-layer {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* -- ===== CSS Containment 布局隔离（减少重排范围） ===== -- */
+.contain-paint  { contain: layout style paint; }
+.contain-layout { contain: layout style; }
+
+/* -- ===== 内容可见性自动跳过离屏渲染（最大性能提升项） ===== -- */
+.content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px; /* 估算高度，防滚动条跳动 */
+}
+
+/* -- 统一的等化器动画（各处复用） -- */
+@keyframes eq {
+  0%, 100% { transform: scaleY(0.3); }
+  50%      { transform: scaleY(1); }
+}
+.eq-bar {
+  display: inline-block; width: 2px;
+  background: var(--color-primary);
+  transform-origin: bottom;
+  animation: eq 1.2s ease-in-out infinite;
+  will-change: transform;
+}
+.eq-bar:nth-child(2) { animation-delay: 0.15s; }
+.eq-bar:nth-child(3) { animation-delay: 0.3s; }
+
+/* -- 封面旋转（MPlayerView 用） -- */
+@keyframes cover-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* -- ===== 所有列表项 performance 优化 ===== -- */
+.m-song-list > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+.m-song-list:not(:has(:focus-within)) > *:not(:hover):not(:active) {
+  contain: strict;
+}
+
+/* -- ===== 被动滚动监听（全局） ===== -- */
+.scroll-container {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: auto;
+}
+
+/* -- ===== 图片通用懒加载 Fallback ===== -- */
+img[loading] {
+  background: #1a1a2e;
+  min-height: 40px;
 }
