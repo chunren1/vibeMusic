@@ -8,12 +8,9 @@ cpolar 内网穿透存活监控脚本
 
 import os
 import sys
-import re
 import time
 import random
-import signal
 import subprocess
-import threading
 import datetime
 import requests
 import logging
@@ -68,19 +65,6 @@ def send_wechat(title, content):
         return False
 
 
-# ==================== cpolar URL 提取 ====================
-# cpolar 输出示例行:
-#   Forwarding  https://xxxx.cpolar.top -> http://localhost:5173
-#   https://xxxx.cpolar.cn
-#   tunnel://xxxx.cpolar.top
-URL_PATTERN = re.compile(r'(https://[^\s]+\.(?:cpolar\.(?:top|io|cn|xyz|fun|site|me|la)|trycloudflare\.com))')
-
-def extract_url(line):
-    """从 cpolar 输出行中提取 HTTPS 地址"""
-    m = URL_PATTERN.search(line)
-    return m.group(1) if m else None
-
-
 # ==================== 健康检查 ====================
 def check_url(url, timeout=10):
     """检查 URL 是否可达"""
@@ -100,22 +84,38 @@ def check_url(url, timeout=10):
 cpolar_process = None
 current_url = None
 
+def get_cpolar_url():
+    """通过 cpolar 本地 API (localhost:4040) 获取公网地址"""
+    try:
+        resp = requests.get("http://127.0.0.1:4040/api/tunnels", timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            tunnels = data.get("tunnels", [])
+            for t in tunnels:
+                public_url = t.get("public_url", "")
+                if public_url.startswith("https://"):
+                    return public_url
+                elif public_url.startswith("http://"):
+                    return public_url
+    except Exception:
+        pass
+    return None
+
 def start_cpolar():
-    """启动 cpolar 进程并持续读取输出"""
+    """启动 cpolar 进程"""
     global cpolar_process
     try:
         logging.info(f"启动 cpolar http {CPOLAR_PORT} ...")
         cpolar_process = subprocess.Popen(
             ["cpolar", "http", str(CPOLAR_PORT)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            universal_newlines=True,
-            bufsize=1,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
         )
         return True
     except FileNotFoundError:
         logging.error("cpolar 命令未找到，请确认已安装并加入 PATH")
+        logging.error("下载: https://www.cpolar.com/")
         return False
     except Exception as e:
         logging.error(f"启动 cpolar 失败: {e}")
@@ -142,29 +142,17 @@ def stop_cpolar():
 
 
 def read_output():
-    """非阻塞读取 cpolar 输出，发现新 URL 就更新"""
-    global current_url, cpolar_process
-    if not cpolar_process or cpolar_process.poll() is not None:
-        return
-    try:
-        while True:
-            line = cpolar_process.stdout.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line:
-                logging.info(f"[cpolar] {line[:200]}")  # 改为 INFO 级别，方便调试
-                url = extract_url(line)
-                if url and url != current_url:
-                    old = current_url
-                    current_url = url
-                    if old:
-                        logging.info(f"cpolar URL 变更: {old} → {current_url}")
-                    else:
-                        logging.info(f"cpolar 隧道已建立: {current_url}")
-                    return True
-    except Exception:
-        pass
+    """通过本地 API 获取最新 URL（替代解析 stdout）"""
+    global current_url
+    url = get_cpolar_url()
+    if url and url != current_url:
+        old = current_url
+        current_url = url
+        if old:
+            logging.info(f"cpolar URL 变更: {old} → {current_url}")
+        else:
+            logging.info(f"cpolar 隧道已建立: {current_url}")
+        return True
     return False
 
 
