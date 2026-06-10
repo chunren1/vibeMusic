@@ -19,7 +19,8 @@ TEST_KEYWORD = "周杰伦"
 FAILURE_THRESHOLD = 3  # 连续失败达到阈值才告警
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MUSICAPI_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "musicapi")
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))  # ops/ → scripts/ → root
+MUSICAPI_DIR = os.path.join(ROOT_DIR, "musicapi")
 LOG_DIR = os.path.join(MUSICAPI_DIR, "logs")
 LOG_FILE = os.path.join(LOG_DIR, "cookie-monitor.log")
 STATE_FILE = os.path.join(SCRIPT_DIR, "monitor_state.json")
