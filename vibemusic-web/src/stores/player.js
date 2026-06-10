@@ -50,6 +50,15 @@ export const usePlayerStore = defineStore('player', () => {
     saveTimer = setTimeout(saveToStorage, 300)
   }
 
+  /** 强制立即保存所有状态（beforeunload 时调用） */
+  function flushSave() {
+    clearTimeout(saveTimer)
+    saveToStorage()
+    if (audio.duration > 0) {
+      localStorage.setItem(TIME_KEY, String(audio.currentTime))
+    }
+  }
+
   watch(queue, debouncedSave, { deep: true })
   watch(currentSong, debouncedSave, { deep: true })
   watch(playMode, (m) => {
@@ -244,7 +253,7 @@ export const usePlayerStore = defineStore('player', () => {
   function restorePlayback() {
     if (currentIdx.value >= 0 && currentIdx.value < queue.value.length) {
       const song = queue.value[currentIdx.value]
-      
+
       // 恢复歌曲元数据
       if (!currentSong.value.id || currentSong.value.id !== song.sourceId) {
         currentSong.value = {
@@ -252,20 +261,26 @@ export const usePlayerStore = defineStore('player', () => {
           coverUrl: song.coverUrl || '', duration: song.duration || 0,
         }
       }
-      
-      // 只在没有音频源或切歌时才重新设置 src（避免重复加载导致重播）
+
+      // 没有音频源或刷新后 audio 为空 → 恢复 src
       const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
       if (audio.src !== expectedSrc && (!audio.src || audio.src === window.location.href)) {
         const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
         audio.src = expectedSrc
         audio.loop = playMode.value === 'single'
-        if (cachedTime > 0 && audio.duration > 0) {
-          audio.currentTime = Math.min(cachedTime, audio.duration)
+
+        // 等元数据加载完再 seek（否则 audio.duration 为 NaN 无法定位）
+        const onMeta = () => {
+          if (cachedTime > 0 && audio.duration > 0) {
+            audio.currentTime = Math.min(cachedTime, audio.duration)
+          }
+          audio.removeEventListener('loadedmetadata', onMeta)
         }
-        audio.load() // 预加载但不自动播放
+        audio.addEventListener('loadedmetadata', onMeta)
+        audio.load()
       }
-      
-      // 同步播放状态（保持暂停，等待用户交互）
+
+      // 同步播放状态
       isPlaying.value = !audio.paused
     }
   }
@@ -343,7 +358,7 @@ export const usePlayerStore = defineStore('player', () => {
     playBySourceId, playSongFromApi, playCurrent, next, prev,
     toggleMode, togglePlay, toggleMute, addToQueue, removeFromQueue,
     playIndex, clearQueue, seekTo, seekToTime,
-    savePlaybackTime, restorePlayback, resumeAudioContext,
+    savePlaybackTime, flushSave, restorePlayback, resumeAudioContext,
     setupGlobalAnalyser, dispatchSongChange, fmtSec,
   }
 })
