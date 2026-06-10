@@ -70,8 +70,10 @@ def send_wechat(title, content):
 
 # ==================== cpolar URL 提取 ====================
 # cpolar 输出示例行:
-# Forwarding  https://xxxx.cpolar.top -> http://localhost:5173
-URL_PATTERN = re.compile(r'(https://[\w\-]+\.(cpolar\.(top|io|cn|xyz|fun|site|me)|trycloudflare\.com))')
+#   Forwarding  https://xxxx.cpolar.top -> http://localhost:5173
+#   https://xxxx.cpolar.cn
+#   tunnel://xxxx.cpolar.top
+URL_PATTERN = re.compile(r'(https://[^\s]+\.(?:cpolar\.(?:top|io|cn|xyz|fun|site|me|la)|trycloudflare\.com))')
 
 def extract_url(line):
     """从 cpolar 输出行中提取 HTTPS 地址"""
@@ -151,7 +153,7 @@ def read_output():
                 break
             line = line.strip()
             if line:
-                logging.debug(f"[cpolar] {line[:120]}")
+                logging.info(f"[cpolar] {line[:200]}")  # 改为 INFO 级别，方便调试
                 url = extract_url(line)
                 if url and url != current_url:
                     old = current_url
@@ -190,7 +192,12 @@ def main():
             waited += 1
 
     if not current_url:
-        logging.critical("30秒内未检测到 cpolar URL，请检查 cpolar 是否正常运行")
+        logging.critical("30秒内未检测到 cpolar URL")
+        logging.critical("请检查:")
+        logging.critical("  1. cpolar 是否已安装并加入 PATH")
+        logging.critical("  2. 是否已执行 cpolar authtoken <你的token>")
+        logging.critical("  3. 端口 5173 是否有服务在运行")
+        logging.critical("以上 cpolar 输出日志可帮助定位问题")
         stop_cpolar()
         sys.exit(1)
 

@@ -9,6 +9,7 @@
     "dev:web": "cd vibemusic-web && npm run dev",
     "build": "cd vibemusic-web && npm run build",
     "ops": "node scripts/ops.cjs",
+    "tunnel": "node -e \"require('child_process').spawn('cmd',['/c','scripts\\\\ops\\\\start-cpolar-monitor.bat'],{stdio:'inherit',shell:true})\"",
     "install:all": "cd musicapi && npm install && cd ../vibemusic-web && npm install"
   },
   "devDependencies": {
