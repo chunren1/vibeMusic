@@ -47,7 +47,7 @@
 | 🎵 歌词页 | 播放中封面 + 四行滚动歌词 + 进度条 + 切歌/模式/收藏/下载/歌单 |
 | 📜 播放队列 | 自动入列，底部弹出式列表，去重管理 |
 | 🤖 Android APK | Capacitor 打包，HTTPS 公网接口，安装即用 |
-| 🌐 内网穿透 | natapp + cpolar 双方案，公网可访问 |
+| 🌐 内网穿透 | cpolar 隧道 + 自动重连 + 微信告警 |
 | 🛡️ Cookie 监控 | 随 API 启动自动运行，日志写入 musicapi/logs/，支持 Server酱微信告警 |
 | 💾 RustFS 离线缓存 | 用户主动下载→存入对象存储，播放优先RustFS直读(零API调用)；播放不自动下载 |
 | 🎨 响应式 UI | 桌面侧栏 + 移动底部TabBar，暗色/亮色双主题 |
@@ -92,8 +92,6 @@ vibeMusic/
 │   ├── config.js           # 网易云+QQ Cookie 统一管理中心
 │   ├── logs/               # 分类日志 (api-errors / cookie-monitor / access / degradation)
 │   └── .gitignore          # 忽略 node_modules + *.log
-├── natapp/                 # natapp 内网穿透
-│   └── run_natapp.bat
 └── .cloudflared/            # Cloudflare Tunnel 配置
 ```
 
@@ -280,7 +278,7 @@ withNeteaseCookie()  qqMusic.setCookie()
 
 - 使用 Capacitor 打包 Vue 为原生 Android 应用
 - API 地址通过 `src/api/request.js` 的 `API_HOST` 统一配置
-- 生产环境使用 HTTPS 公网地址（natapp/cpolar）
+- 生产环境使用 HTTPS 公网地址（cpolar 内网穿透）
 - 已配置允许 HTTP 明文流量（Android 9+ 需要）
 - 音频流/下载均使用完整绝对 URL
 
