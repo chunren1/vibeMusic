@@ -1,6 +1,10 @@
 @echo off
 chcp 65001 >nul
 title cpolar Monitor — vibeMusic
+
+:: Server酱 SendKey（微信推送通知用，从 https://sct.ftqq.com/ 获取）
+set SCKEY=SCT360080TS4RhHIAils91EzFHwpqlaaEa
+
 echo ==================================================
 echo   cpolar 内网穿透存活监控
 echo   端口: 5173
@@ -8,8 +12,7 @@ echo   检测间隔: 3~5 分钟
 echo   连续2次不可达自动重启 + 微信通知
 echo ==================================================
 echo.
-echo   环境要求: Python 3 + requests 库
-echo   Server酱: set SCKEY=你的SendKey
+echo   Server酱: 已配置 (SendKey: %SCKEY:~0,10%...)
 echo.
 echo   Ctrl+C 停止监控
 echo ==================================================
