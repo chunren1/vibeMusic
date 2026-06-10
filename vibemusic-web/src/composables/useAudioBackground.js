@@ -298,11 +298,41 @@ export function useAudioBackground(audioRef) {
   // ──────────────────────────────────────────────
   // 生命周期
   // ──────────────────────────────────────────────
+
+  // 记录上次切后台时间，用于判断是否是被浏览器强制暂停
+  let lastBgTime = 0
+
   onMounted(() => {
     setupMediaSession()
     setupStatePersistence()
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    startBgEndedCheck() // 启动后台 ended 轮询
+    startBgEndedCheck()
+
+    // 监听切后台：记录时间
+    const onHidden = () => { lastBgTime = Date.now() }
+    document.addEventListener('visibilitychange', onHidden)
+
+    // 检测浏览器强制暂停（切后台后短时间内被 pause 的）
+    const onAutoPause = () => {
+      const audio = window.vibeAudio
+      // 如果2秒内刚切后台，且音频有源，说明是被浏览器强制暂停
+      if (Date.now() - lastBgTime < 2000 && audio?.src && audio.readyState >= 2) {
+        console.log('[AudioBG] 检测到后台强制暂停，自动恢复...')
+        audio.play().catch(() => {
+          // 第一次失败，延迟再试
+          setTimeout(() => {
+            if (document.hidden && audio?.src && audio.paused) {
+              audio.play().catch(() => {})
+            }
+          }, 500)
+        })
+      }
+    }
+    window.addEventListener('pause', onAutoPause)
+    unsubscribes.push(
+      () => document.removeEventListener('visibilitychange', onHidden),
+      () => window.removeEventListener('pause', onAutoPause),
+    )
 
     const onPlay = () => {
       try { navigator.mediaSession.playbackState = 'playing' } catch {}

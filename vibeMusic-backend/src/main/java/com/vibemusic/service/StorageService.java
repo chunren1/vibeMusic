@@ -115,7 +115,22 @@ public class StorageService {
     }
 
     /**
-     * 从 RustFS 读取文件流（用于浏览器下载）
+     * 获取文件大小（字节）
+     */
+    public long getObjectSize(String objectName) {
+        try {
+            return client.statObject(
+                    StatObjectArgs.builder()
+                            .bucket(config.getBucketName())
+                            .object(objectName)
+                            .build()).size();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /**
+     * 从 RustFS 读取完整文件流
      */
     public java.io.InputStream getObject(String objectName) {
         try {
@@ -127,6 +142,27 @@ public class StorageService {
         } catch (Exception e) {
             log.error("读取文件失败: {}", e.getMessage());
             throw new RuntimeException("文件不存在或读取失败", e);
+        }
+    }
+
+    /**
+     * 从 RustFS 读取文件的部分内容（支持 Range：seek 加速）
+     * @param objectName 对象名
+     * @param offset     起始偏移（字节）
+     * @param length     读取长度（-1 表示到末尾）
+     */
+    public java.io.InputStream getObjectRange(String objectName, long offset, long length) {
+        try {
+            return client.getObject(
+                    GetObjectArgs.builder()
+                            .bucket(config.getBucketName())
+                            .object(objectName)
+                            .offset(offset)
+                            .length(length)
+                            .build());
+        } catch (Exception e) {
+            log.error("范围读取文件失败: {}", e.getMessage());
+            throw new RuntimeException("文件范围读取失败", e);
         }
     }
 }
