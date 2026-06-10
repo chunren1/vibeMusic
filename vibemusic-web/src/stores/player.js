@@ -44,8 +44,14 @@ export const usePlayerStore = defineStore('player', () => {
     localStorage.setItem(SONG_KEY, JSON.stringify(currentSong.value))
   }
 
-  watch(queue, saveToStorage, { deep: true })
-  watch(currentSong, saveToStorage, { deep: true })
+  let saveTimer = null
+  function debouncedSave() {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(saveToStorage, 300)
+  }
+
+  watch(queue, debouncedSave, { deep: true })
+  watch(currentSong, debouncedSave, { deep: true })
   watch(playMode, (m) => {
     localStorage.setItem(MODE_KEY, m)
     audio.loop = m === 'single'
