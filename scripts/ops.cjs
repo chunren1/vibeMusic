@@ -14,11 +14,10 @@ function menu() {
   console.log('  ║       vibeMusic 运维面板          ║');
   console.log('  ╚════════════════════════════════════╝');
   console.log('');
-  console.log('  [1] cpolar 隧道监控 (启动/前台运行)');
-  console.log('  [2] 查看日志');
-  console.log('  [3] 检查服务状态');
-  console.log('  [4] 检查 Cookie 存活');
-  console.log('  [5] 停止所有服务');
+  console.log('  [1] 查看日志');
+  console.log('  [2] 检查服务状态');
+  console.log('  [3] 检查 Cookie 存活');
+  console.log('  [4] 停止所有服务');
   console.log('  [0] 退出');
   console.log('');
 }
@@ -30,19 +29,7 @@ function ask(question) {
   });
 }
 
-function startCpolorMonitor() {
-  console.log('\n  启动 cpolar 监控...');
-  // Windows: 直接调 bat
-  if (process.platform === 'win32') {
-    spawn('cmd', ['/c', path.join(__dirname, 'ops', 'start-cpolar-monitor.bat')], {
-      cwd: path.join(__dirname, '..'), shell: true, stdio: 'inherit',
-    });
-  } else {
-    spawn('python3', [path.join(__dirname, 'ops', 'cpolar-monitor.py')], {
-      cwd: path.join(__dirname, '..'), stdio: 'inherit',
-    });
-  }
-}
+
 
 function viewLogs() {
   console.log(`\n  日志目录: ${LOG_DIR}\n`);
@@ -102,11 +89,10 @@ function stopAll() {
     menu();
     const choice = await ask('  请选择: ');
     switch (choice) {
-      case '1': startCpolorMonitor(); break;
-      case '2': viewLogs(); break;
-      case '3': checkStatus(); break;
-      case '4': await checkCookies(); break;
-      case '5': stopAll(); break;
+      case '1': viewLogs(); break;
+      case '2': checkStatus(); break;
+      case '3': await checkCookies(); break;
+      case '4': stopAll(); break;
       case '0': console.log('  已退出\n'); process.exit(0);
     }
   }

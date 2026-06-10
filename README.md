@@ -138,14 +138,10 @@ npm run dev              # concurrently 同时启动 musicapi(3000) + 前端(517
 npm run ops              # 跨平台运维控制台（日志/监控/状态检查）
 ```
 
-### 内网穿透 + 监控
+### 内网穿透
 
 ```bash
-# Windows
-scripts\ops\start-cpolar-monitor.bat
-
-# 或通过运维面板
-npm run ops → [1] cpolar 隧道监控
+npm run tunnel          # 在新窗口启动 cpolar http 5173
 ```
 
 ## API 端点
