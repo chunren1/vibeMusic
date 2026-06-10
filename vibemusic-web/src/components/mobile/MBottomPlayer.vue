@@ -35,15 +35,9 @@ const visible = computed(() => !!store.currentSong.id)
 
 // 播放进度持久化
 let timeSaver = null
-function saveOnExit() {
-  if (audio.duration > 0) {
-    localStorage.setItem('vibe_playback_time', String(audio.currentTime))
-  }
-}
+function saveOnExit() { store.flushSave() }
 function saveOnHide() {
-  if (document.hidden && audio.duration > 0) {
-    localStorage.setItem('vibe_playback_time', String(audio.currentTime))
-  }
+  if (document.hidden) store.flushSave()
 }
 
 onMounted(() => {

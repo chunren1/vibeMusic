@@ -69,7 +69,7 @@ onMounted(() => {
   window.addEventListener('song-change', onSongChange)
   store.restorePlayback()
   audioBg.startWorkerTimer(() => store.savePlaybackTime(), 5000)
-  window.addEventListener('beforeunload', () => store.savePlaybackTime())
+  window.addEventListener('beforeunload', () => store.flushSave())
 })
 onUnmounted(() => {
   window.removeEventListener('song-change', onSongChange)
