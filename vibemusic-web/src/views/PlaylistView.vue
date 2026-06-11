@@ -3,20 +3,19 @@ import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
-import { getPlaylists, getPlaylistSongs, removeFromPlaylist, playSong as apiPlaySong } from '@/api/song'
+import { getPlaylists, getPlaylistSongs, removeFromPlaylist } from '@/api/song'
+import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
 
 const route = useRoute()
 const favStore = useFavoriteStore()
+const player = usePlayerStore()
 const playlistId = ref(Number(route.params.id))
 const songs = ref([])
 const playlistName = ref('歌单详情')
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
-
-const audio = window.vibeAudio || new Audio()
-window.vibeAudio = audio
 
 function formatDuration(s) {
   if (!s) return ''
@@ -45,19 +44,7 @@ async function loadSongs() {
 
 function play(song) {
   currentPlayId.value = song.sourceId
-  apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
-    const url = res.data?.url
-    if (!url) return
-    if (window.vibeAudioSetSrc) {
-      window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
-    } else {
-      audio.src = url
-      audio.play().catch(() => {})
-    }
-    window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: song.name, artist: song.artist, sourceId: song.sourceId, coverUrl: song.coverUrl, duration: song.duration }
-    }))
-  }).catch(() => {})
+  player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
 }
 
 function toggleFav(song) {

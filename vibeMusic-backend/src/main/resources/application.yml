@@ -8,8 +8,8 @@ spring:
   # 数据库配置
   datasource:
     url: jdbc:mysql://localhost:3306/vibemusic?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
-    username: root
-    password: 123456
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # Redis 配置
@@ -48,8 +48,8 @@ mybatis-plus:
 
 # JWT 配置
 jwt:
-  secret: SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2          # 生产环境务必修改为复杂密钥
-  expiration: 86400000            # Token 有效期（毫秒）默认 24 小时
+  secret: ${JWT_SECRET:SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2}
+  expiration: 86400000
 
 # 网易云 API 配置
 netease:
@@ -61,11 +61,11 @@ netease:
 # RustFS 对象存储配置
 storage:
   rustfs:
-    endpoint: http://127.0.0.1:9000
-    access-key: rustfsadmin
-    secret-key: rustfsadmin
-    bucket-name: vibemusic
-    data-path: D:\Rustfsdata
+    endpoint: ${RUSTFS_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${RUSTFS_ACCESS_KEY:rustfsadmin}
+    secret-key: ${RUSTFS_SECRET_KEY:rustfsadmin}
+    bucket-name: ${RUSTFS_BUCKET:vibemusic}
+    data-path: ${RUSTFS_DATA_PATH:D:\\Rustfsdata}
 
 # Knife4j API 文档配置
 springdoc:

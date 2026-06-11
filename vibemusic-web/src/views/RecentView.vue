@@ -2,17 +2,16 @@
 import { ref, onMounted } from 'vue'
 import TopBar from '@/components/TopBar.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
-import { getPlayHistory, playSong as apiPlaySong } from '@/api/song'
+import { getPlayHistory } from '@/api/song'
 import { useFavoriteStore } from '@/stores/favorite'
+import { usePlayerStore } from '@/stores/player'
 
 const favStore = useFavoriteStore()
+const player = usePlayerStore()
 const recentSongs = ref([])
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
-
-const audio = window.vibeAudio || new Audio()
-window.vibeAudio = audio
 
 favStore.fetchFavIds()
 
@@ -35,15 +34,7 @@ function openPlaylistPopup(item) { playlistTargetSong.value = item; showPlaylist
 
 function play(item) {
   currentPlayId.value = item.sourceId
-  apiPlaySong(item.sourceId, item.songName, item.artist, item.coverUrl || '').then(res => {
-    const url = res.data?.url
-    if (!url) return
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, item.sourceId, item.songName, item.artist, item.coverUrl || '')
-    else { audio.src = url; audio.play().catch(() => {}) }
-    window.dispatchEvent(new CustomEvent('song-change', {
-      detail: { title: item.songName, artist: item.artist, sourceId: item.sourceId, coverUrl: item.coverUrl || '', duration: 0 }
-    }))
-  }).catch(() => {})
+  player.playSongFromApi(item.sourceId, item.songName, item.artist, item.coverUrl || '')
 }
 
 onMounted(() => {
