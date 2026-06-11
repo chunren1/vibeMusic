@@ -39,6 +39,11 @@ public class SongService {
         return t;
     });
 
+    @jakarta.annotation.PreDestroy
+    public void shutdown() {
+        SEARCH_EXECUTOR.shutdown();
+    }
+
     @SuppressWarnings("unchecked")
     public List<SongDTO> search(String keyword, int page, int size) {
         return search(keyword, page, size, null);

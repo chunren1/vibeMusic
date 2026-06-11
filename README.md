@@ -157,7 +157,7 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `/api/auth/avatar` | POST | 上传头像（multipart, ≤2MB） |
 | `/api/auth/bg-image` | POST | 上传背景图 |
 | `/api/songs/search` | GET | 聚合搜索 |
-| `/api/songs/play` | GET | 获取播放 URL + 记录播放历史 |
+| `/api/songs/play` | GET | 记录播放历史 + 返回 RustFS 缓存状态 |
 | `/api/songs/stream` | GET | 音频流代理（支持 Range/RustFS 直读） |
 | `/api/songs/random` | GET | 随机推荐 |
 | `/api/songs/banner` | GET | 首页轮播推荐 |
