@@ -32,6 +32,13 @@ public class SongService {
     private static final int SEARCH_TIMEOUT_SEC = 4;
     private static final Pattern NON_ALPHANUM = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
+    /** 共享搜索线程池（避免每次搜索创建/销毁） */
+    private static final ExecutorService SEARCH_EXECUTOR = Executors.newFixedThreadPool(4, r -> {
+        Thread t = new Thread(r, "search-worker");
+        t.setDaemon(true);
+        return t;
+    });
+
     @SuppressWarnings("unchecked")
     public List<SongDTO> search(String keyword, int page, int size) {
         return search(keyword, page, size, null);
@@ -61,27 +68,31 @@ public class SongService {
 
         log.info("Search '{}' platform={} page={} Redis miss", kw, cacheExtra, page);
 
-        // 只搜指定平台
+        // 只搜指定平台（支持分页）
         if ("netease".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw));
             for (SongDTO s : songs) s.setPlatform("netease");
-            cacheService.setSearchCache(kw + ":netease", page, songs, !songs.isEmpty());
-            return songs;
+            cacheService.setSearchCache(kw + ":netease", 1, songs, !songs.isEmpty());
+            int from = (page - 1) * size;
+            int to = Math.min(from + size, songs.size());
+            if (from >= songs.size()) return Collections.emptyList();
+            return songs.subList(from, to);
         }
         if ("qq".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchQQ(kw));
             for (SongDTO s : songs) s.setPlatform("qq");
-            cacheService.setSearchCache(kw + ":qq", page, songs, !songs.isEmpty());
-            return songs;
+            cacheService.setSearchCache(kw + ":qq", 1, songs, !songs.isEmpty());
+            int from = (page - 1) * size;
+            int to = Math.min(from + size, songs.size());
+            if (from >= songs.size()) return Collections.emptyList();
+            return songs.subList(from, to);
         }
 
-        // 合并搜索
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        Future<List<SongDTO>> neF = executor.submit(() -> safeSearchNetease(kw));
-        Future<List<SongDTO>> qqF = executor.submit(() -> safeSearchQQ(kw));
+        // 合并搜索（复用共享线程池）
+        Future<List<SongDTO>> neF = SEARCH_EXECUTOR.submit(() -> safeSearchNetease(kw));
+        Future<List<SongDTO>> qqF = SEARCH_EXECUTOR.submit(() -> safeSearchQQ(kw));
         List<SongDTO> neteaseSongs = getWithTimeout(neF, SEARCH_TIMEOUT_SEC, "Netease");
         List<SongDTO> qqSongs = getWithTimeout(qqF, SEARCH_TIMEOUT_SEC, "QQ");
-        executor.shutdownNow();
 
         Map<String, SongDTO> mergedMap = new LinkedHashMap<>();
 
@@ -234,9 +245,6 @@ public class SongService {
         catch (Exception e) { log.error("{} search failed: {}", platform, e.getMessage()); }
         return Collections.emptyList();
     }
-
-    private SongDTO parseToDTO(Map<String, Object> raw) { return null; }
-    private SongDTO parseAggregatedToDTO(Map<String, Object> raw) { return null; }
 
     /**
      * 获取播放信息（含试听标记和平台）

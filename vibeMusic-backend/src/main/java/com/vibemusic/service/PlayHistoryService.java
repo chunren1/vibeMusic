@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -24,14 +25,17 @@ public class PlayHistoryService {
                 .userId(userId).sourceId(sourceId)
                 .songName(songName).artist(artist).coverUrl(coverUrl).build();
         mapper.insert(history);
-        // 保留最近 MAX_HISTORY 条，删除更旧的
-        Long total = mapper.selectCount(new LambdaQueryWrapper<PlayHistory>().eq(PlayHistory::getUserId, userId));
-        if (total > MAX_HISTORY) {
-            List<PlayHistory> list = mapper.selectList(new LambdaQueryWrapper<PlayHistory>()
-                    .eq(PlayHistory::getUserId, userId)
-                    .orderByDesc(PlayHistory::getPlayedAt));
-            for (int i = MAX_HISTORY; i < list.size(); i++) {
-                mapper.deleteById(list.get(i).getId());
+
+        // 保留最近 MAX_HISTORY 条，批量删除超出的
+        List<PlayHistory> list = mapper.selectList(new LambdaQueryWrapper<PlayHistory>()
+                .eq(PlayHistory::getUserId, userId)
+                .orderByDesc(PlayHistory::getPlayedAt)
+                .last("LIMIT " + (MAX_HISTORY + 50))); // 只取需要判断的条数
+        if (list.size() > MAX_HISTORY) {
+            List<Long> toDelete = list.subList(MAX_HISTORY, list.size()).stream()
+                    .map(PlayHistory::getId).collect(Collectors.toList());
+            if (!toDelete.isEmpty()) {
+                mapper.deleteBatchIds(toDelete);
             }
         }
     }
@@ -54,6 +58,6 @@ public class PlayHistoryService {
                     m.put("playedAt", h.getPlayedAt());
                     return m;
                 })
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
     }
 }
