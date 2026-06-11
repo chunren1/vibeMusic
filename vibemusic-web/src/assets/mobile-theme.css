@@ -1,0 +1,103 @@
+/* ===== vibeMusic 移动端设计系统 ===== */
+
+:root {
+  /* 背景层次 */
+  --m-bg-base: #0a0a0a;
+  --m-bg-elevated: #141414;
+  --m-bg-card: rgba(255,255,255,0.06);
+  --m-bg-card-hover: rgba(255,255,255,0.10);
+  --m-bg-surface: rgba(255,255,255,0.04);
+
+  /* 主色 */
+  --m-primary: #31c27c;
+  --m-primary-glow: rgba(49,194,124,0.35);
+  --m-gradient-brand: linear-gradient(135deg, #31c27c 0%, #1a9e5c 100%);
+
+  /* 文字 */
+  --m-text-primary: #e0e0e0;
+  --m-text-secondary: #888;
+  --m-text-tertiary: #555;
+
+  /* 圆角 */
+  --m-radius-sm: 8px;
+  --m-radius-md: 12px;
+  --m-radius-lg: 16px;
+  --m-radius-full: 999px;
+
+  /* 间距 */
+  --m-space-xs: 4px;
+  --m-space-sm: 8px;
+  --m-space-md: 12px;
+  --m-space-lg: 16px;
+  --m-space-xl: 20px;
+  --m-space-page: 16px;
+
+  /* 字体 */
+  --m-font-stack: "PingFang SC", "HarmonyOS Sans", -apple-system, sans-serif;
+  --m-font-size-sm: 12px;
+  --m-font-size-md: 14px;
+  --m-font-size-lg: 16px;
+  --m-font-size-xl: 20px;
+  --m-font-size-title: 18px;
+
+  /* 过渡 */
+  --m-ease-out: cubic-bezier(0.32, 0.72, 0, 1);
+  --m-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --m-duration-fast: 0.15s;
+  --m-duration-normal: 0.25s;
+  --m-duration-slow: 0.35s;
+
+  /* Safe area */
+  --m-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --m-safe-top: env(safe-area-inset-top, 0px);
+}
+
+/* 骨架屏 shimmer */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg,
+    var(--m-bg-card) 25%,
+    var(--m-bg-card-hover) 50%,
+    var(--m-bg-card) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--m-radius-sm);
+}
+.skeleton-circle { border-radius: 50%; }
+
+/* 触摸反馈（纯 GPU） */
+.tap-scale:active {
+  transform: scale(0.97);
+  transition: transform 0.1s var(--m-ease-out);
+}
+
+/* 底层纯色替代 backdrop-filter（低端机 fallback） */
+.m-glass {
+  background: rgba(20,20,20,0.98);
+}
+@supports (backdrop-filter: blur(10px)) {
+  .m-glass {
+    background: rgba(20,20,20,0.85);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+}
+
+/* ===== 路由过渡动画 ===== */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.slide-up-enter-from { transform: translateY(100%); }
+.slide-up-leave-to   { transform: translateY(100%); }
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to { opacity: 0; }

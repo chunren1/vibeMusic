@@ -83,8 +83,11 @@ function resetBannerTimer() {
 
 onMounted(() => {
   loadBanners()
-  bannerTimer = setInterval(nextBanner, 4000)
+  resetBannerTimer()
   recommendStore.fetchRecommend()
+  document.addEventListener('visibilitychange', () => {
+    document.hidden ? clearInterval(bannerTimer) : resetBannerTimer()
+  })
 })
 onUnmounted(() => {
   clearInterval(bannerTimer)
@@ -144,14 +147,23 @@ function shuffleSongs() {
         </button>
       </div>
       <div v-if="recommendStore.greeting" class="m-section-greeting">{{ recommendStore.greeting }}</div>
-      <div v-if="recommendStore.loading" class="m-section-loading">推荐加载中...</div>
+      <!-- 骨架屏 -->
+      <div v-if="recommendStore.loading" class="m-skeleton-list">
+        <div v-for="i in 5" :key="i" class="m-skel-item">
+          <div class="skeleton skeleton-circle" style="width:44px;height:44px"></div>
+          <div class="m-skel-text">
+            <div class="skeleton" style="width:60%;height:14px;margin-bottom:6px"></div>
+            <div class="skeleton" style="width:40%;height:12px"></div>
+          </div>
+        </div>
+      </div>
       <div v-else class="m-song-list">
         <div v-for="(song, idx) in recommendStore.songs" :key="song.sourceId || idx"
-          class="m-song-item"
+          class="m-song-item tap-scale"
           :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
           @click="playSong(song)">
           <div class="m-song-cover"
-            v-lazy-img:bg="song.coverUrl ? `${song.coverUrl}?param=60y60` : null"
+            v-lazy-img:bg="song.coverUrl ? `${song.coverUrl}?param=80y80` : null"
             :style="!song.coverUrl ? { background: song.coverColor } : {}">
             <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq">
               <span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span>
@@ -249,6 +261,11 @@ function shuffleSongs() {
 .m-shuffle-btn:active { background: rgba(255,255,255,0.04); }
 .m-section-greeting { font-size: 12px; color: #31c27c; margin-bottom: 10px; }
 .m-section-loading { text-align: center; color: #666; font-size: 13px; padding: 24px 0; }
+.m-skeleton-list { display: flex; flex-direction: column; gap: 2px; }
+.m-skel-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 8px;
+}
+.m-skel-text { flex: 1; }
 .m-song-list { display: flex; flex-direction: column; gap: 2px; }
 .m-song-item {
   display: flex; align-items: center; gap: 12px; padding: 10px 8px;
@@ -257,7 +274,7 @@ function shuffleSongs() {
 .m-song-item:active { background: rgba(255,255,255,.04); }
 .m-song-item.playing { background: rgba(49,194,124,.08); }
 .m-song-cover {
-  width: 42px; height: 42px; border-radius: 8px; flex-shrink: 0;
+  width: 44px; height: 44px; border-radius: var(--m-radius-sm); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; color: #fff; font-size: 13px;
   background-size: cover;
   background-position: center;

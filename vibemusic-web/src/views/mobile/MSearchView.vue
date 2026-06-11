@@ -168,7 +168,7 @@ onMounted(() => {
         class="m-song-item"         :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
         @click="playSong(song)"
         v-memo="[song.sourceId, player.currentSong.id === song.sourceId, player.isPlaying, favStore.isFav(song.sourceId)]">
-        <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=80y80)` } : {}">
+        <div class="m-song-cover" v-lazy-img:bg="song.coverUrl ? `${song.coverUrl}?param=80y80` : null">
           <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq"><span></span><span></span><span></span></span>
         </div>
         <div class="m-song-info">
