@@ -173,8 +173,10 @@ public class SongController {
      * 优先级：RustFS直读 → 远程URL代理（同时写入RustFS缓存）
      */
     @GetMapping("/stream")
-    @Operation(summary = "代理音频流（支持Range请求，RustFS兜底，自动缓存）")
+    @Operation(summary = "代理音频流（支持Range请求，RustFS兜底）")
     public void stream(@RequestParam String sourceId,
+                       @RequestParam(required = false) String name,
+                       @RequestParam(required = false) String artist,
                        HttpServletRequest request,
                        HttpServletResponse response) {
         // 1. 优先从 RustFS 直读（支持 Range 请求，seek 秒级响应）
@@ -236,7 +238,7 @@ public class SongController {
         InputStream in = null;
         OutputStream out = null;
         try {
-            String audioUrl = songService.getPlayUrl(sourceId, null, null);
+            String audioUrl = songService.getPlayUrl(sourceId, name, artist);
             if (audioUrl == null) {
                 response.setStatus(404);
                 return;

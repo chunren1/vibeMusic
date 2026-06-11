@@ -94,7 +94,7 @@ export const usePlayerStore = defineStore('player', () => {
     if (idx >= 0) currentIdx.value = idx
 
     currentSong.value = { id: sourceId, title: name || '', artist: artist || '', coverUrl: coverUrl || '', duration }
-    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
+    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}&name=${encodeURIComponent(name||'')}&artist=${encodeURIComponent(artist||'')}`
     audio.loop = playMode.value === 'single'
     resumeAudioContext()
     audio.play().catch(() => {})
@@ -110,10 +110,16 @@ export const usePlayerStore = defineStore('player', () => {
     resumeAudioContext()
     try {
       const res = await apiPlaySong(sourceId, name, artist, coverUrl || '')
-      isTrialSong.value = res.data?.isTrial || false
-      quality.value = res.data?.quality || 'STANDARD'
-      qualityLabel.value = res.data?.qualityLabel || '标准'
-      // 始终使用 stream 代理 URL，不使用 API 返回的远程 URL
+      // 本地缓存 → LOCAL 音质，在线播放 → 默认（stream 端解析后派发真实音质）
+      if (res.data?.fromCache) {
+        quality.value = 'LOCAL'
+        qualityLabel.value = '本地缓存'
+        isTrialSong.value = false
+      } else {
+        quality.value = 'STANDARD'
+        qualityLabel.value = '标准'
+        isTrialSong.value = false
+      }
       playBySourceId(sourceId, name, artist, coverUrl, res.data?.duration || 0)
     } catch {
       // 即使 API 失败，仍尝试通过 stream 代理播放
@@ -277,7 +283,9 @@ export const usePlayerStore = defineStore('player', () => {
       }
     }
 
-    const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(id)}`
+    const name = song.songName || song.name || song.title || ''
+    const artist = song.artist || ''
+    const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}&artist=${encodeURIComponent(artist)}`
     if (audio.src !== expectedSrc && (!audio.src || audio.src === window.location.href)) {
       const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
       audio.src = expectedSrc
