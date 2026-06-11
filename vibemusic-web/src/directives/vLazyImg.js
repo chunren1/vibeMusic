@@ -1,10 +1,34 @@
 /**
- * v-lazy-img 指令 — IntersectionObserver 懒加载图片
- * 用法: <img v-lazy-img="url" />
- *       <div v-lazy-img:bg="url" />           (背景图模式)
- *       <div v-lazy-img:bg="url" data-blur="20" />
+ * v-lazy-img 指令 — IntersectionObserver 懒加载图片 + 兜底色
+ *
+ * 用法:
+ *   <img v-lazy-img="url" />
+ *   <div v-lazy-img:bg="coverUrl" />               <!-- 图片背景 -->
+ *   <div v-lazy-img:bg="coverUrl || '#1a1a2e'" />  <!-- 无图时兜底色 -->
+ *
+ * 重要: 不要在同元素上同时使用 :style 和 v-lazy-img。
  */
 const observerMap = new WeakMap()
+
+function applyImage(el) {
+  const url = el._lazyUrl
+  if (!url) return
+
+  if (el._lazyMode === 'bg') {
+    if (url.startsWith('http') || url.startsWith('//')) {
+      // !important 确保覆盖 CSS background 简写的 background-image: none
+      el.style.setProperty('background-image', `url(${url})`, 'important')
+    } else {
+      // 纯色兜底
+      el.style.setProperty('background-image', 'none', 'important')
+      el.style.backgroundColor = url
+    }
+  } else if (el.tagName === 'IMG') {
+    el.src = url
+  }
+  delete el._lazyUrl
+  delete el._lazyMode
+}
 
 function getObserver() {
   if (observerMap.has(window)) return observerMap.get(window)
@@ -12,33 +36,11 @@ function getObserver() {
     (entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue
-        const el = entry.target
-        const url = el._lazyUrl
-        if (!url) continue
-
-        if (el._lazyMode === 'bg') {
-          el.style.backgroundImage = `url(${url})`
-          const blur = el.dataset.blur
-          if (blur) {
-            el.style.filter = 'blur(0px)'
-            el.style.transition = 'filter 0.3s ease'
-          }
-        } else {
-          if (el.tagName === 'IMG') {
-            el.src = url
-          } else {
-            el.style.backgroundImage = `url(${url})`
-          }
-        }
-        obs.unobserve(el)
-        delete el._lazyUrl
-        delete el._lazyMode
+        applyImage(entry.target)
+        obs.unobserve(entry.target)
       }
     },
-    {
-      rootMargin: '200px 0px',
-      threshold: 0,
-    }
+    { rootMargin: '200px 0px', threshold: 0 }
   )
   observerMap.set(window, obs)
   return obs
@@ -51,21 +53,12 @@ export default {
     el._lazyUrl = url
     el._lazyMode = binding.arg === 'bg' ? 'bg' : 'img'
 
-    if (el._lazyMode === 'bg' && el.dataset.blur) {
-      el.style.filter = `blur(${el.dataset.blur}px)`
-    }
-
-    // 最近6项直接加载（首屏可见），其余懒加载
-    const idx = Array.from(el.parentNode?.children || []).indexOf(el)
+    const siblings = el.parentNode?.children || []
+    const idx = Array.from(siblings).indexOf(el)
     if (idx < 6) {
-      if (el._lazyMode === 'bg') {
-        el.style.backgroundImage = `url(${url})`
-      } else if (el.tagName === 'IMG') {
-        el.src = url
-      }
+      applyImage(el)
       return
     }
-
     getObserver().observe(el)
   },
 
