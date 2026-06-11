@@ -1,0 +1,16 @@
+# ===== vibeMusic 开发环境配置 =====
+# 激活方式: spring.profiles.active=dev (默认)
+# 命令行: mvn spring-boot:run -Dspring-boot.run.profiles=dev
+
+logging:
+  level:
+    com.vibemusic: debug
+    org.springframework.security: debug
+    org.springframework.web: debug
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 开发环境打印 SQL
+
+knife4j:
+  enable: true
