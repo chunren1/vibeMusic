@@ -33,13 +33,6 @@ const bottomOffset = computed(() => isSearch.value ? 0 : 56)
 // 只有有歌在播放时才显示
 const visible = computed(() => !!store.currentSong.id)
 
-// 播放进度持久化
-let timeSaver = null
-function saveOnExit() { store.flushSave() }
-function saveOnHide() {
-  if (document.hidden) store.flushSave()
-}
-
 onMounted(() => {
   // 监听切歌同步收藏状态
   window.addEventListener('song-change', updateFaved)
@@ -51,15 +44,10 @@ onMounted(() => {
   }
   // 每5秒保存播放进度
   timeSaver = setInterval(() => store.savePlaybackTime(), 5000)
-  // 页面关闭/刷新时保存进度
-  window.addEventListener('beforeunload', saveOnExit)
-  document.addEventListener('visibilitychange', saveOnHide)
 })
 onUnmounted(() => {
   window.removeEventListener('song-change', updateFaved)
   clearInterval(timeSaver)
-  window.removeEventListener('beforeunload', saveOnExit)
-  document.removeEventListener('visibilitychange', saveOnHide)
 })
 
 function goToPlayer() {

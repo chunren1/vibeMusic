@@ -299,8 +299,9 @@ export function useAudioBackground(audioRef) {
   // 生命周期
   // ──────────────────────────────────────────────
 
-  // 记录上次切后台时间，用于判断是否是被浏览器强制暂停
-  let lastBgTime = 0
+  // 背景暂停自动恢复状态
+  let wasPlayingBeforeBg = false
+  let bgPauseRetries = 0
 
   onMounted(() => {
     setupMediaSession()
@@ -308,25 +309,34 @@ export function useAudioBackground(audioRef) {
     document.addEventListener('visibilitychange', handleVisibilityChange)
     startBgEndedCheck()
 
-    // 监听切后台：记录时间
-    const onHidden = () => { lastBgTime = Date.now() }
+    // 进后台时记录播放状态
+    const onHidden = () => {
+      if (document.hidden) {
+        const audio = window.vibeAudio
+        wasPlayingBeforeBg = !!(audio && !audio.paused)
+        bgPauseRetries = 0
+      } else {
+        wasPlayingBeforeBg = false
+      }
+    }
     document.addEventListener('visibilitychange', onHidden)
 
-    // 检测浏览器强制暂停（切后台后短时间内被 pause 的）
+    // 检测后台强制暂停 — 自动恢复（多级重试）
     const onAutoPause = () => {
       const audio = window.vibeAudio
-      // 如果2秒内刚切后台，且音频有源，说明是被浏览器强制暂停
-      if (Date.now() - lastBgTime < 2000 && audio?.src && audio.readyState >= 2) {
-        console.log('[AudioBG] 检测到后台强制暂停，自动恢复...')
-        audio.play().catch(() => {
-          // 第一次失败，延迟再试
-          setTimeout(() => {
-            if (document.hidden && audio?.src && audio.paused) {
-              audio.play().catch(() => {})
-            }
-          }, 500)
-        })
+      if (!document.hidden) return
+      if (!wasPlayingBeforeBg) return
+      if (!audio?.src || audio.readyState < 2) return
+
+      const retry = (delay, maxRetries) => {
+        bgPauseRetries++
+        if (bgPauseRetries > maxRetries) return
+        setTimeout(() => {
+          if (!document.hidden || !audio.paused || !audio.src) return
+          audio.play().catch(() => retry(delay * 1.5, maxRetries))
+        }, delay)
       }
+      audio.play().catch(() => retry(300, 5))
     }
     window.addEventListener('pause', onAutoPause)
     unsubscribes.push(

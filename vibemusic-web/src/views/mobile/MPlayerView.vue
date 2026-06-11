@@ -106,6 +106,12 @@ function onSeek(e) {
 
 onMounted(() => {
   window.addEventListener('song-change', onSongChange)
+
+  // 刷新恢复：如果 audio 无源但有 currentSong 数据，从 localStorage 恢复
+  if ((!audio.src || audio.src === window.location.href) && store.currentSong.id) {
+    store.restoreFromCurrentSong()
+  }
+
   // 加载当前歌曲歌词
   const id = store.currentSong.id
   if (id && id !== lastSongId.value) {
