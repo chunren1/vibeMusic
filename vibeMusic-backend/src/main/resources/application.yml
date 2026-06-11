@@ -4,20 +4,19 @@ server:
 spring:
   application:
     name: vibeMusic-backend
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
-  # 数据库配置
   datasource:
     url: jdbc:mysql://localhost:3306/vibemusic?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
-  # Redis 配置
   data:
     redis:
-      host: localhost
-      port: 6379
-      # password:               # 没有密码，留空
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       database: 0
       timeout: 3000ms
       lettuce:
@@ -27,38 +26,31 @@ spring:
           min-idle: 0
           max-wait: -1ms
 
-  # 文件上传配置
   servlet:
     multipart:
       max-file-size: 50MB
       max-request-size: 50MB
 
-# MyBatis-Plus 配置
 mybatis-plus:
-  mapper-locations: classpath*:/mapper/**/*.xml   # XML 映射文件路径
+  mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
-    map-underscore-to-camel-case: true    # 下划线转驼峰
-    # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 生产环境关闭 SQL 日志
+    map-underscore-to-camel-case: true
   global-config:
     db-config:
-      id-type: auto                       # 主键自增
-      logic-delete-field: deleted         # 逻辑删除字段（暂未使用）
+      id-type: auto
+      logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
 
-# JWT 配置
 jwt:
   secret: ${JWT_SECRET:SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2}
   expiration: 86400000
 
-# 网易云 API 配置
 netease:
   api:
-    base-url: http://localhost:3000
+    base-url: ${MUSICAPI_URL:http://localhost:3000}
     timeout: 10000
-    # Cookie 已集中到 musicapi/config.js 统一管理，后端不再持有
 
-# RustFS 对象存储配置
 storage:
   rustfs:
     endpoint: ${RUSTFS_ENDPOINT:http://127.0.0.1:9000}
@@ -67,7 +59,6 @@ storage:
     bucket-name: ${RUSTFS_BUCKET:vibemusic}
     data-path: ${RUSTFS_DATA_PATH:D:\\Rustfsdata}
 
-# Knife4j API 文档配置
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
@@ -82,9 +73,3 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
-
-# 日志级别（生产环境改为 info/warn）
-logging:
-  level:
-    com.vibemusic: info
-    org.springframework.security: warn

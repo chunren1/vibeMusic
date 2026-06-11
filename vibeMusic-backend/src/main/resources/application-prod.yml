@@ -1,0 +1,16 @@
+# ===== vibeMusic 生产环境配置 =====
+# 激活方式: SPRING_PROFILES_ACTIVE=prod
+# 命令行: mvn spring-boot:run -Dspring-boot.run.profiles=prod
+
+logging:
+  level:
+    com.vibemusic: info
+    org.springframework.security: warn
+    org.springframework.web: warn
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl  # 生产环境禁止 SQL 日志
+
+knife4j:
+  enable: false  # 生产环境关闭 API 文档
