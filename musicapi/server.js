@@ -424,58 +424,76 @@ function toStandardFormat(list) {
 // ==================== 辅助: 搜索函数 (增强版) ====================
 
 async function searchNetease(keyword, limit) {
-  const doSearch = async (withCookie) => {
-    const params = withCookie
-      ? withNeteaseCookie({ keywords: keyword, limit, type: 1 })
-      : { keywords: keyword, limit, type: 1 }
+  const extractSongs = (result) => {
+    if (!result || result.body.code !== 200) return null
+    const songs = result.body?.result?.songs || result.body?.result?.songs
+    if (!songs?.length) return null
+    return songs.map(s => ({
+      id: s.id, name: s.name,
+      artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
+      album: s.al ? s.al.name : (s.album ? s.album.name : ''),
+      cover: (s.al && s.al.picUrl) ? s.al.picUrl
+           : (s.album && s.album.picUrl) ? s.album.picUrl
+           : (s.album && s.album.blurPicUrl) ? s.album.blurPicUrl
+           : (s.al && s.al.pic_str) ? `https://p2.music.126.net/${s.al.pic_str}.jpg`
+           : '',
+      duration: s.dt || 0,
+      vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
+      _raw: { playCount: s.pop || 0 },
+    }))
+  }
 
-    // 最多重试2次（共3次尝试）
-    for (let attempt = 0; attempt <= 2; attempt++) {
+  // 尝试一个 API 调用（带重试）
+  const call = async (apiFn, params, name) => {
+    for (let i = 0; i <= 2; i++) {
       try {
-        const result = await NeteaseCloudMusicApi.cloudsearch(params)
-        if (result.body.code === 200 && result.body.result && result.body.result.songs) {
-          return result.body.result.songs.map(s => ({
-            id: s.id,
-            name: s.name,
-            artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
-            album: s.al ? s.al.name : (s.album ? s.album.name : ''),
-            cover: (s.al && s.al.picUrl) ? s.al.picUrl
-                 : (s.album && s.album.picUrl) ? s.album.picUrl
-                 : (s.album && s.album.blurPicUrl) ? s.album.blurPicUrl
-                 : (s.al && s.al.pic_str) ? `https://p2.music.126.net/${s.al.pic_str}.jpg`
-                 : '',
-            duration: s.dt || 0,
-            vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
-            _raw: { playCount: s.pop || 0 },
-          }))
+        const r = await apiFn(params)
+        const songs = extractSongs(r)
+        if (songs) return songs
+        if (i < 2) {
+          console.warn(`[Netease/${name}] 返回空, ${500*(i+1)}ms后重试...`)
+          await new Promise(r => setTimeout(r, 500 * (i + 1)))
         }
-        console.warn(`[Netease] cloudsearch 返回异常 code=${result.body.code}`)
-        return [] // 非200不重试
-      } catch (err) {
-        const msg = err.message || err.status || err
-        if (attempt < 2) {
-          console.warn(`[Netease] 第${attempt + 1}次失败: ${msg}, ${500 * (attempt + 1)}ms后重试...`)
-          await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+      } catch (e) {
+        const m = e.message || e.status || e
+        if (i < 2) {
+          console.warn(`[Netease/${name}] 第${i+1}次失败: ${m}, ${500*(i+1)}ms后重试...`)
+          await new Promise(r => setTimeout(r, 500 * (i + 1)))
         } else {
-          console.error(`[Netease] 3次尝试均失败: ${msg}`)
-          throw err // 让它去走 fallback
+          console.warn(`[Netease/${name}] 3次均失败: ${m}`)
+          throw e
         }
       }
     }
     return []
   }
 
-  try {
-    return await doSearch(true)
-  } catch (err) {
-    console.warn('[Netease] Cookie模式失败，尝试无Cookie...')
+  const makeParam = (withCookie) => {
+    const base = { keywords: keyword, limit, type: 1 }
+    return withCookie ? withNeteaseCookie(base) : base
+  }
+
+  // 策略链: cloudsearch(cookie) → search(cookie) → cloudsearch(无cookie) → search(无cookie)
+  const strategies = [
+    ['cloudsearch', true],
+    ['search', true],
+    ['cloudsearch', false],
+    ['search', false],
+  ]
+
+  for (const [fnName, withCookie] of strategies) {
+    const fn = NeteaseCloudMusicApi[fnName]
+    if (!fn) continue
     try {
-      return await doSearch(false)
-    } catch (err2) {
-      console.error('[Netease] 无Cookie也失败，请更新 __csrf')
-      return []
+      const result = await call(fn, makeParam(withCookie), fnName + (withCookie ? '+cookie' : '-cookie'))
+      if (result.length > 0) return result
+    } catch (e) {
+      // 继续下一种策略
     }
   }
+
+  console.error('[Netease] ❌ 所有策略均失败，请检查网络 + Cookie + npm包版本')
+  return []
 }
 
 async function searchQQ(keyword, limit) {

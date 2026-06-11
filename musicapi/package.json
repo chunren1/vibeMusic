@@ -7,14 +7,19 @@
     "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["netease", "qqmusic", "music", "api"],
+  "keywords": [
+    "netease",
+    "qqmusic",
+    "music",
+    "api"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "NeteaseCloudMusicApi": "^4.32.0",
-    "qq-music-api": "^1.1.2",
+    "cors": "^2.8.5",
     "express": "^4.18.2",
-    "cors": "^2.8.5"
+    "NeteaseCloudMusicApi": "^4.32.0",
+    "qq-music-api": "^1.1.2"
   }
 }
