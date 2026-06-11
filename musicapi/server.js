@@ -35,8 +35,20 @@ app.use(express.urlencoded({ extended: true }));
 
 // 访问日志中间件
 app.use((req, res, next) => {
-  writeLog('access', 'INFO', `${req.method} ${req.originalUrl}`);
+  // 跳过静态资源请求的日志
+  if (!req.url.startsWith('/favicon')) {
+    writeLog('access', 'INFO', `${req.method} ${req.originalUrl}`);
+  }
   next();
+});
+
+// 根路由（健康检查）
+app.get('/', (req, res) => {
+  res.json({ service: 'vibeMusic API', version: '3.0', status: 'running', endpoints: ['/netease/search', '/qq/search', '/lyric', '/personalized', '/cookie-status', '/health'] });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), cookieStatus });
 });
 
 // ==================== Cookie 统一管理 ====================
