@@ -72,7 +72,8 @@ onMounted(() => {
 .m-item.playing { background: rgba(49,194,124,.06); }
 .m-cover {
   width: 40px; height: 40px; border-radius: 6px; flex-shrink: 0;
-  background: rgba(255,255,255,0.06) center/cover no-repeat;
+  background-color: rgba(255,255,255,0.06);
+  background-position: center; background-size: cover; background-repeat: no-repeat;
   display: flex; align-items: center; justify-content: center;
 }
 .m-eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
