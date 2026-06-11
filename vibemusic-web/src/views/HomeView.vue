@@ -2,72 +2,26 @@
 import { ref, computed, onMounted } from 'vue'
 import { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
-import { searchSongs, playSong as apiPlaySong, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
-
+import { searchSongs, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
+import { usePlayerStore } from '@/stores/player'
 import { useRecommendStore } from '@/stores/recommend'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
 const router = useRouter()
 const authStore = useAuthStore()
+const playerStore = usePlayerStore()
 const recommendStore = useRecommendStore()
 
-// ===== 全局音频播放器（与PlayerBar共享） =====
-const audio = window.vibeAudio || new Audio()
-window.vibeAudio = audio
-const currentPlaySong = ref(null)
-const isPlaying = ref(false)
-
-audio.addEventListener('play', () => { isPlaying.value = true })
-audio.addEventListener('pause', () => { isPlaying.value = false })
-audio.addEventListener('ended', () => { isPlaying.value = false })
-
-// 监听 PlayerBar 队列切歌，同步当前播放歌曲
-window.addEventListener('song-change', (e) => {
-  currentPlaySong.value = {
-    sourceId: e.detail.sourceId,
-    name: e.detail.title,
-    artist: e.detail.artist,
-    coverUrl: e.detail.coverUrl,
-    duration: e.detail.duration,
-  }
+// ===== 播放状态（从 player store 同步） =====
+const currentPlaySong = computed(() => {
+  const s = playerStore.currentSong
+  return s.id ? { sourceId: s.id, name: s.title, artist: s.artist, coverUrl: s.coverUrl, duration: s.duration } : null
 })
+const isPlaying = computed(() => playerStore.isPlaying)
 
 function playSong(song) {
   if (!song.sourceId) return
-
-  // Chrome 自动播放策略：必须在用户手势上下文中创建/恢复 AudioContext
-  if (window._vibeAudioCtx && window._vibeAudioCtx.state === 'suspended') {
-    window._vibeAudioCtx.resume()
-  }
-
-  // 始终请求播放（不自己做暂停/继续判断，交给 PlayerBar 统一处理）
-  console.log('[HomeView] 请求播放:', song.sourceId, song.name)
-  apiPlaySong(song.sourceId, song.name, song.artist, song.coverUrl || '').then(res => {
-    const url = res.data?.url
-    if (!url) {
-      console.warn('[HomeView] 获取播放URL失败:', song.sourceId)
-      return
-    }
-    console.log('[HomeView] 获取到播放URL，准备播放')
-    if (window.vibeAudioSetSrc) window.vibeAudioSetSrc(url, song.sourceId, song.name, song.artist, song.coverUrl)
-    else { audio.src = url; audio.play().catch(() => {}) }
-    currentPlaySong.value = song
-
-    window.dispatchEvent(new CustomEvent('song-change', {
-      detail: {
-        title: song.name,
-        artist: song.artist,
-        sourceId: song.sourceId,
-        coverUrl: song.coverUrl,
-        duration: song.duration,
-        isTrial: res.data?.isTrial || false,
-        platform: res.data?.platform || song.platform,
-        fallbackFrom: res.data?.fallbackFrom || null,
-      }
-    }))
-  }).catch(err => {
-    console.error('[HomeView] 播放API调用失败:', err)
-  })
+  playerStore.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
 }
 
 // 收藏歌曲（调用后端API）

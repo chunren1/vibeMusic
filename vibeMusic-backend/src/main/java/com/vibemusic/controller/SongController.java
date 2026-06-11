@@ -75,33 +75,29 @@ public class SongController {
 
     /** 播放（获取 URL + 试听标识 + 平台 + 记录历史） */
     @GetMapping("/play")
-    @Operation(summary = "获取播放链接并记录历史")
+    @Operation(summary = "记录播放历史并返回元信息（URL解析由stream端点负责）")
     public Result<Map<String, Object>> play(
             @RequestParam String sourceId,
             @RequestParam String name,
             @RequestParam(defaultValue = "未知歌手") String artist,
             @RequestParam(required = false, defaultValue = "") String coverUrl) {
 
-        // 1. 获取播放信息（含试听标记，传歌名/歌手以支持QQ降级）
-        Map<String, Object> playInfo = songService.getPlayInfo(sourceId, name, artist);
-        if (playInfo == null || playInfo.get("url") == null) {
-            return Result.error("无法获取播放链接");
-        }
-
-        // 2. 记录播放历史（仅登录用户）
+        // 1. 记录播放历史（仅登录用户）
         Long userId = UserService.getCurrentUserId();
         if (userId != null) {
             playHistoryService.record(userId, sourceId, name, artist, coverUrl);
-            // 异步清除推荐缓存，确保下次推荐反映最新播放行为
             CompletableFuture.runAsync(() -> {
                 try { recommendService.evictUserCache(userId); } catch (Exception ignored) {}
             });
         }
 
-        // 3. 返回（含 url, isTrial, platform）
-        playInfo.put("sourceId", sourceId);
-        playInfo.put("name", name);
-        return Result.ok(playInfo);
+        // 2. 返回元信息（URL解析留给stream端点，避免重复请求）
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("sourceId", sourceId);
+        result.put("name", name);
+        result.put("artist", artist);
+        result.put("fromCache", storageService.exists("songs/" + sourceId + ".mp3"));
+        return Result.ok(result);
     }
 
     /** 最近播放 */
