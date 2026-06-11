@@ -249,40 +249,51 @@ export const usePlayerStore = defineStore('player', () => {
     }
   }
 
-  /** 页面刷新后恢复播放状态（不自动播放，仅恢复元数据） */
+  /** 页面刷新后恢复播放状态（从队列恢复） */
   function restorePlayback() {
     if (currentIdx.value >= 0 && currentIdx.value < queue.value.length) {
       const song = queue.value[currentIdx.value]
-
-      // 恢复歌曲元数据
-      if (!currentSong.value.id || currentSong.value.id !== song.sourceId) {
-        currentSong.value = {
-          id: song.sourceId, title: song.name, artist: song.artist,
-          coverUrl: song.coverUrl || '', duration: song.duration || 0,
-        }
-      }
-
-      // 没有音频源或刷新后 audio 为空 → 恢复 src
-      const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(song.sourceId)}`
-      if (audio.src !== expectedSrc && (!audio.src || audio.src === window.location.href)) {
-        const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
-        audio.src = expectedSrc
-        audio.loop = playMode.value === 'single'
-
-        // 等元数据加载完再 seek（否则 audio.duration 为 NaN 无法定位）
-        const onMeta = () => {
-          if (cachedTime > 0 && audio.duration > 0) {
-            audio.currentTime = Math.min(cachedTime, audio.duration)
-          }
-          audio.removeEventListener('loadedmetadata', onMeta)
-        }
-        audio.addEventListener('loadedmetadata', onMeta)
-        audio.load()
-      }
-
-      // 同步播放状态
-      isPlaying.value = !audio.paused
+      restoreAudioFromSong(song)
     }
+  }
+
+  /** 页面刷新后恢复播放状态（从 currentSong localStorage 兜底，不依赖队列） */
+  function restoreFromCurrentSong() {
+    const savedSong = currentSong.value
+    if (!savedSong.id) return
+    restoreAudioFromSong(savedSong)
+  }
+
+  /** 通用：从一首歌恢复音频源 + seek 到保存的进度 */
+  function restoreAudioFromSong(song) {
+    if (!song.sourceId && !song.id) return
+    const id = song.sourceId || song.id
+
+    // 恢复歌曲元数据
+    if (!currentSong.value.id || currentSong.value.id !== id) {
+      currentSong.value = {
+        id: id, title: song.songName || song.name || song.title || '',
+        artist: song.artist || '', coverUrl: song.coverUrl || '', duration: song.duration || 0,
+      }
+    }
+
+    const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(id)}`
+    if (audio.src !== expectedSrc && (!audio.src || audio.src === window.location.href)) {
+      const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
+      audio.src = expectedSrc
+      audio.loop = playMode.value === 'single'
+
+      const onMeta = () => {
+        if (cachedTime > 0 && audio.duration > 0) {
+          audio.currentTime = Math.min(cachedTime, audio.duration)
+        }
+        audio.removeEventListener('loadedmetadata', onMeta)
+      }
+      audio.addEventListener('loadedmetadata', onMeta)
+      audio.load()
+    }
+
+    isPlaying.value = !audio.paused
   }
 
   /** 恢复 AudioContext */
@@ -358,7 +369,7 @@ export const usePlayerStore = defineStore('player', () => {
     playBySourceId, playSongFromApi, playCurrent, next, prev,
     toggleMode, togglePlay, toggleMute, addToQueue, removeFromQueue,
     playIndex, clearQueue, seekTo, seekToTime,
-    savePlaybackTime, flushSave, restorePlayback, resumeAudioContext,
+    savePlaybackTime, flushSave, restorePlayback, restoreFromCurrentSong, resumeAudioContext,
     setupGlobalAnalyser, dispatchSongChange, fmtSec,
   }
 })

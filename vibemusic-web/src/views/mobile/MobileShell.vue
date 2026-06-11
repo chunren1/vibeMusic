@@ -1,11 +1,13 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { usePlayerStore } from '@/stores/player'
 import MBottomPlayer from '@/components/mobile/MBottomPlayer.vue'
 import MTabBar from '@/components/mobile/MTabBar.vue'
 import MQueuePopup from '@/components/mobile/MQueuePopup.vue'
 
 const route = useRoute()
+const store = usePlayerStore()
 const isPlayerPage = computed(() => route.path.startsWith('/m/player'))
 const showTabBar = computed(() => !route.path.startsWith('/m/search') && !isPlayerPage.value)
 const showBottomPlayer = computed(() => !isPlayerPage.value)
@@ -14,6 +16,25 @@ const showBottomPlayer = computed(() => !isPlayerPage.value)
 const showQueue = ref(false)
 onMounted(() => {
   window._openQueuePopup = () => { showQueue.value = true }
+
+  // 页面关闭/隐藏时强制保存（beforeunload 在移动端不可靠，pagehide 兜底）
+  const flush = () => store.flushSave()
+  window.addEventListener('beforeunload', flush)
+  window.addEventListener('pagehide', flush)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) store.flushSave()
+  })
+
+  // 防止后台切回时浏览器自动刷新页面
+  let wasHidden = false
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      wasHidden = true
+    } else if (wasHidden) {
+      wasHidden = false
+      // 恢复前台时不重新挂载，保留当前页面状态
+    }
+  })
 })
 </script>
 
