@@ -40,7 +40,11 @@ onMounted(() => {
 
 <template>
   <div class="mobile-shell" :class="{ 'no-padding': isPlayerPage }">
-    <RouterView />
+    <RouterView v-slot="{ Component }">
+      <keep-alive :include="['MHomeView', 'MLikesView', 'MRecentView', 'MPlaylistsView', 'MProfileView']">
+        <component :is="Component" />
+      </keep-alive>
+    </RouterView>
     <MBottomPlayer v-if="showBottomPlayer" />
     <MTabBar v-if="showTabBar" />
     <MQueuePopup :visible="showQueue" @close="showQueue = false" />

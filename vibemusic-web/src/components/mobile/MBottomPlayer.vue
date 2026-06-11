@@ -65,7 +65,7 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 </script>
 
 <template>
-  <div v-if="visible" class="mbp" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
+  <div v-if="visible" class="mbp m-glass" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
     <div class="mbp-progress" :style="{ width: store.progress + '%' }"></div>
     <div class="mbp-cover" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=80y80)` } : {}"></div>
     <div class="mbp-info" @click="goToPlayer">
@@ -99,7 +99,7 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 .mbp { 
   position: fixed; left: 0; right: 0; z-index: 100;
   height: 60px; display: flex; align-items: center; gap: 8px;
-  background: rgba(20, 20, 20, 0.95); backdrop-filter: blur(10px);
+  /* backdrop-filter moved to .m-glass via global mobile-theme.css */
   border-top: 1px solid rgba(255,255,255,0.06);
   padding: 0 8px; cursor: pointer;
   padding-bottom: env(safe-area-inset-bottom, 0px);

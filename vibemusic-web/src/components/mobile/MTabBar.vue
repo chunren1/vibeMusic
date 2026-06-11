@@ -30,7 +30,7 @@ function isActive(path) {
 </script>
 
 <template>
-  <nav class="mtab" v-show="!route.path.startsWith('/m/search') && !route.path.startsWith('/m/player')">
+  <nav class="mtab m-glass" v-show="!route.path.startsWith('/m/search') && !route.path.startsWith('/m/player')">
     <div class="mtab-item" :class="{ active: isActive('/m') }" @click="goTab(tabs[0])">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
       <span class="mtab-label">首页</span>
@@ -58,7 +58,7 @@ function isActive(path) {
 .mtab {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 99;
   display: flex; justify-content: space-around; align-items: center;
-  height: 56px; background: rgba(20, 20, 20, 0.96); backdrop-filter: blur(10px);
+  height: 56px;
   border-top: 1px solid rgba(255,255,255,0.06);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }

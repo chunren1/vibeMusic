@@ -139,12 +139,15 @@ onUnmounted(() => {
       <div class="mp-spacer"></div>
     </div>
 
+    <!-- 模糊背景 -->
+    <div class="mp-blur-bg" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=400y400)` } : {}"></div>
+
     <!-- 封面 -->
     <div class="mp-cover-section">
       <div
         class="mp-cover"
         :class="{ spinning: store.isPlaying }"
-        :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=200y200)` } : {}"
+        :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=400y400)` } : {}"
       >
         <div v-if="!store.currentSong.coverUrl" class="mp-cover-empty">♪</div>
       </div>
@@ -219,10 +222,19 @@ onUnmounted(() => {
 .mp {
   height: 100vh; height: 100dvh;
   display: flex; flex-direction: column;
-  background: #0a0a0a; color: #e0e0e0;
+  background: var(--m-bg-base); color: var(--m-text-primary);
+  position: relative; overflow: hidden;
+}
+.mp-blur-bg {
+  position: absolute; inset: 0; z-index: 0;
+  background: var(--m-bg-base) center/cover no-repeat;
+  filter: blur(40px) brightness(0.3);
+  opacity: 0.6; transform: scale(1.1);
+  pointer-events: none;
 }
 .mp-bar {
   display: flex; align-items: flex-start; padding: 10px 16px 4px; flex-shrink: 0;
+  position: relative; z-index: 1;
 }
 .mp-back {
   border: none; background: none; color: #ccc; font-size: 36px; line-height: 1;
@@ -235,11 +247,12 @@ onUnmounted(() => {
 .mp-spacer { width: 40px; }
 .mp-cover-section {
   flex: 0 0 auto; display: flex; justify-content: center; align-items: center; padding: 8px 0 12px;
+  position: relative; z-index: 1;
 }
 .mp-cover {
   width: 200px; height: 200px; border-radius: 50%;
   background: rgba(255,255,255,0.05) center/cover no-repeat;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 0 40px var(--m-primary-glow), 0 8px 24px rgba(0,0,0,0.4);
 }
 .mp-cover-empty {
   display: flex; align-items: center; justify-content: center;
