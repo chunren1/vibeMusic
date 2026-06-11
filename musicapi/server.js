@@ -424,24 +424,57 @@ function toStandardFormat(list) {
 // ==================== 辅助: 搜索函数 (增强版) ====================
 
 async function searchNetease(keyword, limit) {
-  try {
-    const result = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords: keyword, limit, type: 1 }));
-    if (result.body.code === 200 && result.body.result && result.body.result.songs) {
-      return result.body.result.songs.map(s => ({
-        id: s.id,
-        name: s.name,
-        artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
-        album: s.al ? s.al.name : (s.album ? s.album.name : ''),
-        cover: (s.al && s.al.picUrl) ? s.al.picUrl : (s.album && s.album.picUrl ? s.album.picUrl : ''),
-        duration: s.dt || 0,
-        vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1), // 网易云 fee: 1=VIP,4=购买,8=独家; st=-1=无版权需VIP
-        _raw: { playCount: s.id ? null : null },
-      }));
+  const doSearch = async (withCookie) => {
+    const params = withCookie
+      ? withNeteaseCookie({ keywords: keyword, limit, type: 1 })
+      : { keywords: keyword, limit, type: 1 }
+
+    // 最多重试2次（共3次尝试）
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      try {
+        const result = await NeteaseCloudMusicApi.cloudsearch(params)
+        if (result.body.code === 200 && result.body.result && result.body.result.songs) {
+          return result.body.result.songs.map(s => ({
+            id: s.id,
+            name: s.name,
+            artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
+            album: s.al ? s.al.name : (s.album ? s.album.name : ''),
+            cover: (s.al && s.al.picUrl) ? s.al.picUrl
+                 : (s.album && s.album.picUrl) ? s.album.picUrl
+                 : (s.album && s.album.blurPicUrl) ? s.album.blurPicUrl
+                 : (s.al && s.al.pic_str) ? `https://p2.music.126.net/${s.al.pic_str}.jpg`
+                 : '',
+            duration: s.dt || 0,
+            vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
+            _raw: { playCount: s.pop || 0 },
+          }))
+        }
+        console.warn(`[Netease] cloudsearch 返回异常 code=${result.body.code}`)
+        return [] // 非200不重试
+      } catch (err) {
+        const msg = err.message || err.status || err
+        if (attempt < 2) {
+          console.warn(`[Netease] 第${attempt + 1}次失败: ${msg}, ${500 * (attempt + 1)}ms后重试...`)
+          await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+        } else {
+          console.error(`[Netease] 3次尝试均失败: ${msg}`)
+          throw err // 让它去走 fallback
+        }
+      }
     }
-    return [];
-  } catch (error) {
-    console.error('[Netease] Search error:', error.message);
-    return [];
+    return []
+  }
+
+  try {
+    return await doSearch(true)
+  } catch (err) {
+    console.warn('[Netease] Cookie模式失败，尝试无Cookie...')
+    try {
+      return await doSearch(false)
+    } catch (err2) {
+      console.error('[Netease] 无Cookie也失败，请更新 __csrf')
+      return []
+    }
   }
 }
 
