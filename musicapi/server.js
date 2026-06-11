@@ -51,6 +51,9 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), cookieStatus });
 });
 
+// favicon 占位（避免 404 日志）
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
 // ==================== Cookie 统一管理 ====================
 const config = require('./config.js');
 
