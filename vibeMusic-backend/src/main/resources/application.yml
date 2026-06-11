@@ -38,7 +38,7 @@ mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml   # XML 映射文件路径
   configuration:
     map-underscore-to-camel-case: true    # 下划线转驼峰
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 控制台打印 SQL
+    # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 生产环境关闭 SQL 日志
   global-config:
     db-config:
       id-type: auto                       # 主键自增
@@ -83,8 +83,8 @@ knife4j:
   setting:
     language: zh_cn
 
-# 日志级别
+# 日志级别（生产环境改为 info/warn）
 logging:
   level:
-    com.vibemusic: debug
-    org.springframework.security: debug
+    com.vibemusic: info
+    org.springframework.security: warn

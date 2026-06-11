@@ -1,9 +1,11 @@
 ﻿<script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { searchSongs, playSong as apiPlaySong } from '@/api/song'
+import { searchSongs } from '@/api/song'
+import { usePlayerStore } from '@/stores/player'
 
 const router = useRouter()
+const player = usePlayerStore()
 const searchKeyword = ref('')
 const searchResults = ref([])
 const searchLoading = ref(false)
@@ -27,10 +29,7 @@ function onFocus() { searchFocused.value = true; if (searchKeyword.value.trim() 
 function clearSearch() { searchKeyword.value = ''; searchResults.value = []; showDropdown.value = false }
 
 function playSong(song) {
-  apiPlaySong(song.sourceId, song.name, song.artist).then(res => {
-    const url = res.data?.url
-    if (url && window.vibeAudioSetSrc) window.vibeAudioSetSrc(url)
-  }).catch(() => {})
+  player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
 }
 
 function formatDuration(s) {

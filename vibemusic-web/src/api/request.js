@@ -1,12 +1,8 @@
 import axios from 'axios'
 
-// 开发环境用 Vite proxy，生产环境用完整 URL
-export const API_HOST = import.meta.env.PROD 
-  ? 'https://3c93f058.r11.cpolar.top' 
-  : ''
-const API_BASE = import.meta.env.PROD 
-  ? API_HOST + '/api'
-  : '/api'
+// 开发环境用 Vite proxy，生产环境用 VITE_API_HOST 环境变量
+export const API_HOST = import.meta.env.VITE_API_HOST || ''
+const API_BASE = API_HOST ? API_HOST + '/api' : '/api'
 
 // token 内存缓存 — 避免每次请求都读 localStorage（同步 I/O）
 let _tokenCache = localStorage.getItem('token') || null

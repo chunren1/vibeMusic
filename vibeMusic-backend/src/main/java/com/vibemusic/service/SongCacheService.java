@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 
 @Slf4j
 @Service
@@ -22,21 +21,14 @@ public class SongCacheService {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
-    private static final String SEARCH_PREFIX = "song:search:v2:";
+    // 版本号递增即可自然淘汰旧缓存，无需 KEYS 扫描
+    private static final String SEARCH_PREFIX = "song:search:v3:";
     private static final Duration TTL_RESULTS = Duration.ofHours(1);
     private static final Duration TTL_EMPTY = Duration.ofMinutes(5);
 
     @PostConstruct
-    public void clearAllCache() {
-        try {
-            Set<String> keys = stringRedisTemplate.keys(SEARCH_PREFIX + "*");
-            if (keys != null && !keys.isEmpty()) {
-                stringRedisTemplate.delete(keys);
-                log.info("启动清除 {} 个旧搜索缓存", keys.size());
-            }
-        } catch (Exception e) {
-            log.warn("清除缓存失败（Redis 未启动？）: {}", e.getMessage());
-        }
+    public void init() {
+        log.info("SongCacheService 初始化完成, 前缀={}", SEARCH_PREFIX);
     }
 
     public List<SongDTO> getSearchCache(String keyword, int page) {

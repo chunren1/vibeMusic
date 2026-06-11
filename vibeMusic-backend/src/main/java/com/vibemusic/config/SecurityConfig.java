@@ -47,10 +47,11 @@ public class SecurityConfig {
                     "/uploads/**"
                 ).permitAll()
 
-                // 歌曲搜索/浏览 GET 公开（注意：/api/song/ 和 /api/songs/ 两个路径）
+                // 歌曲搜索/浏览 GET 公开
                 .requestMatchers(HttpMethod.GET,
                     "/api/song/**",
-                    "/api/songs/**"
+                    "/api/songs/**",
+                    "/api/recommend/**"
                 ).permitAll()
 
                 // 歌单歌曲查看公开
