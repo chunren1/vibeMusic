@@ -69,15 +69,15 @@ vibeMusic/
 
 | 功能 | 说明 |
 |------|------|
-| 🔍 多平台搜索 | 网易云 + QQ 音乐聚合，多维加权评分，信息指纹去重，LRU 缓存，防抖 |
-| 🎯 个性化推荐 | 播放历史歌手权重聚合 + RustFS 缓存优先 + Redis 缓存 (user 6h / guest 1h) |
+| 🔍 多平台搜索 | 网易云 + QQ 音乐聚合，4策略降级链(cloudsearch/search × 带Cookie/无Cookie)，8级指数退避重试，信息指纹去重，封面 HTTP→HTTPS 自动升级 |
+| 🎯 个性化推荐 | 播放历史歌手权重聚合 + RustFS 缓存优先 + Redis 缓存 (user 6h / guest 10min) + 缓存污染自动清理 |
 | 🏷️ 音质 SLA 分级 | LOCAL→HIRES→EXHIGH→HIGHER→STANDARD→FALLBACK 六级，逐级降级 + 统计 |
 | ▶️ VIP 音质播放 | 自有 VIP Cookie，HIRES / EXHIGH / HIGHER / STANDARD 品质 |
 | 🔐 Cookie 统一管理 | 网易云 + QQ Cookie 集中在 musicapi/config.js，后端零持有，启动自动监控 |
 | ❤️ 收藏管理 | Pinia Store 全局同步，乐观更新 + 回滚，10 个组件统一接入 |
 | 📋 歌单管理 | 创建/删除/添加歌曲，完整 CRUD，所有权校验 |
 | 🕐 最近播放 | 播放历史，自动保留近 300 条，用户隔离 |
-| 📱 移动端适配 | 路由分流 `/m`，独立 UI 组件，共享 API/Store，自动设备检测跳转 |
+| 📱 移动端适配 | 路由分流 `/m`，独立 UI 组件，共享 API/Store，封面 HTTP→HTTPS 升级，避免混合内容拦截 |
 | 🎵 歌词页 | 封面旋转 + 歌词同步滚动 + 进度条 + 收藏/下载/模式切换 |
 | 📜 播放队列 | 自动入列，底部弹出，去重管理，刷新恢复播放进度 |
 | 🤖 Android APK | Capacitor 打包，公网接口，安装即用 |
@@ -168,6 +168,7 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `/api/download/check/{id}` | GET | 检查歌曲是否已下载 |
 | `/api/download` | POST | 下载歌曲到 RustFS |
 | `/api/songs/history` | GET | 播放历史 |
+| `/api/image-proxy` | GET | 图片代理（HTTP封面→HTTPS隧道，白名单网易云CDN） |
 
 ### musicapi (Express, port 3000)
 
@@ -175,23 +176,36 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 |------|------|
 | `/search` | 多平台聚合搜索 |
 | `/lyric` | 歌词查询 |
+| `/netease/search` | 网易云搜索（4策略降级 + HTTP→HTTPS封面升级） |
+| `/qq/search` | QQ 音乐搜索 |
 | `/cloudsearch` | 网易云单平台搜索 |
 | `/song/url/v1` | 网易云播放 URL |
 | `/song/url/qq` | QQ 音乐播放 URL |
+| `/personalized` | 网易云个性化推荐 |
 | `/cookie-status` | Cookie 存活状态 |
-| `/health` | 健康检查 + 缓存大小 + Cookie 状态 |
+| `/health` | 健康检查 + Cookie 状态 |
 
 ## 个性化推荐引擎
 
 ```
 播放行为 → play_history 表 → 歌手兴趣权重聚合 → 优先匹配 RustFS 已缓存歌曲
                                                     ↓
-未登录/无历史 → /api/songs/random 降级 ← Redis 缓存 (user:6h / guest:1h)
+未登录/无历史 → getRandomSongs("热歌") 降级 ← Redis 缓存 (user:6h / guest:10min)
 ```
 
 - 播放后异步清除推荐缓存，确保推荐随行为更新
 - 换一批传 `refresh=true` 跳过 Redis 缓存重新生成
 - 异常降级：推荐失败 → `getRandomSongs()` 兜底，Redis 异常 → 跳过缓存
+- **缓存污染自动清理**：检测到全平台覆盖 → 自动删除 + 重建（解决 API 宕机时缓存毒化）
+
+## 搜索缓存四层防护
+
+```
+第1层 写入检测: 某平台空 → TTL 降为 30s（正常 1h）
+第2层 版本隔离: 前缀 v4 自动淘汰旧版本缓存
+第3层 读取校验: 缓存全单平台 → 自动删除 + 重搜
+第4层 空结果: 单平台空不缓存，空结果 TTL 仅 10s
+```
 
 ## 音质 SLA 分级 (AudioQualityTier)
 
