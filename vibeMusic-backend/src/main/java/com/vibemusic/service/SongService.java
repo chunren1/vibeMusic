@@ -200,7 +200,10 @@ public class SongService {
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();
-            return data.stream().map(this::parsePlatformSong).filter(Objects::nonNull).collect(Collectors.toList());
+            return data.stream()
+                    .map(this::parsePlatformSong).filter(Objects::nonNull)
+                    .peek(this::rewriteHttpCoverUrl) // HTTP → 代理URL (混合内容修复)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("Netease search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
             return Collections.emptyList();
@@ -214,10 +217,23 @@ public class SongService {
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();
-            return data.stream().map(this::parsePlatformSong).filter(Objects::nonNull).collect(Collectors.toList());
+            return data.stream()
+                    .map(this::parsePlatformSong).filter(Objects::nonNull)
+                    .peek(this::rewriteHttpCoverUrl) // 兜底：QQ也有少量HTTP封面
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     * HTTP 封面 URL → 后端代理 URL，解决移动端 HTTPS 页面混合内容拦截
+     */
+    private void rewriteHttpCoverUrl(SongDTO song) {
+        if (song.getCoverUrl() != null && song.getCoverUrl().startsWith("http://")) {
+            String encoded = java.net.URLEncoder.encode(song.getCoverUrl(), java.nio.charset.StandardCharsets.UTF_8);
+            song.setCoverUrl("/api/image-proxy?url=" + encoded);
         }
     }
 
