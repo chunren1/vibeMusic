@@ -79,7 +79,10 @@ onUnmounted(() => {
 
 function togglePlay() { store.togglePlay() }
 function toggleMute() { store.toggleMute() }
-function seekBar(e) { store.seekTo((e.offsetX / e.target.offsetWidth) * 100) }
+function seekBar(e) {
+  const rect = e.currentTarget.getBoundingClientRect()
+  store.seekTo((e.clientX - rect.left) / rect.width)
+}
 function toggleMode() { store.toggleMode() }
 function prev() { store.prev() }
 function next() { store.next() }
