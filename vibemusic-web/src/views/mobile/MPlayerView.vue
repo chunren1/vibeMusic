@@ -99,9 +99,24 @@ function fmt(s) {
 function togglePlay() { store.togglePlay() }
 
 function onSeek(e) {
-  const rect = e.target.getBoundingClientRect()
-  const pct = (e.clientX - rect.left) / rect.width
+  const rect = e.currentTarget.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
   store.seekTo(pct)
+}
+
+// 触摸拖拽进度条
+let seeking = false
+function onTouchStart(e) {
+  seeking = true
+  e.preventDefault()
+  onSeek(e.touches[0])
+}
+function onTouchMove(e) {
+  if (!seeking) return
+  onSeek(e.touches[0])
+}
+function onTouchEnd() {
+  seeking = false
 }
 
 onMounted(() => {
@@ -182,7 +197,11 @@ onUnmounted(() => {
     </div>
 
     <!-- 进度条 -->
-    <div class="mp-progress" @click="onSeek">
+    <div class="mp-progress"
+      @click="onSeek"
+      @touchstart="onTouchStart"
+      @touchmove="onTouchMove"
+      @touchend="onTouchEnd">
       <div class="mp-progress-fill" :style="{ transform: `scaleX(${store.progress / 100})` }">
         <span class="mp-dot"></span>
       </div>
