@@ -136,7 +136,9 @@ public class SongService {
                 b.getFinalScore() != null ? b.getFinalScore() : 0,
                 a.getFinalScore() != null ? a.getFinalScore() : 0));
 
-        cacheService.setSearchCache(kw + ":all", page, resultList, !resultList.isEmpty());
+        // 某平台空结果 → 短TTL(30秒)让恢复后快速生效；两边都有 → 正常1小时
+        boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty();
+        cacheService.setSearchCache(kw + ":all", page, resultList, !resultList.isEmpty(), incomplete);
 
         int from = (page - 1) * size;
         int to = Math.min(from + size, resultList.size());
