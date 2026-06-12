@@ -74,10 +74,11 @@ public class SongService {
         log.info("Search '{}' platform={} page={} Redis miss", kw, cacheExtra, page);
 
         // 只搜指定平台（支持分页）
+        // 注意: 单平台搜索失败时 不缓存空结果，避免 API 恢复后仍返回旧缓存
         if ("netease".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw));
             for (SongDTO s : songs) s.setPlatform("netease");
-            cacheService.setSearchCache(kw + ":netease", 1, songs, !songs.isEmpty());
+            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":netease", 1, songs, true);
             int from = (page - 1) * size;
             int to = Math.min(from + size, songs.size());
             if (from >= songs.size()) return Collections.emptyList();
@@ -86,7 +87,7 @@ public class SongService {
         if ("qq".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchQQ(kw));
             for (SongDTO s : songs) s.setPlatform("qq");
-            cacheService.setSearchCache(kw + ":qq", 1, songs, !songs.isEmpty());
+            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", 1, songs, true);
             int from = (page - 1) * size;
             int to = Math.min(from + size, songs.size());
             if (from >= songs.size()) return Collections.emptyList();
