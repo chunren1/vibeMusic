@@ -30,7 +30,7 @@ onMounted(() => {
     <div class="m-list">
       <div v-for="(s, i) in songs" :key="s.sourceId"
         class="m-item" :class="{ playing: player.currentSong.id === s.sourceId && player.isPlaying }" @click="play(s)">
-        <div class="m-cover" v-lazy-img:bg="s.coverUrl ? `${s.coverUrl}?param=80y80` : null">
+        <div class="m-cover" :style="s.coverUrl ? { backgroundImage: `url(${s.coverUrl}?param=80y80)` } : { background: '#1a1a2e' }">
           <span v-if="player.currentSong.id === s.sourceId && player.isPlaying" class="m-eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
         </div>
         <div class="m-info">
