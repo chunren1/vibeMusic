@@ -258,17 +258,37 @@ public class RecommendService {
     }
 
     /**
-     * 读 Redis 缓存
+     * 读 Redis 缓存 + 校验：单平台全覆盖 = 缓存污染，自动清理
      */
     private RecommendResult readCache(String key) {
         try {
             String json = stringRedisTemplate.opsForValue().get(key);
             if (json == null) return null;
-            return objectMapper.readValue(json, RecommendResult.class);
+            RecommendResult result = objectMapper.readValue(json, RecommendResult.class);
+            if (isCachePoisoned(result)) {
+                log.warn("检测到推荐缓存污染(单一平台), 自动清理: {} ({}首全{})",
+                        key, result.getSongs().size(),
+                        result.getSongs().get(0).getPlatform());
+                stringRedisTemplate.delete(key);
+                return null;
+            }
+            return result;
         } catch (Exception e) {
             log.warn("读取推荐缓存失败: {}", key, e);
             return null;
         }
+    }
+
+    /**
+     * 检测缓存是否被污染：随机推荐 8 首全来自同一平台 → 另一个平台当时挂了
+     */
+    private boolean isCachePoisoned(RecommendResult result) {
+        List<SongDTO> songs = result.getSongs();
+        if (songs == null || songs.size() < 4) return false;
+        long neteaseCount = songs.stream().filter(s -> "netease".equals(s.getPlatform())).count();
+        long qqCount = songs.stream().filter(s -> "qq".equals(s.getPlatform())).count();
+        // 全部来自一个平台且数量≥4 → 大概率另一个平台当时异常
+        return (neteaseCount == songs.size() || qqCount == songs.size());
     }
 
     /**
