@@ -40,7 +40,19 @@ public class SongCacheService {
                 return Collections.emptyList();
             }
             log.debug("Redis 命中搜索: {} page={}", keyword, page);
-            return objectMapper.readValue(json, new TypeReference<List<SongDTO>>() {});
+            List<SongDTO> songs = objectMapper.readValue(json, new TypeReference<List<SongDTO>>() {});
+            // 校验：:all 缓存若全来自单平台 → 污染，自动清理
+            if (keyword.endsWith(":all") && songs.size() >= 4) {
+                long netease = songs.stream().filter(s -> "netease".equals(s.getPlatform())).count();
+                long qq = songs.stream().filter(s -> "qq".equals(s.getPlatform())).count();
+                if (netease == 0 || qq == 0) {
+                    log.warn("检测到搜索缓存污染: {} ({}首全{}平台), 自动清理",
+                            keyword, songs.size(), netease == 0 ? "QQ" : "网易云");
+                    stringRedisTemplate.delete(SEARCH_PREFIX + keyword);
+                    return Collections.emptyList(); // 触发重新搜索
+                }
+            }
+            return songs;
         } catch (Exception e) {
             log.warn("读取 Redis 缓存失败: {}", e.getMessage());
             return Collections.emptyList();
