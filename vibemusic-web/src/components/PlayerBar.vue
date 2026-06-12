@@ -79,9 +79,29 @@ onUnmounted(() => {
 
 function togglePlay() { store.togglePlay() }
 function toggleMute() { store.toggleMute() }
-function seekBar(e) {
-  const rect = e.currentTarget.getBoundingClientRect()
-  store.seekTo((e.clientX - rect.left) / rect.width)
+const progressTrack = ref(null)
+const isSeeking = ref(false)
+const seekPreviewTime = ref('')
+
+function seekAt(clientX) {
+  if (!progressTrack.value) return
+  const rect = progressTrack.value.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+  store.seekTo(pct)
+  seekPreviewTime.value = store.fmtSec(pct * (store.duration || 0))
+}
+
+function onTrackMouseDown(e) {
+  isSeeking.value = true
+  seekAt(e.clientX)
+  document.addEventListener('mousemove', onTrackMouseMove)
+  document.addEventListener('mouseup', onTrackMouseUp)
+}
+function onTrackMouseMove(e) { seekAt(e.clientX) }
+function onTrackMouseUp() {
+  isSeeking.value = false
+  document.removeEventListener('mousemove', onTrackMouseMove)
+  document.removeEventListener('mouseup', onTrackMouseUp)
 }
 function toggleMode() { store.toggleMode() }
 function prev() { store.prev() }
@@ -121,12 +141,14 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
     <footer class="bar">
       <div class="progress-wrap">
         <span class="time">{{ store.fmtSec(currentTime) }}</span>
-        <div class="progress-track" @click="seekBar">
+        <div ref="progressTrack" class="progress-track" :class="{ seeking: isSeeking }" @mousedown="onTrackMouseDown">
+          <!-- 拖拽时间气泡 -->
+          <div v-if="isSeeking" class="seek-bubble">{{ seekPreviewTime }}</div>
           <div class="progress-fill" :style="{ width: progress + '%' }">
             <div class="thumb"></div>
           </div>
         </div>
-        <span class="time">{{ totalTime || '0:00' }}</span>
+        <span class="time" :class="{ seeking: isSeeking }">{{ isSeeking ? seekPreviewTime : (totalTime || '0:00') }}</span>
       </div>
 
       <div class="ctrl-wrap">
@@ -251,11 +273,30 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 
 .progress-wrap { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
 .time { font-size: 13px; color: #999; min-width: 44px; font-variant-numeric: tabular-nums; text-align: center; }
-.progress-track { flex: 1; height: 4px; background: #e8e8e8; border-radius: 2px; cursor: pointer; position: relative; }
+.progress-track { flex: 1; height: 4px; background: #e8e8e8; border-radius: 2px; cursor: pointer; position: relative; transition: height .15s; }
 .progress-track:hover { height: 6px; }
-.progress-fill { height: 100%; background: #31c27c; border-radius: 2px; position: relative; }
-.thumb { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: #31c27c; border-radius: 50%; opacity: 0; transition: opacity .2s; }
+.progress-track.seeking { height: 6px; }
+
+/* 拖拽时间气泡 */
+.seek-bubble {
+  position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
+  background: #31c27c; color: #fff; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+  pointer-events: none; z-index: 2;
+  animation: bubbleIn .15s ease-out;
+}
+@keyframes bubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(4px); } }
+
+.progress-fill { height: 100%; background: #31c27c; border-radius: 2px; position: relative; transition: filter .15s; }
+.progress-track.seeking .progress-fill { filter: brightness(1.2); }
+
+.thumb { position: absolute; right: -6px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: #31c27c; border-radius: 50%; opacity: 0; transition: all .2s; }
 .progress-track:hover .thumb { opacity: 1; }
+.progress-track.seeking .thumb {
+  opacity: 1;
+  width: 14px; height: 14px; right: -7px;
+  box-shadow: 0 0 6px rgba(49,194,124,.4);
+}
 
 .ctrl-wrap { display: flex; align-items: center; justify-content: space-between; }
 

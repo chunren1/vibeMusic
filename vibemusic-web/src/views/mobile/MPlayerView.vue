@@ -99,29 +99,34 @@ function fmt(s) {
 function togglePlay() { store.togglePlay() }
 
 const progressBar = ref(null)
+const isSeeking = ref(false)       // 拖拽动画状态
+const seekPreview = ref('')        // 拖拽时的时间预览
 
 function seekAt(clientX) {
   if (!progressBar.value) return
   const rect = progressBar.value.getBoundingClientRect()
   const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
   store.seekTo(pct)
+  seekPreview.value = fmt(pct * (store.duration || 0))
 }
 
-function onSeek(e) { seekAt(e.clientX) }
+function onSeek(e) {
+  isSeeking.value = true
+  seekAt(e.clientX)
+  isSeeking.value = false
+}
 
 // 触摸拖拽进度条
-let seeking = false
 function onTouchStart(e) {
-  seeking = true
+  isSeeking.value = true
   e.preventDefault()
   seekAt(e.touches[0].clientX)
 }
 function onTouchMove(e) {
-  if (!seeking) return
   seekAt(e.touches[0].clientX)
 }
 function onTouchEnd() {
-  seeking = false
+  isSeeking.value = false
 }
 
 onMounted(() => {
@@ -202,17 +207,19 @@ onUnmounted(() => {
     </div>
 
     <!-- 进度条 -->
-    <div ref="progressBar" class="mp-progress"
+    <div ref="progressBar" class="mp-progress" :class="{ seeking: isSeeking }"
       @click="onSeek"
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
       @touchend="onTouchEnd">
+      <!-- 拖拽时的时间气泡 -->
+      <div v-if="isSeeking" class="mp-seek-bubble">{{ seekPreview }}</div>
       <div class="mp-progress-fill" :style="{ transform: `scaleX(${store.progress / 100})` }">
         <span class="mp-dot"></span>
       </div>
     </div>
-    <div class="mp-time">
-      <span>{{ fmt(store.currentTime) }}</span>
+    <div class="mp-time" :class="{ seeking: isSeeking }">
+      <span>{{ isSeeking ? seekPreview : fmt(store.currentTime) }}</span>
       <span>{{ fmt(store.duration) }}</span>
     </div>
 
@@ -313,18 +320,44 @@ onUnmounted(() => {
 .mp-progress {
   height: 4px; margin: 0 28px; background: rgba(255,255,255,.12);
   border-radius: 2px; cursor: pointer; flex-shrink: 0; position: relative;
+  transition: height .15s;
 }
+/* 拖拽时进度条加粗 */
+.mp-progress.seeking { height: 6px; }
+
+/* 拖拽时间气泡 */
+.mp-seek-bubble {
+  position: absolute; top: -28px; left: 50%; transform: translateX(-50%);
+  background: #31c27c; color: #fff; font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 10px; white-space: nowrap;
+  pointer-events: none; z-index: 2;
+  animation: bubbleIn .15s ease-out;
+}
+@keyframes bubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(4px); } }
+
 .mp-progress-fill {
   height: 100%; width: 100%; background: #31c27c; border-radius: 2px;
   position: relative; transform-origin: left;
-  will-change: transform;
+  will-change: transform; transition: filter .15s;
 }
+/* 拖拽时进度条更亮 */
+.mp-progress.seeking .mp-progress-fill { filter: brightness(1.3); }
+
 .mp-dot {
   position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
   width: 12px; height: 12px; border-radius: 50%; background: #31c27c;
-  opacity: 0; transition: opacity .2s;
+  opacity: 0; transition: all .2s;
 }
 .mp-progress:hover .mp-dot { opacity: 1; }
+/* 拖拽时拇指放大 */
+.mp-progress.seeking .mp-dot {
+  opacity: 1;
+  width: 16px; height: 16px; right: -8px;
+  box-shadow: 0 0 8px rgba(49,194,124,.5);
+}
+
+.mp-time.seeking { color: #31c27c; }
+
 
 .mp-time {
   display: flex; justify-content: space-between; padding: 6px 28px 0;
