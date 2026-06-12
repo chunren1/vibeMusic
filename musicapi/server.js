@@ -465,17 +465,11 @@ async function searchNetease(keyword, limit) {
         const r = await apiFn(params)
         const songs = extractSongs(r)
         if (songs) return songs
-        if (i < 2) {
-          console.warn(`[Netease/${name}] 返回空, ${500*(i+1)}ms后重试...`)
-          await new Promise(r => setTimeout(r, 500 * (i + 1)))
-        }
+        if (i < 2) await new Promise(r => setTimeout(r, 500 * (i + 1)))
       } catch (e) {
-        const m = e.message || e.status || e
         if (i < 2) {
-          console.warn(`[Netease/${name}] 第${i+1}次失败: ${m}, ${500*(i+1)}ms后重试...`)
           await new Promise(r => setTimeout(r, 500 * (i + 1)))
         } else {
-          console.warn(`[Netease/${name}] 3次均失败: ${m}`)
           throw e
         }
       }
@@ -503,21 +497,20 @@ async function searchNetease(keyword, limit) {
       const result = await call(fn, makeParam(withCookie), fnName + (withCookie ? '+cookie' : '-cookie'))
       if (result.length > 0) return result
     } catch (e) {
-      // 继续下一种策略
+      // 继续下一种策略（仅所有策略失败时打印一次）
     }
   }
 
-  console.error('[Netease] ❌ 所有策略均失败，请检查网络 + Cookie + npm包版本')
+  console.error('[Netease] 所有搜索策略均失败，请检查 Cookie / 网络')
   return []
 }
 
 async function searchQQ(keyword, limit) {
   try {
     const result = await qqMusic.api('search', { key: keyword, limit });
-    console.log(`[QQ] ${keyword} → list=${result?.list?.length}, code=${result?.code}, msg=${result?.msg}`);
     // 检查 QQ API 是否返回错误
     if (result && result.code !== 0) {
-      console.error(`[QQ] API 返回错误: code=${result.code}, msg=${result.msg}, req=${JSON.stringify(result.req_0 || result)}`);
+      console.warn(`[QQ] API 返回异常: code=${result.code}`);
     }
     if (result && result.list && Array.isArray(result.list)) {
       return result.list.map(s => {
