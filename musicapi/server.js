@@ -442,10 +442,7 @@ async function searchNetease(keyword, limit) {
       } else if (s.al && s.al.pic) {
         cover = `https://p2.music.126.net/${s.al.pic}.jpg`
       }
-      // 网易云 CDN 支持 HTTPS，强制升级避免移动端混合内容拦截
-      if (cover.startsWith('http://')) {
-        cover = cover.replace('http://', 'https://')
-      }
+      // 网易云 CDN 返回 HTTP，保留原始URL，由后端 ProxyController 代理转为 HTTPS
       return {
         id: s.id, name: s.name,
         artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
