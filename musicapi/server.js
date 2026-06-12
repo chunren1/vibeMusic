@@ -499,6 +499,11 @@ async function searchNetease(keyword, limit) {
 async function searchQQ(keyword, limit) {
   try {
     const result = await qqMusic.api('search', { key: keyword, limit });
+    console.log(`[QQ] ${keyword} → list=${result?.list?.length}, code=${result?.code}, msg=${result?.msg}`);
+    // 检查 QQ API 是否返回错误
+    if (result && result.code !== 0) {
+      console.error(`[QQ] API 返回错误: code=${result.code}, msg=${result.msg}, req=${JSON.stringify(result.req_0 || result)}`);
+    }
     if (result && result.list && Array.isArray(result.list)) {
       return result.list.map(s => {
         let cover = '';
