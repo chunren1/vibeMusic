@@ -61,6 +61,45 @@ function onAuthSuccess() {
   }
 }
 
+async function handleRegister() {
+  errorMsg.value = ''
+  if (!username.value || !password.value) {
+    errorMsg.value = '请输入用户名和密码'
+    return
+  }
+  if (password.value.length < 4) {
+    errorMsg.value = '密码至少4位'
+    return
+  }
+  loading.value = true
+  try {
+    const res = await request.post('/auth/register', {
+      username: username.value,
+      password: password.value,
+      nickname: nickname.value || username.value,
+    })
+    if (res.code === 200) {
+      authStore.login(res.data.token, {
+        userId: res.data.userId,
+        username: res.data.username,
+        nickname: res.data.nickname,
+        avatar: res.data.avatar,
+        bgImage: res.data.bgImage,
+        gender: res.data.gender,
+        birthday: res.data.birthday,
+      })
+      onAuthSuccess()
+    } else {
+      errorMsg.value = res.message || '注册失败'
+    }
+  } catch (e) {
+    const msg = e.response?.data?.message || e.message || '注册失败'
+    errorMsg.value = msg
+  } finally {
+    loading.value = false
+  }
+}
+
 async function handleLogin() {
   errorMsg.value = ''
   if (!username.value || !password.value) {
