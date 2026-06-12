@@ -35,7 +35,7 @@ export const usePlayerStore = defineStore('player', () => {
   const duration = ref(0)
   const isMuted = ref(false)
 
-  const modeLabels = { 'list-loop': '列表循环', 'single': '单曲循环', 'shuffle': '随机播放', 'sequential': '顺序播放' }
+  const modeLabels = { 'list-loop': '顺序播放', 'single': '单曲循环', 'shuffle': '随机播放' }
 
   // ===== 持久化 =====
   function saveToStorage() {
@@ -153,11 +153,7 @@ export const usePlayerStore = defineStore('player', () => {
       const r = Math.floor(Math.random() * queue.value.length)
       currentIdx.value = r === currentIdx.value && queue.value.length > 1
         ? (r + 1) % queue.value.length : r
-    } else if (playMode.value === 'sequential') {
-      if (currentIdx.value >= queue.value.length - 1) return
-      currentIdx.value = currentIdx.value + 1
     } else {
-      // list-loop / single 的 next 逻辑一样（循环）
       currentIdx.value = (currentIdx.value + 1) % queue.value.length
     }
     playCurrent()
@@ -168,15 +164,12 @@ export const usePlayerStore = defineStore('player', () => {
     // single 模式由 audio.loop=true 处理，不会触发 ended
     if (playMode.value === 'shuffle' || playMode.value === 'list-loop') {
       next()
-    } else if (playMode.value === 'sequential') {
-      if (currentIdx.value < queue.value.length - 1) next()
-      else isPlaying.value = false
     }
   }
 
   /** 切换播放模式 */
   function toggleMode() {
-    const modes = ['list-loop', 'single', 'shuffle', 'sequential']
+    const modes = ['list-loop', 'single', 'shuffle']
     const idx = modes.indexOf(playMode.value)
     playMode.value = modes[(idx + 1) % modes.length]
     window.dispatchEvent(new CustomEvent('play-mode-change', { detail: playMode.value }))
