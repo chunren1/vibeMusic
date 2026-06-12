@@ -428,19 +428,34 @@ async function searchNetease(keyword, limit) {
     if (!result || result.body.code !== 200) return null
     const songs = result.body?.result?.songs || result.body?.result?.songs
     if (!songs?.length) return null
-    return songs.map(s => ({
-      id: s.id, name: s.name,
-      artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
-      album: s.al ? s.al.name : (s.album ? s.album.name : ''),
-      cover: (s.al && s.al.picUrl) ? s.al.picUrl
-           : (s.album && s.album.picUrl) ? s.album.picUrl
-           : (s.album && s.album.blurPicUrl) ? s.album.blurPicUrl
-           : (s.al && s.al.pic_str) ? `https://p2.music.126.net/${s.al.pic_str}.jpg`
-           : '',
-      duration: s.dt || 0,
-      vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
-      _raw: { playCount: s.pop || 0 },
-    }))
+    return songs.map(s => {
+      // 封面提取：兼容多种字段 + HTTP→HTTPS 升级(移动端HTTPS页面不拦截)
+      let cover = ''
+      if (s.al && s.al.picUrl) {
+        cover = s.al.picUrl
+      } else if (s.album && s.album.picUrl) {
+        cover = s.album.picUrl
+      } else if (s.album && s.album.blurPicUrl) {
+        cover = s.album.blurPicUrl
+      } else if (s.al && s.al.pic_str) {
+        cover = `https://p2.music.126.net/${s.al.pic_str}.jpg`
+      } else if (s.al && s.al.pic) {
+        cover = `https://p2.music.126.net/${s.al.pic}.jpg`
+      }
+      // 网易云 CDN 支持 HTTPS，强制升级避免移动端混合内容拦截
+      if (cover.startsWith('http://')) {
+        cover = cover.replace('http://', 'https://')
+      }
+      return {
+        id: s.id, name: s.name,
+        artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
+        album: s.al ? s.al.name : (s.album ? s.album.name : ''),
+        cover,
+        duration: s.dt || 0,
+        vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
+        _raw: { playCount: s.pop || 0 },
+      }
+    })
   }
 
   // 尝试一个 API 调用（带重试）
