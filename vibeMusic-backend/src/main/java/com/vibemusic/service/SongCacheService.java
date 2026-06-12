@@ -24,7 +24,7 @@ public class SongCacheService {
     // 版本号递增即可自然淘汰旧缓存，无需 KEYS 扫描
     private static final String SEARCH_PREFIX = "song:search:v3:";
     private static final Duration TTL_RESULTS = Duration.ofHours(1);
-    private static final Duration TTL_EMPTY = Duration.ofMinutes(5);
+    private static final Duration TTL_EMPTY = Duration.ofSeconds(10); // 空结果仅缓存10秒，快速恢复
 
     @PostConstruct
     public void init() {
