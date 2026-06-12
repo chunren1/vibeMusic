@@ -163,7 +163,7 @@ function shuffleSongs() {
           :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
           @click="playSong(song)">
           <div class="m-song-cover"
-            v-lazy-img:bg="song.coverUrl ? `${song.coverUrl}?param=80y80` : (song.coverColor || '#1a1a2e')">
+            :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=80y80)` } : { background: song.coverColor || '#1a1a2e' }">
             <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq">
               <span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span>
             </span>
