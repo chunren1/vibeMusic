@@ -30,8 +30,9 @@ public class RecommendService {
     private static final int RECOMMEND_COUNT = 8;
     private static final int HISTORY_DAYS = 30;
     private static final int HISTORY_SAMPLE = 100;
+    private static final String CACHE_PREFIX = "recommend:v2:"; // v2 清旧缓存(ECONNRESET污染)
     private static final Duration USER_CACHE_TTL = Duration.ofHours(6);
-    private static final Duration GUEST_CACHE_TTL = Duration.ofHours(1);
+    private static final Duration GUEST_CACHE_TTL = Duration.ofMinutes(10); // 游客推荐10分钟过期，加速API恢复后生效
 
     /**
      * 个性化推荐入口
@@ -41,8 +42,8 @@ public class RecommendService {
      */
     public RecommendResult getPersonalized(Long userId, String deviceId, boolean refresh) {
         String cacheKey = userId != null
-                ? "recommend:user:" + userId
-                : "recommend:guest:" + (deviceId != null ? deviceId : "anon");
+                ? CACHE_PREFIX + "user:" + userId
+                : CACHE_PREFIX + "guest:" + (deviceId != null ? deviceId : "anon");
 
         // 非刷新模式：尝试读缓存
         if (!refresh) {
@@ -84,7 +85,7 @@ public class RecommendService {
      */
     public void evictUserCache(Long userId) {
         try {
-            String key = "recommend:user:" + userId;
+            String key = CACHE_PREFIX + "user:" + userId;
             stringRedisTemplate.delete(key);
             log.debug("删除推荐缓存: {}", key);
         } catch (Exception e) {
