@@ -98,22 +98,27 @@ function fmt(s) {
 
 function togglePlay() { store.togglePlay() }
 
-function onSeek(e) {
-  const rect = e.currentTarget.getBoundingClientRect()
-  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+const progressBar = ref(null)
+
+function seekAt(clientX) {
+  if (!progressBar.value) return
+  const rect = progressBar.value.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
   store.seekTo(pct)
 }
+
+function onSeek(e) { seekAt(e.clientX) }
 
 // 触摸拖拽进度条
 let seeking = false
 function onTouchStart(e) {
   seeking = true
   e.preventDefault()
-  onSeek(e.touches[0])
+  seekAt(e.touches[0].clientX)
 }
 function onTouchMove(e) {
   if (!seeking) return
-  onSeek(e.touches[0])
+  seekAt(e.touches[0].clientX)
 }
 function onTouchEnd() {
   seeking = false
@@ -197,7 +202,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 进度条 -->
-    <div class="mp-progress"
+    <div ref="progressBar" class="mp-progress"
       @click="onSeek"
       @touchstart="onTouchStart"
       @touchmove="onTouchMove"
