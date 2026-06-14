@@ -2,6 +2,7 @@ package com.vibemusic.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vibemusic.dto.SearchResponse;
 import com.vibemusic.dto.SongDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -107,6 +108,82 @@ public class ESSearchService {
         return findByKeyword(keyword);
     }
 
+    // ========== 搜索增强 API ==========
+
+    /** 带高亮 + 平台聚合的搜索 */
+    public SearchResponse searchWithHighlight(String keyword) {
+        try {
+            String body = String.format("""
+                {"query":{"match":{"keyword":"%s"}},
+                 "highlight":{"fields":{"keyword":{}},"pre_tags":["<em>"],"post_tags":["</em>"]},
+                 "aggs":{"by_source":{"terms":{"field":"source"}}},
+                 "size":80}""", keyword);
+            String resp = client.post().uri("/" + INDEX + "/_search")
+                    .header("Content-Type", "application/json").bodyValue(body)
+                    .retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
+            if (resp == null) return SearchResponse.builder().songs(List.of()).build();
+
+            JsonNode root = mapper.readTree(resp);
+            JsonNode hits = root.path("hits").path("hits");
+
+            List<SongDTO> songs = new ArrayList<>();
+            Map<String, List<String>> highlights = new HashMap<>();
+
+            for (JsonNode hit : hits) {
+                JsonNode src = hit.path("_source");
+                SongDTO dto = new SongDTO();
+                dto.setSourceId(src.path("songId").asText());
+                dto.setName(src.path("name").asText());
+                dto.setArtist(src.path("artist").asText());
+                dto.setAlbum(src.path("album").asText());
+                dto.setCoverUrl(src.path("coverUrl").asText());
+                dto.setDuration(src.path("duration").asInt());
+                dto.setPlatform(src.path("source").asText());
+                dto.setFinalScore(src.path("finalScore").asDouble());
+                songs.add(dto);
+
+                // 解析高亮
+                JsonNode hl = hit.path("highlight").path("keyword");
+                if (hl.isArray()) {
+                    List<String> frags = new ArrayList<>();
+                    hl.forEach(f -> frags.add(f.asText()));
+                    highlights.put(dto.getSourceId(), frags);
+                }
+            }
+
+            // 解析聚合
+            Map<String, Long> counts = new HashMap<>();
+            JsonNode buckets = root.path("aggregations").path("by_source").path("buckets");
+            for (JsonNode b : buckets) {
+                counts.put(b.path("key").asText(), b.path("doc_count").asLong());
+            }
+
+            return SearchResponse.builder().songs(songs).highlights(highlights).platformCounts(counts).build();
+        } catch (Exception e) {
+            log.debug("ES 增强搜索失败: {}", e.getMessage());
+            return SearchResponse.builder().songs(List.of()).build();
+        }
+    }
+
+    /** 搜索建议（补全） */
+    public List<String> suggest(String prefix) {
+        try {
+            String body = String.format("""
+                {"suggest":{"song-suggest":{"prefix":"%s","completion":{"field":"keyword.suggest","size":8}}}}""", prefix);
+            String resp = client.post().uri("/" + INDEX + "/_search")
+                    .header("Content-Type", "application/json").bodyValue(body)
+                    .retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
+            if (resp == null) return List.of();
+
+            List<String> result = new ArrayList<>();
+            JsonNode opts = mapper.readTree(resp).path("suggest").path("song-suggest").get(0).path("options");
+            for (JsonNode o : opts) result.add(o.path("text").asText());
+            return result;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
     // ========== 内部 ==========
 
     private void ensureIndex() {
@@ -115,7 +192,8 @@ public class ESSearchService {
                     .timeout(TIMEOUT).onErrorResume(e -> {
                         String body = """
                     {"settings":{"number_of_shards":1,"number_of_replicas":0},
-                     "mappings":{"properties":{"keyword":{"type":"text","analyzer":"ik_max_word","search_analyzer":"ik_smart"},
+                     "mappings":{"properties":{"keyword":{"type":"text","analyzer":"ik_max_word","search_analyzer":"ik_smart",
+                      "fields":{"suggest":{"type":"completion","analyzer":"ik_max_word"}}},
                      "songId":{"type":"keyword"},"name":{"type":"text","index":false},"artist":{"type":"text","index":false},
                      "album":{"type":"text","index":false},"coverUrl":{"type":"keyword","index":false},
                      "duration":{"type":"integer"},"source":{"type":"keyword"},"finalScore":{"type":"double"},
