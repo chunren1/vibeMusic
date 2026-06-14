@@ -61,7 +61,7 @@ services:
   # Elasticsearch 8.11 — 全文搜索引擎
   # ==========================
   elasticsearch:
-    image: elasticsearch:8.11.0
+    image: elasticsearch:8.17.4
     container_name: vibemusic-es
     restart: unless-stopped
     environment:
@@ -70,7 +70,7 @@ services:
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
       - TZ=Asia/Shanghai
     ports:
-      - "9200:9200"
+      - "9201:9200"
     volumes:
       # ES 数据
       - ./docker-data/elasticsearch/data:/usr/share/elasticsearch/data
