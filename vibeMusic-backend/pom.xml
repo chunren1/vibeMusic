@@ -101,10 +101,10 @@
             <version>8.5.17</version>
         </dependency>
 
-        <!-- Elasticsearch -->
+        <!-- ES HTTP 客户端（绕过 Spring Data ES 版本冲突） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
         <!-- Knife4j (OpenAPI 文档) -->
