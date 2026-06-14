@@ -508,8 +508,8 @@ async function searchNetease(keyword, limit) {
 async function searchQQ(keyword, limit) {
   try {
     const result = await qqMusic.api('search', { key: keyword, limit });
-    // 检查 QQ API 是否返回错误
-    if (result && result.code !== 0) {
+    // QQ API 正常时无 code 字段，仅在有 code 且非0时告警
+    if (result && result.code != null && result.code !== 0) {
       console.warn(`[QQ] API 返回异常: code=${result.code}`);
     }
     if (result && result.list && Array.isArray(result.list)) {
