@@ -74,22 +74,21 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
     </div>
     <!-- 收藏按钮 -->
     <button class="mbp-btn sm" :class="{ faved: isFaved }" @click.stop="toggleFav" title="收藏">
-      <svg viewBox="0 0 24 24" width="18" height="18" :fill="isFaved ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+      <SvgIcon :name="isFaved ? 'heart-fill' : 'heart'" :color="isFaved ? '#ff4757' : 'currentColor'" size="18" />
     </button>
     <!-- 右侧图标区（均匀分布） -->
     <div class="mbp-icons">
       <button class="mbp-btn sm" @click.stop="clickPrev" title="上一首">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        <SvgIcon name="previous" size="18" />
       </button>
       <button class="mbp-btn" @click.stop="togglePlayPause">
-        <svg v-if="store.isPlaying" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-        <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+        <SvgIcon :name="store.isPlaying ? 'pause' : 'play'" size="24" />
       </button>
       <button class="mbp-btn sm" @click.stop="clickNext" title="下一首">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        <SvgIcon name="next" size="18" />
       </button>
       <button class="mbp-btn sm" @click.stop="openQueue" title="播放列表">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <SvgIcon name="playlist" size="18" />
       </button>
     </div>
   </div>
@@ -115,8 +114,8 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
   background: rgba(255,255,255,0.06) center/cover no-repeat;
 }
 .mbp-info { flex: 1; min-width: 0; }
-.mbp-title { font-size: 14px; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mbp-artist { font-size: 12px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mbp-title { font-size: 15px; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mbp-artist { font-size: 13px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mbp-btn { flex-shrink: 0; width: 40px; height: 40px; border: none; background: none; color: #e0e0e0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .mbp-btn.sm { width: 32px; height: 32px; color: #888; }
 .mbp-btn.faved { color: #ffc107; }

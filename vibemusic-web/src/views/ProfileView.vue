@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import LoginModal from '@/components/LoginModal.vue'
+import TopBar from '@/components/TopBar.vue'
 import request from '@/api/request'
 
 const router = useRouter()
@@ -162,6 +163,7 @@ function genderLabel(v) {
 </script>
 
 <template>
+  <TopBar />
   <div class="profile-page">
     <!-- ========== 未登录 ========== -->
     <div v-if="!auth.isLoggedIn" class="not-login-card">
@@ -177,7 +179,6 @@ function genderLabel(v) {
         <div class="hero-bg" :class="{ 'has-image': auth.bgImageSrc }">
           <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="hero-bg-img" />
         </div>
-        <!-- 底部渐变过渡 -->
         <div class="hero-fade"></div>
       </div>
 
@@ -314,16 +315,17 @@ function genderLabel(v) {
 .ghost-sub { font-size: 13px; color: #999; }
 
 /* ===== 头部背景区 ===== */
+.profile-page { margin: -20px 0 0; }
 .hero-area {
-  position: relative; height: 260px; overflow: hidden;
-  width: 100vw; margin-left: calc(-50vw + 50%);
+  position: relative; height: 320px; overflow: hidden;
+  margin: 0 -28px;
 }
 .hero-bg {
   position: absolute; inset: 0;
   background: linear-gradient(160deg, #1a6b3a 0%, #28a86b 40%, #31c27c 70%, #5ddb92 100%);
 }
 .hero-bg.has-image { background: none; }
-.hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;  }
 .hero-fade {
   position: absolute; bottom: 0; left: 0; right: 0; height: 60px; z-index: 2;
   background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 40%, #fff 100%);

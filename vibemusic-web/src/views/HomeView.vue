@@ -263,7 +263,7 @@ function formatDuration(seconds) {
     <div class="top-bar">
       <div class="search-area">
         <div class="search-box" :class="{ focused: searchFocused }">
-          <span class="search-icon">{{ searchFocused ? '🎵' : '🔍' }}</span>
+          <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input
             v-model="searchKeyword"
             @focus="onFocus"
@@ -317,7 +317,10 @@ function formatDuration(seconds) {
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
         </button>
         <template v-if="authStore.isLoggedIn">
-          <div class="user-avatar">👤</div>
+          <div class="user-avatar">
+            <img v-if="authStore.avatarSrc" :src="authStore.avatarSrc" class="avatar-img" />
+            <span v-else>👤</span>
+          </div>
           <span class="user-name">{{ username }}</span>
           <button class="logout-btn" @click="authStore.logout(); router.push('/')">退出</button>
         </template>
@@ -464,21 +467,21 @@ function formatDuration(seconds) {
               @click.stop="toggleFav(song)"
               :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'"
             >
-              {{ favStore.isFav(song.sourceId) ? '⭐' : '☆' }}
+              <svg viewBox="0 0 24 24" width="16" height="16" :fill="favStore.isFav(song.sourceId) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
             </button>
             <button
               class="action-btn download-btn"
               @click.stop="handleDownload(song)"
               :title="downloadingIds.has(song.sourceId) ? '下载中...' : '下载到RustFS'"
             >
-              {{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
             <button
               class="action-btn playlist-btn"
               @click.stop="openPlaylistPopup(song)"
               title="加入歌单"
             >
-              ➕
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
           </div>
         </div>
@@ -513,7 +516,7 @@ function formatDuration(seconds) {
   transition: .2s;
 }
 .search-box:focus-within { border-color: #31c27c; background: #fff; }
-.search-icon { font-size: 16px; margin-right: 10px; opacity: .5; flex-shrink: 0; }
+.search-icon { margin-right: 10px; opacity: .9; flex-shrink: 0; color: #999; }
 .search-input {
   flex: 1; border: none; background: none; color: #333;
   font-size: 15px; outline: none;
@@ -672,10 +675,11 @@ function formatDuration(seconds) {
 .topbar-fs:hover { color: #31c27c; border-color: #31c27c; }
 .user-avatar {
   width: 40px; height: 40px; border-radius: 50%;
-  background: #e8e8e8;
+  background: #e8e8e8; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
-  font-size: 18px;
+  font-size: 18px; flex-shrink: 0;
 }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .user-avatar:hover { background: #ddd; }
 .user-name { font-size: 15px; color: #444; }
 .login-btn, .logout-btn {

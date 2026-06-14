@@ -93,6 +93,10 @@ vibeMusic/
 | 💾 RustFS 离线缓存 | 用户主动下载→存入对象存储，播放优先直读（零 API 调用），上传前去重 |
 | 🎚️ 进度条拖拽 | 桌面端 mouse/move/up + 移动端 touch/move/end，实时时间气泡 + 拇指放大动画 |
 | 🎨 响应式 UI | 桌面侧栏 + 移动底部 TabBar，暗色/亮色双主题 |
+| 🖼️ SVG 图标系统 | 全局 SvgIcon 组件，17 个内联 symbol，color/currentColor 自适应主题，spin 动画 |
+| 🎨 简约风图标 | 全站 emoji 图标替换为 SVG：搜索/收藏/下载/加入歌单/移除等 |
+| 👤 用户头像 | 首页 + TopBar 真实头像展示，无头像回退文字 |
+| 🖼️ 背景图 | 个人页全宽背景图，无图时绿色渐变兜底 |
 
 ## 快速开始
 
@@ -165,8 +169,10 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `/api/auth/profile` | PUT | 更新个人资料 |
 | `/api/auth/avatar` | POST | 上传头像（multipart, ≤2MB） |
 | `/api/auth/bg-image` | POST | 上传背景图 |
-| `/api/songs/search` | GET | 聚合搜索（三级缓存） |
+| `/api/songs/search` | GET | 聚合搜索（三级缓存：Redis→ES→API） |
 | `/api/songs/es-health` | GET | ES 健康检查（集群状态 + 可用性） |
+| `/api/auth/me` | GET | 用户信息（含 avatar/bgImage） |
+| `/api/auth/bg-image` | POST | 上传背景图（个人页全宽展示） |
 | `/api/songs/play` | GET | 记录播放历史 + 返回 RustFS 缓存状态 |
 | `/api/songs/stream` | GET | 音频流代理（支持 Range/RustFS 直读） |
 | `/api/songs/random` | GET | 随机推荐 |
