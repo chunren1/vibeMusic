@@ -34,7 +34,7 @@ onMounted(() => {
 <template>
   <TopBar />
   <div class="likes-page">
-    <h2 class="page-title">⭐ 我的收藏</h2>
+    <h2 class="page-title">❤️ 我的收藏</h2>
     <p class="subtitle">{{ favorites.length }} 首歌曲</p>
 
     <div v-if="favorites.length > 0" class="song-table">
@@ -63,8 +63,8 @@ onMounted(() => {
         </div>
         <span class="td-time">{{ fav.createdAt ? new Date(fav.createdAt).toLocaleDateString() : '' }}</span>
         <div class="td-actions">
-          <button class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'">{{ favStore.isFav(fav.sourceId) ? '⭐' : '☆' }}</button>
-          <button class="action-btn add-btn" @click.stop="openPlaylistPopup(fav)" title="加入歌单">➕</button>
+          <button class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'"><svg viewBox="0 0 24 24" width="16" height="16" :fill="favStore.isFav(fav.sourceId) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></button>
+          <button class="action-btn add-btn" @click.stop="openPlaylistPopup(fav)" title="加入歌单"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </div>
     </div>

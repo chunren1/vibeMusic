@@ -49,7 +49,9 @@ onMounted(() => {
   <!-- 桌面端：固定侧栏布局 -->
   <div v-else class="app-layout">
     <aside class="sidebar">
-      <div class="logo">♪ vibeMusic</div>
+      <div class="logo">
+        <img src="@/assets/logo.png" alt="vibeMusic" class="logo-img" />
+      </div>
       <nav class="nav">
         <router-link to="/" class="nav-item" active-class="active">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
@@ -109,10 +111,11 @@ body {
   display: flex; flex-direction: column; flex-shrink: 0;
 }
 .logo {
-  height: 80px; display: flex; align-items: center;
-  padding: 0 28px; font-size: 26px; font-weight: 700;
-  color: #31c27c; border-bottom: 1px solid #ddd;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px 28px; border-bottom: 1px solid #ddd;
 }
+.logo-img { width: 100%; height: auto; max-height: 180px; object-fit: contain; }
+.logo-text { display: none; }
 .nav { flex: 1; padding: 20px 0; }
 
 .nav-item {

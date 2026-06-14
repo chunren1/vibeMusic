@@ -163,52 +163,50 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
             <span v-if="!currentSong.coverUrl">♪</span>
           </div>
           <div class="mini-song">
-            <span class="mini-name">{{ currentSong.title }}</span>
-            <span v-if="isTrialSong" class="tag-trial">试听</span>
-            <span class="tag-quality">{{ qualityLabel }}</span>
-            <span class="mini-artist"> - {{ currentSong.artist }}</span>
+            <div class="mini-name-wrap">
+              <span class="mini-name">{{ currentSong.title }}</span>
+              <span v-if="isTrialSong" class="tag-trial">试听</span>
+              <span class="tag-quality">
+                <SvgIcon name="quality" size="12" color="#31c27c" />
+                {{ qualityLabel }}
+              </span>
+            </div>
+            <div class="mini-artist">{{ currentSong.artist }}</div>
           </div>
           <button class="func-btn" :class="{ fav: favStore.isFav(currentSong.id) }" @click="toggleFav(currentSong)" title="收藏">
-            <svg viewBox="0 0 24 24" width="22" height="22" :fill="favStore.isFav(currentSong.id) ? '#ec4141' : 'none'" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            <SvgIcon :name="favStore.isFav(currentSong.id) ? 'heart-fill' : 'heart'" :color="favStore.isFav(currentSong.id) ? '#ff4757' : 'currentColor'" size="22" />
           </button>
         </div>
 
         <div class="center-ctrl">
           <button class="ctrl-btn mode-btn" :class="{ active: playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabels[playMode]">
-            <!-- 顺序播放 -->
-            <svg v-if="playMode === 'list-loop'" viewBox="0 0 1280 1024" width="22" height="22" fill="currentColor"><path d="M1121.8 243.7A373.4 373.4 0 0 1 1231.9 509.5c0 34.2-4.6 68.2-13.7 100.8a42.4 42.4 0 0 1-81.7-22.6 291.9 291.9 0 0 0 10.6-78.2c0-160.5-130.6-291.1-291.1-291.1H461.5v75.1c0 24.1-16.8 33.5-37.3 20.8L243.5 202.2c-20.5-12.7-20.7-33.8-.4-46.9L424.7 38.1c20.2-13.1 36.8-4 36.8 20.1v75.4h394.5c100.4 0 194.8 39.1 265.8 110.1zm-70 573.1c20.5 12.7 20.7 33.8.4 46.8l-181.6 117.3c-20.2 13.1-36.8 4.1-36.8-20V885.4H407.9c-100.4 0-194.8-39.1-265.8-110.1A373.4 373.4 0 0 1 32 509.5c0-72.6 20.7-143.1 60-203.9a42.4 42.4 0 1 1 71.2 46 290 290 0 0 0-46.4 157.8c0 160.6 130.6 291.2 291.1 291.2h425.9v-75.1c0-24.1 16.8-33.5 37.2-20.7l180.8 111.9z"/></svg>
-            <!-- 单曲循环 -->
-            <svg v-else-if="playMode === 'single'" viewBox="0 0 1024 1024" width="22" height="22" fill="currentColor"><path d="M928 476.8c-19.2 0-32 12.8-32 32v86.4c0 108.8-86.4 198.4-198.4 198.4H201.6l41.6-38.4c6.4-6.4 12.8-16 12.8-25.6 0-19.2-16-35.2-35.2-35.2-9.6 0-22.4 3.2-28.8 9.6l-108.8 99.2c-16 12.8-12.8 35.2 0 48l108.8 96c6.4 6.4 19.2 12.8 28.8 12.8 19.2 0 35.2-12.8 38.4-32 0-12.8-6.4-22.4-16-28.8l-48-44.8h499.2c147.2 0 265.6-118.4 265.6-259.2v-86.4c0-19.2-12.8-32-32-32zM96 556.8c19.2 0 32-12.8 32-32v-89.6c0-112 89.6-201.6 198.4-204.8h496l-41.6 38.4c-6.4 6.4-12.8 16-12.8 25.6 0 19.2 16 35.2 35.2 35.2 9.6 0 22.4-3.2 28.8-9.6l105.6-99.2c16-12.8 12.8-35.2 0-48l-108.8-96c-6.4-6.4-19.2-12.8-28.8-12.8-19.2 0-35.2 12.8-38.4 32 0 12.8 6.4 22.4 16 28.8l48 44.8H329.6C182.4 169.6 64 288 64 438.4v86.4c0 19.2 12.8 32 32 32z"/><path d="M544 672V352h-48L416 409.6l16 41.6 60.8-41.6V672z"/></svg>
-            <!-- 随机播放 -->
-            <svg v-else-if="playMode === 'shuffle'" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+            <SvgIcon :name="playMode" size="22" />
           </button>
           <button class="ctrl-btn skip" @click="prev" title="上一首">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            <SvgIcon name="previous" size="24" />
           </button>
           <button class="ctrl-btn main" @click="togglePlay" title="播放/暂停">
-            <svg v-if="isPlaying" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-            <svg v-else viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="8,5 19,12 8,19"/></svg>
+            <SvgIcon :name="isPlaying ? 'pause' : 'play'" size="24" color="#fff" />
           </button>
           <button class="ctrl-btn skip" @click="next" title="下一首">
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            <SvgIcon name="next" size="24" />
           </button>
         </div>
 
         <div class="right-actions">
           <button class="act-icon" :class="{ downloading: downloadingIds.has(currentSong.id) }" @click="handleDownload(currentSong)" title="下载">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <SvgIcon name="download" size="20" />
           </button>
           <div class="vol-group">
             <button class="act-icon" @click="toggleMute" title="音量">
-              <svg v-if="isMuted || volume === 0" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-              <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+              <SvgIcon :name="isMuted || volume === 0 ? 'volume-mute' : 'volume'" size="20" />
             </button>
             <div class="vol-bar" @click="e => store.volume = Math.round((e.offsetX / e.target.offsetWidth) * 100)">
               <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
             </div>
           </div>
           <button class="act-icon" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <SvgIcon name="playlist" size="20" />
           </button>
         </div>
       </div>
@@ -239,8 +237,12 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
               <span class="pi-name" :class="{ hl: idx === currentIdx }">{{ song.name }}</span>
               <span class="pi-artist">{{ song.artist }}</span>
             </div>
-            <button class="pi-fav" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'">⭐</button>
-            <button class="pi-dl" @click.stop="handleDownload(song)" :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'">{{ downloadingIds.has(song.sourceId) ? '⏳' : '⬇' }}</button>
+            <button class="pi-fav" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'">
+              <SvgIcon :name="favStore.isFav(song.sourceId) ? 'heart-fill' : 'heart'" :color="favStore.isFav(song.sourceId) ? '#ff4757' : 'currentColor'" size="14" />
+            </button>
+            <button class="pi-dl" @click.stop="handleDownload(song)" :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'">
+              <SvgIcon name="download" size="12" />
+            </button>
             <button class="pi-remove" @click.stop="store.removeFromQueue(idx)" title="移除">✕</button>
           </div>
           <div v-if="queue.length === 0" class="panel-empty">播放队列为空</div>
@@ -298,7 +300,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 
 .ctrl-wrap { display: flex; align-items: center; justify-content: space-between; }
 
-.left-info { display: flex; align-items: center; gap: 14px; min-width: 200px; }
+.left-info { display: flex; align-items: center; gap: 14px; min-width: 240px; }
 .mini-cover {
   width: 44px; height: 44px; border-radius: 6px; flex-shrink: 0;
   background: #eee; display: flex; align-items: center; justify-content: center;
@@ -308,9 +310,10 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 }
 .mini-cover:hover { transform: scale(1.08); }
 .mini-cover.active { box-shadow: 0 0 0 2px rgba(49,194,124,0.5); }
-.mini-song { color: #666; font-size: 13px; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mini-name { color: #1a1a1a; font-weight: 500; }
-.mini-artist { color: #999; }
+.mini-song { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; max-width: 160px; }
+.mini-name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.mini-name { color: #1a1a1a; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-artist { color: #999; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-trial { display: inline-block; font-size: 9px; padding: 0 4px; border-radius: 3px; margin-left: 4px; background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; vertical-align: middle; line-height: 16px; }
 .tag-quality { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 3px; margin-left: 4px; background: rgba(49,194,124,0.12); color: #31c27c; font-weight: 500; vertical-align: middle; line-height: 16px; }
 .func-btn { width: 40px; height: 40px; border: none; background: none; border-radius: 50%; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }

@@ -3,9 +3,11 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { searchSongs } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const player = usePlayerStore()
+const authStore = useAuthStore()
 const searchKeyword = ref('')
 const searchResults = ref([])
 const searchLoading = ref(false)
@@ -41,7 +43,7 @@ function formatDuration(s) {
   <div class="top-bar">
     <div class="search-area">
       <div class="search-box">
-        <span class="search-icon">🔍</span>
+        <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input
           v-model="searchKeyword"
           @focus="onFocus"
@@ -80,8 +82,11 @@ function formatDuration(s) {
     </div>
 
     <div class="user-info">
-      <div class="user-avatar">👤</div>
-      <span class="user-name">音乐爱好者</span>
+      <div class="user-avatar">
+        <img v-if="authStore.avatarSrc" :src="authStore.avatarSrc" class="avatar-img" />
+        <span v-else>👤</span>
+      </div>
+      <span class="user-name">{{ authStore.user?.nickname || '音乐爱好者' }}</span>
     </div>
   </div>
 </template>
@@ -144,8 +149,9 @@ function formatDuration(s) {
 
 .user-info { display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0; }
 .user-avatar {
-  width: 40px; height: 40px; border-radius: 50%;
-  background: #e8e8e8; display: flex; align-items: center; justify-content: center; font-size: 18px;
+  width: 40px; height: 40px; border-radius: 50%; overflow: hidden;
+  background: #e8e8e8; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
 }
+.avatar-img { width: 100%; height: 100%; object-fit: cover; }
 .user-name { font-size: 15px; color: #444; }
 </style>
