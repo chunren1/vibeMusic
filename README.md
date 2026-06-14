@@ -6,28 +6,27 @@
 
 ```
 ┌──────────────────────────────────────────────┐
-│               Vue 3 + Vite + Pinia             │
-│          (localhost:5173) + Capacitor APK      │
+│         Nginx (port 80) 统一入口              │
+│   静态文件 serve + API 反向代理 + SPA fallback │
 └──────────────────────┬───────────────────────┘
                        │
-                       ▼
-┌──────────────────────────────────────────────┐
-│           Spring Boot 4 + Java 21              │
-│   MyBatis-Plus + JWT + Redis + MySQL + ES     │
-│              (localhost:8080)                  │
-└──────────────────────┬───────────────────────┘
-                       │
-         ┌─────────────┴─────────────┐
-         ▼                           ▼
-┌─────────────────┐        ┌────────────────────────┐
-│    musicapi      │        │  MySQL + Redis + ES    │
-│  Express.js 网关  │        │  数据持久化 + 三级缓存  │
-│  (localhost:3000)│        │  ES:9201 IK 分词搜索   │
-│ 网易云 + QQ音乐   │        └────────────────────────┘
-│ Cookie 统一管理   │
-│ 音质SLA分级      │
-│ Cookie 自动监控   │
-└─────────────────┘
+          ┌────────────┴────────────┐
+          ▼                         ▼
+┌──────────────────┐    ┌──────────────────────────┐
+│  Vue 3 + Vite     │    │  Spring Boot 4 + Java 21  │
+│  构建产物 (dist/)  │    │  MyBatis-Plus + JWT       │
+│  + Capacitor APK  │    │  (localhost:8080)         │
+└──────────────────┘    └──────────┬───────────────┘
+                                   │
+                     ┌─────────────┴─────────────┐
+                     ▼                           ▼
+            ┌─────────────────┐        ┌────────────────────────┐
+            │    musicapi      │        │  MySQL + Redis + ES    │
+            │  Express.js 网关  │        │  数据持久化 + 三级缓存  │
+            │  (localhost:3000)│        │  ES:9201 IK 分词搜索   │
+            │ 网易云 + QQ音乐   │        └────────────────────────┘
+            │ Cookie 统一管理   │
+            └─────────────────┘
 ```
 
 ## 目录结构
@@ -35,12 +34,16 @@
 ```
 vibeMusic/
 ├── package.json                  # 工作区根配置（统一 npm scripts）
-├── docker-compose.yml            # Docker 中间件编排 (MySQL + Redis + MinIO + ES)
+├── docker-compose.yml            # Docker 编排 (Nginx + MySQL + Redis + MinIO + ES)
+├── nginx/
+│   └── nginx.conf                 # Nginx 统一入口 + 反向代理配置
 ├── .env.docker                   # Docker 环境变量
 ├── docker-data/                  # Docker 数据持久化目录
 │   ├── mysql/data/               # MySQL 8.0 数据
 │   ├── redis/data/               # Redis 数据 + AOF
-│   └── rustfs/data/              # MinIO 对象存储
+│   ├── elasticsearch/            # ES 索引 + IK 插件
+│   ├── rustfs/data/              # MinIO 对象存储
+│   └── nginx/logs/               # Nginx 访问 & 错误日志
 ├── musicapi/                     # Node.js 音乐 API 聚合网关 (端口 3000)
 │   ├── server.js                 # 聚合搜索 + 音质分级 + Cookie 注入 + 监控 + 日志
 │   ├── config.js                 # 网易云 + QQ 音乐 Cookie 统一管理中心
@@ -116,10 +119,26 @@ npm run install:all      # 安装 musicapi + 前端全部依赖
 ### 2. 启动中间件
 
 ```bash
-npm run docker:up        # 启动 MySQL + Redis + MinIO
+npm run docker:up        # 启动 Nginx + MySQL + Redis + ES + MinIO
+# Nginx: http://localhost (80端口，生产统一入口)
 # MinIO 管理: http://localhost:9001 (rustfsadmin/rustfsadmin)
 # 数据库自动初始化，默认管理员: admin / 123456
 ```
+
+### 生产部署
+
+```bash
+npm run build             # 构建前端到 dist/
+npm run docker:up         # 启动所有 Docker 服务（含 Nginx 80 端口）
+# 访问 http://localhost 即进入生产模式
+```
+
+Nginx 处理：
+- `/` — SPA 路由 fallback → `index.html`
+- `/assets/*` — Vite 产物，长缓存（1年）
+- `/api/*` — 反向代理 → Spring Boot (8080)
+- `/api/songs/stream` — 音频流，支持 Range 断点续传
+- `/uploads/*` — 用户上传静态资源
 
 ### 3. 启动后端
 
@@ -151,8 +170,11 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `npm run docker:down` | 停止 Docker 中间件 |
 | `npm run docker:restart` | 重启 Docker 中间件 |
 | `npm run docker:status` | 查看中间件状态 |
+| `npm run docker:logs` | 查看中间件日志 |
 | `npm run build` | 构建前端生产包 |
-| `npm run ops` | 运维面板（日志/状态检查/Cookie 检测） |
+| `npm run deploy` | 构建前端 + 启动 Docker（生产一键部署） |
+| `npm run nginx:reload` | 热重载 Nginx 配置 |
+| `npm run ops` | 运维面板 |
 | `npm run tunnel` | 启动 cpolar 内网穿透 |
 | `npm run install:all` | 安装全部依赖 |
 

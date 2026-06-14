@@ -4,8 +4,7 @@
   "description": "整合网易云和QQ音乐的统一API服务",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
   "keywords": [
     "netease",

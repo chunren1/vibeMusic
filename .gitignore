@@ -42,6 +42,9 @@ vibemusic-web/android/.gradle/
 vibemusic-web/android/local.properties
 *.apk
 
+# ===== Nginx Runtime =====
+docker-data/nginx/logs/
+
 # ===== Cloudflare Tunnel =====
 .cloudflared/
 
