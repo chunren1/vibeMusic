@@ -51,6 +51,11 @@ netease:
     base-url: ${MUSICAPI_URL:http://localhost:3000}
     timeout: 10000
 
+  elasticsearch:
+    uris: ${ES_URIS:http://localhost:9200}
+    connection-timeout: 5s
+    socket-timeout: 10s
+
 storage:
   rustfs:
     endpoint: ${RUSTFS_ENDPOINT:http://127.0.0.1:9000}

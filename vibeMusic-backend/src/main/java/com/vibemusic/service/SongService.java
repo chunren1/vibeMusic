@@ -24,6 +24,7 @@ public class SongService {
     private final NeteaseApiService neteaseApiService;
     private final SongCacheService cacheService;
     private final StorageService storageService;
+    private final ESSearchService esSearchService;
 
     private static final double NET_WEIGHT = 1.0;
     private static final double QQ_WEIGHT = 0.9;
@@ -139,6 +140,9 @@ public class SongService {
         // 某平台空结果 → 短TTL(30秒)让恢复后快速生效；两边都有 → 正常1小时
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty();
         cacheService.setSearchCache(kw + ":all", page, resultList, !resultList.isEmpty(), incomplete);
+
+        // 写入 ES 缓存（异步，不影响响应速度）
+        esSearchService.indexSearchResults(kw, resultList);
 
         int from = (page - 1) * size;
         int to = Math.min(from + size, resultList.size());
