@@ -101,6 +101,12 @@
             <version>8.5.17</version>
         </dependency>
 
+        <!-- Elasticsearch -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
+        </dependency>
+
         <!-- Knife4j (OpenAPI 文档) -->
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
