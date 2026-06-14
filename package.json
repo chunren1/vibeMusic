@@ -10,6 +10,11 @@
     "build": "cd vibemusic-web && npm run build",
     "ops": "node scripts/ops.cjs",
     "tunnel": "start cpolar http 5173",
+    "docker:up": "powershell -ExecutionPolicy Bypass -File scripts/docker.ps1 up",
+    "docker:down": "powershell -ExecutionPolicy Bypass -File scripts/docker.ps1 down",
+    "docker:restart": "powershell -ExecutionPolicy Bypass -File scripts/docker.ps1 restart",
+    "docker:status": "powershell -ExecutionPolicy Bypass -File scripts/docker.ps1 status",
+    "docker:logs": "powershell -ExecutionPolicy Bypass -File scripts/docker.ps1 logs",
     "install:all": "cd musicapi && npm install && cd ../vibemusic-web && npm install"
   },
   "devDependencies": {
