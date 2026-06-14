@@ -56,6 +56,38 @@ services:
       timeout: 3s
       retries: 5
 
+
+  # ==========================
+  # Elasticsearch 8.11 — 全文搜索引擎
+  # ==========================
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: vibemusic-es
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - TZ=Asia/Shanghai
+    ports:
+      - "9200:9200"
+    volumes:
+      # ES 数据
+      - ./docker-data/elasticsearch/data:/usr/share/elasticsearch/data
+      # IK 插件持久化
+      - ./docker-data/elasticsearch/plugins:/usr/share/elasticsearch/plugins
+      # 启动脚本（含 IK 自动安装）
+      - ./docker-data/elasticsearch/es-start.sh:/es-start.sh:ro
+    command: ["/bin/bash", "/es-start.sh"]
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
   # ==========================
   # MinIO — RustFS 对象存储
   # ==========================

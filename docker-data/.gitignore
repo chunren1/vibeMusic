@@ -1,3 +1,4 @@
 # 忽略运行时数据，只保留配置文件
 */data/
 !redis/redis.conf
+!elasticsearch/es-start.sh
