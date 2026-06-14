@@ -74,6 +74,19 @@ public class SongService {
 
         log.info("Search '{}' platform={} page={} Redis miss", kw, cacheExtra, page);
 
+        // 第 2 步：Redis 未命中 → 查 ES 缓存（仅:all 模式）
+        if (searchBoth) {
+            List<SongDTO> esCached = esSearchService.findByKeyword(kw);
+            if (!esCached.isEmpty()) {
+                log.info("Search '{}' ES hit, count={}", kw, esCached.size());
+                cacheService.setSearchCache(kw + ":all", page, esCached, true, false);
+                int from = (page - 1) * size;
+                int to = Math.min(from + size, esCached.size());
+                if (from >= esCached.size()) return Collections.emptyList();
+                return esCached.subList(from, to);
+            }
+        }
+
         // 只搜指定平台（支持分页）
         // 注意: 单平台搜索失败时 不缓存空结果，避免 API 恢复后仍返回旧缓存
         if ("netease".equals(cacheExtra)) {
@@ -141,8 +154,10 @@ public class SongService {
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty();
         cacheService.setSearchCache(kw + ":all", page, resultList, !resultList.isEmpty(), incomplete);
 
-        // 写入 ES 缓存（异步，不影响响应速度）
-        esSearchService.indexSearchResults(kw, resultList);
+        // 第 4-5 步：非空结果写入 ES + Redis（空结果不写入，防止缓存污染）
+        if (!resultList.isEmpty()) {
+            esSearchService.indexSearchResults(kw, resultList);
+        }
 
         int from = (page - 1) * size;
         int to = Math.min(from + size, resultList.size());
