@@ -61,7 +61,7 @@ services:
   # Elasticsearch 8.11 — 全文搜索引擎
   # ==========================
   elasticsearch:
-    image: elasticsearch:8.17.4
+    image: elasticsearch:8.18.0
     container_name: vibemusic-es
     restart: unless-stopped
     environment:
