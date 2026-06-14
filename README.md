@@ -12,18 +12,18 @@
                        │
                        ▼
 ┌──────────────────────────────────────────────┐
-│           Spring Boot 3 + Java 17              │
-│    MyBatis-Plus + JWT + Redis + MySQL          │
+│           Spring Boot 4 + Java 21              │
+│   MyBatis-Plus + JWT + Redis + MySQL + ES     │
 │              (localhost:8080)                  │
 └──────────────────────┬───────────────────────┘
                        │
          ┌─────────────┴─────────────┐
          ▼                           ▼
-┌─────────────────┐        ┌──────────────────┐
-│    musicapi      │        │  MySQL + Redis   │
-│  Express.js 网关  │        │  数据持久化+缓存  │
-│  (localhost:3000)│        │                  │
-│ 网易云 + QQ音乐   │        └──────────────────┘
+┌─────────────────┐        ┌────────────────────────┐
+│    musicapi      │        │  MySQL + Redis + ES    │
+│  Express.js 网关  │        │  数据持久化 + 三级缓存  │
+│  (localhost:3000)│        │  ES:9201 IK 分词搜索   │
+│ 网易云 + QQ音乐   │        └────────────────────────┘
 │ Cookie 统一管理   │
 │ 音质SLA分级      │
 │ Cookie 自动监控   │
@@ -35,7 +35,7 @@
 ```
 vibeMusic/
 ├── package.json                  # 工作区根配置（统一 npm scripts）
-├── docker-compose.yml            # Docker 中间件编排 (MySQL + Redis + MinIO)
+├── docker-compose.yml            # Docker 中间件编排 (MySQL + Redis + MinIO + ES)
 ├── .env.docker                   # Docker 环境变量
 ├── docker-data/                  # Docker 数据持久化目录
 │   ├── mysql/data/               # MySQL 8.0 数据
@@ -165,7 +165,8 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `/api/auth/profile` | PUT | 更新个人资料 |
 | `/api/auth/avatar` | POST | 上传头像（multipart, ≤2MB） |
 | `/api/auth/bg-image` | POST | 上传背景图 |
-| `/api/songs/search` | GET | 聚合搜索 |
+| `/api/songs/search` | GET | 聚合搜索（三级缓存） |
+| `/api/songs/es-health` | GET | ES 健康检查（集群状态 + 可用性） |
 | `/api/songs/play` | GET | 记录播放历史 + 返回 RustFS 缓存状态 |
 | `/api/songs/stream` | GET | 音频流代理（支持 Range/RustFS 直读） |
 | `/api/songs/random` | GET | 随机推荐 |
@@ -207,14 +208,28 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 - 异常降级：推荐失败 → `getRandomSongs()` 兜底，Redis 异常 → 跳过缓存
 - **缓存污染自动清理**：检测到全平台覆盖 → 自动删除 + 重建（解决 API 宕机时缓存毒化）
 
-## 搜索缓存四层防护
+## 搜索三级缓存 (Redis → ES → API)
 
 ```
-第1层 写入检测: 某平台空 → TTL 降为 30s（正常 1h）
-第2层 版本隔离: 前缀 v4 自动淘汰旧版本缓存
-第3层 读取校验: 缓存全单平台 → 自动删除 + 重搜
-第4层 空结果: 单平台空不缓存，空结果 TTL 仅 10s
+请求 → ① Redis v4 前缀 (TTL 1h/30s)       ← 最快
+     → ② ES 8.18 search_cache (IK 分词)    ← 毫秒级
+     → ③ musicapi 实时聚合 (网易云+QQ)      ← 兜底
+              ↓
+     写入: ES bulk (ndjson) + Redis 同步缓存
 ```
+- **ES 增强搜索**：IK 分词 + 高亮标记 + 平台聚合统计
+- **定时清理**：每小时删除 1 小时前的 ES 缓存数据
+- **缓存污染检测**：Redis 单平台缓存自动删除 + 重搜
+- **版本隔离**：前缀 v4 自然淘汰旧缓存
+
+### 容错设计
+```
+ES 不可用 → `AtomicBoolean available` 标记 → 自动跳过 ES 层，直接降级到 musicapi
+ES 写入失败 → WARN 日志（不抛异常），搜索结果正常返回，用户无感知
+ES 重启    → 数据卷持久化，索引数据不丢失，健康检查 `isAvailable()` 自动重检
+```
+- **健康检查**：`GET /api/songs/es-health` 返回集群状态 + 可用性
+- **分层日志**：`[CACHE-LAYER]` / `[ES-LAYER]` / `[API-LAYER]` 标记每次搜索命中层 + 耗时
 
 ## 音质 SLA 分级 (AudioQualityTier)
 

@@ -29,7 +29,7 @@ public class SongCacheService {
 
     @PostConstruct
     public void init() {
-        log.info("SongCacheService 初始化完成, 前缀={}", SEARCH_PREFIX);
+        log.info("[CACHE-LAYER] Redis 搜索缓存就绪, 前缀={}", SEARCH_PREFIX);
     }
 
     public List<SongDTO> getSearchCache(String keyword, int page) {
@@ -39,14 +39,14 @@ public class SongCacheService {
             if (json.isEmpty() || "\"__EMPTY__\"".equals(json)) {
                 return Collections.emptyList();
             }
-            log.debug("Redis 命中搜索: {} page={}", keyword, page);
+            log.debug("[CACHE-LAYER] Redis 命中搜索: {} page={}", keyword, page);
             List<SongDTO> songs = objectMapper.readValue(json, new TypeReference<List<SongDTO>>() {});
             // 校验：:all 缓存若全来自单平台 → 污染，自动清理
             if (keyword.endsWith(":all") && songs.size() >= 4) {
                 long netease = songs.stream().filter(s -> "netease".equals(s.getPlatform())).count();
                 long qq = songs.stream().filter(s -> "qq".equals(s.getPlatform())).count();
                 if (netease == 0 || qq == 0) {
-                    log.warn("检测到搜索缓存污染: {} ({}首全{}平台), 自动清理",
+                    log.warn("[CACHE-LAYER] 检测到缓存污染: {} ({}首全{}平台), 自动清理",
                             keyword, songs.size(), netease == 0 ? "QQ" : "网易云");
                     stringRedisTemplate.delete(SEARCH_PREFIX + keyword);
                     return Collections.emptyList(); // 触发重新搜索
@@ -54,7 +54,7 @@ public class SongCacheService {
             }
             return songs;
         } catch (Exception e) {
-            log.warn("读取 Redis 缓存失败: {}", e.getMessage());
+            log.warn("[CACHE-LAYER] 读取 Redis 缓存失败: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -70,14 +70,14 @@ public class SongCacheService {
                 Duration ttl = incomplete ? TTL_PARTIAL : TTL_RESULTS;
                 String json = objectMapper.writeValueAsString(songs);
                 stringRedisTemplate.opsForValue().set(SEARCH_PREFIX + keyword, json, ttl);
-                log.info("Redis 缓存搜索 '{}': {} 首, TTL={}{}", keyword, songs.size(), ttl,
-                        incomplete ? " [不完整-某平台空]" : "");
+                log.info("[CACHE-LAYER] 写入成功: '{}', {}首, TTL={}{}",
+                        keyword, songs.size(), ttl, incomplete ? " [不完整]" : "");
             } else {
                 stringRedisTemplate.opsForValue().set(SEARCH_PREFIX + keyword, "\"__EMPTY__\"", TTL_EMPTY);
-                log.info("Redis 缓存空搜索 '{}': TTL={}", keyword, TTL_EMPTY);
+                log.info("[CACHE-LAYER] 写入空结果: '{}', TTL={}", keyword, TTL_EMPTY);
             }
         } catch (Exception e) {
-            log.warn("写入 Redis 缓存失败: {}", e.getMessage());
+            log.warn("[CACHE-LAYER] 写入失败: {}", e.getMessage());
         }
     }
 

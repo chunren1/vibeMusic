@@ -59,26 +59,36 @@ public class SongService {
         if (keyword == null || keyword.trim().isEmpty()) return Collections.emptyList();
         final String kw = keyword.trim();
         final boolean searchBoth = (platform == null || platform.trim().isEmpty());
+        final long searchStart = System.currentTimeMillis(); // 总计时
 
         String cacheExtra = searchBoth ? "all" : platform.trim().toLowerCase();
+
+        // ======== 第 1 步：Redis 缓存 ========
+        long redisStart = System.currentTimeMillis();
         List<SongDTO> cached = cacheService.getSearchCache(kw + ":" + cacheExtra, page);
         if (cached != null && !cached.isEmpty()) {
             List<SongDTO> all = cacheService.getSearchCache(kw + ":" + cacheExtra, 1);
             if (all != null && !all.isEmpty()) {
+                long redisCost = System.currentTimeMillis() - redisStart;
+                log.info("[CACHE-LAYER] Redis 命中: keyword='{}', page={}, totalCost={}ms",
+                        kw, page, redisCost);
                 int from = (page - 1) * size;
                 int to = Math.min(from + size, all.size());
                 if (from >= all.size()) return Collections.emptyList();
                 return all.subList(from, to);
             }
         }
+        long redisCost = System.currentTimeMillis() - redisStart;
+        log.info("[CACHE-LAYER] Redis 未命中: keyword='{}', page={}, cost={}ms", kw, page, redisCost);
 
-        log.info("Search '{}' platform={} page={} Redis miss", kw, cacheExtra, page);
-
-        // 第 2 步：Redis 未命中 → 查 ES 缓存（仅:all 模式）
+        // ======== 第 2 步：ES 缓存（仅 :all 模式） ========
         if (searchBoth) {
+            long esStart = System.currentTimeMillis();
             List<SongDTO> esCached = esSearchService.findByKeyword(kw);
             if (!esCached.isEmpty()) {
-                log.info("Search '{}' ES hit, count={}", kw, esCached.size());
+                long esCost = System.currentTimeMillis() - esStart;
+                log.info("[ES-LAYER] 返回ES缓存结果: keyword='{}', count={}, ES-cost={}ms, totalCost={}ms",
+                        kw, esCached.size(), esCost, System.currentTimeMillis() - searchStart);
                 cacheService.setSearchCache(kw + ":all", page, esCached, true, false);
                 int from = (page - 1) * size;
                 int to = Math.min(from + size, esCached.size());
@@ -86,6 +96,10 @@ public class SongService {
                 return esCached.subList(from, to);
             }
         }
+
+        // ======== 第 3 步：API 实时搜索（兜底） ========
+        log.info("[API-LAYER] 触发实时搜索: keyword='{}', 原因=Redis和ES均未命中", kw);
+        long apiStart = System.currentTimeMillis();
 
         // 只搜指定平台（支持分页）
         // 注意: 单平台搜索失败时 不缓存空结果，避免 API 恢复后仍返回旧缓存
@@ -149,6 +163,11 @@ public class SongService {
         resultList.sort((a, b) -> Double.compare(
                 b.getFinalScore() != null ? b.getFinalScore() : 0,
                 a.getFinalScore() != null ? a.getFinalScore() : 0));
+
+        long apiCost = System.currentTimeMillis() - apiStart;
+        long totalCost = System.currentTimeMillis() - searchStart;
+        log.info("[API-LAYER] 搜索完成: keyword='{}', 网易云={}首, QQ={}首, 去重后={}首, API-cost={}ms, totalCost={}ms",
+                kw, neteaseSongs.size(), qqSongs.size(), resultList.size(), apiCost, totalCost);
 
         // 某平台空结果 → 短TTL(30秒)让恢复后快速生效；两边都有 → 正常1小时
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty();
