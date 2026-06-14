@@ -52,7 +52,8 @@ netease:
     timeout: 10000
 
   elasticsearch:
-    uris: ${ES_URIS:http://localhost:9201}
+    uris:
+      - http://localhost:9201
     connection-timeout: 5s
     socket-timeout: 10s
 
