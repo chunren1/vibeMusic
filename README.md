@@ -35,18 +35,25 @@
 ```
 vibeMusic/
 ├── package.json                  # 工作区根配置（统一 npm scripts）
+├── docker-compose.yml            # Docker 中间件编排 (MySQL + Redis + MinIO)
+├── .env.docker                   # Docker 环境变量
+├── docker-data/                  # Docker 数据持久化目录
+│   ├── mysql/data/               # MySQL 8.0 数据
+│   ├── redis/data/               # Redis 数据 + AOF
+│   └── rustfs/data/              # MinIO 对象存储
 ├── musicapi/                     # Node.js 音乐 API 聚合网关 (端口 3000)
 │   ├── server.js                 # 聚合搜索 + 音质分级 + Cookie 注入 + 监控 + 日志
 │   ├── config.js                 # 网易云 + QQ 音乐 Cookie 统一管理中心
 │   └── logs/                     # 分类日志 (access / api-errors / cookie-monitor / degradation)
 ├── vibeMusic-backend/            # Spring Boot 后端 (端口 8080)
 │   ├── sql/init.sql              # 数据库完整初始化脚本（6张表 + 默认管理员）
+│   ├── uploads/avatars/          # 用户上传的头像和背景图
 │   └── src/main/java/com/vibemusic/
-│       ├── controller/           # Auth, Song, Favorite, Playlist, Download, Recommend
-│       ├── service/              # User, Song, Recommend, Storage, Download, NeteaseApi
+│       ├── controller/           # Auth, Song, Favorite, Playlist, Download, Recommend, Proxy
+│       ├── service/              # User, Song, Recommend, Storage, Download, NeteaseApi, Cache
 │       ├── entity/               # User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory
 │       ├── dto/                  # SongDTO, RecommendResult
-│       ├── config/               # Security, Cors, Redis, AudioQualityTier, NeteaseApi
+│       ├── config/               # Security, Cors, Redis, AudioQualityTier, NeteaseApi, Web
 │       └── security/             # JwtAuthFilter, CustomUserDetails
 ├── vibemusic-web/                # Vue 3 前端 (端口 5173)
 │   └── src/
@@ -84,7 +91,7 @@ vibeMusic/
 | 🌐 内网穿透 | cpolar 隧道 + Cloudflare 备用方案 |
 | 🛡️ Cookie 监控 | 随 API 启动自动检查 + 每小时巡检，日志写入 musicapi/logs/ |
 | 💾 RustFS 离线缓存 | 用户主动下载→存入对象存储，播放优先直读（零 API 调用），上传前去重 |
-| 🚀 移动端极致性能 | GPU 合成层 / CSS containment / 图片 IntersectionObserver 懒加载 / Terser 压缩 |
+| 🎚️ 进度条拖拽 | 桌面端 mouse/move/up + 移动端 touch/move/end，实时时间气泡 + 拇指放大动画 |
 | 🎨 响应式 UI | 桌面侧栏 + 移动底部 TabBar，暗色/亮色双主题 |
 
 ## 快速开始
@@ -93,8 +100,7 @@ vibeMusic/
 
 - Java 17+
 - Node.js 20+
-- MySQL 8.0+
-- Redis 7+
+- Docker Desktop
 
 ### 1. 安装依赖
 
@@ -103,11 +109,12 @@ npm install              # 安装 concurrently（工作区编排）
 npm run install:all      # 安装 musicapi + 前端全部依赖
 ```
 
-### 2. 数据库初始化
+### 2. 启动中间件
 
 ```bash
-mysql -u root -p < vibeMusic-backend/sql/init.sql
-# 默认管理员: admin / 123456
+npm run docker:up        # 启动 MySQL + Redis + MinIO
+# MinIO 管理: http://localhost:9001 (rustfsadmin/rustfsadmin)
+# 数据库自动初始化，默认管理员: admin / 123456
 ```
 
 ### 3. 启动后端
@@ -115,11 +122,9 @@ mysql -u root -p < vibeMusic-backend/sql/init.sql
 ```bash
 cd vibeMusic-backend
 mvn spring-boot:run
-# → http://localhost:8080
-# Swagger UI: http://localhost:8080/swagger-ui.html
 ```
 
-### 4. 启动 API 网关 + 前端
+### 4. 启动前端
 
 ```bash
 npm run dev              # concurrently 同时启动 musicapi(3000) + 前端(5173)
@@ -138,6 +143,10 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `npm run dev` | 并发启动 musicapi + 前端 |
 | `npm run dev:api` | 单独启动 musicapi |
 | `npm run dev:web` | 单独启动前端 |
+| `npm run docker:up` | 启动 Docker 中间件 |
+| `npm run docker:down` | 停止 Docker 中间件 |
+| `npm run docker:restart` | 重启 Docker 中间件 |
+| `npm run docker:status` | 查看中间件状态 |
 | `npm run build` | 构建前端生产包 |
 | `npm run ops` | 运维面板（日志/状态检查/Cookie 检测） |
 | `npm run tunnel` | 启动 cpolar 内网穿透 |
