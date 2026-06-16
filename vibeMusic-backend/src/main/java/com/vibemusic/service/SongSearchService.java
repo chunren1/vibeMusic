@@ -11,6 +11,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 歌曲搜索服务
@@ -69,16 +70,13 @@ public class SongSearchService {
         long redisStart = System.currentTimeMillis();
         List<SongDTO> cached = cacheService.getSearchCache(kw + ":" + cacheExtra, page);
         if (cached != null && !cached.isEmpty()) {
-            List<SongDTO> all = cacheService.getSearchCache(kw + ":" + cacheExtra, 1);
-            if (all != null && !all.isEmpty()) {
-                long redisCost = System.currentTimeMillis() - redisStart;
-                log.info("[CACHE-LAYER] Redis 命中: keyword='{}', page={}, totalCost={}ms",
-                        kw, page, redisCost);
-                int from = (page - 1) * size;
-                int to = Math.min(from + size, all.size());
-                if (from >= all.size()) return Collections.emptyList();
-                return all.subList(from, to);
-            }
+            long redisCost = System.currentTimeMillis() - redisStart;
+            log.info("[CACHE-LAYER] Redis 命中: keyword='{}', page={}, totalCost={}ms",
+                    kw, page, redisCost);
+            int from = (page - 1) * size;
+            int to = Math.min(from + size, cached.size());
+            if (from >= cached.size()) return Collections.emptyList();
+            return cached.subList(from, to);
         }
         long redisCost = System.currentTimeMillis() - redisStart;
         log.info("[CACHE-LAYER] Redis 未命中: keyword='{}', page={}, cost={}ms", kw, page, redisCost);
@@ -195,7 +193,10 @@ public class SongSearchService {
         Collections.shuffle(songs);
         if (songs.size() > count) return songs.subList(0, count);
         if (songs.size() < count) {
-            List<Song> dbSongs = songMapper.findRandomSongs(count - songs.size());
+            long total = songMapper.selectCount(null);
+            int need = count - songs.size();
+            long offset = total > need ? ThreadLocalRandom.current().nextLong(total - need + 1) : 0;
+            List<Song> dbSongs = songMapper.findRandomSongs(need, offset);
             List<SongDTO> dbDtos = dbSongs.stream().map(s -> SongDTO.builder()
                     .sourceId(s.getSourceId()).name(s.getName()).artist(s.getArtist())
                     .album(s.getAlbum()).coverUrl(s.getCoverUrl()).duration(s.getDuration()).build()

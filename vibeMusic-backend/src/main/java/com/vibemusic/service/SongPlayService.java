@@ -55,7 +55,8 @@ public class SongPlayService {
             return info;
         }
 
-        // 2. 在线获取：按 SLA 等级逐级降级
+        // 2. 在线获取：按 SLA 等级逐级降级（整体 8s 超时保护）
+        final long DEADLINE = System.currentTimeMillis() + 8000;
         AudioQualityTier achievedTier = AudioQualityTier.FALLBACK;
         boolean degraded = false;
 
@@ -67,6 +68,10 @@ public class SongPlayService {
                     AudioQualityTier.HIGHER, AudioQualityTier.STANDARD
                 };
                 for (AudioQualityTier tier : tiers) {
+                    if (System.currentTimeMillis() > DEADLINE) {
+                        log.warn("音质降级链超时: {}, 已尝试至 {}", sourceId, tier.getLabel());
+                        break;
+                    }
                     achievedTier = tier;
                     Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel());
                     if (result == null) continue;
@@ -90,20 +95,24 @@ public class SongPlayService {
                         achievedTier.getLabel(), sourceId, degraded ? " (经逐级降级)" : "");
                     return info;
                 }
-                // 网易云全部降级为试听 → QQ降级
-                degradationCount.incrementAndGet();
-                log.info("音质降级: {} 网易云全试听 → 尝试QQ降级", sourceId);
-                String qqUrl = tryQQFallback(songName, artist, sourceId);
-                if (qqUrl != null) {
-                    achievedTier = AudioQualityTier.HIGHER;
-                    info.put("url", qqUrl);
-                    info.put("platform", "qq");
-                    info.put("quality", AudioQualityTier.HIGHER.name());
-                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
-                    info.put("degraded", true);
-                    info.put("fallbackFrom", "netease-trial");
-                    return info;
-                }
+                // 网易云全部降级为试听 → QQ降级（超时则跳过）
+                if (System.currentTimeMillis() > DEADLINE) {
+                    log.warn("音质降级链超时: {} 跳过QQ降级, 降级至试听", sourceId);
+                } else {
+                    degradationCount.incrementAndGet();
+                    log.info("音质降级: {} 网易云全试听 → 尝试QQ降级", sourceId);
+                    String qqUrl = tryQQFallback(songName, artist, sourceId);
+                    if (qqUrl != null) {
+                        achievedTier = AudioQualityTier.HIGHER;
+                        info.put("url", qqUrl);
+                        info.put("platform", "qq");
+                        info.put("quality", AudioQualityTier.HIGHER.name());
+                        info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                        info.put("degraded", true);
+                        info.put("fallbackFrom", "netease-trial");
+                        return info;
+                    }
+                } // end of DEADLINE else block
                 achievedTier = AudioQualityTier.FALLBACK;
                 info.put("isTrial", true);
                 info.put("quality", AudioQualityTier.FALLBACK.name());
@@ -147,9 +156,11 @@ public class SongPlayService {
             log.warn("API获取播放链接失败, sourceId={}, 尝试RustFS兜底: {}", sourceId, e.getMessage());
         }
 
-        // 3. API 失败 → 从 DB 历史URL兜底
+        // 3. API 失败 → 从 DB 历史URL兜底（只查 url 列，避免读取 TEXT 歌词列）
         if (info.get("url") == null) {
-            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
+                    .eq(Song::getSourceId, sourceId)
+                    .select(Song::getId, Song::getUrl));
             if (song != null && song.getUrl() != null) {
                 info.put("url", song.getUrl());
                 info.put("fromCache", true);
@@ -243,8 +254,10 @@ public class SongPlayService {
             log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage());
         }
 
-        // 3. API 失败 → 从 DB 兜底
-        Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
+        // 3. API 失败 → 从 DB 兜底（只查 url 列）
+        Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
+                .eq(Song::getSourceId, sourceId)
+                .select(Song::getId, Song::getUrl));
         return song != null ? song.getUrl() : null;
     }
 

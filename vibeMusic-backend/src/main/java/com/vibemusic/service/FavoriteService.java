@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 public class FavoriteService {
 
     private final UserFavoriteMapper mapper;
+    private static final int MAX_FAVORITES = 999;
+    private static final int MAX_LIST = 500;
 
     @Transactional(rollbackFor = Exception.class)
     public boolean toggle(Long userId, String sourceId, String songName, String artist, String coverUrl) {
@@ -35,6 +37,7 @@ public class FavoriteService {
     }
 
     public List<Map<String, Object>> list(Long userId, int count) {
+        count = Math.max(1, Math.min(count, MAX_LIST));
         List<UserFavorite> list = mapper.selectList(new LambdaQueryWrapper<UserFavorite>()
                 .eq(UserFavorite::getUserId, userId)
                 .orderByDesc(UserFavorite::getCreatedAt)
@@ -53,7 +56,8 @@ public class FavoriteService {
     public Set<String> favoritesSet(Long userId) {
         return mapper.selectList(new LambdaQueryWrapper<UserFavorite>()
                 .eq(UserFavorite::getUserId, userId)
-                .last("LIMIT 999")).stream()
+                .select(UserFavorite::getSourceId)
+                .last("LIMIT " + MAX_FAVORITES)).stream()
                 .map(UserFavorite::getSourceId)
                 .collect(Collectors.toSet());
     }

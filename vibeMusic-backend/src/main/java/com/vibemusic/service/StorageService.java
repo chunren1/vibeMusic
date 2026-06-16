@@ -115,6 +115,33 @@ public class StorageService {
     }
 
     /**
+     * 流式上传（直接使用 InputStream，避免全量加载到内存）
+     *
+     * @param objectName 对象名
+     * @param inputStream 输入流
+     * @param size 流大小（字节，-1 表示未知）
+     * @param contentType MIME类型
+     * @return 访问 URL
+     */
+    public String uploadStream(String objectName, java.io.InputStream inputStream, long size, String contentType) {
+        try {
+            client.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(config.getBucketName())
+                            .object(objectName)
+                            .stream(inputStream, size, 5 * 1024 * 1024)
+                            .contentType(contentType != null ? contentType : "audio/mpeg")
+                            .build());
+            String url = config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
+            log.info("流式上传成功: {} -> {} ({} bytes)", objectName, url, size);
+            return url;
+        } catch (Exception e) {
+            log.error("流式上传失败: {} - {}", objectName, e.getMessage());
+            throw new RuntimeException("文件上传失败", e);
+        }
+    }
+
+    /**
      * 获取文件大小（字节）
      */
     public long getObjectSize(String objectName) {

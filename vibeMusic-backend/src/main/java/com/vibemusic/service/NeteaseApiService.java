@@ -1,10 +1,12 @@
 package com.vibemusic.service;
 
 import com.vibemusic.config.NeteaseApiConfig;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
@@ -18,7 +20,16 @@ import java.util.Map;
 public class NeteaseApiService {
 
     private final NeteaseApiConfig config;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate; // 注入连接池版 RestTemplate
+    private final RestClient.Builder restClientBuilder;
+
+    /** 流式下载客户端（复用连接池） */
+    private RestClient streamClient;
+
+    @PostConstruct
+    void initStreamClient() {
+        this.streamClient = restClientBuilder.build();
+    }
 
     // Cookie 已集中到 musicapi/config.js 统一管理，后端不再持有
 
@@ -90,6 +101,10 @@ public class NeteaseApiService {
         return response.getBody();
     }
 
+    /**
+     * @deprecated 请使用 {@link #downloadSongToFile(String)} 避免 OOM
+     */
+    @Deprecated
     public byte[] downloadSong(String downloadUrl) {
         try {
             ResponseEntity<byte[]> response = restTemplate.exchange(downloadUrl, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), byte[].class);
@@ -97,6 +112,35 @@ public class NeteaseApiService {
             return response.getBody();
         } catch (Exception e) {
             log.error("下载失败: {}", e.getMessage());
+            throw new RuntimeException("歌曲下载失败", e);
+        }
+    }
+
+    /**
+     * 流式下载歌曲到临时文件（避免全量加载到内存）
+     * <p>
+     * 调用方负责在 finally 中删除临时文件。
+     *
+     * @return 临时文件
+     */
+    public java.io.File downloadSongToFile(String downloadUrl) {
+        try {
+            java.io.File tempFile = java.io.File.createTempFile("vibemusic-dl-", ".mp3");
+            streamClient.get()
+                    .uri(downloadUrl)
+                    .exchange((req, resp) -> {
+                        try (java.io.InputStream in = resp.getBody();
+                             java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile)) {
+                            byte[] buf = new byte[8192];
+                            int n;
+                            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                        }
+                        return null;
+                    });
+            log.info("流式下载完成: {} → {}", downloadUrl, tempFile.getName());
+            return tempFile;
+        } catch (Exception e) {
+            log.error("流式下载失败: {}", e.getMessage());
             throw new RuntimeException("歌曲下载失败", e);
         }
     }

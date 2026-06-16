@@ -1,10 +1,12 @@
 package com.vibemusic.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.vibemusic.entity.User;
 import com.vibemusic.mapper.UserMapper;
 import com.vibemusic.security.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -26,16 +28,17 @@ public class UserService implements UserDetailsService {
     }
 
     public User register(String username, String password, String nickname) {
-        if (userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getUsername, username)) > 0) {
-            throw new RuntimeException("用户名已存在");
-        }
         User user = User.builder()
                 .username(username)
                 .password(passwordEncoder.encode(password))
                 .nickname(nickname != null ? nickname : username)
                 .enabled(true)
                 .build();
-        userMapper.insert(user);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            throw new RuntimeException("用户名已存在");
+        }
         return user;
     }
 
@@ -68,23 +71,27 @@ public class UserService implements UserDetailsService {
         if (gender != null) user.setGender(gender);
         if (birthday != null) user.setBirthday(birthday);
         userMapper.updateById(user);
-        return userMapper.selectById(userId);
+        return user; // 直接返回已更新字段的对象，省一次 SELECT
     }
 
     public User updateAvatar(Long userId, String avatarUrl) {
         User user = userMapper.selectById(userId);
         if (user == null) throw new RuntimeException("用户不存在");
         user.setAvatar(avatarUrl);
-        userMapper.updateById(user);
-        return userMapper.selectById(userId);
+        userMapper.update(null, Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, userId)
+                .set(User::getAvatar, avatarUrl));
+        return user;
     }
 
     public User updateBgImage(Long userId, String bgImageUrl) {
         User user = userMapper.selectById(userId);
         if (user == null) throw new RuntimeException("用户不存在");
         user.setBgImage(bgImageUrl);
-        userMapper.updateById(user);
-        return userMapper.selectById(userId);
+        userMapper.update(null, Wrappers.<User>lambdaUpdate()
+                .eq(User::getId, userId)
+                .set(User::getBgImage, bgImageUrl));
+        return user;
     }
 
     public static Long getCurrentUserId() {

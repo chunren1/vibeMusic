@@ -49,7 +49,6 @@ public class SecurityConfig {
 
                 // 歌曲搜索/浏览 GET 公开
                 .requestMatchers(HttpMethod.GET,
-                    "/api/song/**",
                     "/api/songs/**",
                     "/api/recommend/**"
                 ).permitAll()

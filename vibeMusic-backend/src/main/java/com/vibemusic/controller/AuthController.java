@@ -215,26 +215,27 @@ public class AuthController {
     // ===== 辅助方法 =====
 
     private Map<String, Object> buildUserData(CustomUserDetails details) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("userId", details.getUserId());
-        data.put("username", details.getUsername());
-        data.put("nickname", details.getNickname());
-        data.put("avatar", details.getAvatar());
-        data.put("bgImage", details.getBgImage());
-        data.put("gender", details.getGender());
-        data.put("birthday", details.getBirthday());
-        return data;
+        return buildUserData(details.getUserId(), details.getUsername(), details.getNickname(),
+                details.getAvatar(), details.getBgImage(), details.getGender(), details.getBirthday());
     }
 
     private Map<String, Object> buildUserDataFromEntity(User user) {
+        return buildUserData(user.getId(), user.getUsername(),
+                user.getNickname() != null ? user.getNickname() : user.getUsername(),
+                user.getAvatar(), user.getBgImage(), user.getGender(), user.getBirthday());
+    }
+
+    /** 统一的 user data 构建（消除 buildUserData / buildUserDataFromEntity 重复） */
+    private Map<String, Object> buildUserData(Long userId, String username, String nickname,
+                                              String avatar, String bgImage, String gender, String birthday) {
         Map<String, Object> data = new HashMap<>();
-        data.put("userId", user.getId());
-        data.put("username", user.getUsername());
-        data.put("nickname", user.getNickname());
-        data.put("avatar", user.getAvatar());
-        data.put("bgImage", user.getBgImage());
-        data.put("gender", user.getGender());
-        data.put("birthday", user.getBirthday());
+        data.put("userId", userId);
+        data.put("username", username);
+        data.put("nickname", nickname);
+        data.put("avatar", avatar);
+        data.put("bgImage", bgImage);
+        data.put("gender", gender);
+        data.put("birthday", birthday);
         return data;
     }
 

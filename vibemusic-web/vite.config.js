@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'es2015',
+    target: 'es2020',
     cssCodeSplit: true,
     assetsInlineLimit: 8192,
     minify: 'terser',
@@ -26,10 +26,13 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
+        chunkSizeWarningLimit: 500,
         manualChunks(id) {
           if (!id.includes('node_modules')) return
-          if (id.includes('vue') || id.includes('pinia') || id.includes('@vue')) return 'vue'
+          if (id.includes('vue') || id.includes('@vue')) return 'vue-core'
+          if (id.includes('pinia')) return 'pinia'
           if (id.includes('axios')) return 'axios'
+          if (id.includes('@capacitor')) return 'capacitor'
           return 'vendor'
         },
       },

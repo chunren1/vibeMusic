@@ -1,6 +1,7 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.StreamUtils;
 import com.vibemusic.entity.Song;
 import com.vibemusic.service.DownloadService;
 import com.vibemusic.service.SongService;
@@ -81,12 +82,7 @@ public class DownloadController {
                     "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName + ".mp3", "UTF-8"));
             response.setHeader("Cache-Control", "public, max-age=86400");
 
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                out.write(buf, 0, n);
-            }
-            out.flush();
+            StreamUtils.copy(in, out);
         } catch (Exception e) {
             if (!response.isCommitted()) {
                 response.setStatus(404);

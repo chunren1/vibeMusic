@@ -9,6 +9,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -79,8 +80,8 @@ public class GlobalExceptionHandler {
     // ==================== 业务异常 ====================
 
     @ExceptionHandler(BusinessException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Result<Void> handleBusinessException(BusinessException ex) {
+    public Result<Void> handleBusinessException(BusinessException ex, HttpServletResponse response) {
+        response.setStatus(ex.getCode());
         return Result.error(ex.getCode(), ex.getMessage());
     }
 

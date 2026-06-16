@@ -1,3 +1,12 @@
+# ============================================================
+# 通用日志配置（限制大小 + 轮转）
+# ============================================================
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
   # ==========================
   # MySQL 8.0 — 关系数据库
@@ -62,6 +71,7 @@ services:
     image: elasticsearch:8.18.0
     container_name: vibemusic-es
     restart: unless-stopped
+    logging: *default-logging
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
@@ -96,6 +106,7 @@ services:
     image: vibemusic-musicapi:latest
     container_name: vibemusic-musicapi
     restart: unless-stopped
+    logging: *default-logging
     environment:
       TZ: Asia/Shanghai
     ports:
@@ -146,6 +157,7 @@ services:
     image: vibemusic-backend:latest
     container_name: vibemusic-backend
     restart: unless-stopped
+    logging: *default-logging
     environment:
       # 数据库
       DB_HOST: mysql
@@ -189,6 +201,7 @@ services:
     image: nginx:1.27-alpine
     container_name: vibemusic-nginx
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
     volumes:

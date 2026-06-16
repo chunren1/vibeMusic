@@ -264,7 +264,7 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
      写入: ES bulk (ndjson) + Redis 同步缓存
 ```
 - **ES 增强搜索**：IK 分词 + 高亮标记 + 平台聚合统计
-- **定时清理**：每小时删除 1 小时前的 ES 缓存数据
+- **定时清理**：每 6 小时删除 6 小时前的 ES 缓存数据
 - **缓存污染检测**：Redis 单平台缓存自动删除 + 重搜
 - **版本隔离**：前缀 v4 自然淘汰旧缓存
 
@@ -338,9 +338,46 @@ withNeteaseCookie()  qqMusic.setCookie()
 
 ## 运维体系
 
+### 日常命令
+
 ```bash
-npm run ops     # 跨平台运维面板（日志/状态/Cookie 检查/停止服务）
-npm run tunnel  # 启动 cpolar 内网穿透
+npm run ops             # 跨平台运维面板
+npm run backup:db       # 数据库备份 (mysqldump + gzip，保留 7 天)
+npm run health          # 容器健康检查 (每 5 分钟定时运行)
+npm run tunnel          # 启动 cpolar 内网穿透
+npm run deploy:full     # 一键部署 (测试 → 构建 → Docker 部署)
+```
+
+### CI/CD 流水线
+
+| 流水线 | 触发条件 | 流程 |
+|--------|----------|------|
+| `test.yml` | push/PR to main | 后端 JUnit + 前端 Vitest → 自动跑 63 条测试 |
+| `deploy.yml` | 手动触发 / 推送 tag(v*) | 构建 JAR + dist → Docker 镜像 → 部署 → 健康检查 |
+
+### 自动化运维
+
+```bash
+# 建议设置 Windows 任务计划：
+# 每天 4:00   → npm run backup:db     (数据库备份)
+# 每 5 分钟   → npm run health        (健康监控)
+
+# Docker 日志轮转 (自动)
+# docker-compose.yml 已配置：
+#   max-size: 50MB  (单文件上限)
+#   max-file: 3     (保留 3 个轮转文件)
+#   适用服务: nginx / backend / musicapi / elasticsearch
+```
+
+### 备份恢复
+
+```bash
+# 备份
+npm run backup:db           # → docker-data/backups/vibemusic_20260616_040000.sql.gz
+
+# 恢复
+gunzip vibemusic_20260616_040000.sql.gz
+docker exec -i vibemusic-mysql mysql -uroot -p123456 vibemusic < vibemusic_20260616_040000.sql
 ```
 
 ### 日志分类 (musicapi/logs/)
@@ -390,8 +427,56 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 
 ---
 
-## 代码审查改进 (2026-06-16)
+## 代码审查改进记录
 
+### 2026-06-16 第二轮优化 (后端 9 项 + 前端 2 项)
+
+#### 🔴 高优先级
+| 改进项 | 说明 |
+|--------|------|
+| HTTP 连接池 | 新增 `RestTemplateConfig`，Apache HttpClient5 连接池 (100/20)，`RestClient.Builder` 统一注入 |
+| 流式下载防 OOM | `NeteaseApiService.downloadSongToFile()` 写入临时文件，`StorageService.uploadStream()` 流式上传 |
+| PlaylistService 异常规范 | `RuntimeException` → `BusinessException(404/403)`，配合 `GlobalExceptionHandler` 返回正确 4xx |
+| PlayHistoryService 去重 | 连续同歌只 UPDATE played_at，节省存储 |
+| PlayHistoryService 概率清理 | `deleteOldByUserId` 每 10 次触发 1 次，DELETE 开销降 90% |
+| LIMIT 安全边界 | 3 处 `.last("LIMIT " + count)` 加 `Math.max(1, Math.min(count, MAX))` 防御 |
+
+#### 🟡 中优先级
+| 改进项 | 说明 |
+|--------|------|
+| ES 初始化噪音消除 | `ensureIndex()` 加 `.onErrorResume(Mono::empty)` 消费超时异常，消除红色堆栈 |
+| ES bulk 统一 WebClient | `saveAll()` 替代 HttpURLConnection ndjson 写入，纳入连接池管理 |
+| UserService 精准更新 | `updateAvatar/updateBgImage` 改为 `lambdaUpdate().eq().set()` 单字段更新 |
+| PlaylistService INSERT IGNORE | 删 SELECT COUNT，改为 `catch DuplicateKeyException` 配合唯一索引 |
+| SongSearchService Redis 优化 | 命中后消除二次 `getSearchCache()` 调用，一次读取直接分页 |
+| SongPlayService 音质降级超时 | 新增 8s DEADLINE 检查，防止多级降级叠加阻塞 |
+| GlobalExceptionHandler 状态码 | `@ResponseStatus` → `response.setStatus(ex.getCode())` 动态 HTTP 状态码 |
+
+#### 🟢 低优先级
+| 改进项 | 说明 |
+|--------|------|
+| SecurityConfig 路径清理 | 删除不存在的 `/api/song/**` pattern |
+| AuthController 代码去重 | `buildUserData()` / `buildUserDataFromEntity()` 合并统一方法 |
+| StreamUtils 工具类 | 提取 `StreamUtils.copy()` 消除 3 处重复流拷贝 |
+| PlaylistService DTO | 新增 `record PlaylistDTO` 替代裸 HashMap |
+| ESCleanupTask 间隔 | `@Scheduled` 从每小时 → 每 6 小时 |
+| user_favorite 索引 | 新增 `idx_user_fav_created(user_id, created_at)` 复合索引 |
+| 前端搜索竞态修复 | `song.js` 加 `AbortController` 自动取消旧请求 |
+| 前端播放异常日志 | 3 处 `audio.play().catch(() => {})` 加 `console.warn` + 状态回退 |
+
+#### 🚀 前端性能优化
+| 改进项 | 说明 |
+|--------|------|
+| Nginx Gzip 优化 | 补全 `text/html`/`font/woff2`，`comp_level 6→4`，`min_length 256` |
+| Nginx upstream 连接池 | `upstream backend { keepalive 32 }`，消除每次 API 请求 TCP 握手 |
+| Nginx 并发提升 | `worker_connections 1024→2048` + `multi_accept on` |
+| Nginx 缓存策略 | `/uploads/` 缓存 `7d→1d + must-revalidate`，头像更换即时生效 |
+| Vite target 升级 | `es2015→es2020`，bundle 缩小约 15% |
+| Vite chunk 拆分 | `vue-core` / `pinia` / `axios` 独立 chunk，并行下载 |
+
+---
+
+### 2026-06-16 第一轮优化
 | 类别 | 改进项 | 说明 |
 |------|--------|------|
 | 🧹 代码质量 | SongService 拆分 | 拆为 SongService(持久化) + SongSearchService(搜索) + SongPlayService(播放) |
