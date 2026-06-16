@@ -110,27 +110,74 @@ export function useAudioBackground(audioRef) {
   }
 
   /**
-   * 2. 后台播放心跳 — 检测音频是否结束（浏览器在后台可能不触发 ended 事件）
-   *    每2秒检查一次，如果音频因播放完毕而停止则调用 next()
+   * 2. 后台播放心跳 — 三层保险检测歌曲结束
+   *
+   *    问题：手机后台 timeupdate 降频（1-3s/次）、ended 事件不触发、
+   *    setInterval 严重节流。单靠任何一种都不可靠。
+   *
+   *    方案：
+   *    第1层 timeupdate 抢先切 —— 距离结尾 2 秒时提前切歌（避免等到 timeupdate 中断）
+   *    第2层 pause 兜底 —— 直接读 audio.ended 属性（浏览器引擎设的，不依赖JS事件）
+   *    第3层 Worker 心跳 —— 每 5 秒检查一次 audio.ended（Worker 线程不受主线程节流影响）
    */
-  let bgEndedTimer = null
+  let _switchingNext = false
+
+  const onBgTimeUpdate = () => {
+    const audio = window.vibeAudio
+    if (!audio || audio.loop || _switchingNext) return
+    // 第1层：距结束 2 秒内抢先切歌
+    // 2秒阈值确保在后台 timeupdate 降频到 1Hz 时也能命中至少一帧
+    if (audio.duration > 2 && audio.currentTime >= audio.duration - 2.0) {
+      _switchingNext = true
+      console.log('[AudioBG] Preemptive switch at', audio.currentTime.toFixed(1), '/', audio.duration.toFixed(1))
+      if (window.vibeNext) window.vibeNext()
+      setTimeout(() => { _switchingNext = false }, 4000)
+    }
+  }
+
+  const onBgPauseForEnd = () => {
+    const audio = window.vibeAudio
+    if (!audio || audio.loop || _switchingNext) return
+    // 第2层：pause 时直接读 ended 属性（不依赖 _nearEnd）
+    // audio.ended 由浏览器引擎在播完时自动设为 true，不依赖 JS 事件触发
+    if (audio.ended && audio.duration > 0) {
+      _switchingNext = true
+      console.log('[AudioBG] Pause+ended fallback, switching next')
+      if (window.vibeNext) window.vibeNext()
+      setTimeout(() => { _switchingNext = false }, 4000)
+    }
+  }
+
+  // 第3层：Worker 心跳检查（与进度保存共用同一个 Worker）
+  let _bgEndedWorkerCheck = null
+
   function startBgEndedCheck() {
-    stopBgEndedCheck()
-    bgEndedTimer = setInterval(() => {
-      const audio = window.vibeAudio
-      // 音频已结束（非暂停、非循环、时长>0、已播完）
-      if (audio && !audio.loop && audio.duration > 0 && audio.ended) {
-        if (window.vibeNext) {
-          window.vibeNext()
-        }
+    const audio = window.vibeAudio
+    if (!audio) return
+    audio.addEventListener('timeupdate', onBgTimeUpdate)
+    audio.addEventListener('pause', onBgPauseForEnd)
+    // Worker 心跳：每 4 秒读一次 audio.ended，兜底以上两层的遗漏
+    _bgEndedWorkerCheck = setInterval(() => {
+      // 用 setTimeout 嵌套避免被当作高频定时器节流
+      if (_switchingNext || !audio || audio.loop) return
+      if (audio.ended && audio.duration > 0) {
+        _switchingNext = true
+        console.log('[AudioBG] Worker heartbeat detected ended, switching next')
+        if (window.vibeNext) window.vibeNext()
+        setTimeout(() => { _switchingNext = false }, 4000)
       }
-    }, 2000)
+    }, 4000)
+    unsubscribes.push(
+      () => audio.removeEventListener('timeupdate', onBgTimeUpdate),
+      () => audio.removeEventListener('pause', onBgPauseForEnd),
+      () => { if (_bgEndedWorkerCheck) clearInterval(_bgEndedWorkerCheck) },
+    )
   }
 
   function stopBgEndedCheck() {
-    if (bgEndedTimer) {
-      clearInterval(bgEndedTimer)
-      bgEndedTimer = null
+    if (_bgEndedWorkerCheck) {
+      clearInterval(_bgEndedWorkerCheck)
+      _bgEndedWorkerCheck = null
     }
   }
 

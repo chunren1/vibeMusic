@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ==========================
   # MySQL 8.0 — 关系数据库
@@ -89,6 +87,28 @@ services:
       start_period: 60s
 
   # ==========================
+  # musicapi — 网易云 + QQ 音乐统一 API 代理 (Node.js)
+  # ==========================
+  musicapi:
+    build:
+      context: ./musicapi
+      dockerfile: Dockerfile
+    image: vibemusic-musicapi:latest
+    container_name: vibemusic-musicapi
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "3000:3000"
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ==========================
   # MinIO — RustFS 对象存储
   # ==========================
   rustfs:
@@ -117,8 +137,51 @@ services:
       retries: 5
 
   # ==========================
-  # MinIO 初始化 — 自动创建 Bucket
+  # Spring Boot 后端 — vibeMusic API
   # ==========================
+  backend:
+    build:
+      context: ./vibeMusic-backend
+      dockerfile: Dockerfile
+    image: vibemusic-backend:latest
+    container_name: vibemusic-backend
+    restart: unless-stopped
+    environment:
+      # 数据库
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: 123456
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Elasticsearch
+      ES_URI: http://elasticsearch:9200
+      # MinIO / RustFS
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      # JWT
+      JWT_SECRET: SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2
+      # musicapi (网易云 API 代理)
+      MUSICAPI_URL: http://musicapi:3000
+      # Profile
+      SPRING_PROFILES_ACTIVE: docker
+    ports:
+      - "8080:8080"
+    networks:
+      - vibemusic-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+      musicapi:
+        condition: service_healthy
+
   # ==========================
   # Nginx — 统一入口 & 反向代理
   # ==========================
@@ -143,7 +206,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 30s
       timeout: 5s
       retries: 3

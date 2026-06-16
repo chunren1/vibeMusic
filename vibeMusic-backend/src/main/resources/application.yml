@@ -8,7 +8,7 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   datasource:
-    url: jdbc:mysql://localhost:3306/vibemusic?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
+    url: jdbc:mysql://${DB_HOST:localhost}:3306/vibemusic?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -53,7 +53,7 @@ netease:
 
   elasticsearch:
     uris:
-      - http://localhost:9201
+      - ${ES_URI:http://localhost:9201}
     connection-timeout: 5s
     socket-timeout: 10s
 

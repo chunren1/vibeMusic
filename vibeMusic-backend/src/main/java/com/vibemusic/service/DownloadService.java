@@ -1,17 +1,20 @@
 package com.vibemusic.service;
 
-import com.vibemusic.entity.Song;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 歌曲下载服务
  * <p>
  * 流程：Netease API → 下载 mp3 → 上传 RustFS → 存入 DB(song表)
+ * <p>
+ * 并发控制：使用 per-sourceId 的 ReentrantLock 防止同一首歌被并发重复下载，
+ * 避免多次请求外部 API 和重复上传 RustFS 造成的资源浪费。
  */
 @Slf4j
 @Service
@@ -21,26 +24,46 @@ public class DownloadService {
     private final NeteaseApiService neteaseApiService;
     private final StorageService storageService;
     private final SongService songService;
+    private final SongPlayService songPlayService;
+
+    /** 每首歌一个锁，key 为 sourceId */
+    private final ConcurrentHashMap<String, ReentrantLock> downloadLocks = new ConcurrentHashMap<>();
 
     /**
-     * 下载歌曲到 RustFS 并入库
+     * 下载歌曲到 RustFS 并入库（线程安全）
      */
-    @Transactional(rollbackFor = Exception.class)
     public String download(String sourceId, String name, String artist,
                            String album, String coverUrl, Integer duration,
                            String level) {
-        // 1. 检查 RustFS 是否已有缓存
+        ReentrantLock lock = downloadLocks.computeIfAbsent(sourceId, k -> new ReentrantLock());
+        lock.lock();
+        try {
+            return doDownload(sourceId, name, artist, album, coverUrl, duration, level);
+        } finally {
+            lock.unlock();
+            // 清理无等待者的锁，防止内存泄漏
+            if (!lock.hasQueuedThreads()) {
+                downloadLocks.remove(sourceId, lock);
+            }
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    private String doDownload(String sourceId, String name, String artist,
+                              String album, String coverUrl, Integer duration,
+                              String level) {
+        // 1. 获取锁后再次检查缓存（双重检查，避免锁外已检查但结果过时）
         String objectName = "songs/" + sourceId + ".mp3";
         if (storageService.exists(objectName)) {
             log.info("歌曲 {} 已缓存，直接入库", name);
-            String url = storageService.getDirectUrl(objectName);  // 使用不过期的直接URL
+            String url = storageService.getDirectUrl(objectName);
             songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, url);
             return url;
         }
 
         // 2. 获取播放链接（自动识别QQ/网易云平台）
         log.info("获取播放链接: {} ({})", name, sourceId);
-        String downloadUrl = songService.getPlayUrl(sourceId);
+        String downloadUrl = songPlayService.getPlayUrl(sourceId);
         if (downloadUrl == null) {
             throw new RuntimeException("无法获取 VIP 播放链接");
         }

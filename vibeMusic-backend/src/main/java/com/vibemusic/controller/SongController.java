@@ -12,11 +12,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+
+import org.springframework.http.HttpStatusCode;
+import org.springframework.web.client.RestClient;
 
 @Slf4j
 @RestController
@@ -25,12 +26,24 @@ import java.util.stream.Collectors;
 @Tag(name = "歌曲", description = "搜索、播放、历史记录")
 public class SongController {
 
-    private final SongService songService;
+    private final SongSearchService songSearchService;
+    private final SongPlayService songPlayService;
     private final PlayHistoryService playHistoryService;
     private final NeteaseApiService neteaseApiService;
     private final StorageService storageService;
     private final RecommendService recommendService;
     private final ESSearchService esSearchService;
+
+    /** 共享 HTTP 客户端（连接池 + 超时控制，替代 HttpURLConnection） */
+    private final RestClient restClient = RestClient.create();
+
+    /** 流拷贝工具方法 */
+    private void copyStream(InputStream in, OutputStream out) throws IOException {
+        byte[] buf = new byte[8192];
+        int n;
+        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+        out.flush();
+    }
 
     /** Banner 轮播（网易云推荐歌单） */
     @GetMapping("/banner")
@@ -64,7 +77,7 @@ public class SongController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "40") int size,
             @RequestParam(required = false) String platform) {
-        return Result.ok(songService.search(keyword, page, size, platform));
+        return Result.ok(songSearchService.search(keyword, page, size, platform));
     }
 
     /** ES 健康检查 — 用于验证 ES 连接状态 & 索引数据 */
@@ -88,7 +101,7 @@ public class SongController {
     @GetMapping("/random")
     @Operation(summary = "随机推荐歌曲")
     public Result<List<SongDTO>> randomSongs(@RequestParam(defaultValue = "8") int count) {
-        return Result.ok(songService.getRandomSongs(count));
+        return Result.ok(songSearchService.getRandomSongs(count));
     }
 
     /** 播放（获取 URL + 试听标识 + 平台 + 记录历史） */
@@ -195,6 +208,7 @@ public class SongController {
     public void stream(@RequestParam String sourceId,
                        @RequestParam(required = false) String name,
                        @RequestParam(required = false) String artist,
+                       @RequestParam(required = false) String platform,
                        HttpServletRequest request,
                        HttpServletResponse response) {
         // 1. 优先从 RustFS 直读（支持 Range 请求，seek 秒级响应）
@@ -223,20 +237,14 @@ public class SongController {
 
                     try (InputStream in = storageService.getObjectRange(rustfsObjectName, start, length);
                          OutputStream out = response.getOutputStream()) {
-                        byte[] buf = new byte[8192];
-                        int n;
-                        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-                        out.flush();
+                        copyStream(in, out);
                     }
                 } else {
                     // 完整读取
                     response.setContentLength((int) fileSize);
                     try (InputStream in = storageService.getObject(rustfsObjectName);
                          OutputStream out = response.getOutputStream()) {
-                        byte[] buf = new byte[8192];
-                        int n;
-                        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-                        out.flush();
+                        copyStream(in, out);
                     }
                 }
                 log.debug("stream from RustFS: {} (Range={})", sourceId, rangeHeader != null ? "yes" : "no");
@@ -251,74 +259,75 @@ public class SongController {
             }
         }
 
-        // 2. 远程 URL 代理
-        HttpURLConnection conn = null;
-        InputStream in = null;
-        OutputStream out = null;
-        try {
-            String audioUrl = songService.getPlayUrl(sourceId, name, artist);
-            if (audioUrl == null) {
-                response.setStatus(404);
-                return;
-            }
+        // 2. 远程 URL 代理 (使用 RestClient，自带连接池 + 超时控制)
+        //    网易云 CDN URL 有时效性，首次失败后重新获取 URL 再试一次
+        streamFromRemote(sourceId, name, artist, platform, request, response);
+    }
 
-            URL url = new URL(audioUrl);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
-            conn.setRequestProperty("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-
-            // 转发 Range 请求头（支持 seek）
-            String rangeHeader = request.getHeader("Range");
-            if (rangeHeader != null) {
-                conn.setRequestProperty("Range", rangeHeader);
-            }
-
-            conn.connect();
-            int contentLength = conn.getContentLength();
-            String contentType = conn.getContentType();
-            int statusCode = conn.getResponseCode();
-
-            // 设置响应头
-            if (contentType != null && contentType.startsWith("audio/")) {
-                response.setContentType(contentType);
-            } else {
-                response.setContentType("audio/mpeg");
-            }
-            if (contentLength > 0) response.setContentLength(contentLength);
-            response.setHeader("Accept-Ranges", "bytes");
-            response.setHeader("Cache-Control", "public, max-age=3600");
-
-            if (statusCode >= 200 && statusCode < 300) {
-                response.setStatus(statusCode);
-                if (statusCode == 206) {
-                    response.setHeader("Content-Range",
-                        conn.getHeaderField("Content-Range"));
+    private void streamFromRemote(String sourceId, String name, String artist,
+                                  String platform, HttpServletRequest request,
+                                  HttpServletResponse response) {
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                String audioUrl = songPlayService.getPlayUrl(sourceId, name, artist, platform);
+                if (audioUrl == null) {
+                    response.setStatus(404);
+                    return;
                 }
-            } else {
-                response.setStatus(200);
-            }
 
-            in = conn.getInputStream();
-            out = response.getOutputStream();
+                String rangeHeader = request.getHeader("Range");
 
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                out.write(buf, 0, n);
-            }
-            out.flush();
+                restClient.get()
+                        .uri(audioUrl)
+                        .headers(h -> {
+                            h.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                            if (rangeHeader != null) h.set("Range", rangeHeader);
+                        })
+                        .exchange((clientReq, clientResp) -> {
+                            HttpStatusCode statusCode = clientResp.getStatusCode();
 
-        } catch (Exception e) {
-            log.error("音频流代理失败 sourceId={}: {}", sourceId, e.getMessage());
-            if (!response.isCommitted()) {
-                response.setStatus(500);
+                            // 设置响应头
+                            String contentType = clientResp.getHeaders().getFirst("Content-Type");
+                            if (contentType != null && contentType.startsWith("audio/")) {
+                                response.setContentType(contentType);
+                            } else {
+                                response.setContentType("audio/mpeg");
+                            }
+                            long contentLength = clientResp.getHeaders().getContentLength();
+                            if (contentLength > 0) response.setContentLength((int) contentLength);
+                            response.setHeader("Accept-Ranges", "bytes");
+                            response.setHeader("Cache-Control", "public, max-age=3600");
+
+                            if (statusCode.is2xxSuccessful()) {
+                                response.setStatus(statusCode.value());
+                                if (statusCode.value() == 206) {
+                                    String cr = clientResp.getHeaders().getFirst("Content-Range");
+                                    if (cr != null) response.setHeader("Content-Range", cr);
+                                }
+                            }
+
+                            // 流拷贝
+                            try (InputStream in = clientResp.getBody();
+                                 OutputStream out = response.getOutputStream()) {
+                                copyStream(in, out);
+                            }
+                            return null;
+                        });
+                return; // 成功，退出
+
+            } catch (Exception e) {
+                if (attempt == 1 && !response.isCommitted()) {
+                    log.warn("音频流首次代理失败 (attempt=1/2), sourceId={}, 重新获取URL: {}",
+                            sourceId, e.getMessage());
+                    // 第二次循环会重新 getPlayUrl 拿新鲜 URL
+                } else {
+                    log.error("音频流代理失败 sourceId={}: {}", sourceId, e.getMessage());
+                    if (!response.isCommitted()) {
+                        response.setStatus(500);
+                    }
+                    return;
+                }
             }
-        } finally {
-            try { if (out != null) out.close(); } catch (Exception ignored) {}
-            try { if (in != null) in.close(); } catch (Exception ignored) {}
-            if (conn != null) conn.disconnect();
         }
     }
 }

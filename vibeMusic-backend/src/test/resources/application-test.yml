@@ -1,0 +1,42 @@
+# ============================================================
+# vibeMusic 测试环境配置
+# 使用 H2 内存数据库 + 禁用外部依赖
+# ============================================================
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:vibemusic_test;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+      
+  # 禁用 Redis（测试环境不依赖外部缓存）
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      
+  # 禁用 Elasticsearch
+  elasticsearch:
+    enabled: false
+
+# JWT 测试用密钥
+jwt:
+  secret: test-secret-key-for-unit-testing-only
+  expiration: 3600000
+
+# MinIO / RustFS 测试配置
+rustfs:
+  endpoint: http://localhost:9000
+  access-key: test
+  secret-key: test
+  bucket: vibemusic
+
+# musicapi 测试用
+musicapi:
+  url: http://localhost:3000
+
+logging:
+  level:
+    com.vibemusic: DEBUG
+    org.springframework.test: INFO

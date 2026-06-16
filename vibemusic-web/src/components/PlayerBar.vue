@@ -312,7 +312,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .mini-cover.active { box-shadow: 0 0 0 2px rgba(49,194,124,0.5); }
 .mini-song { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; max-width: 160px; }
 .mini-name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.mini-name { color: #1a1a1a; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.mini-name { color: #1a1a1a; font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; }
 .mini-artist { color: #999; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-trial { display: inline-block; font-size: 9px; padding: 0 4px; border-radius: 3px; background: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; vertical-align: middle; line-height: 16px; white-space: nowrap; flex-shrink: 0; }
 .tag-quality { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 3px; background: rgba(49,194,124,0.12); color: #31c27c; font-weight: 500; vertical-align: middle; line-height: 16px; white-space: nowrap; flex-shrink: 0; }
