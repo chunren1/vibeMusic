@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",
@@ -17,9 +20,13 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.0",
+    "@pinia/testing": "^1.0.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^29.1.1",
     "terser": "^5.48.0",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

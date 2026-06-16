@@ -1,54 +1,39 @@
-# ===== IDE =====
+# Maven
+vibeMusic-backend/target/
+
+# Node
+node_modules/
+vibemusic-web/node_modules/
+musicapi/node_modules/
+
+# 测试产出
+*.dump
+*.dumpstream
+mvn-test-output.txt
+
+# 前端构建产物
+vibemusic-web/dist/
+
+# IDE
 .idea/
 *.iml
 .vscode/
-*.swp
-*.swo
 
-# ===== Java =====
-target/
-*.class
-*.jar
-*.war
-
-# ===== Node =====
-node_modules/
-dist/
-.env.local
-.env.*.local
-
-# ===== OS =====
-.DS_Store
-Thumbs.db
-*.log
-
-# ===== Memory =====
-.codebuddy/memory/
-
-# ===== Temp scripts (root level only) =====
-/test*.js
-/fix*.js
-/qq-login.js
-/save-*.ps1
-
-# ===== Env & secrets =====
+# 环境变量（不要提交真实凭据）
 .env
-.env.local
 
-# ===== Android =====
-vibemusic-web/android/app/build/
-vibemusic-web/android/build/
-vibemusic-web/android/.gradle/
-vibemusic-web/android/local.properties
-*.apk
+# Docker 数据
+docker-data/mysql/data/
+docker-data/redis/data/
+docker-data/elasticsearch/data/
+docker-data/rustfs/data/
 
-# ===== Nginx Runtime =====
+# 日志
+*.log
+musicapi/logs/
 docker-data/nginx/logs/
 
-# ===== Cloudflare Tunnel =====
-.cloudflared/
-
-# ===== Temp / Debug =====
-compile_err.txt
-.codebuddy/tmp/
-$null
+# 临时文件
+*.tmp
+.DS_Store
+Thumbs.db

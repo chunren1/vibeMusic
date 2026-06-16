@@ -1,0 +1,332 @@
+package com.vibemusic.service;
+
+import com.vibemusic.config.AudioQualityTier;
+import com.vibemusic.entity.Song;
+import com.vibemusic.mapper.SongMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * 歌曲播放服务
+ * <p>
+ * 音质降级链：RustFS 缓存 → 原平台 API（多级音质）→ 跨平台降级 → DB 历史 URL 兜底
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class SongPlayService {
+
+    private final SongMapper songMapper;
+    private final NeteaseApiService neteaseApiService;
+    private final StorageService storageService;
+
+    private final AtomicInteger degradationCount = new AtomicInteger(0);
+
+    public int getDegradationCount() { return degradationCount.get(); }
+
+    // ==================== getPlayInfo ====================
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getPlayInfo(String sourceId) {
+        return getPlayInfo(sourceId, null, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getPlayInfo(String sourceId, String songName, String artist) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("isTrial", false);
+        info.put("platform", sourceId.matches("\\d+") ? "netease" : "qq");
+
+        // 1. 优先 RustFS 本地缓存
+        String rustfsObjectName = "songs/" + sourceId + ".mp3";
+        if (storageService.exists(rustfsObjectName)) {
+            String directUrl = storageService.getDirectUrl(rustfsObjectName);
+            info.put("url", directUrl);
+            info.put("fromCache", true);
+            info.put("quality", AudioQualityTier.LOCAL.name());
+            info.put("qualityLabel", AudioQualityTier.LOCAL.getLabel());
+            info.put("degraded", false);
+            log.info("音质[LOCAL] 歌曲 {} 命中RustFS缓存", sourceId);
+            return info;
+        }
+
+        // 2. 在线获取：按 SLA 等级逐级降级
+        AudioQualityTier achievedTier = AudioQualityTier.FALLBACK;
+        boolean degraded = false;
+
+        try {
+            if (sourceId.matches("\\d+")) {
+                // 网易云音质降级链：HIRES → EXHIGH → HIGHER → STANDARD
+                AudioQualityTier[] tiers = {
+                    AudioQualityTier.HIRES, AudioQualityTier.EXHIGH,
+                    AudioQualityTier.HIGHER, AudioQualityTier.STANDARD
+                };
+                for (AudioQualityTier tier : tiers) {
+                    achievedTier = tier;
+                    Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel());
+                    if (result == null) continue;
+                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                    if (data == null || data.isEmpty()) continue;
+                    String url = (String) data.get(0).get("url");
+                    if (url == null || url.isEmpty()) continue;
+                    Object trial = data.get(0).get("freeTrialInfo");
+                    Object time = data.get(0).get("time");
+                    if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
+                        degradationCount.incrementAndGet();
+                        degraded = true;
+                        log.info("音质降级: {} [{}] 为试听片段 → 尝试下一级", sourceId, tier.getLabel());
+                        continue;
+                    }
+                    info.put("url", url);
+                    info.put("quality", achievedTier.name());
+                    info.put("qualityLabel", achievedTier.getLabel());
+                    info.put("degraded", degraded);
+                    log.info("音质[{}] 歌曲 {} 在线获取成功{}",
+                        achievedTier.getLabel(), sourceId, degraded ? " (经逐级降级)" : "");
+                    return info;
+                }
+                // 网易云全部降级为试听 → QQ降级
+                degradationCount.incrementAndGet();
+                log.info("音质降级: {} 网易云全试听 → 尝试QQ降级", sourceId);
+                String qqUrl = tryQQFallback(songName, artist, sourceId);
+                if (qqUrl != null) {
+                    achievedTier = AudioQualityTier.HIGHER;
+                    info.put("url", qqUrl);
+                    info.put("platform", "qq");
+                    info.put("quality", AudioQualityTier.HIGHER.name());
+                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                    info.put("degraded", true);
+                    info.put("fallbackFrom", "netease-trial");
+                    return info;
+                }
+                achievedTier = AudioQualityTier.FALLBACK;
+                info.put("isTrial", true);
+                info.put("quality", AudioQualityTier.FALLBACK.name());
+                info.put("qualityLabel", AudioQualityTier.FALLBACK.getLabel());
+                info.put("degraded", true);
+                Map<String, Object> f = neteaseApiService.getSongUrl(sourceId, "standard");
+                if (f != null) {
+                    List<Map<String, Object>> d = (List<Map<String, Object>>) f.get("data");
+                    if (d != null && !d.isEmpty()) info.put("url", d.get(0).get("url"));
+                }
+            } else {
+                // QQ 音乐 → 尝试获取 URL
+                Map<String, Object> result = neteaseApiService.getQQSongUrl(sourceId);
+                if (result != null) {
+                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                    if (data != null && !data.isEmpty()) {
+                        String qqUrl = (String) data.get(0).get("url");
+                        if (qqUrl != null && !qqUrl.isEmpty()) {
+                            info.put("url", qqUrl);
+                            info.put("quality", AudioQualityTier.HIGHER.name());
+                            info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                            info.put("degraded", false);
+                            return info;
+                        }
+                    }
+                }
+                degradationCount.incrementAndGet();
+                log.info("QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) {
+                    info.put("url", neteaseUrl);
+                    info.put("platform", "netease");
+                    info.put("quality", AudioQualityTier.HIGHER.name());
+                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                    info.put("degraded", true);
+                    info.put("fallbackFrom", "qq-no-url");
+                    return info;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("API获取播放链接失败, sourceId={}, 尝试RustFS兜底: {}", sourceId, e.getMessage());
+        }
+
+        // 3. API 失败 → 从 DB 历史URL兜底
+        if (info.get("url") == null) {
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
+            if (song != null && song.getUrl() != null) {
+                info.put("url", song.getUrl());
+                info.put("fromCache", true);
+                info.put("quality", AudioQualityTier.STANDARD.name());
+                info.put("qualityLabel", AudioQualityTier.STANDARD.getLabel());
+                info.put("degraded", true);
+                degradationCount.incrementAndGet();
+                log.info("音质降级: {} API失败 → DB历史URL兜底", sourceId);
+            }
+        }
+
+        if (!info.containsKey("quality")) {
+            info.put("quality", AudioQualityTier.FALLBACK.name());
+            info.put("qualityLabel", AudioQualityTier.FALLBACK.getLabel());
+            info.put("degraded", true);
+        }
+        return info;
+    }
+
+    // ==================== getPlayUrl ====================
+
+    @SuppressWarnings("unchecked")
+    public String getPlayUrl(String sourceId) {
+        return getPlayUrl(sourceId, null, null, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public String getPlayUrl(String sourceId, String songName, String artist) {
+        return getPlayUrl(sourceId, songName, artist, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public String getPlayUrl(String sourceId, String songName, String artist, String platform) {
+        // 1. 优先检查 RustFS 缓存
+        String rustfsObjectName = "songs/" + sourceId + ".mp3";
+        if (storageService.exists(rustfsObjectName)) {
+            String directUrl = storageService.getDirectUrl(rustfsObjectName);
+            log.info("getPlayUrl: {} 命中RustFS缓存", sourceId);
+            return directUrl;
+        }
+
+        // 2. 尝试从 API 获取
+        boolean explicitQQ = "qq".equalsIgnoreCase(platform);
+        boolean explicitNE = "netease".equalsIgnoreCase(platform);
+        boolean guessNetEase = sourceId != null && sourceId.matches("\\d+");
+
+        try {
+            if (explicitQQ || (!explicitNE && !guessNetEase)) {
+                try {
+                    Map<String, Object> result = neteaseApiService.getQQSongUrl(sourceId);
+                    if (result != null) {
+                        List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                        if (data != null && !data.isEmpty()) {
+                            String qqUrl = (String) data.get(0).get("url");
+                            if (qqUrl != null && !qqUrl.isEmpty()) return qqUrl;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("getPlayUrl: QQ {} 获取失败: {}", sourceId, e.getMessage());
+                }
+                log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) return neteaseUrl;
+            } else {
+                String[] levels = {"exhigh", "higher", "standard"};
+                for (String level : levels) {
+                    try {
+                        Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, level);
+                        if (result == null) continue;
+                        List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                        if (data == null || data.isEmpty()) continue;
+                        String url = (String) data.get(0).get("url");
+                        if (url == null || url.isEmpty()) continue;
+                        Object trial = data.get(0).get("freeTrialInfo");
+                        Object time = data.get(0).get("time");
+                        if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
+                            log.info("歌曲 {} 音质 {} 为试听, 尝试降级", sourceId, level);
+                            continue;
+                        }
+                        return url;
+                    } catch (Exception e) {
+                        log.warn("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
+                    }
+                }
+                log.info("getPlayUrl: 歌曲 {} 网易云全失败，尝试QQ降级", sourceId);
+                String qqUrl = tryQQFallback(songName, artist, sourceId);
+                if (qqUrl != null) return qqUrl;
+                log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
+            }
+        } catch (Exception e) {
+            log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage());
+        }
+
+        // 3. API 失败 → 从 DB 兜底
+        Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
+        return song != null ? song.getUrl() : null;
+    }
+
+    // ==================== 跨平台降级 ====================
+
+    @SuppressWarnings("unchecked")
+    private String tryQQFallback(String songName, String artist, String neteaseId) {
+        if (songName == null || songName.isBlank()) {
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, neteaseId));
+            if (song == null || song.getName() == null) return null;
+            songName = song.getName();
+            artist = song.getArtist();
+        }
+        try {
+            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
+            Map<String, Object> result = neteaseApiService.searchQQ(keyword, 5);
+            if (result == null) return null;
+            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+            if (data == null || data.isEmpty()) return null;
+            String qqSourceId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
+            if (qqSourceId == null) return null;
+            Object durObj = data.get(0).get("duration");
+            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
+                log.info("QQ降级: {} 也只有试听版，跳过", keyword);
+                return null;
+            }
+            Map<String, Object> urlResult = neteaseApiService.getQQSongUrl(qqSourceId);
+            if (urlResult != null) {
+                List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
+                if (urlData != null && !urlData.isEmpty()) {
+                    String url = (String) urlData.get(0).get("url");
+                    if (url != null && !url.isEmpty()) {
+                        log.info("QQ降级成功: {} → QQ sourceId={}", keyword, qqSourceId);
+                        return url;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("QQ降级搜索失败: {} - {}", songName, e.getMessage());
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String tryNeteaseFallback(String songName, String artist, String qqSourceId) {
+        if (songName == null || songName.isBlank()) {
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, qqSourceId));
+            if (song == null || song.getName() == null) return null;
+            songName = song.getName();
+            artist = song.getArtist();
+        }
+        try {
+            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
+            Map<String, Object> result = neteaseApiService.searchNetease(keyword, 5);
+            if (result == null) return null;
+            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+            if (data == null || data.isEmpty()) return null;
+            String neteaseId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
+            if (neteaseId == null) return null;
+            Object durObj = data.get(0).get("duration");
+            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
+                log.info("网易云降级: {} 也只有试听版，跳过", keyword);
+                return null;
+            }
+            String[] levels = {"exhigh", "higher", "standard"};
+            for (String level : levels) {
+                Map<String, Object> urlResult = neteaseApiService.getSongUrl(neteaseId, level);
+                if (urlResult == null) continue;
+                List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
+                if (urlData == null || urlData.isEmpty()) continue;
+                String url = (String) urlData.get(0).get("url");
+                if (url == null || url.isEmpty()) continue;
+                Object trial = urlData.get(0).get("freeTrialInfo");
+                Object time = urlData.get(0).get("time");
+                if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) continue;
+                log.info("网易云降级成功: {} → neteaseId={}, level={}", keyword, neteaseId, level);
+                return url;
+            }
+            log.info("网易云降级: {} 所有音质均为试听，跳过", keyword);
+        } catch (Exception e) {
+            log.warn("网易云降级搜索失败: {} - {}", songName, e.getMessage());
+        }
+        return null;
+    }
+}

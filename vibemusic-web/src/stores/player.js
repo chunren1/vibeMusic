@@ -87,14 +87,15 @@ export const usePlayerStore = defineStore('player', () => {
   // ===== 核心播放方法 =====
 
   /** 通过 sourceId 直接播放（使用 stream 代理 URL） */
-  function playBySourceId(sourceId, name, artist, coverUrl, duration = 0) {
+  function playBySourceId(sourceId, name, artist, coverUrl, duration = 0, platform = '') {
     if (!sourceId) return
-    addToQueue({ sourceId, name, artist, coverUrl, duration })
+    addToQueue({ sourceId, name, artist, coverUrl, duration, platform })
     const idx = queue.value.findIndex(s => s.sourceId === sourceId)
     if (idx >= 0) currentIdx.value = idx
 
     currentSong.value = { id: sourceId, title: name || '', artist: artist || '', coverUrl: coverUrl || '', duration }
-    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}&name=${encodeURIComponent(name||'')}&artist=${encodeURIComponent(artist||'')}`
+    const plat = platform || (queue.value[idx]?.platform || '')
+    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}&name=${encodeURIComponent(name||'')}&artist=${encodeURIComponent(artist||'')}${plat ? '&platform=' + plat : ''}`
     audio.loop = playMode.value === 'single'
     resumeAudioContext()
     audio.play().catch(() => {})
@@ -105,12 +106,11 @@ export const usePlayerStore = defineStore('player', () => {
   }
 
   /** 调用后端 API 获取播放 URL 并播放（记录播放历史） */
-  async function playSongFromApi(sourceId, name, artist, coverUrl) {
+  async function playSongFromApi(sourceId, name, artist, coverUrl, platform = '') {
     if (!sourceId) return
     resumeAudioContext()
     try {
       const res = await apiPlaySong(sourceId, name, artist, coverUrl || '')
-      // 本地缓存 → LOCAL 音质，在线播放 → 默认（stream 端解析后派发真实音质）
       if (res.data?.fromCache) {
         quality.value = 'LOCAL'
         qualityLabel.value = '本地缓存'
@@ -120,10 +120,9 @@ export const usePlayerStore = defineStore('player', () => {
         qualityLabel.value = '标准'
         isTrialSong.value = false
       }
-      playBySourceId(sourceId, name, artist, coverUrl, res.data?.duration || 0)
+      playBySourceId(sourceId, name, artist, coverUrl, res.data?.duration || 0, platform)
     } catch {
-      // 即使 API 失败，仍尝试通过 stream 代理播放
-      playBySourceId(sourceId, name, artist, coverUrl, 0)
+      playBySourceId(sourceId, name, artist, coverUrl, 0, platform)
     }
   }
 
@@ -254,6 +253,29 @@ export const usePlayerStore = defineStore('player', () => {
       const song = queue.value[currentIdx.value]
       restoreAudioFromSong(song)
     }
+  }
+
+  /** 断网重连后强制刷新音频源 */
+  function onNetworkRecovery() {
+    if (!currentSong.value.id) return
+    const name = currentSong.value.title || ''
+    const artist = currentSong.value.artist || ''
+    const cachedTime = audio.currentTime || 0
+    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(currentSong.value.id)}&name=${encodeURIComponent(name)}&artist=${encodeURIComponent(artist)}`
+    audio.loop = playMode.value === 'single'
+    const onMeta = () => {
+      if (cachedTime > 0 && audio.duration > 0) {
+        audio.currentTime = Math.min(cachedTime, audio.duration)
+      }
+      audio.removeEventListener('loadedmetadata', onMeta)
+      audio.play().catch(() => {})
+    }
+    audio.addEventListener('loadedmetadata', onMeta)
+    audio.load()
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', onNetworkRecovery)
   }
 
   /** 页面刷新后恢复播放状态（从 currentSong localStorage 兜底，不依赖队列） */

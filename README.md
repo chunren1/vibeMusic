@@ -33,46 +33,57 @@
 
 ```
 vibeMusic/
-├── package.json                  # 工作区根配置（统一 npm scripts）
-├── docker-compose.yml            # Docker 编排 (Nginx + MySQL + Redis + MinIO + ES)
+├── .github/workflows/
+│   └── test.yml                    # GitHub Actions CI 自动化测试
+├── .gitignore                      # 排除 target/node_modules/Docker数据/日志等
+├── package.json                    # 工作区根配置（统一 npm scripts）
+├── docker-compose.yml              # Docker 编排 (Nginx + MySQL + Redis + MinIO + ES)
 ├── nginx/
-│   └── nginx.conf                 # Nginx 统一入口 + 反向代理配置
-├── .env.docker                   # Docker 环境变量
-├── docker-data/                  # Docker 数据持久化目录
-│   ├── mysql/data/               # MySQL 8.0 数据
-│   ├── redis/data/               # Redis 数据 + AOF
-│   ├── elasticsearch/            # ES 索引 + IK 插件
-│   ├── rustfs/data/              # MinIO 对象存储
-│   └── nginx/logs/               # Nginx 访问 & 错误日志
-├── musicapi/                     # Node.js 音乐 API 聚合网关 (端口 3000)
-│   ├── server.js                 # 聚合搜索 + 音质分级 + Cookie 注入 + 监控 + 日志
-│   ├── config.js                 # 网易云 + QQ 音乐 Cookie 统一管理中心
-│   └── logs/                     # 分类日志 (access / api-errors / cookie-monitor / degradation)
-├── vibeMusic-backend/            # Spring Boot 后端 (端口 8080)
-│   ├── sql/init.sql              # 数据库完整初始化脚本（6张表 + 默认管理员）
-│   ├── uploads/avatars/          # 用户上传的头像和背景图
-│   └── src/main/java/com/vibemusic/
-│       ├── controller/           # Auth, Song, Favorite, Playlist, Download, Recommend, Proxy
-│       ├── service/              # User, Song, Recommend, Storage, Download, NeteaseApi, Cache
-│       ├── entity/               # User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory
-│       ├── dto/                  # SongDTO, RecommendResult
-│       ├── config/               # Security, Cors, Redis, AudioQualityTier, NeteaseApi, Web
-│       └── security/             # JwtAuthFilter, CustomUserDetails
-├── vibemusic-web/                # Vue 3 前端 (端口 5173)
+│   └── nginx.conf                  # Nginx 统一入口 + 反向代理配置
+├── .env.example                    # 环境变量示例
+├── docker-data/                    # Docker 数据持久化目录
+│   ├── mysql/data/                 # MySQL 8.0 数据
+│   ├── redis/data/                 # Redis 数据 + AOF
+│   ├── elasticsearch/              # ES 索引 + IK 插件
+│   ├── rustfs/data/                # MinIO 对象存储
+│   └── nginx/logs/                 # Nginx 访问 & 错误日志
+├── musicapi/                       # Node.js 音乐 API 聚合网关 (端口 3000)
+│   ├── Dockerfile                  # 生产环境容器化部署
+│   ├── server.js                   # 聚合搜索 + 音质分级 + Cookie 注入 + 监控 + 日志
+│   ├── config.js                   # 网易云 + QQ 音乐 Cookie 统一管理中心
+│   └── logs/                       # 分类日志
+├── vibeMusic-backend/              # Spring Boot 后端 (端口 8080)
+│   ├── Dockerfile                  # 生产环境容器化部署
+│   ├── sql/init.sql                # 数据库完整初始化脚本（6张表 + 默认管理员）
+│   ├── uploads/avatars/            # 用户上传的头像和背景图
 │   └── src/
-│       ├── views/                # 桌面端 (/) + 移动端 (/m) 视图
-│       ├── components/           # PlayerBar, LyricsView, LoginModal + mobile/ 组件
-│       ├── stores/               # Pinia: auth, player, favorite, recommend
-│       ├── composables/          # useAudioBackground, useVirtualList, useIsMobile
-│       ├── directives/           # v-lazy-img 图片懒加载指令
-│       ├── router/               # 路由定义（桌面/移动自动分流）
-│       └── api/                  # Axios 封装 + 接口定义
-└── scripts/                      # 运维工具
-    ├── ops.cjs                   # 跨平台运维面板（npm run ops）
-    └── ops/                      # Python 运维脚本
-        ├── cookie-monitor.py     # Cookie 定时巡检
-        ├── check-cookies.py      # Cookie 快速检测
-        └── setup-scheduler.ps1   # Windows 任务计划
+│       ├── main/java/com/vibemusic/
+│       │   ├── controller/         # Auth, Song, Favorite, Playlist, Download, Recommend, Proxy
+│       │   ├── service/            # 14 个服务类（SongService/SongSearch/SongPlay 已拆分）
+│       │   ├── entity/             # User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory
+│       │   ├── dto/                # SongDTO, RecommendResult
+│       │   ├── config/             # Security, Cors, AudioQualityTier, NeteaseApi, Web
+│       │   └── security/           # JwtAuthFilter, CustomUserDetails
+│       └── test/java/com/vibemusic/ # 测试代码
+│           ├── BaseTest.java       # 测试基类 (H2 内存数据库)
+│           ├── TransactionalServiceTest.java  # 事务型测试基类
+│           ├── controller/         # AuthControllerTest, SongControllerTest (MockMvc)
+│           └── service/            # 5 个 Service 单元测试类
+├── vibemusic-web/                  # Vue 3 前端 (端口 5173)
+│   └── src/
+│       ├── views/                  # 桌面端 (/) + 移动端 (/m) 视图
+│       ├── components/             # PlayerBar, LyricsView, LoginModal + mobile/ 组件
+│       ├── stores/                 # Pinia: auth, player, favorite, recommend
+│       │   └── __tests__/          # PlayerStore 单测 (21 cases)
+│       ├── composables/            # useAudioBackground, useVirtualList, useIsMobile
+│       ├── directives/             # v-lazy-img 图片懒加载指令
+│       ├── router/                 # 路由定义（桌面/移动自动分流）
+│       └── api/                    # Axios 封装 + 接口定义
+├── scripts/                        # 运维工具
+│   ├── ops.cjs                     # 跨平台运维面板（npm run ops）
+│   ├── docker.ps1                  # Docker 管理脚本
+│   └── ops/                        # Python 运维脚本
+└── TEST_REPORT.md                  # 全链路测试报告
 ```
 
 ## 核心功能
@@ -119,8 +130,9 @@ npm run install:all      # 安装 musicapi + 前端全部依赖
 ### 2. 启动中间件
 
 ```bash
-npm run docker:up        # 启动 Nginx + MySQL + Redis + ES + MinIO
-# Nginx: http://localhost (80端口，生产统一入口)
+npm run docker:dev        # 开发模式：仅起中间件 (MySQL + Redis + ES + MinIO + Nginx)
+# 生产模式启动全栈（含 backend + musicapi）：
+npm run docker:up
 # MinIO 管理: http://localhost:9001 (rustfsadmin/rustfsadmin)
 # 数据库自动初始化，默认管理员: admin / 123456
 ```
@@ -166,13 +178,19 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `npm run dev` | 并发启动 musicapi + 前端 |
 | `npm run dev:api` | 单独启动 musicapi |
 | `npm run dev:web` | 单独启动前端 |
-| `npm run docker:up` | 启动 Docker 中间件 |
-| `npm run docker:down` | 停止 Docker 中间件 |
-| `npm run docker:restart` | 重启 Docker 中间件 |
-| `npm run docker:status` | 查看中间件状态 |
-| `npm run docker:logs` | 查看中间件日志 |
+| `npm run test` | 全量测试（后端 42 + 前端 21） |
+| `npm run test:backend` | 后端 Maven 测试 |
+| `npm run test:frontend` | 前端 Vitest 测试 |
+| `npm run docker:dev` | 开发模式：启动中间件 (不拉 backend/musicapi) |
+| `npm run docker:up` | 生产模式：全栈部署 (--build 重建镜像) |
+| `npm run docker:down` | 停止所有 Docker 服务 |
+| `npm run docker:restart` | 重建并重启 (--build) |
+| `npm run docker:status` | 查看容器状态 |
+| `npm run docker:logs` | 查看容器日志 |
+| `npm run docker:build` | 全量重建镜像 (--no-cache) |
 | `npm run build` | 构建前端生产包 |
-| `npm run deploy` | 构建前端 + 启动 Docker（生产一键部署） |
+| `npm run deploy` | 构建前端 + 全栈部署 |
+| `npm run deploy:web` | 构建前端 + 热重载 Nginx |
 | `npm run nginx:reload` | 热重载 Nginx 配置 |
 | `npm run ops` | 运维面板 |
 | `npm run tunnel` | 启动 cpolar 内网穿透 |
@@ -333,6 +351,62 @@ npm run tunnel  # 启动 cpolar 内网穿透
 | `api-errors.log` | API 调用异常 |
 | `cookie-monitor.log` | Cookie 存活检查 |
 | `degradation.log` | 音质降级事件 |
+
+## 审计项
+- **ES 宕机降级**：`isAvailable()` 自动降级跳过 ES 层
+
+---
+
+## 测试体系
+
+```
+全链路 63 条测试
+├── 后端 42 条 (JUnit 5 + MockMvc + H2 内存数据库)
+│   ├── 单元测试 27 条
+│   │   ├── UserServiceTest        (10) 注册/登录/修改密码/更新资料
+│   │   ├── SongServiceTest         (5) 歌曲入库/查询/更新
+│   │   ├── FavoriteServiceTest     (6) 收藏/取消/列表/去重
+│   │   ├── PlayHistoryServiceTest  (4) 播放记录/去重/上限
+│   │   └── PlayHistoryCleanupServiceTest (2) 定时清理
+│   └── 集成测试 15 条 (MockMvc)
+│       ├── AuthControllerTest      (4) 注册校验/未登录拦截
+│       └── SongControllerTest     (11) 搜索/播放/流/歌词/健康检查
+├── 前端 21 条 (Vitest + jsdom)
+│   └── PlayerStore Test           (21) 队列操作/切歌/模式/持久化
+└── CI 自动化 (GitHub Actions)
+    └── push/PR → 自动跑后端 + 前端测试
+```
+
+### 运行测试
+
+```bash
+npm test                    # 全部测试
+npm run test:backend        # 仅后端 (mvn test)
+npm run test:frontend       # 仅前端 (vitest run)
+cd vibemusic-web && npm run test:watch   # 前端监听模式
+```
+
+详细报告见 `TEST_REPORT.md`。
+
+---
+
+## 代码审查改进 (2026-06-16)
+
+| 类别 | 改进项 | 说明 |
+|------|--------|------|
+| 🧹 代码质量 | SongService 拆分 | 拆为 SongService(持久化) + SongSearchService(搜索) + SongPlayService(播放) |
+| 🧹 代码质量 | copyStream 提取 | SongController 3 处重复流拷贝统一为私有方法 |
+| 🧹 代码质量 | RestClient 替代 | stream() 远程代理 HttpURLConnection → RestClient（连接池） |
+| 🔒 安全 | 凭据环境变量化 | JWT_SECRET/DB_PASSWORD/MinIO 密钥改为 ${VAR:default} |
+| 🗑️ 维护 | play_history 定时清理 | 每天 3 点删除 7 天前记录 |
+| 🗑️ 维护 | RedisConfig 简化 | 删除自定义 Bean，全局只用 StringRedisTemplate |
+| 🐛 修复 | Result.error() code | 500 → 400（23 处业务校验调用） |
+| 🐛 修复 | 缺参异常处理 | 新增 MissingServletRequestParameterException 处理器 |
+| 🐛 修复 | Docker 健康检查 | wget(Alpine 不兼容) → curl；补充 actuator 依赖 |
+| 🐛 修复 | 音频流重试 | Connection reset 时重新获取 URL 再试一次 |
+| 📦 运维 | .gitignore | 新建，排除 target/node_modules/Docker 数据/日志 |
+| 📦 运维 | docker:dev 隔离 | 去 nginx→backend 硬依赖，避免拉全链 |
+| 📦 运维 | npm scripts 简化 | docker:* 命令去 ps1 中转，直接调 docker-compose |
 
 ## License
 

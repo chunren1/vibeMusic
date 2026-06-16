@@ -21,7 +21,7 @@ const isPlaying = computed(() => playerStore.isPlaying)
 
 function playSong(song) {
   if (!song.sourceId) return
-  playerStore.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
+  playerStore.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '', song.platform)
 }
 
 // 收藏歌曲（调用后端API）

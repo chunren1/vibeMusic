@@ -1,0 +1,72 @@
+# ============================================================
+# vibeMusic CI 自动化测试
+# 触发条件：push 到 main / PR 到 main
+# ============================================================
+name: Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-test:
+    name: Backend (Maven + JUnit 5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: maven
+
+      - name: Maven Test
+        run: mvn test -B -DfailIfNoTests=false
+        working-directory: vibeMusic-backend
+
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: vibeMusic-backend/target/surefire-reports/
+          retention-days: 7
+
+  frontend-test:
+    name: Frontend (Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: vibemusic-web/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+        working-directory: vibemusic-web
+
+      - name: Vitest Run
+        run: npx vitest run --reporter=verbose
+        working-directory: vibemusic-web
+
+      - name: Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-report
+          path: vibemusic-web/coverage/
+          retention-days: 7

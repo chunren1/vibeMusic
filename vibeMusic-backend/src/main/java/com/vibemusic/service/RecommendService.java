@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
 public class RecommendService {
 
     private final PlayHistoryMapper playHistoryMapper;
-    private final SongService songService;
+    private final SongSearchService songSearchService;
     private final StorageService storageService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
@@ -137,7 +137,7 @@ public class RecommendService {
 
         for (String artist : topArtists) {
             try {
-                List<SongDTO> songs = songService.search(artist, 1, 20, null); // 每位歌手搜20首
+                List<SongDTO> songs = songSearchService.search(artist, 1, 20, null); // 每位歌手搜20首
                 for (SongDTO s : songs) {
                     if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
                         if (s.getDuration() != null && s.getDuration() <= 30) continue;
@@ -164,7 +164,7 @@ public class RecommendService {
         // 不够补充随机
         if (result.size() < RECOMMEND_COUNT) {
             try {
-                List<SongDTO> supplement = songService.getRandomSongs(RECOMMEND_COUNT - result.size());
+                List<SongDTO> supplement = songSearchService.getRandomSongs(RECOMMEND_COUNT - result.size());
                 for (SongDTO s : supplement) {
                     if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
                         if (s.getDuration() != null && s.getDuration() <= 30) continue;
@@ -201,7 +201,7 @@ public class RecommendService {
 
     private RecommendResult buildGuestResult(String greeting) {
         try {
-            List<SongDTO> songs = songService.getRandomSongs(RECOMMEND_COUNT);
+            List<SongDTO> songs = songSearchService.getRandomSongs(RECOMMEND_COUNT);
             markOfflineStatus(songs);
             return RecommendResult.builder()
                     .songs(songs)
