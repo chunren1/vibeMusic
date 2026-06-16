@@ -1,5 +1,8 @@
 import request from './request'
 
+// AbortController 管理搜索请求竞态
+let searchController = null
+
 /** 获取歌词 */
 export function getLyric(sourceId) {
   return request.get('/songs/lyric', { params: { sourceId } })
@@ -10,11 +13,17 @@ export function getBanners() {
   return request.get('/songs/banner')
 }
 
-/** 搜索歌曲（支持分源过滤和分页） */
+/** 搜索歌曲（支持分源过滤和分页，自动取消旧请求防竞态） */
 export function searchSongs(keyword, page = 1, size = 20, platform = null) {
+  // 取消上一次未完成的搜索请求
+  if (searchController) {
+    searchController.abort()
+  }
+  searchController = new AbortController()
+
   const params = { keyword, page, size }
   if (platform) params.platform = platform
-  return request.get('/songs/search', { params })
+  return request.get('/songs/search', { params, signal: searchController.signal })
 }
 
 /** 随机推荐歌曲 */

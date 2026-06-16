@@ -1,0 +1,10 @@
+{
+    "vibemusic-nginx":  0,
+    "vibemusic-musicapi":  1,
+    "vibemusic-es":  0,
+    "vibemusic-backend":  1,
+    "vibemusic-rustfs":  0,
+    "vibemusic-mysql":  0,
+    "vibemusic-redis":  0,
+    "vibemusic-rustfs-init":  1
+}

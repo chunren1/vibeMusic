@@ -68,17 +68,27 @@ public class DownloadService {
             throw new RuntimeException("无法获取 VIP 播放链接");
         }
 
-        // 3. 下载 mp3
-        log.info("下载中: {}", name);
-        byte[] mp3Data = neteaseApiService.downloadSong(downloadUrl);
+        // 3. 流式下载并上传到 RustFS（避免全量加载到内存）
+        log.info("流式下载中: {}", name);
+        java.io.File tempFile = null;
+        try {
+            tempFile = neteaseApiService.downloadSongToFile(downloadUrl);
+            String rustfsUrl;
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(tempFile)) {
+                rustfsUrl = storageService.uploadStream(objectName, fis, tempFile.length(), "audio/mpeg");
+            }
 
-        // 4. 上传 RustFS
-        String rustfsUrl = storageService.upload(objectName, mp3Data, "audio/mpeg");
+            // 4. 存入 DB
+            songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
 
-        // 5. 存入 DB
-        songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
-
-        log.info("下载完成: {} -> RustFS", name);
-        return rustfsUrl;
+            log.info("下载完成: {} -> RustFS", name);
+            return rustfsUrl;
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("流式下载上传失败: " + name, e);
+        } finally {
+            if (tempFile != null && !tempFile.delete()) {
+                tempFile.deleteOnExit();
+            }
+        }
     }
 }

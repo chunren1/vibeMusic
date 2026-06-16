@@ -3,11 +3,27 @@
 <mapper namespace="com.vibemusic.mapper.SongMapper">
 
     <!--
-        随机获取 N 首已下载歌曲（RustFS 缓存池）
-        注意: ORDER BY RAND() 在小数据量下可行，大数据量应改用其他方案
+        随机获取 N 首已下载歌曲（应用层随机 OFFSET）
+        避免 ORDER BY RAND() 的全表排序开销
     -->
     <select id="findRandomSongs" resultType="com.vibemusic.entity.Song">
-        SELECT * FROM song ORDER BY RAND() LIMIT #{count}
+        SELECT * FROM song LIMIT #{count} OFFSET #{offset}
     </select>
+
+    <!--
+        ON DUPLICATE KEY UPDATE 入库：避免先 SELECT 再 INSERT/UPDATE
+        命中的唯一键: uk_source_id (source_id)
+    -->
+    <insert id="insertOrUpdateUrl">
+        INSERT INTO song(source_id, name, artist, album, cover_url, duration, url)
+        VALUES(#{sourceId}, #{name}, #{artist}, #{album}, #{coverUrl}, #{duration}, #{url})
+        ON DUPLICATE KEY UPDATE
+            url = VALUES(url),
+            name = VALUES(name),
+            artist = VALUES(artist),
+            album = VALUES(album),
+            cover_url = VALUES(cover_url),
+            duration = VALUES(duration)
+    </insert>
 
 </mapper>

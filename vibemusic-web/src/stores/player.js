@@ -98,7 +98,10 @@ export const usePlayerStore = defineStore('player', () => {
     audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}&name=${encodeURIComponent(name||'')}&artist=${encodeURIComponent(artist||'')}${plat ? '&platform=' + plat : ''}`
     audio.loop = playMode.value === 'single'
     resumeAudioContext()
-    audio.play().catch(() => {})
+    audio.play().catch(err => {
+      console.warn('[Player] 播放失败:', err.message)
+      isPlaying.value = false
+    })
     isPlaying.value = true
 
     dispatchSongChange()
@@ -181,7 +184,10 @@ export const usePlayerStore = defineStore('player', () => {
     } else {
       resumeAudioContext()
       if (!audio.src || audio.readyState === 0) audio.load()
-      audio.play().catch(() => { isPlaying.value = false })
+      audio.play().catch(err => {
+        console.warn('[Player] 播放失败:', err.message)
+        isPlaying.value = false
+      })
     }
   }
 
@@ -268,7 +274,9 @@ export const usePlayerStore = defineStore('player', () => {
         audio.currentTime = Math.min(cachedTime, audio.duration)
       }
       audio.removeEventListener('loadedmetadata', onMeta)
-      audio.play().catch(() => {})
+      audio.play().catch(err => {
+        console.warn('[Player] 音频重载播放失败:', err.message)
+      })
     }
     audio.addEventListener('loadedmetadata', onMeta)
     audio.load()

@@ -11,7 +11,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Date;
 
 /**
- * ES 过期数据定时清理 — 每小时删除 1 小时前的缓存
+ * ES 过期数据定时清理 — 每 6 小时删除 6 小时前的缓存（减少 ES 负载）
  */
 @Slf4j
 @Component
@@ -20,9 +20,9 @@ public class ESCleanupTask {
 
     private final ESSearchService esSearchService;
 
-    @Scheduled(cron = "0 0 * * * *") // 每小时整点执行
+    @Scheduled(cron = "0 0 */6 * * *") // 每 6 小时整点执行
     public void cleanExpiredCache() {
-        Date expireTime = Date.from(Instant.now().minus(1, ChronoUnit.HOURS));
+        Date expireTime = Date.from(Instant.now().minus(6, ChronoUnit.HOURS));
         log.info("定时清理 ES 过期缓存: before {}", expireTime);
         esSearchService.deleteByCreateTimeBefore(expireTime);
     }

@@ -25,7 +25,10 @@
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "cd vibeMusic-backend && mvn test",
     "test:frontend": "cd vibemusic-web && npm test",
-    "test:ci": "npm run test:backend && npm run test:frontend"
+    "test:ci": "npm run test:backend && npm run test:frontend",
+    "deploy:full": "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1",
+    "backup:db": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
+    "health": "powershell -ExecutionPolicy Bypass -File scripts/health-check.ps1"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

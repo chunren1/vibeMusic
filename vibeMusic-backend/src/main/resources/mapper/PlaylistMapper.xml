@@ -1,5 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.vibemusic.mapper.PlaylistMapper">
-    <!-- 暂无自定义 SQL，全部使用 MyBatis-Plus BaseMapper -->
+
+    <!--
+        一次查询获取用户所有歌单及统计数据（歌曲数 + 最新封面）
+        替代原来的 N+1 查询模式
+    -->
+    <select id="listPlaylistsWithStats" resultType="java.util.HashMap">
+        SELECT
+            p.id          AS playlist_id,
+            p.name        AS playlist_name,
+            p.description AS description,
+            p.created_at  AS created_at,
+            COUNT(ps.id)  AS song_count,
+            (SELECT ps2.cover_url FROM playlist_song ps2
+             WHERE ps2.playlist_id = p.id
+             ORDER BY ps2.added_at DESC LIMIT 1) AS cover_url
+        FROM playlist p
+        LEFT JOIN playlist_song ps ON ps.playlist_id = p.id
+        WHERE p.user_id = #{userId}
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+    </select>
+
 </mapper>

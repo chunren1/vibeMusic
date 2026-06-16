@@ -21,16 +21,14 @@ public class SongService {
 
     public Song saveDownloadedSong(String sourceId, String name, String artist,
                                     String album, String coverUrl, Integer duration, String rustfsUrl) {
-        Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
-        if (song == null) {
-            song = Song.builder().sourceId(sourceId).name(name).artist(artist)
-                    .album(album).coverUrl(coverUrl).duration(duration).url(rustfsUrl).build();
-            songMapper.insert(song);
-        } else {
-            song.setUrl(rustfsUrl);
-            songMapper.updateById(song);
-        }
-        return song;
+        // 一次 SQL 完成：INSERT ... ON DUPLICATE KEY UPDATE（避免 1 次 SELECT + 1 次 INSERT/UPDATE）
+        Song song = Song.builder()
+                .sourceId(sourceId).name(name).artist(artist)
+                .album(album).coverUrl(coverUrl).duration(duration).url(rustfsUrl)
+                .build();
+        songMapper.insertOrUpdateUrl(song);
+        // 入库后查回完整对象（含自增 id、时间戳等）
+        return songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
     }
 
     public Song getById(Long id) { return songMapper.selectById(id); }

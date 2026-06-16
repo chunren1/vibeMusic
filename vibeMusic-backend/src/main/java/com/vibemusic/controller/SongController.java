@@ -1,10 +1,12 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.StreamUtils;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.service.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -33,16 +35,14 @@ public class SongController {
     private final StorageService storageService;
     private final RecommendService recommendService;
     private final ESSearchService esSearchService;
+    private final RestClient.Builder restClientBuilder;
 
-    /** 共享 HTTP 客户端（连接池 + 超时控制，替代 HttpURLConnection） */
-    private final RestClient restClient = RestClient.create();
+    /** 共享 HTTP 客户端（复用 Apache HttpClient 5 连接池） */
+    private RestClient restClient;
 
-    /** 流拷贝工具方法 */
-    private void copyStream(InputStream in, OutputStream out) throws IOException {
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-        out.flush();
+    @PostConstruct
+    void initRestClient() {
+        this.restClient = restClientBuilder.build();
     }
 
     /** Banner 轮播（网易云推荐歌单） */
@@ -237,14 +237,14 @@ public class SongController {
 
                     try (InputStream in = storageService.getObjectRange(rustfsObjectName, start, length);
                          OutputStream out = response.getOutputStream()) {
-                        copyStream(in, out);
+                        StreamUtils.copy(in, out);
                     }
                 } else {
                     // 完整读取
                     response.setContentLength((int) fileSize);
                     try (InputStream in = storageService.getObject(rustfsObjectName);
                          OutputStream out = response.getOutputStream()) {
-                        copyStream(in, out);
+                        StreamUtils.copy(in, out);
                     }
                 }
                 log.debug("stream from RustFS: {} (Range={})", sourceId, rangeHeader != null ? "yes" : "no");
@@ -309,7 +309,7 @@ public class SongController {
                             // 流拷贝
                             try (InputStream in = clientResp.getBody();
                                  OutputStream out = response.getOutputStream()) {
-                                copyStream(in, out);
+                                StreamUtils.copy(in, out);
                             }
                             return null;
                         });

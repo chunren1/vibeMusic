@@ -9,9 +9,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -35,7 +32,6 @@ public class ESSearchService {
 
     private final WebClient client;
     private final ObjectMapper mapper;
-    private final String esBaseUrl;
     private static final String INDEX = "search_cache";
     private static final Duration TIMEOUT = Duration.ofSeconds(3); // 容错：3s 超时
     private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(1); // 健康检查 1s
@@ -43,7 +39,6 @@ public class ESSearchService {
 
     public ESSearchService(@Value("${spring.elasticsearch.uris:http://localhost:9201}") String esUris,
                            ObjectMapper mapper) {
-        this.esBaseUrl = esUris;
         this.client = WebClient.builder().baseUrl(esUris).build();
         this.mapper = mapper;
         // 异步初始化，不阻塞 Spring Boot 启动
@@ -100,7 +95,6 @@ public class ESSearchService {
             return;
         }
         long start = System.currentTimeMillis();
-        HttpURLConnection conn = null;
         try {
             StringBuilder bulk = new StringBuilder();
             for (SongDTO s : songs) {
@@ -108,30 +102,23 @@ public class ESSearchService {
                 bulk.append("{\"index\":{\"_index\":\"").append(INDEX).append("\",\"_id\":\"").append(id).append("\"}}\n");
                 bulk.append(mapper.writeValueAsString(toDoc(keyword, s))).append("\n");
             }
-            // 使用 HttpURLConnection 直接发送 raw bytes，绕过所有 Spring 消息转换器
             byte[] body = bulk.toString().getBytes(StandardCharsets.UTF_8);
-            URI uri = new URI(esBaseUrl + "/_bulk");
-            conn = (HttpURLConnection) uri.toURL().openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/x-ndjson");
-            conn.setDoOutput(true);
-            conn.setConnectTimeout(3000);
-            conn.setReadTimeout(3000);
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(body);
-                os.flush();
-            }
-            // 读取响应检查错误
-            int status = conn.getResponseCode();
-            if (status >= 200 && status < 300) {
-                String resp = new String(conn.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+
+            // 使用 WebClient 统一发送 ndjson，纳入连接池管理
+            String resp = client.post().uri("/_bulk")
+                    .header("Content-Type", "application/x-ndjson")
+                    .bodyValue(body)
+                    .retrieve().bodyToMono(String.class)
+                    .timeout(TIMEOUT).block();
+
+            if (resp != null) {
                 JsonNode root = mapper.readTree(resp);
                 if (root.path("errors").asBoolean()) {
                     long errCount = 0;
                     for (JsonNode item : root.path("items")) {
                         if (item.path("index").path("error").isObject()) {
                             errCount++;
-                            if (errCount <= 3) { // 只打印前3个错误详情
+                            if (errCount <= 3) {
                                 log.warn("[ES-LAYER] 写入错误详情: id={}, reason={}",
                                         item.path("index").path("_id").asText(),
                                         item.path("index").path("error").path("reason").asText());
@@ -141,8 +128,6 @@ public class ESSearchService {
                     log.warn("[ES-LAYER] 批量写入部分失败: keyword='{}', errors={}, total={}",
                             keyword, errCount, songs.size());
                 }
-            } else {
-                log.warn("[ES-LAYER] 批量写入 HTTP {}: keyword='{}'", status, keyword);
             }
             long cost = System.currentTimeMillis() - start;
             log.info("[ES-LAYER] 批量写入成功: keyword='{}', count={}, cost={}ms", keyword, songs.size(), cost);
@@ -151,8 +136,6 @@ public class ESSearchService {
             log.warn("[ES-LAYER] 批量写入失败（不影响返回结果）: keyword='{}', count={}, cost={}ms, error={}",
                     keyword, songs.size(), cost, e.getMessage());
             available.set(false);
-        } finally {
-            if (conn != null) conn.disconnect();
         }
     }
 
@@ -323,9 +306,11 @@ public class ESSearchService {
 
     private void ensureIndex() {
         try {
-            // 先检查 ES 是否可达
+            // 先检查 ES 是否可达（超时时优雅降级，避免 Reactor onErrorDropped 噪音）
             String ping = client.get().uri("/").retrieve().bodyToMono(String.class)
-                    .timeout(HEALTH_TIMEOUT).block();
+                    .timeout(HEALTH_TIMEOUT)
+                    .onErrorResume(e -> reactor.core.publisher.Mono.empty())
+                    .block();
             if (ping == null) {
                 log.warn("[ES-LAYER] 初始化跳过：ES 服务不可达");
                 available.set(false);

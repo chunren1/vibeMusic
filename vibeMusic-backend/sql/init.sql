@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS playlist (
     name        VARCHAR(200)  NOT NULL COMMENT '歌单名',
     description VARCHAR(500)  COMMENT '歌单描述',
     created_at  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    INDEX idx_user_id (user_id)
+    INDEX idx_user_created (user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='歌单表';
 
 -- ==========================================
@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS playlist_song (
     duration    INT           DEFAULT 0 COMMENT '时长(秒)',
     added_at    DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '添加时间',
     UNIQUE KEY uk_pl_song (playlist_id, source_id) COMMENT '同一歌单不重复添加同一首歌',
-    INDEX idx_playlist_id (playlist_id)
+    INDEX idx_playlist_id (playlist_id),
+    INDEX idx_pl_added (playlist_id, added_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='歌单歌曲关联表';
 
 -- ==========================================
@@ -87,7 +88,8 @@ CREATE TABLE IF NOT EXISTS user_favorite (
     cover_url   VARCHAR(500)  COMMENT '封面图URL(冗余)',
     created_at  DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间',
     UNIQUE KEY uk_user_song (user_id, source_id) COMMENT '同一用户不重复收藏同一首歌',
-    INDEX idx_user_id (user_id)
+    INDEX idx_user_id (user_id),
+    INDEX idx_user_fav_created (user_id, created_at) COMMENT '收藏列表排序查询'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户收藏表';
 
 -- ==========================================
@@ -102,7 +104,8 @@ CREATE TABLE IF NOT EXISTS play_history (
     cover_url   VARCHAR(500)  COMMENT '封面图URL(冗余)',
     played_at   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '播放时间',
     INDEX idx_user_id (user_id),
-    INDEX idx_user_played (user_id, played_at)
+    INDEX idx_user_played (user_id, played_at),
+    INDEX idx_played_at (played_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='播放历史表';
 
 -- ==========================================
