@@ -18,6 +18,10 @@ request.interceptors.request.use((config) => {
   if (_tokenCache) {
     config.headers.Authorization = `Bearer ${_tokenCache}`
   }
+  // 幂等防护：每次写请求带唯一 Request-Id
+  if (['post', 'put', 'delete'].includes(config.method)) {
+    config.headers['X-Request-Id'] = crypto.randomUUID()
+  }
   return config
 })
 
