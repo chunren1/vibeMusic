@@ -45,3 +45,6 @@ docker-data/nginx/logs/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# 大文件 / 二进制工具
+.cloudflared/
