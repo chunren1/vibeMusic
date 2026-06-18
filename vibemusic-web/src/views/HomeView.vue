@@ -138,6 +138,7 @@ onMounted(() => recommendStore.fetchRecommend())
 // ===== 推荐歌单（网易云真实推荐 + 默认卡片兜底） =====
 const playlistColors = ['#e84c3d', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c']
 const playlists = ref([])
+const loadingRecommend = ref(false)
 async function fetchPlaylists() {
   try {
     const res = await request.get('/playlists/recommend')
@@ -160,6 +161,12 @@ async function fetchPlaylists() {
     { id: 0, name: '民谣在路上', count: 0, color: '#9b59b6' },
     { id: 0, name: '电竞燃曲BGM', count: 0, color: '#1abc9c' },
   ]
+}
+async function refreshRecommend() {
+  if (loadingRecommend.value) return
+  loadingRecommend.value = true
+  await fetchPlaylists()
+  loadingRecommend.value = false
 }
 onMounted(() => fetchPlaylists())
 
@@ -404,7 +411,7 @@ function formatDuration(seconds) {
     <section class="section">
       <div class="section-header">
         <h3>推荐歌单</h3>
-        <span class="more" @click="router.push('/playlists')">更多 ›</span>
+        <span class="more" @click="refreshRecommend">{{ loadingRecommend ? '加载中...' : '更多 ›' }}</span>
       </div>
       <div class="playlist-grid">
         <div

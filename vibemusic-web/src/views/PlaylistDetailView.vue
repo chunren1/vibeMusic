@@ -47,19 +47,14 @@ function playAll() {
 
 function playSong(song, idx) {
   currentPlayId.value = song.id
-  player.playSongFromApi(song.id, song.name, song.artist, song.coverUrl || '', source.value)
-  // 把歌单余下歌曲加入队列
-  const remaining = songs.value.slice(idx + 1).map(s => ({
+  // 替换整个队列为歌单全部歌曲，从点击的那首开始播
+  const full = songs.value.map(s => ({
     sourceId: s.id, name: s.name, artist: s.artist || '',
     coverUrl: s.coverUrl || '', duration: s.duration || 0, platform: source.value,
   }))
   player.clearQueue()
-  player.addToQueue({
-    sourceId: song.id, name: song.name, artist: song.artist || '',
-    coverUrl: song.coverUrl || '', duration: song.duration || 0, platform: source.value,
-  })
-  remaining.forEach(s => player.addToQueue(s))
-  player.playIndex(0)
+  full.forEach(s => player.addToQueue(s))
+  player.playIndex(idx)
 }
 
 function fmtDuration(s) {
