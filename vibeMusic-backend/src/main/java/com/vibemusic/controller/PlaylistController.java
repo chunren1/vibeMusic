@@ -1,13 +1,14 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.service.NeteaseApiService;
 import com.vibemusic.service.PlaylistService;
 import com.vibemusic.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/playlists")
@@ -15,6 +16,30 @@ import java.util.Map;
 public class PlaylistController {
 
     private final PlaylistService playlistService;
+    private final NeteaseApiService neteaseApiService;
+
+    /** 网易云推荐歌单（首页"推荐歌单"区域） */
+    @GetMapping("/recommend")
+    @SuppressWarnings("unchecked")
+    public Result<List<Map<String, Object>>> recommend() {
+        try {
+            Map<String, Object> result = neteaseApiService.personalizedPlaylists(6);
+            List<Map<String, Object>> list = (List<Map<String, Object>>) result.get("result");
+            if (list == null) return Result.ok(List.of());
+            List<Map<String, Object>> playlists = list.stream().map(p -> {
+                Map<String, Object> m = new HashMap<>();
+                m.put("id", p.get("id"));
+                m.put("name", String.valueOf(p.getOrDefault("name", "")));
+                m.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                m.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
+                m.put("count", p.getOrDefault("playCount", 0));
+                return m;
+            }).collect(Collectors.toList());
+            return Result.ok(playlists);
+        } catch (Exception e) {
+            return Result.ok(List.of());
+        }
+    }
 
     /** 我的歌单列表（首次访问自动创建默认歌单） */
     @GetMapping("/list")

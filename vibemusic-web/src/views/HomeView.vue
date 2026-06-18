@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { API_HOST } from '@/api/request'
+import request, { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
-import { searchSongs, getBanners as apiBanners, downloadSong as apiDownload, getPlaylists as apiGetPlaylists } from '@/api/song'
+import { searchSongs, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
 import { usePlayerStore } from '@/stores/player'
 import { useRecommendStore } from '@/stores/recommend'
@@ -135,29 +135,31 @@ function shuffleSongs() {
 
 onMounted(() => recommendStore.fetchRecommend())
 
-// ===== 推荐歌单（API 优先，未登录时兜底显示默认卡片） =====
-const playlistColors = ['#e84c3d', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e74c3c', '#8e44ad']
-const defaultPlaylists = [
-  { name: '华语热门精选', count: 56, color: '#e84c3d' },
-  { name: '治愈系纯音乐', count: 38, color: '#3498db' },
-  { name: '说唱新世代', count: 29, color: '#2ecc71' },
-  { name: '怀旧金曲', count: 64, color: '#f39c12' },
-  { name: '民谣在路上', count: 27, color: '#9b59b6' },
-  { name: '电竞燃曲BGM', count: 33, color: '#1abc9c' },
-]
-const playlists = ref([...defaultPlaylists])
+// ===== 推荐歌单（网易云真实推荐 + 默认卡片兜底） =====
+const playlistColors = ['#e84c3d', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c']
+const playlists = ref([])
 async function fetchPlaylists() {
   try {
-    const res = await apiGetPlaylists()
-    if (res.data && res.data.length > 0) {
-      playlists.value = res.data.map((p, i) => ({
-        ...p, id: p.id,
+    const res = await request.get('/playlists/recommend')
+    const data = res.data || []
+    if (data.length > 0) {
+      playlists.value = data.map((p, i) => ({
+        id: p.id, name: p.name, desc: p.desc,
+        coverUrl: p.coverUrl, count: p.count,
         color: playlistColors[i % playlistColors.length],
-        count: p.songCount || 0,
-        name: p.name,
       }))
+      return
     }
-  } catch (e) { /* 未登录时保持默认卡片 */ }
+  } catch (e) { /* fallback */ }
+  // 兜底默认卡片
+  playlists.value = [
+    { id: 0, name: '华语热门精选', count: 0, color: '#e84c3d' },
+    { id: 0, name: '治愈系纯音乐', count: 0, color: '#3498db' },
+    { id: 0, name: '说唱新世代', count: 0, color: '#2ecc71' },
+    { id: 0, name: '怀旧金曲', count: 0, color: '#f39c12' },
+    { id: 0, name: '民谣在路上', count: 0, color: '#9b59b6' },
+    { id: 0, name: '电竞燃曲BGM', count: 0, color: '#1abc9c' },
+  ]
 }
 onMounted(() => fetchPlaylists())
 
@@ -412,8 +414,9 @@ function formatDuration(seconds) {
           @click="pl.id ? router.push({ name: 'playlist', params: { id: pl.id } }) : router.push('/playlists')"
         >
           <div class="pl-cover">
-            <div class="cover-inner" :style="{ background: pl.color }">♪</div>
-            <span class="pl-count">{{ pl.count }}首</span>
+            <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-img" />
+            <div v-else class="cover-inner" :style="{ background: pl.color }">♪</div>
+            <span class="pl-count" v-if="pl.count">{{ pl.count > 10000 ? Math.floor(pl.count/10000)+'万' : pl.count }}</span>
           </div>
           <p class="pl-name">{{ pl.name }}</p>
         </div>
@@ -806,6 +809,11 @@ function formatDuration(seconds) {
   display: flex; align-items: center; justify-content: center;
   font-size: 42px; color: rgba(255,255,255,.3);
   transition: transform .3s;
+}
+.pl-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  border-radius: 10px;
 }
 .playlist-card:hover .cover-inner { transform: scale(1.05); }
 .pl-count {
