@@ -135,18 +135,29 @@ function shuffleSongs() {
 
 onMounted(() => recommendStore.fetchRecommend())
 
-// ===== 推荐歌单（从API加载真实歌单） =====
+// ===== 推荐歌单（API 优先，未登录时兜底显示默认卡片） =====
 const playlistColors = ['#e84c3d', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e74c3c', '#8e44ad']
-const playlists = ref([])
+const defaultPlaylists = [
+  { name: '华语热门精选', count: 56, color: '#e84c3d' },
+  { name: '治愈系纯音乐', count: 38, color: '#3498db' },
+  { name: '说唱新世代', count: 29, color: '#2ecc71' },
+  { name: '怀旧金曲', count: 64, color: '#f39c12' },
+  { name: '民谣在路上', count: 27, color: '#9b59b6' },
+  { name: '电竞燃曲BGM', count: 33, color: '#1abc9c' },
+]
+const playlists = ref([...defaultPlaylists])
 async function fetchPlaylists() {
   try {
     const res = await apiGetPlaylists()
-    playlists.value = (res.data || []).map((p, i) => ({
-      ...p,
-      color: playlistColors[i % playlistColors.length],
-      count: p.songCount || 0,
-    }))
-  } catch (e) { /* 未登录时忽略 */ }
+    if (res.data && res.data.length > 0) {
+      playlists.value = res.data.map((p, i) => ({
+        ...p, id: p.id,
+        color: playlistColors[i % playlistColors.length],
+        count: p.songCount || 0,
+        name: p.name,
+      }))
+    }
+  } catch (e) { /* 未登录时保持默认卡片 */ }
 }
 onMounted(() => fetchPlaylists())
 
@@ -395,10 +406,10 @@ function formatDuration(seconds) {
       </div>
       <div class="playlist-grid">
         <div
-          v-for="pl in playlists"
-          :key="pl.id"
+          v-for="(pl, idx) in playlists"
+          :key="pl.id || idx"
           class="playlist-card"
-          @click="router.push({ name: 'playlist', params: { id: pl.id } })"
+          @click="pl.id && router.push({ name: 'playlist', params: { id: pl.id } })"
         >
           <div class="pl-cover">
             <div class="cover-inner" :style="{ background: pl.color }">♪</div>
