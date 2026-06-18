@@ -62,7 +62,7 @@ public class NeteaseApiService {
     }
 
     public Map<String, Object> getNeteasePlaylist(String id) {
-        URI uri = buildUri("/netease/playlist", "id", id);
+        URI uri = buildUri("/netease/playlist_detail", "id", id);
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
         log.info("获取网易云歌单: id={}, status={}", id, response.getStatusCode());
         return response.getBody();

@@ -22,14 +22,52 @@ public class PlaylistController {
     @GetMapping("/detail")
     @SuppressWarnings("unchecked")
     public Result<Map<String, Object>> detail(@RequestParam String source, @RequestParam String id) {
-        Map<String, Object> result;
+        Map<String, Object> raw;
         if ("qq".equals(source)) {
-            result = neteaseApiService.getQQPlaylist(id);
+            raw = neteaseApiService.getQQPlaylist(id);
         } else {
-            result = neteaseApiService.getNeteasePlaylist(id);
+            raw = neteaseApiService.getNeteasePlaylist(id);
         }
-        if (result == null) return Result.error(404, "歌单不存在");
-        return Result.ok((Map<String, Object>) result.get("data"));
+        if (raw == null) return Result.error(404, "歌单不存在");
+        // 网易云通用代理返回 raw body: { code, playlist: {...} }
+        Map<String, Object> pl = (Map<String, Object>) raw.get("playlist");
+        if (pl == null) {
+            // QQ 或其他格式兼容
+            Map<String, Object> data = (Map<String, Object>) raw.get("data");
+            if (data == null) return Result.error(404, "歌单不存在");
+            return Result.ok(data);
+        }
+        // 转换为统一格式
+        Map<String, Object> result = new HashMap<>();
+        result.put("id", String.valueOf(pl.get("id")));
+        result.put("name", pl.get("name"));
+        result.put("description", pl.getOrDefault("description", ""));
+        result.put("coverUrl", pl.getOrDefault("coverImgUrl", ""));
+        Map<String, Object> creator = (Map<String, Object>) pl.get("creator");
+        result.put("creator", Map.of("name", creator != null ? creator.getOrDefault("nickname", "") : "",
+                "avatar", creator != null ? creator.getOrDefault("avatarUrl", "") : ""));
+        result.put("playCount", pl.getOrDefault("playCount", 0));
+        result.put("songCount", pl.getOrDefault("trackCount", 0));
+        result.put("source", source);
+        List<Map<String, Object>> tracks = (List<Map<String, Object>>) pl.get("tracks");
+        List<Map<String, Object>> songs = new ArrayList<>();
+        if (tracks != null) {
+            for (Map<String, Object> t : tracks) {
+                Map<String, Object> s = new HashMap<>();
+                s.put("id", String.valueOf(t.get("id")));
+                s.put("name", t.getOrDefault("name", ""));
+                List<Map<String, Object>> ar = (List<Map<String, Object>>) t.get("ar");
+                s.put("artist", ar != null ? ar.stream().map(a -> String.valueOf(a.get("name"))).collect(Collectors.joining("/")) : "");
+                Map<String, Object> al = (Map<String, Object>) t.get("al");
+                s.put("album", al != null ? al.get("name") : "");
+                s.put("coverUrl", al != null ? al.get("picUrl") : "");
+                Object dt = t.get("dt");
+                s.put("duration", dt instanceof Number ? ((Number) dt).intValue() / 1000 : 0);
+                songs.add(s);
+            }
+        }
+        result.put("songs", songs);
+        return Result.ok(result);
     }
 
     /** 网易云推荐歌单（首页"推荐歌单"区域） */
