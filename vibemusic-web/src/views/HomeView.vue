@@ -152,14 +152,14 @@ async function fetchPlaylists() {
       return
     }
   } catch (e) { /* fallback */ }
-  // 兜底默认卡片
+  // 兜底默认卡片（无真实数据时，点击刷新）
   playlists.value = [
-    { id: 0, name: '华语热门精选', count: 0, color: '#e84c3d' },
-    { id: 0, name: '治愈系纯音乐', count: 0, color: '#3498db' },
-    { id: 0, name: '说唱新世代', count: 0, color: '#2ecc71' },
-    { id: 0, name: '怀旧金曲', count: 0, color: '#f39c12' },
-    { id: 0, name: '民谣在路上', count: 0, color: '#9b59b6' },
-    { id: 0, name: '电竞燃曲BGM', count: 0, color: '#1abc9c' },
+    { name: '华语热门精选', count: 0, color: '#e84c3d', _fallback: true },
+    { name: '治愈系纯音乐', count: 0, color: '#3498db', _fallback: true },
+    { name: '说唱新世代', count: 0, color: '#2ecc71', _fallback: true },
+    { name: '怀旧金曲', count: 0, color: '#f39c12', _fallback: true },
+    { name: '民谣在路上', count: 0, color: '#9b59b6', _fallback: true },
+    { name: '电竞燃曲BGM', count: 0, color: '#1abc9c', _fallback: true },
   ]
 }
 async function refreshRecommend() {
@@ -418,7 +418,7 @@ function formatDuration(seconds) {
           v-for="(pl, idx) in playlists"
           :key="pl.id || idx"
           class="playlist-card"
-          @click="pl.source ? router.push({ name: 'playlist-detail', params: { source: pl.source, id: String(pl.id) } }) : router.push('/playlists')"
+          @click="pl._fallback ? refreshRecommend() : router.push({ name: 'playlist-detail', params: { source: pl.source || 'netease', id: String(pl.id) } })"
         >
           <div class="pl-cover">
             <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-img" />
