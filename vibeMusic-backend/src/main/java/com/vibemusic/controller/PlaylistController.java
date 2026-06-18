@@ -18,6 +18,20 @@ public class PlaylistController {
     private final PlaylistService playlistService;
     private final NeteaseApiService neteaseApiService;
 
+    /** 歌单详情（网易云/QQ） */
+    @GetMapping("/detail")
+    @SuppressWarnings("unchecked")
+    public Result<Map<String, Object>> detail(@RequestParam String source, @RequestParam String id) {
+        Map<String, Object> result;
+        if ("qq".equals(source)) {
+            result = neteaseApiService.getQQPlaylist(id);
+        } else {
+            result = neteaseApiService.getNeteasePlaylist(id);
+        }
+        if (result == null) return Result.error(404, "歌单不存在");
+        return Result.ok((Map<String, Object>) result.get("data"));
+    }
+
     /** 网易云推荐歌单（首页"推荐歌单"区域） */
     @GetMapping("/recommend")
     @SuppressWarnings("unchecked")
@@ -33,6 +47,7 @@ public class PlaylistController {
                 m.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")));
                 m.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                 m.put("count", p.getOrDefault("playCount", 0));
+                m.put("source", "netease");  // 网易云推荐歌单
                 return m;
             }).collect(Collectors.toList());
             return Result.ok(playlists);

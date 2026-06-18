@@ -411,7 +411,7 @@ function formatDuration(seconds) {
           v-for="(pl, idx) in playlists"
           :key="pl.id || idx"
           class="playlist-card"
-          @click="pl.id ? router.push({ name: 'playlist', params: { id: pl.id } }) : router.push('/playlists')"
+          @click="pl.source ? router.push({ name: 'playlist-detail', params: { source: pl.source, id: String(pl.id) } }) : router.push('/playlists')"
         >
           <div class="pl-cover">
             <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-img" />

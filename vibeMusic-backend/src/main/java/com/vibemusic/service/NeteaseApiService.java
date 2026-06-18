@@ -61,6 +61,20 @@ public class NeteaseApiService {
         return response.getBody();
     }
 
+    public Map<String, Object> getNeteasePlaylist(String id) {
+        URI uri = buildUri("/netease/playlist", "id", id);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        log.info("获取网易云歌单: id={}, status={}", id, response.getStatusCode());
+        return response.getBody();
+    }
+
+    public Map<String, Object> getQQPlaylist(String id) {
+        URI uri = buildUri("/qq/playlist", "id", id);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        log.info("获取QQ歌单: id={}, status={}", id, response.getStatusCode());
+        return response.getBody();
+    }
+
     public Map<String, Object> aggregatedSearch(String keyword, int page, int size) {
         URI uri = buildUri("/search", "keyword", keyword, "page", String.valueOf(page), "size", String.valueOf(size));
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);

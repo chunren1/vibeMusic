@@ -732,6 +732,78 @@ app.all('/qq/*', async (req, res) => {
 // ==================== 健康检查 ====================
 
 // 全局错误处理
+// ==================== 歌单详情 ====================
+
+/** 网易云歌单详情 */
+app.get('/netease/playlist', async (req, res) => {
+  try {
+    const { id } = req.query;
+    if (!id) return res.json({ code: 400, message: '缺少 id 参数' });
+    const result = await neteaseWithCookie('playlist_detail', { id });
+    const pl = result?.body?.playlist;
+    if (!pl) return res.json({ code: 404, message: '歌单不存在' });
+    res.json({
+      code: 200,
+      data: {
+        id: String(pl.id),
+        name: pl.name,
+        description: pl.description || '',
+        coverUrl: pl.coverImgUrl || '',
+        creator: { name: pl.creator?.nickname || '', avatar: pl.creator?.avatarUrl || '' },
+        playCount: pl.playCount || 0,
+        songCount: pl.trackCount || 0,
+        source: 'netease',
+        songs: (pl.tracks || []).slice(0, 100).map(t => ({
+          id: String(t.id),
+          name: t.name || '',
+          artist: (t.ar || []).map(a => a.name).join('/') || '',
+          album: t.al?.name || '',
+          coverUrl: t.al?.picUrl || '',
+          duration: Math.floor((t.dt || 0) / 1000),
+        })),
+      },
+    });
+  } catch (e) {
+    writeLog('api', 'ERROR', `[/netease/playlist] ${e.message}`);
+    res.json({ code: 500, message: e.message });
+  }
+});
+
+/** QQ 音乐歌单详情 */
+app.get('/qq/playlist', async (req, res) => {
+  try {
+    const { id } = req.query;
+    if (!id) return res.json({ code: 400, message: '缺少 id 参数' });
+    const result = await qqMusic.api('/songlist', { disstid: id });
+    const pl = result?.body?.cdlist?.[0];
+    if (!pl) return res.json({ code: 404, message: '歌单不存在' });
+    res.json({
+      code: 200,
+      data: {
+        id: String(pl.dissid || id),
+        name: pl.dissname || '',
+        description: pl.desc || '',
+        coverUrl: pl.logo || '',
+        creator: { name: pl.nickname || '', avatar: pl.headurl || '' },
+        playCount: pl.listennum || 0,
+        songCount: (pl.songlist || []).length,
+        source: 'qq',
+        songs: (pl.songlist || []).slice(0, 100).map(s => ({
+          id: String(s.songid || s.id),
+          name: s.songname || '',
+          artist: (s.singer || []).map(sg => sg.name).join('/') || '',
+          album: s.albumname || '',
+          coverUrl: s.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid}.jpg` : '',
+          duration: s.interval || 0,
+        })),
+      },
+    });
+  } catch (e) {
+    writeLog('api', 'ERROR', `[/qq/playlist] ${e.message}`);
+    res.json({ code: 500, message: e.message });
+  }
+});
+
 app.use((err, req, res, next) => {
   writeLog('api', 'ERROR', `[${req.method} ${req.path}] ${err.message}`);
   res.status(500).json({ code: 500, message: 'Internal Server Error' });
