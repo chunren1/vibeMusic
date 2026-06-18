@@ -50,6 +50,23 @@ public class PlaylistService {
     private final PlaylistMapper playlistMapper;
     private final PlaylistSongMapper songMapper;
 
+    private static final String[][] DEFAULT_PLAYLISTS = {
+        {"华语热门精选", "华语乐坛经典与热门歌曲"},
+        {"治愈系纯音乐", "放松心情的优美纯音乐"},
+        {"说唱新世代", "中文说唱的无限可能"},
+        {"怀旧金曲", "那些年我们追过的经典"},
+        {"民谣在路上", "吉他声里的故事与远方"},
+        {"电竞燃曲BGM", "高燃BGM助你上分"},
+    };
+
+    /** 为新用户创建默认歌单 */
+    public void seedDefaults(Long userId) {
+        for (String[] pl : DEFAULT_PLAYLISTS) {
+            create(userId, pl[0], pl[1], null);
+        }
+        log.info("为新用户 {} 创建了 {} 个默认歌单", userId, DEFAULT_PLAYLISTS.length);
+    }
+
     public List<Map<String, Object>> listPlaylists(Long userId) {
         return playlistMapper.listPlaylistsWithStats(userId).stream()
                 .map(PlaylistDTO::fromRow)
