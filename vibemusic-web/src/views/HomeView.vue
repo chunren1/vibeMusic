@@ -402,14 +402,14 @@ function formatDuration(seconds) {
     <section class="section">
       <div class="section-header">
         <h3>推荐歌单</h3>
-        <span class="more">更多 ›</span>
+        <span class="more" @click="router.push('/playlists')">更多 ›</span>
       </div>
       <div class="playlist-grid">
         <div
           v-for="(pl, idx) in playlists"
           :key="pl.id || idx"
           class="playlist-card"
-          @click="pl.id && router.push({ name: 'playlist', params: { id: pl.id } })"
+          @click="pl.id ? router.push({ name: 'playlist', params: { id: pl.id } }) : router.push('/playlists')"
         >
           <div class="pl-cover">
             <div class="cover-inner" :style="{ background: pl.color }">♪</div>
