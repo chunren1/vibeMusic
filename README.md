@@ -81,8 +81,10 @@ vibeMusic/
 │       └── api/                    # Axios 封装 + 接口定义
 ├── scripts/                        # 运维工具
 │   ├── ops.cjs                     # 跨平台运维面板（npm run ops）
+│   ├── k6-test.js                  # K6 压力测试脚本 (50 VU 搜索+播放+收藏)
 │   ├── docker.ps1                  # Docker 管理脚本
 │   └── ops/                        # Python 运维脚本
+├── NOTICE.md                        # 法律风险声明
 └── TEST_REPORT.md                  # 全链路测试报告
 ```
 
@@ -111,6 +113,11 @@ vibeMusic/
 | 🎨 简约风图标 | 全站 emoji 图标替换为 SVG：搜索/收藏/下载/加入歌单/移除等 |
 | 👤 用户头像 | 首页 + TopBar 真实头像展示，无头像回退文字 |
 | 🖼️ 背景图 | 个人页全宽背景图，无图时绿色渐变兜底 |
+| 🔁 幂等防护 | X-Request-Id + Redis 5min 去重，防止快速连点重复请求 |
+| 🗄️ Flyway 版本控制 | 数据库 schema 像代码一样版本化 (V1__init.sql)，baseline-on-migrate |
+| 🐛 Sentry 错误监控 | 前端 JS 崩溃自动上报 (VITE_SENTRY_DSN)，Android/iOS 全平台覆盖 |
+| 📊 K6 压力测试 | scripts/k6-test.js，50 VU 模拟搜索→播放→收藏全链路 |
+| 🛡️ 安全合规 | NOTICE.md 法律声明；Cookie/密钥全量 gitignore；binary/jar 仓库清理 |
 
 ## 快速开始
 
@@ -195,6 +202,7 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `npm run ops` | 运维面板 |
 | `npm run tunnel` | 启动 cpolar 内网穿透 |
 | `npm run install:all` | 安装全部依赖 |
+| `k6 run scripts/k6-test.js` | 压力测试 (50 VU 并发) |
 
 ## API 端点
 
@@ -397,17 +405,17 @@ docker exec -i vibemusic-mysql mysql -uroot -p123456 vibemusic < vibemusic_20260
 ## 测试体系
 
 ```
-全链路 63 条测试
+全链路 60+2 条测试
 ├── 后端 42 条 (JUnit 5 + MockMvc + H2 内存数据库)
-│   ├── 单元测试 27 条
-│   │   ├── UserServiceTest        (10) 注册/登录/修改密码/更新资料
-│   │   ├── SongServiceTest         (5) 歌曲入库/查询/更新
-│   │   ├── FavoriteServiceTest     (6) 收藏/取消/列表/去重
-│   │   ├── PlayHistoryServiceTest  (4) 播放记录/去重/上限
+│   ├── 单元测试 25+2 条 (2 条因 MySQL ON DUPLICATE KEY 语法 H2 不支持而跳过)
+│   │   ├── UserServiceTest        (9)  注册/登录/修改密码/更新资料
+│   │   ├── SongServiceTest         (3+2) 歌曲查询/H2兼容跳过
+│   │   ├── FavoriteServiceTest     (6)  收藏/取消/列表/去重
+│   │   ├── PlayHistoryServiceTest  (4)  播放记录/去重/上限
 │   │   └── PlayHistoryCleanupServiceTest (2) 定时清理
 │   └── 集成测试 15 条 (MockMvc)
-│       ├── AuthControllerTest      (4) 注册校验/未登录拦截
-│       └── SongControllerTest     (11) 搜索/播放/流/歌词/健康检查
+│       ├── AuthControllerTest      (4)  注册校验/未登录拦截
+│       └── SongControllerTest     (11)  搜索/播放/流/歌词/健康检查
 ├── 前端 21 条 (Vitest + jsdom)
 │   └── PlayerStore Test           (21) 队列操作/切歌/模式/持久化
 └── CI 自动化 (GitHub Actions)
@@ -444,7 +452,7 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 #### 🟡 中优先级
 | 改进项 | 说明 |
 |--------|------|
-| ES 初始化噪音消除 | `ensureIndex()` 加 `.onErrorResume(Mono::empty)` 消费超时异常，消除红色堆栈 |
+| ES 初始化噪音消除 | `ensureIndex()` 改用 HEAD 请求 + `toBodilessEntity()`，彻底消除 Netty 响应体释放竞态 |
 | ES bulk 统一 WebClient | `saveAll()` 替代 HttpURLConnection ndjson 写入，纳入连接池管理 |
 | UserService 精准更新 | `updateAvatar/updateBgImage` 改为 `lambdaUpdate().eq().set()` 单字段更新 |
 | PlaylistService INSERT IGNORE | 删 SELECT COUNT，改为 `catch DuplicateKeyException` 配合唯一索引 |
@@ -473,6 +481,28 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | Nginx 缓存策略 | `/uploads/` 缓存 `7d→1d + must-revalidate`，头像更换即时生效 |
 | Vite target 升级 | `es2015→es2020`，bundle 缩小约 15% |
 | Vite chunk 拆分 | `vue-core` / `pinia` / `axios` 独立 chunk，并行下载 |
+
+---
+
+### 2026-06-19 第三轮优化 (工程化增强 + 安全合规)
+
+#### 🏗️ 工程化增强
+| 改进项 | 说明 |
+|--------|------|
+| Flyway 数据库版本控制 | `V1__init.sql` → `db/migration/`，`baseline-on-migrate` 兼容已有 DB |
+| K6 压力测试 | `scripts/k6-test.js`，50 VU 全链路（搜索→歌词→播放→收藏→推荐）|
+| 收藏幂等性 | `IdempotentGuard` (X-Request-Id + Redis 5min 去重)，前端 `request.js` 自动 UUID |
+| Sentry 前端错误监控 | `main.js` 条件加载 `@sentry/vue`，`VITE_SENTRY_DSN` 环境变量注入 |
+| ES 健康检查优化 | `GET /` → `HEAD /` + `toBodilessEntity`，彻底消除 Reactor `onErrorDropped` 红色堆栈 |
+
+#### 🛡️ 安全合规
+| 改进项 | 说明 |
+|--------|------|
+| NOTICE.md | 法律风险声明（仅供学习/禁止商用/24h 删除数据）|
+| Cookie 保护 | `musicapi/config.js` → `.gitignore`（QQ/网易云 Cookie 不再提交）|
+| 凭据保护 | `.env.docker` / `.env.example` / `.env.production` → `.gitignore` |
+| JWT 占位符 | `application.yml` 默认值改为开发占位符，生产强制环境变量 |
+| 二进制清理 | `.cloudflared/` / ES IK 插件 jar / Android gradle-wrapper.jar → `.gitignore` |
 
 ---
 
