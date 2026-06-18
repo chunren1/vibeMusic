@@ -59,6 +59,9 @@ jwt:
   secret: ${JWT_SECRET:vibeMusic-dev-only-change-in-production}
   expiration: 86400000
 
+ai:
+  api-key: ${AI_API_KEY:}
+
 netease:
   api:
     base-url: ${MUSICAPI_URL:http://localhost:3000}
