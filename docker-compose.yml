@@ -15,8 +15,9 @@ services:
     image: mysql:8.0
     container_name: vibemusic-mysql
     restart: unless-stopped
+    logging: *default-logging
     environment:
-      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       MYSQL_DATABASE: vibemusic
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
@@ -47,6 +48,7 @@ services:
     image: redis:7-alpine
     container_name: vibemusic-redis
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "6379:6379"
     volumes:
@@ -126,6 +128,7 @@ services:
     image: minio/minio:latest
     container_name: vibemusic-rustfs
     restart: unless-stopped
+    logging: *default-logging
     environment:
       MINIO_ROOT_USER: rustfsadmin
       MINIO_ROOT_PASSWORD: rustfsadmin
@@ -162,7 +165,7 @@ services:
       # 数据库
       DB_HOST: mysql
       DB_USERNAME: root
-      DB_PASSWORD: 123456
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -195,6 +198,12 @@ services:
         condition: service_healthy
       musicapi:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/songs/es-health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ==========================
   # Nginx — 统一入口 & 反向代理
@@ -216,9 +225,7 @@ services:
     networks:
       - vibemusic-net
     depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
+      backend:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]

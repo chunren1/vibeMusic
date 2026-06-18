@@ -86,7 +86,10 @@ public class AssistantController {
                 API_URL, new HttpEntity<>(requestBody, headers), Map.class);
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> choices = (List<Map<String, Object>>) response.getBody().get("choices");
+        Map<String, Object> body = response.getBody();
+        if (body == null) throw new RuntimeException("AI 服务返回为空");
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) body.get("choices");
+        if (choices == null || choices.isEmpty()) throw new RuntimeException("AI 服务返回无内容");
         Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
         return (String) message.get("content");
     }

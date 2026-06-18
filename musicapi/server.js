@@ -48,7 +48,17 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), cookieStatus });
+  res.json({
+    code: 200,
+    message: 'Music API Service v3 (Unified Cookie + SLA)',
+    data: {
+      netease: cookieStatus.netease ? 'available' : 'degraded',
+      qq: cookieStatus.qq ? 'available' : 'degraded',
+      cacheSize: searchCache.size,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    },
+  });
 });
 
 // favicon 占位（避免 404 日志）
@@ -393,7 +403,7 @@ app.get('/search', async (req, res) => {
 
     res.json({ code: 200, message: 'success', data: pageData });
   } catch (error) {
-    console.error('[Search] Error:', error.message);
+    writeLog('api', 'ERROR', `[/search] ${error.message}`);
     res.status(500).json({ code: 500, message: error.message, data: null });
   }
 });
@@ -723,11 +733,11 @@ app.all('/netease/*', async (req, res) => {
 app.get('/qq/playlist', async (req, res) => {
   try {
     const { id } = req.query;
-    if (!id) return res.json({ code: 400, message: '缺少 id 参数' });
+    if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
     const result = await qqMusic.api('/songlist', { disstid: id });
     // qq-music-api 返回格式: { code, data: { cdlist: [...] } }
     const pl = result?.data?.cdlist?.[0] || result?.cdlist?.[0];
-    if (!pl) return res.json({ code: 404, message: '歌单不存在' });
+    if (!pl) return res.status(404).json({ code: 404, message: '歌单不存在' });
     res.json({
       code: 200,
       data: {
@@ -740,7 +750,7 @@ app.get('/qq/playlist', async (req, res) => {
         songCount: (pl.songlist || []).length,
         source: 'qq',
         songs: (pl.songlist || []).slice(0, 100).map(s => ({
-          id: String(s.songid || s.id),
+          id: String(s.songmid || s.songid || s.id),
           name: s.songname || '',
           artist: (s.singer || []).map(sg => sg.name).join('/') || '',
           album: s.albumname || '',
@@ -766,28 +776,12 @@ app.all('/qq/*', async (req, res) => {
   }
 });
 
-// ==================== 健康检查 ====================
 
-// 全局错误处理
-// ==================== 歌单详情（由通用代理 /netease/* 自动处理） ====================
+// ==================== 全局错误处理 ====================
 
 app.use((err, req, res, next) => {
   writeLog('api', 'ERROR', `[${req.method} ${req.path}] ${err.message}`);
   res.status(500).json({ code: 500, message: 'Internal Server Error' });
-});
-
-app.get('/health', (req, res) => {
-  res.json({
-    code: 200,
-    message: 'Music API Service v3 (Unified Cookie + SLA)',
-    data: {
-      netease: cookieStatus.netease ? 'available' : 'degraded',
-      qq: cookieStatus.qq ? 'available' : 'degraded',
-      cacheSize: searchCache.size,
-      uptime: process.uptime(),
-      timestamp: new Date().toISOString(),
-    },
-  });
 });
 
 // ==================== 启动 ====================

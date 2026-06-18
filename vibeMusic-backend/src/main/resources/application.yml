@@ -44,6 +44,12 @@ spring:
       max-file-size: 50MB
       max-request-size: 50MB
 
+  elasticsearch:
+    uris:
+      - ${ES_URI:http://localhost:9201}
+    connection-timeout: 5s
+    socket-timeout: 10s
+
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
@@ -66,12 +72,6 @@ netease:
   api:
     base-url: ${MUSICAPI_URL:http://localhost:3000}
     timeout: 10000
-
-  elasticsearch:
-    uris:
-      - ${ES_URI:http://localhost:9201}
-    connection-timeout: 5s
-    socket-timeout: 10s
 
 storage:
   rustfs:

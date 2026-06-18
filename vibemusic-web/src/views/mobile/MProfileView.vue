@@ -85,10 +85,10 @@ function triggerAvatar() { avatarInput.value?.click() }
 async function onAvatarChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
-  if (file.size > 2 * 1024 * 1024) { alert('文件不能超过 2MB'); return }
-  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) { alert('仅支持 JPG/PNG/GIF/WebP'); return }
+  if (file.size > 2 * 1024 * 1024) { window.toast('文件不能超过 2MB', 'error'); return }
+  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) { window.toast('仅支持 JPG/PNG/GIF/WebP', 'error'); return }
   avatarLoading.value = true
-  try { await auth.uploadUserAvatar(file) } catch (err) { alert(err.response?.data?.message || err.message || '上传失败') }
+  try { await auth.uploadUserAvatar(file) } catch (err) { window.toast(err.response?.data?.message || err.message || '上传失败', 'error') }
   finally { avatarLoading.value = false }
 }
 
@@ -96,10 +96,10 @@ function triggerBg() { bgInput.value?.click() }
 async function onBgChange(e) {
   const file = e.target.files?.[0]
   if (!file) return
-  if (file.size > 2 * 1024 * 1024) { alert('文件不能超过 2MB'); return }
-  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) { alert('仅支持 JPG/PNG/GIF/WebP'); return }
+  if (file.size > 2 * 1024 * 1024) { window.toast('文件不能超过 2MB', 'error'); return }
+  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) { window.toast('仅支持 JPG/PNG/GIF/WebP', 'error'); return }
   bgLoading.value = true
-  try { await auth.uploadUserBgImage(file) } catch (err) { alert(err.response?.data?.message || err.message || '上传失败') }
+  try { await auth.uploadUserBgImage(file) } catch (err) { window.toast(err.response?.data?.message || err.message || '上传失败', 'error') }
   finally { bgLoading.value = false }
 }
 

@@ -108,7 +108,7 @@ vibeMusic/
 | 🛡️ Cookie 监控 | 随 API 启动自动检查 + 每小时巡检，日志写入 musicapi/logs/ |
 | 💾 RustFS 离线缓存 | 用户主动下载→存入对象存储，播放优先直读（零 API 调用），上传前去重 |
 | 🎚️ 进度条拖拽 | 桌面端 mouse/move/up + 移动端 touch/move/end，实时时间气泡 + 拇指放大动画 |
-| 🎨 响应式 UI | 桌面侧栏 + 移动底部 TabBar，暗色/亮色双主题 |
+| 🎨 响应式 UI | 桌面侧栏 + 移动底部 TabBar，统一暗色主题 |
 | 🖼️ SVG 图标系统 | 全局 SvgIcon 组件，17 个内联 symbol，color/currentColor 自适应主题，spin 动画 |
 | 🎨 简约风图标 | 全站 emoji 图标替换为 SVG：搜索/收藏/下载/加入歌单/移除等 |
 | 👤 用户头像 | 首页 + TopBar 真实头像展示，无头像回退文字 |
@@ -155,9 +155,16 @@ npm run docker:up         # 启动所有 Docker 服务（含 Nginx 80 端口）
 Nginx 处理：
 - `/` — SPA 路由 fallback → `index.html`
 - `/assets/*` — Vite 产物，长缓存（1年）
-- `/api/*` — 反向代理 → Spring Boot (8080)
-- `/api/songs/stream` — 音频流，支持 Range 断点续传
+- `/api/*` — 反向代理 → Spring Boot (8080)，透传 JWT Authorization
+- `/api/songs/stream` — 音频流，支持 Range 断点续传，关闭缓冲
 - `/uploads/*` — 用户上传静态资源
+
+### 安全配置
+- **JWT httpOnly Cookie**：登录/注册时后端设置 `VIBE_TOKEN` Cookie（HttpOnly + SameSite=Strict），前端不再读写 localStorage，防止 XSS 窃取
+- **认证降级**：JWT Filter 优先读 Authorization Header，降级读 Cookie
+- **会话恢复**：前端 onMount 调用 `/auth/me` 从 Cookie 恢复登录态
+- **幂等防护**：写请求自动添加 X-Request-Id（UUID v4 兼容降级），Redis 5min 去重
+- **密码加密**：BCrypt (`$2b$10$`) 存储，明文永不出现在数据库中
 
 ### 3. 启动后端
 
@@ -226,13 +233,26 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `/api/songs/random` | GET | 随机推荐 |
 | `/api/songs/banner` | GET | 首页轮播推荐 |
 | `/api/recommend/personalized` | GET | 个性化推荐（播放历史聚合 + Redis 缓存） |
-| `/api/favorites` | GET/POST/DELETE | 收藏管理 |
-| `/api/playlists` | GET/POST/PUT/DELETE | 歌单 CRUD |
-| `/api/playlists/{id}/songs` | POST/DELETE | 歌单歌曲添加/移除 |
-| `/api/download/check/{id}` | GET | 检查歌曲是否已下载 |
-| `/api/download` | POST | 下载歌曲到 RustFS |
-| `/api/songs/history` | GET | 播放历史 |
-| `/api/image-proxy` | GET | 图片代理（HTTP封面→HTTPS隧道，白名单网易云CDN） |
+| `/api/favorites/toggle` | POST | 收藏切换（乐观更新 + 幂等防护） |
+| `/api/favorites/list` | GET | 收藏列表 |
+| `/api/favorites/ids` | GET | 收藏 ID 集合（全局状态同步） |
+| `/api/playlists/list` | GET | 我的歌单列表 |
+| `/api/playlists/create` | POST | 创建歌单 |
+| `/api/playlists/songs` | GET | 歌单歌曲 |
+| `/api/playlists/add-song` | POST | 添加歌曲到歌单 |
+| `/api/playlists/remove-song` | DELETE | 从歌单移除 |
+| `/api/playlists/delete` | DELETE | 删除歌单 |
+| `/api/playlists/detail` | GET | 平台歌单详情（网易云/QQ） |
+| `/api/playlists/recommend` | GET | 推荐歌单（30个随机取6） |
+| `/api/download/{sourceId}` | POST | 下载歌曲到 RustFS |
+| `/api/download/check/{sourceId}` | GET | 检查歌曲是否已下载 |
+| `/api/download/file/{sourceId}` | GET | RustFS 文件流下载 |
+| `/api/songs/history` | GET | 播放历史（去重 + 概率清理） |
+| `/api/songs/lyric` | GET | 歌词代理（网易云 + QQ） |
+| `/api/image-proxy` | GET | 图片代理（白名单网易云CDN） |
+| `/api/auth/logout` | POST | 退出登录（清除 httpOnly Cookie） |
+| `/api/assistant/chat` | POST | AI 音乐助手（SiliconFlow Qwen） |
+| `/api/monitor/cache-stats` | GET | 缓存命中率统计 |
 
 ### musicapi (Express, port 3000)
 
@@ -246,8 +266,12 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `/song/url/v1` | 网易云播放 URL |
 | `/song/url/qq` | QQ 音乐播放 URL |
 | `/personalized` | 网易云个性化推荐 |
+| `/netease/*` | 网易云通用代理（任意 NeteaseCloudMusicApi 方法） |
+| `/qq/*` | QQ 音乐通用代理 |
+| `/qq/playlist` | QQ 音乐歌单详情 |
+| `/song/detail` | 歌曲详情 |
 | `/cookie-status` | Cookie 存活状态 |
-| `/health` | 健康检查 + Cookie 状态 |
+| `/health` | 健康检查（Cookie 状态 + 缓存 + uptime） |
 
 ## 个性化推荐引擎
 
@@ -503,6 +527,41 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | 凭据保护 | `.env.docker` / `.env.example` / `.env.production` → `.gitignore` |
 | JWT 占位符 | `application.yml` 默认值改为开发占位符，生产强制环境变量 |
 | 二进制清理 | `.cloudflared/` / ES IK 插件 jar / Android gradle-wrapper.jar → `.gitignore` |
+
+---
+
+### 2026-06-19 第四轮优化（上线前全面审查 + 安全加固）
+
+#### 🔒 安全加固
+| 改进项 | 说明 |
+|--------|------|
+| JWT httpOnly Cookie | 后端 Set-Cookie VIBE_TOKEN (HttpOnly+SameSite)，前端移除 localStorage 读写，防 XSS |
+| BusinessException | 15 处 `RuntimeException` → `BusinessException(code, msg)`，HTTP 状态码精确化 |
+| @Transactional | UserService 读-改-写方法添加事务注解，防止并发条件覆盖 |
+| NPE 防护 | AssistantController/PlaylistController/ProxyController 添加 null 安全 |
+| Nginx upstream | `host.docker.internal` → `backend:8080`（兼容 Linux Docker） |
+| ES 配置修复 | `elasticsearch` 从 netease 子属性移至 `spring.elasticsearch` |
+| docker-compose 密码 | `DB_PASSWORD: 123456` → `${DB_PASSWORD:-123456}` |
+| .env.example | 真实凭据 → 占位符，文件从 .gitignore 移除（可提交模板） |
+
+#### 🎨 用户体验
+| 改进项 | 说明 |
+|--------|------|
+| Toast 组件 | 新建 ToastMessage.vue + useToast.js，替换 12 处 alert() |
+| 歌单详情全宽 | PlaylistDetailView 深色全宽布局，专辑列 + 收藏/队列按钮 |
+| 推荐歌单随机 | personalizedPlaylists(30) → shuffle 取 6，实现"换一批" |
+| 收藏状态同步 | MRecentView 从本地 favIds → 全局 useFavoriteStore |
+| 移动端歌单 | 新建 MPlaylistView.vue + 路由守卫修复 |
+
+#### 🛠️ 基础设施
+| 改进项 | 说明 |
+|--------|------|
+| musicapi /health 去重 | 删除重复定义，统一详细版格式 |
+| Flyway 脚本清理 | V1__init.sql 移除 CREATE DATABASE/USE |
+| Security 补全 | /api/image-proxy + /api/download 加入 permitAll |
+| musicapi Dockerfile | wget → node 内建 http 健康检查 |
+| 日志轮转全覆盖 | mysql/redis/rustfs 添加 logging max-size/max-file |
+| SQL 迁移 | Flyway 脚本移除 CREATE DATABASE / USE |
 
 ---
 

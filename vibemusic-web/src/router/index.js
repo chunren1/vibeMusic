@@ -26,6 +26,7 @@ const routes = [
       { path: 'playlists', name: 'm-playlists', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistsView.vue') },
       { path: 'profile', name: 'm-profile', component: () => import('@/views/mobile/MProfileView.vue') },
       { path: 'profile/detail', name: 'm-profile-detail', component: () => import('@/views/mobile/MProfileDetailView.vue') },
+      { path: 'playlist/:id', name: 'm-playlist', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistView.vue') },
       { path: 'playlist/:source/:id', name: 'm-playlist-detail', component: () => import('@/views/mobile/MPlaylistDetailView.vue') },
       { path: 'player', name: 'm-player', component: () => import('@/views/mobile/MPlayerView.vue') },
     ]
@@ -59,6 +60,7 @@ router.beforeEach((to, from, next) => {
     const map = {
       '/': '/m',
       '/search': '/m/search',
+      '/playlists': '/m/playlists',
       '/likes': '/m/likes',
       '/recent': '/m/recent',
       '/profile': '/m/profile',
@@ -66,6 +68,9 @@ router.beforeEach((to, from, next) => {
     }
     if (map[to.path]) return next(map[to.path])
     if (to.path.startsWith('/playlist/')) {
+      if (to.name === 'playlist') {
+        return next('/m/playlist/' + to.params.id)
+      }
       return next('/m/playlist/' + to.params.source + '/' + to.params.id)
     }
   }

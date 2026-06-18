@@ -50,38 +50,42 @@ public class ProxyController {
                 return;
             }
 
-            HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
-            conn.setConnectTimeout(TIMEOUT_MS);
-            conn.setReadTimeout(TIMEOUT_MS);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0");
-            conn.setInstanceFollowRedirects(true);
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) uri.toURL().openConnection();
+                conn.setConnectTimeout(TIMEOUT_MS);
+                conn.setReadTimeout(TIMEOUT_MS);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0");
+                conn.setInstanceFollowRedirects(true);
 
-            String contentType = conn.getContentType();
-            if (contentType != null) {
-                response.setContentType(contentType);
-            }
-
-            int contentLength = conn.getContentLength();
-            if (contentLength > MAX_SIZE) {
-                log.warn("Proxy image too large: {} bytes", contentLength);
-                response.setStatus(413);
-                conn.disconnect();
-                return;
-            }
-
-            // 缓存 1 小时（网易云封面基本不变）
-            response.setHeader(HttpHeaders.CACHE_CONTROL, "public, max-age=3600");
-            response.setHeader(HttpHeaders.ETAG, "\"" + url.hashCode() + "\"");
-
-            try (InputStream in = conn.getInputStream();
-                 OutputStream out = response.getOutputStream()) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) != -1) {
-                    out.write(buf, 0, n);
+                String contentType = conn.getContentType();
+                if (contentType != null) {
+                    response.setContentType(contentType);
                 }
+
+                int contentLength = conn.getContentLength();
+                if (contentLength > MAX_SIZE) {
+                    log.warn("Proxy image too large: {} bytes", contentLength);
+                    response.setStatus(413);
+                    conn.disconnect();
+                    return;
+                }
+
+                // 缓存 1 小时（网易云封面基本不变）
+                response.setHeader(HttpHeaders.CACHE_CONTROL, "public, max-age=3600");
+                response.setHeader(HttpHeaders.ETAG, "\"" + url.hashCode() + "\"");
+
+                try (InputStream in = conn.getInputStream();
+                     OutputStream out = response.getOutputStream()) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) != -1) {
+                        out.write(buf, 0, n);
+                    }
+                }
+            } finally {
+                if (conn != null) conn.disconnect();
             }
-            conn.disconnect();
 
         } catch (Exception e) {
             log.warn("Image proxy failed for {}: {}", url, e.getMessage());

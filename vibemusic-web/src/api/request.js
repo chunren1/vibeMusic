@@ -4,10 +4,30 @@ import axios from 'axios'
 export const API_HOST = import.meta.env.VITE_API_HOST || ''
 const API_BASE = API_HOST ? API_HOST + '/api' : '/api'
 
-// token 内存缓存 — 避免每次请求都读 localStorage（同步 I/O）
-let _tokenCache = localStorage.getItem('token') || null
+// token 内存缓存（cookie 由后端 httpOnly 管理，前端无需 localStorage）
+let _tokenCache = null
 export function getToken() { return _tokenCache }
-export function setToken(t) { _tokenCache = t; if (t) localStorage.setItem('token', t); else localStorage.removeItem('token') }
+export function setToken(t) { _tokenCache = t }
+
+// UUID v4 生成（兼容旧手机浏览器不支持 crypto.randomUUID）
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // 降级：用 crypto.getRandomValues 手动构造 UUID v4
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = crypto.getRandomValues(new Uint8Array(1))[0]
+      const v = c === 'x' ? (r & 15) : (r & 0x3 | 0x8)
+      return v.toString(16)
+    })
+  }
+  // 最终兜底（无 crypto API）
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16)
+  })
+}
 
 const request = axios.create({
   baseURL: API_BASE,
@@ -20,7 +40,7 @@ request.interceptors.request.use((config) => {
   }
   // 幂等防护：每次写请求带唯一 Request-Id
   if (['post', 'put', 'delete'].includes(config.method)) {
-    config.headers['X-Request-Id'] = crypto.randomUUID()
+    config.headers['X-Request-Id'] = generateUUID()
   }
   return config
 })

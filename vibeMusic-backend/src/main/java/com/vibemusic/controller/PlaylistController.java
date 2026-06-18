@@ -75,17 +75,25 @@ public class PlaylistController {
     @SuppressWarnings("unchecked")
     public Result<List<Map<String, Object>>> recommend() {
         try {
-            Map<String, Object> result = neteaseApiService.personalizedPlaylists(6);
+            // 一次性获取 30 个歌单，每次随机抽取 6 个，实现"换一批"效果
+            Map<String, Object> result = neteaseApiService.personalizedPlaylists(30);
+            if (result == null) return Result.ok(List.of());
             List<Map<String, Object>> list = (List<Map<String, Object>>) result.get("result");
-            if (list == null) return Result.ok(List.of());
-            List<Map<String, Object>> playlists = list.stream().map(p -> {
+            if (list == null || list.isEmpty()) return Result.ok(List.of());
+
+            // 随机打乱取前 6 个
+            List<Map<String, Object>> shuffled = new ArrayList<>(list);
+            Collections.shuffle(shuffled);
+            List<Map<String, Object>> selected = shuffled.stream().limit(6).collect(Collectors.toList());
+
+            List<Map<String, Object>> playlists = selected.stream().map(p -> {
                 Map<String, Object> m = new HashMap<>();
                 m.put("id", p.get("id"));
                 m.put("name", String.valueOf(p.getOrDefault("name", "")));
                 m.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")));
                 m.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                 m.put("count", p.getOrDefault("playCount", 0));
-                m.put("source", "netease");  // 网易云推荐歌单
+                m.put("source", "netease");
                 return m;
             }).collect(Collectors.toList());
             return Result.ok(playlists);

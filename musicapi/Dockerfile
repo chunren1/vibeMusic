@@ -16,7 +16,7 @@ COPY server.js config.js ./
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:3000/health || exit 1
+  CMD node -e "require('http').get('http://localhost:3000/health',r=>{process.exit(r.statusCode===200?0:1)})"
 
 EXPOSE 3000
 
