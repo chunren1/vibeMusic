@@ -20,11 +20,11 @@ spring:
       idle-timeout: 300000
 
   flyway:
-    enabled: false  # 暂关闭，待 DB 迁移稳定后再启用
+    enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 1
-    validate-on-migrate: true
+    validate-on-migrate: false
 
   data:
     redis:
