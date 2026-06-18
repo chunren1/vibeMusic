@@ -1,13 +1,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getPlayHistory, toggleFavorite, getFavoriteIds } from '@/api/song'
+import { getPlayHistory } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 
 const player = usePlayerStore()
+const favStore = useFavoriteStore()
 const songs = ref([])
-const favIds = ref(new Set())
 
-getFavoriteIds().then(r => { if (r.data) favIds.value = new Set(r.data) }).catch(() => {})
+favStore.fetchFavIds()
 
 function formatTime(dt) {
   if (!dt) return ''
@@ -16,14 +17,6 @@ function formatTime(dt) {
   if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前'
   if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前'
   return d.toLocaleDateString()
-}
-
-function toggleFav(song) {
-  const was = favIds.value.has(song.sourceId)
-  favIds.value[was ? 'delete' : 'add'](song.sourceId)
-  toggleFavorite(song.sourceId, song.songName, song.artist, song.coverUrl || '').catch(() => {
-    favIds.value[was ? 'add' : 'delete'](song.sourceId)
-  })
 }
 
 function play(song) {
@@ -50,8 +43,8 @@ onMounted(() => {
           <div class="m-name">{{ s.songName }}</div>
           <div class="m-artist">{{ s.artist }} · {{ formatTime(s.playedAt) }}</div>
         </div>
-        <button :class="{ faved: favIds.has(s.sourceId) }" @click.stop="toggleFav(s)">
-          <svg viewBox="0 0 24 24" width="18" height="18" :fill="favIds.has(s.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+        <button :class="{ faved: favStore.isFav(s.sourceId) }" @click.stop="favStore.toggleFav(s)">
+          <svg viewBox="0 0 24 24" width="18" height="18" :fill="favStore.isFav(s.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
         </button>
       </div>
     </div>

@@ -5,6 +5,7 @@ import com.vibemusic.entity.User;
 import com.vibemusic.mapper.UserMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -55,9 +56,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private String extractToken(HttpServletRequest request) {
+        // 优先从 Authorization header 读取
         String header = request.getHeader("Authorization");
         if (StringUtils.hasText(header) && header.startsWith("Bearer ")) {
             return header.substring(7);
+        }
+        // 降级从 httpOnly cookie 读取（XSS 防护）
+        if (request.getCookies() != null) {
+            for (Cookie c : request.getCookies()) {
+                if ("VIBE_TOKEN".equals(c.getName())) return c.getValue();
+            }
         }
         return null;
     }

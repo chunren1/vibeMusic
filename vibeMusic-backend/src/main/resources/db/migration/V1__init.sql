@@ -1,13 +1,6 @@
 -- ==========================================
--- vibeMusic 数据库完整初始化脚本
--- 用法: mysql -u root -p < init.sql
--- 兼容: MySQL 5.7+ / 8.0+
+-- vibeMusic 数据库初始化脚本 (Flyway V1)
 -- ==========================================
-
-CREATE DATABASE IF NOT EXISTS vibemusic
-    DEFAULT CHARACTER SET utf8mb4
-    COLLATE utf8mb4_unicode_ci;
-USE vibemusic;
 
 -- ==========================================
 -- 1. 用户表 (users)

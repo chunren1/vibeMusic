@@ -1,5 +1,6 @@
 package com.vibemusic.service;
 
+import com.vibemusic.common.exception.BusinessException;
 import com.vibemusic.config.NeteaseApiConfig;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -126,7 +127,7 @@ public class NeteaseApiService {
             return response.getBody();
         } catch (Exception e) {
             log.error("下载失败: {}", e.getMessage());
-            throw new RuntimeException("歌曲下载失败", e);
+            throw new BusinessException(502, "歌曲下载失败");
         }
     }
 
@@ -155,7 +156,7 @@ public class NeteaseApiService {
             return tempFile;
         } catch (Exception e) {
             log.error("流式下载失败: {}", e.getMessage());
-            throw new RuntimeException("歌曲下载失败", e);
+            throw new BusinessException(502, "歌曲下载失败");
         }
     }
 

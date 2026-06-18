@@ -58,6 +58,11 @@ public class SecurityConfig {
                     "/api/playlists/songs"
                 ).permitAll()
 
+                // 图片代理公开（封面图无 JWT）
+                .requestMatchers(HttpMethod.GET,
+                    "/api/image-proxy"
+                ).permitAll()
+
                 // 下载文件流 & 缓存检查公开（浏览器 <a> 下载不带 JWT）
                 .requestMatchers(HttpMethod.GET,
                     "/api/download/file/**",

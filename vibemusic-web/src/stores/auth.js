@@ -5,9 +5,10 @@ import { getMe, updateProfile as apiUpdateProfile, uploadAvatar as apiUploadAvat
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(getToken())
-  const user = ref(tryParse(localStorage.getItem('user')))
+  const user = ref(null)
   const showLoginModal = ref(false)
   const redirectPath = ref(null)
+  const sessionChecked = ref(false)
 
   const isLoggedIn = computed(() => !!token.value)
 
@@ -34,8 +35,8 @@ export const useAuthStore = defineStore('auth', () => {
     }
     token.value = newToken
     user.value = newUser
+    sessionChecked.value = true
     setToken(newToken)
-    localStorage.setItem('user', JSON.stringify(newUser))
     return true
   }
 
@@ -44,8 +45,8 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     redirectPath.value = null
     showLoginModal.value = false
+    sessionChecked.value = true
     setToken(null)
-    localStorage.removeItem('user')
   }
 
   function openLogin() {
@@ -67,6 +68,28 @@ export const useAuthStore = defineStore('auth', () => {
     return p
   }
 
+  /** 从 httpOnly cookie 恢复会话 */
+  async function tryRestoreSession() {
+    if (token.value || sessionChecked.value) return
+    try {
+      const res = await getMe()
+      if (res.code === 200 && res.data) {
+        token.value = 'cookie'
+        setToken('cookie')
+        user.value = {
+          userId: res.data.userId,
+          username: res.data.username,
+          nickname: res.data.nickname,
+          avatar: res.data.avatar,
+          bgImage: res.data.bgImage,
+          gender: res.data.gender,
+          birthday: res.data.birthday,
+        }
+      }
+    } catch (_) { /* 未登录 */ }
+    sessionChecked.value = true
+  }
+
   /** 从后端刷新用户信息 */
   async function refreshUser() {
     if (!token.value) return null
@@ -82,7 +105,6 @@ export const useAuthStore = defineStore('auth', () => {
           gender: res.data.gender,
           birthday: res.data.birthday,
         }
-        localStorage.setItem('user', JSON.stringify(user.value))
         return user.value
       }
     } catch (e) {
@@ -95,9 +117,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function updateUserProfile(data) {
     const res = await apiUpdateProfile(data)
     if (res.code === 200 && res.data) {
-      // 合并更新本地 user
       user.value = { ...user.value, ...res.data }
-      localStorage.setItem('user', JSON.stringify(user.value))
     }
     return res
   }
@@ -107,7 +127,6 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await apiUploadAvatar(file)
     if (res.code === 200 && res.data) {
       user.value = { ...user.value, ...res.data }
-      localStorage.setItem('user', JSON.stringify(user.value))
     }
     return res
   }
@@ -117,21 +136,15 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await apiUploadBgImage(file)
     if (res.code === 200 && res.data) {
       user.value = { ...user.value, ...res.data }
-      localStorage.setItem('user', JSON.stringify(user.value))
     }
     return res
   }
 
   return {
-    token, user, isLoggedIn, avatarSrc, bgImageSrc,
-    login, logout,
+    token, user, isLoggedIn, avatarSrc, bgImageSrc, sessionChecked,
+    login, logout, tryRestoreSession,
     showLoginModal, openLogin, closeLogin,
     redirectPath, openLoginWithRedirect, consumeRedirect,
     refreshUser, updateUserProfile, uploadUserAvatar, uploadUserBgImage,
   }
 })
-
-function tryParse(str) {
-  if (!str) return null
-  try { return JSON.parse(str) } catch { return null }
-}

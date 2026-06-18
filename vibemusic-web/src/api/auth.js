@@ -29,16 +29,12 @@ export function updateProfile(data) {
 export function uploadAvatar(file) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post('/auth/avatar', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return request.post('/auth/avatar', formData)
 }
 
 /** 上传背景图 */
 export function uploadBgImage(file) {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post('/auth/bg-image', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return request.post('/auth/bg-image', formData)
 }

@@ -7,6 +7,8 @@ import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -39,7 +41,8 @@ public class AuthController {
 
     @PostMapping("/register")
     @Operation(summary = "用户注册")
-    public Result<Map<String, Object>> register(@RequestBody Map<String, String> body) {
+    public Result<Map<String, Object>> register(@RequestBody Map<String, String> body,
+                                                 HttpServletResponse response) {
         String username = body.get("username");
         String password = body.get("password");
         String nickname = body.containsKey("nickname") && body.get("nickname") != null
@@ -55,6 +58,8 @@ public class AuthController {
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
         String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
 
+        setTokenCookie(response, token);
+
         Map<String, Object> data = buildUserData(details);
         data.put("token", token);
         return Result.ok(data);
@@ -62,7 +67,8 @@ public class AuthController {
 
     @PostMapping("/login")
     @Operation(summary = "用户登录")
-    public Result<Map<String, Object>> login(@RequestBody Map<String, String> body) {
+    public Result<Map<String, Object>> login(@RequestBody Map<String, String> body,
+                                              HttpServletResponse response) {
         String username = body.get("username");
         String password = body.get("password");
 
@@ -72,6 +78,8 @@ public class AuthController {
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
         String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
+
+        setTokenCookie(response, token);
 
         Map<String, Object> data = buildUserData(details);
         data.put("token", token);
@@ -212,7 +220,27 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/logout")
+    @Operation(summary = "退出登录")
+    public Result<String> logout(HttpServletResponse response) {
+        Cookie cookie = new Cookie("VIBE_TOKEN", "");
+        cookie.setHttpOnly(true);
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        response.addCookie(cookie);
+        return Result.ok("已退出");
+    }
+
     // ===== 辅助方法 =====
+
+    private void setTokenCookie(HttpServletResponse response, String token) {
+        Cookie cookie = new Cookie("VIBE_TOKEN", token);
+        cookie.setHttpOnly(true);           // JS 不可读，防 XSS
+        cookie.setPath("/");                // 全站有效
+        cookie.setMaxAge(86400);            // 24h（与 JWT 一致）
+        cookie.setAttribute("SameSite", "Strict");
+        response.addCookie(cookie);
+    }
 
     private Map<String, Object> buildUserData(CustomUserDetails details) {
         return buildUserData(details.getUserId(), details.getUsername(), details.getNickname(),

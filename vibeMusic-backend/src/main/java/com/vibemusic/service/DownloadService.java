@@ -1,5 +1,6 @@
 package com.vibemusic.service;
 
+import com.vibemusic.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -65,7 +66,7 @@ public class DownloadService {
         log.info("获取播放链接: {} ({})", name, sourceId);
         String downloadUrl = songPlayService.getPlayUrl(sourceId);
         if (downloadUrl == null) {
-            throw new RuntimeException("无法获取 VIP 播放链接");
+            throw new BusinessException(502, "无法获取 VIP 播放链接");
         }
 
         // 3. 流式下载并上传到 RustFS（避免全量加载到内存）
@@ -84,7 +85,7 @@ public class DownloadService {
             log.info("下载完成: {} -> RustFS", name);
             return rustfsUrl;
         } catch (java.io.IOException e) {
-            throw new RuntimeException("流式下载上传失败: " + name, e);
+            throw new BusinessException(500, "流式下载上传失败: " + name);
         } finally {
             if (tempFile != null && !tempFile.delete()) {
                 tempFile.deleteOnExit();

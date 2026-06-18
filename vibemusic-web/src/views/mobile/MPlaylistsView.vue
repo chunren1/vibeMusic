@@ -44,7 +44,7 @@ onMounted(loadPlaylists)
 
     <div class="m-grid">
       <div v-for="pl in playlists" :key="pl.id" class="m-card"
-        @click="router.push({ name: 'playlist', params: { id: pl.id } })">
+        @click="router.push({ name: 'm-playlist', params: { id: pl.id } })">
         <div class="m-card-cover" :style="pl.coverUrl ? { backgroundImage: `url(${pl.coverUrl}?param=120y120)`, backgroundSize: 'cover' } : {}">
           <svg v-if="!pl.coverUrl" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
         </div>

@@ -8,7 +8,7 @@ param(
 
 $MYSQL_CONTAINER = "vibemusic-mysql"
 $DB_USER = "root"
-$DB_PASS = "123456"
+$DB_PASS = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { "123456" }
 $DB_NAME = "vibemusic"
 $KEEP_DAYS = 7
 

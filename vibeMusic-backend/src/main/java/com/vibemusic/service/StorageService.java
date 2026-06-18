@@ -1,5 +1,6 @@
 package com.vibemusic.service;
 
+import com.vibemusic.common.exception.BusinessException;
 import com.vibemusic.config.StorageConfig;
 import io.minio.*;
 import io.minio.errors.*;
@@ -70,7 +71,7 @@ public class StorageService {
             return url;
         } catch (Exception e) {
             log.error("上传失败: {} - {}", objectName, e.getMessage());
-            throw new RuntimeException("文件上传失败", e);
+            throw new BusinessException(500, "文件上传失败");
         }
     }
 
@@ -137,7 +138,7 @@ public class StorageService {
             return url;
         } catch (Exception e) {
             log.error("流式上传失败: {} - {}", objectName, e.getMessage());
-            throw new RuntimeException("文件上传失败", e);
+            throw new BusinessException(500, "文件上传失败");
         }
     }
 
@@ -168,7 +169,7 @@ public class StorageService {
                             .build());
         } catch (Exception e) {
             log.error("读取文件失败: {}", e.getMessage());
-            throw new RuntimeException("文件不存在或读取失败", e);
+            throw new BusinessException(404, "文件不存在或读取失败");
         }
     }
 
@@ -189,7 +190,7 @@ public class StorageService {
                             .build());
         } catch (Exception e) {
             log.error("范围读取文件失败: {}", e.getMessage());
-            throw new RuntimeException("文件范围读取失败", e);
+            throw new BusinessException(500, "文件范围读取失败");
         }
     }
 }

@@ -5,6 +5,11 @@ import { useAuthStore } from '@/stores/auth'
 import { usePlayerStore } from '@/stores/player'
 import PlayerBar from '@/components/PlayerBar.vue'
 import LoginModal from '@/components/LoginModal.vue'
+import ToastMessage from '@/components/ToastMessage.vue'
+import { useToast } from '@/composables/useToast'
+
+const { message, type, show, toast } = useToast()
+window.toast = toast // 全局可用
 
 const authStore = useAuthStore()
 // 初始化播放器 store（确保移动端也有 vibeAudioSetSrc / onEnded 等功能）
@@ -37,6 +42,7 @@ function onResize() {
 
 onMounted(() => {
   window.addEventListener('resize', onResize)
+  authStore.tryRestoreSession()
 })
 </script>
 
@@ -86,6 +92,9 @@ onMounted(() => {
     v-model:visible="authStore.showLoginModal"
     @success="authStore.closeLogin()"
   />
+
+  <!-- 全局 Toast -->
+  <ToastMessage :message="message" :type="type" :show="show" @close="show = false" />
 </template>
 
 <style>
