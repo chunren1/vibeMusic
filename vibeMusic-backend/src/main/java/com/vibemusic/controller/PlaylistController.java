@@ -41,17 +41,12 @@ public class PlaylistController {
         }
     }
 
-    /** 我的歌单列表（首次访问自动创建默认歌单） */
+    /** 我的歌单列表 */
     @GetMapping("/list")
     public Result<List<Map<String, Object>>> list() {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        List<Map<String, Object>> list = playlistService.listPlaylists(userId);
-        if (list.isEmpty()) {
-            playlistService.seedDefaults(userId);
-            list = playlistService.listPlaylists(userId);
-        }
-        return Result.ok(list);
+        return Result.ok(playlistService.listPlaylists(userId));
     }
 
     /** 创建歌单 */
