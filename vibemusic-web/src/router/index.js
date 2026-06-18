@@ -6,6 +6,7 @@ const routes = [
   { path: '/', name: 'home', component: () => import('@/views/HomeView.vue') },
   { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
   { path: '/playlists', name: 'playlists', meta: { requiresAuth: true }, component: () => import('@/views/PlaylistsView.vue') },
+  { path: '/playlist/:source/:id', name: 'playlist-detail', component: () => import('@/views/PlaylistDetailView.vue') },
   { path: '/playlist/:id', name: 'playlist', component: () => import('@/views/PlaylistView.vue') },
   { path: '/likes', name: 'likes', meta: { requiresAuth: true }, component: () => import('@/views/LikesView.vue') },
   { path: '/recent', name: 'recent', meta: { requiresAuth: true }, component: () => import('@/views/RecentView.vue') },
@@ -25,6 +26,7 @@ const routes = [
       { path: 'playlists', name: 'm-playlists', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistsView.vue') },
       { path: 'profile', name: 'm-profile', component: () => import('@/views/mobile/MProfileView.vue') },
       { path: 'profile/detail', name: 'm-profile-detail', component: () => import('@/views/mobile/MProfileDetailView.vue') },
+      { path: 'playlist/:source/:id', name: 'm-playlist-detail', component: () => import('@/views/mobile/MPlaylistDetailView.vue') },
       { path: 'player', name: 'm-player', component: () => import('@/views/mobile/MPlayerView.vue') },
     ]
   },
@@ -63,6 +65,9 @@ router.beforeEach((to, from, next) => {
       '/profile/detail': '/m/profile/detail',
     }
     if (map[to.path]) return next(map[to.path])
+    if (to.path.startsWith('/playlist/')) {
+      return next('/m/playlist/' + to.params.source + '/' + to.params.id)
+    }
   }
 
   // 桌面端误入移动路由 → 重定向回桌面首页
