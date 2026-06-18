@@ -21,6 +21,14 @@ vibemusic-web/dist/
 
 # 环境变量（不要提交真实凭据）
 .env
+.env.docker
+.env.example
+
+# Cookie 配置（最高敏感度——包含真实 QQ/网易云 Cookie）
+musicapi/config.js
+
+# 后端敏感配置覆盖文件
+vibeMusic-backend/src/main/resources/application-local.yml
 
 # Docker 数据
 docker-data/mysql/data/

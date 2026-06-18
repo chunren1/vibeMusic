@@ -49,7 +49,7 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 jwt:
-  secret: ${JWT_SECRET:SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2}
+  secret: ${JWT_SECRET:vibeMusic-dev-only-change-in-production}
   expiration: 86400000
 
 netease:
