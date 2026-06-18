@@ -12,52 +12,53 @@ import org.springframework.web.client.RestTemplate;
 import java.util.*;
 
 /**
- * AI 音乐助手 — DeepSeek API 集成
+ * AI 音乐助手 — SiliconFlow 平台 Qwen 模型
  *
- * 技术验证：传统 Java 后端如何集成 LLM。
- * 面试亮点：「我能把 AI 能力嵌入到 Spring Boot 里，用 Prompt Engineering 控制输出质量」
+ * 技术验证：传统 Java 后端集成大语言模型（OpenAI 兼容 API）。
+ * 面试亮点：「能用标准 REST 调用 LLM，通过 Prompt Engineering 控制输出质量」
  *
- * 配置方式：环境变量 DEEPSEEK_API_KEY=sk-xxx
+ * 配置：环境变量 AI_API_KEY=sk-xxx
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/assistant")
-@Tag(name = "AI 助手", description = "DeepSeek 音乐推荐伴侣")
+@Tag(name = "AI 助手", description = "Qwen 音乐推荐伴侣")
 public class AssistantController {
 
     private final RestTemplate restTemplate;
     private final String apiKey;
-    private static final String API_URL = "https://api.deepseek.com/chat/completions";
+    private static final String API_URL = "https://api.siliconflow.cn/v1/chat/completions";
+    private static final String MODEL = "Qwen/Qwen3.5-4B";
 
     public AssistantController(RestTemplate restTemplate,
-                               @Value("${deepseek.api-key:}") String apiKey) {
+                               @Value("${ai.api-key:}") String apiKey) {
         this.restTemplate = restTemplate;
         this.apiKey = apiKey;
     }
 
     @PostMapping("/chat")
-    @Operation(summary = "AI 音乐聊天（DeepSeek）")
+    @Operation(summary = "AI 音乐聊天（Qwen）")
     public Result<Map<String, Object>> chat(@RequestBody Map<String, Object> body) {
         if (apiKey == null || apiKey.isBlank()) {
-            return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 DEEPSEEK_API_KEY"));
+            return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY"));
         }
 
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
-        String songContext = (String) body.getOrDefault("context", ""); // 可选：当前歌曲信息
+        String songContext = (String) body.getOrDefault("context", "");
 
         try {
-            String reply = callDeepSeek(userMessage, songContext);
+            String reply = callLLM(userMessage, songContext);
             Map<String, Object> result = new HashMap<>();
             result.put("reply", reply);
-            result.put("model", "deepseek-chat");
+            result.put("model", MODEL);
             return Result.ok(result);
         } catch (Exception e) {
-            log.error("DeepSeek API 调用失败", e);
+            log.error("LLM API 调用失败", e);
             return Result.ok(Map.of("reply", "AI 助手暂时无法响应：" + e.getMessage()));
         }
     }
 
-    private String callDeepSeek(String userMessage, String context) {
+    private String callLLM(String userMessage, String context) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
@@ -73,7 +74,7 @@ public class AssistantController {
             """ + (context.isEmpty() ? "" : "\n当前歌曲信息：" + context);
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", "deepseek-chat");
+        requestBody.put("model", MODEL);
         requestBody.put("messages", List.of(
                 Map.of("role", "system", "content", systemPrompt),
                 Map.of("role", "user", "content", userMessage)

@@ -174,6 +174,8 @@ services:
       RUSTFS_SECRET_KEY: rustfsadmin
       # JWT
       JWT_SECRET: SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2
+      # AI 助手 (SiliconFlow Qwen)
+      AI_API_KEY: sk-edxzhukrjgewgdjspwnoedpnlgdmnkgkrbrswdoqzghrrwnd
       # musicapi (网易云 API 代理)
       MUSICAPI_URL: http://musicapi:3000
       # Profile
