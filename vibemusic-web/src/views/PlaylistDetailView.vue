@@ -21,9 +21,8 @@ async function load() {
     const res = await request.get('/playlists/detail', {
       params: { source: source.value, id: playlistId.value }
     })
-    const d = res.data
-    info.value = d
-    songs.value = d.songs || []
+    info.value = res.data
+    songs.value = res.data.songs || []
   } catch (e) {
     loadError.value = true
   } finally {
@@ -32,22 +31,16 @@ async function load() {
 }
 
 function playAll() {
-  if (songs.value.length === 0) return
-  const formatted = songs.value.map(s => ({
-    sourceId: s.id,
-    name: s.name,
-    artist: s.artist || '',
-    coverUrl: s.coverUrl || '',
-    duration: s.duration || 0,
-    platform: source.value,
-  }))
-  player.playPlaylist(formatted)
+  if (!songs.value.length) return
+  player.playPlaylist(songs.value.map(s => ({
+    sourceId: s.id, name: s.name, artist: s.artist || '',
+    coverUrl: s.coverUrl || '', duration: s.duration || 0, platform: source.value,
+  })))
   currentPlayId.value = songs.value[0]?.id
 }
 
 function playSong(song, idx) {
   currentPlayId.value = song.id
-  // 替换整个队列为歌单全部歌曲，从点击的那首开始播
   const full = songs.value.map(s => ({
     sourceId: s.id, name: s.name, artist: s.artist || '',
     coverUrl: s.coverUrl || '', duration: s.duration || 0, platform: source.value,
@@ -57,127 +50,164 @@ function playSong(song, idx) {
   player.playIndex(idx)
 }
 
-function fmtDuration(s) {
-  if (!s) return ''
-  const m = Math.floor(s / 60)
-  return m + ':' + String(s % 60).padStart(2, '0')
-}
-
-function fmtCount(n) {
-  if (!n) return ''
-  return n > 10000 ? Math.floor(n / 10000) + '万' : n
-}
+function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0') }
+function fmtCount(n) { if (!n) return ''; return n > 10000 ? Math.floor(n / 10000) + '万' : n }
 
 onMounted(() => load())
 </script>
 
 <template>
   <TopBar />
-  <div class="detail-page" v-if="!loading && !loadError && info">
-    <!-- 顶部封面 -->
-    <div class="hero" :style="info.coverUrl ? { backgroundImage: 'url(' + info.coverUrl + '?param=400y400)' } : { background: '#2a2a3e' }">
-      <div class="hero-overlay"></div>
-      <span class="platform-tag" :class="info.source">{{ info.source === 'qq' ? 'QQ音乐' : '网易云' }}</span>
-      <div class="hero-info">
-        <h1 class="hero-name">{{ info.name }}</h1>
-        <div class="hero-meta">
-          <span v-if="info.creator.name">by {{ info.creator.name }}</span>
-          <span v-if="info.playCount">{{ fmtCount(info.playCount) }} 次播放</span>
-          <span>{{ songs.length }} 首歌</span>
-        </div>
-      </div>
-    </div>
+  <div class="root">
+    <!-- 骨架屏 -->
+    <template v-if="loading">
+      <div class="sk-hero"></div>
+      <div class="sk-bar"></div>
+      <div v-for="i in 8" :key="i" class="sk-row"><span></span><span></span><span></span></div>
+    </template>
 
-    <!-- 操作栏 -->
-    <div class="action-bar">
-      <button class="btn-play-all" @click="playAll" :disabled="songs.length === 0">▶ 播放全部</button>
-    </div>
+    <!-- 错误 -->
+    <div v-else-if="loadError" class="empty">加载失败，歌单不存在或网络错误</div>
 
-    <!-- 歌曲列表 -->
-    <div class="song-list">
+    <!-- 详情 -->
+    <template v-else-if="info">
+      <!-- 顶部封面 -->
       <div
-        v-for="(song, idx) in songs" :key="song.id"
-        class="song-row"
-        :class="{ playing: currentPlayId === song.id }"
-        @click="playSong(song, idx)"
+        class="hero"
+        :style="info.coverUrl ? { backgroundImage: 'url(' + info.coverUrl + '?param=500y500)' } : { background: '#2a2a3e' }"
       >
-        <span class="rd-idx">{{ idx + 1 }}</span>
-        <div class="rd-info">
-          <span class="rd-name">{{ song.name }}</span>
-          <span class="rd-artist">{{ song.artist }}</span>
+        <div class="hero-mask"></div>
+        <span class="source-tag" :class="info.source">{{ info.source === 'qq' ? 'QQ音乐' : '网易云' }}</span>
+        <div class="hero-text">
+          <h1 class="hero-name">{{ info.name }}</h1>
+          <div class="hero-meta">
+            <span v-if="info.creator?.name">by {{ info.creator.name }}</span>
+            <span v-if="info.playCount">🔄 {{ fmtCount(info.playCount) }} 次</span>
+            <span>{{ songs.length }} 首歌</span>
+          </div>
         </div>
-        <span class="rd-time">{{ fmtDuration(song.duration) }}</span>
       </div>
-    </div>
 
-    <div v-if="info.description" class="desc-section">
-      <h3>歌单简介</h3>
-      <p>{{ info.description }}</p>
-    </div>
+      <!-- 操作栏 -->
+      <div class="action-bar">
+        <button class="btn-play" @click="playAll" :disabled="!songs.length">▶ 播放全部</button>
+        <span class="action-hint" v-if="info.description">{{ info.description.slice(0, 60) }}{{ info.description.length > 60 ? '...' : '' }}</span>
+      </div>
+
+      <!-- 歌曲列表（参考搜索列表样式） -->
+      <div class="song-list">
+        <div class="list-header">
+          <span class="h-idx">#</span>
+          <span class="h-cover"></span>
+          <span class="h-title">歌名</span>
+          <span class="h-time">时长</span>
+        </div>
+        <div
+          v-for="(song, idx) in songs" :key="song.id"
+          class="song-row"
+          :class="{ playing: player.currentSong?.id === song.id }"
+        >
+          <span class="c-idx">
+            <span v-if="player.currentSong?.id === song.id && player.isPlaying" class="eq">▮▮</span>
+            <span v-else>{{ idx + 1 }}</span>
+          </span>
+          <div class="c-cover" @click="playSong(song, idx)">
+            <img v-if="song.coverUrl" :src="song.coverUrl + '?param=60y60'" class="cover-img" />
+            <span v-else class="cover-icon">♪</span>
+            <span class="play-hover">▶</span>
+          </div>
+          <div class="c-info" @click="playSong(song, idx)">
+            <div class="c-name">
+              {{ song.name }}
+              <span class="c-plat">{{ info.source === 'qq' ? 'QQ' : '网易云' }}</span>
+            </div>
+            <div class="c-artist">{{ song.artist || '未知歌手' }}<span v-if="song.album"> · {{ song.album }}</span></div>
+          </div>
+          <span class="c-time">{{ fmtSec(song.duration) }}</span>
+        </div>
+      </div>
+    </template>
+
+    <div v-else class="empty">暂无数据</div>
   </div>
-
-  <!-- 加载态 -->
-  <div v-if="loading" class="skeleton">
-    <TopBar />
-    <div class="sk-hero"></div>
-    <div class="sk-bar"></div>
-    <div class="sk-row" v-for="i in 8" :key="i"><span></span><span></span><span></span></div>
-  </div>
-
-  <div v-if="loadError" class="error">加载失败，歌单不存在或网络错误</div>
 </template>
 
 <style scoped>
-.detail-page { max-width: 960px; margin: 0 auto; padding-bottom: 60px; }
+.root { width: 100%; max-width: 100%; padding-bottom: 60px; }
 
-.hero {
-  position: relative; height: 280px; background-size: cover; background-position: center;
-  display: flex; flex-direction: column; justify-content: flex-end; padding: 30px;
-}
-.hero-overlay { position: absolute; inset: 0; background: linear-gradient(transparent 40%, rgba(0,0,0,.7)); }
-.platform-tag {
-  position: absolute; top: 16px; left: 16px; z-index: 1;
-  padding: 4px 10px; border-radius: 4px; font-size: 12px; color: #fff;
-}
-.platform-tag.netease { background: #ec4141; }
-.platform-tag.qq { background: #31c27c; }
-.hero-info { position: relative; z-index: 1; color: #fff; }
-.hero-name { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
-.hero-meta { font-size: 13px; color: rgba(255,255,255,.7); display: flex; gap: 16px; }
-
-.action-bar { padding: 16px 30px; display: flex; gap: 12px; }
-.btn-play-all {
-  padding: 10px 32px; background: #31c27c; color: #fff; border: none;
-  border-radius: 20px; font-size: 15px; font-weight: 600; cursor: pointer;
-}
-.btn-play-all:hover { background: #28a86b; }
-.btn-play-all:disabled { opacity: .5; cursor: not-allowed; }
-
-.song-list { padding: 0 30px; }
-.song-row {
-  display: flex; align-items: center; gap: 12px; padding: 10px 8px; border-radius: 8px;
-  cursor: pointer; transition: background .12s;
-}
-.song-row:hover { background: rgba(0,0,0,.03); }
-.song-row.playing { background: rgba(49,194,124,.08); }
-.song-row.playing .rd-name { color: #31c27c; }
-.rd-idx { width: 28px; text-align: center; color: #999; font-size: 13px; flex-shrink: 0; }
-.rd-info { flex: 1; min-width: 0; }
-.rd-name { display: block; font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rd-artist { font-size: 12px; color: #888; margin-top: 2px; }
-.rd-time { font-size: 12px; color: #999; flex-shrink: 0; }
-
-.desc-section { padding: 24px 30px; }
-.desc-section h3 { font-size: 16px; margin-bottom: 8px; }
-.desc-section p { font-size: 14px; color: #666; line-height: 1.8; }
-
-.skeleton { max-width: 960px; margin: 0 auto; }
-.sk-hero { height: 280px; background: #e0e0e0; margin-bottom: 12px; animation: shim .8s infinite alternate; }
-.sk-bar { height: 40px; background: #eee; margin: 0 30px 12px; border-radius: 8px; animation: shim .8s infinite alternate; }
-.sk-row { display: flex; gap: 12px; padding: 10px 38px; }
+/* ---- 骨架 ---- */
+.sk-hero { height: 260px; background: #e0e0e0; animation: shim .8s infinite alternate; }
+.sk-bar { height: 48px; background: #eee; margin: 12px 32px; border-radius: 8px; animation: shim .8s infinite alternate; }
+.sk-row { display: flex; gap: 12px; padding: 10px 40px 10px 48px; }
 .sk-row span { height: 14px; background: #eee; border-radius: 4px; animation: shim .8s infinite alternate; }
 .sk-row span:nth-child(1) { width: 24px; } .sk-row span:nth-child(2) { flex: 1; } .sk-row span:nth-child(3) { width: 40px; }
 @keyframes shim { to { opacity: .6; } }
 
-.error { text-align: center; padding: 100px 0; color: #999; }
+/* ---- 封面 ---- */
+.hero {
+  position: relative; height: 280px; background-size: cover; background-position: center;
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 32px 40px;
+}
+.hero-mask { position: absolute; inset: 0; background: linear-gradient(transparent 30%, rgba(0,0,0,.75)); }
+.source-tag {
+  position: absolute; top: 20px; left: 20px; z-index: 1;
+  padding: 4px 12px; border-radius: 4px; font-size: 12px; color: #fff; font-weight: 600;
+}
+.source-tag.netease { background: #ec4141; }
+.source-tag.qq { background: #31c27c; }
+.hero-text { position: relative; z-index: 1; color: #fff; }
+.hero-name { font-size: 32px; font-weight: 700; margin-bottom: 8px; text-shadow: 0 2px 8px rgba(0,0,0,.4); }
+.hero-meta { font-size: 14px; color: rgba(255,255,255,.75); display: flex; gap: 20px; }
+
+/* ---- 操作栏 ---- */
+.action-bar { display: flex; align-items: center; gap: 16px; padding: 16px 32px; border-bottom: 1px solid #eee; }
+.btn-play {
+  padding: 10px 32px; background: #31c27c; color: #fff; border: none;
+  border-radius: 24px; font-size: 15px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.btn-play:hover { background: #28a86b; }
+.btn-play:disabled { opacity: .5; cursor: not-allowed; }
+.action-hint { font-size: 13px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- 歌曲列表（参考搜索列表） ---- */
+.song-list { padding: 0 32px; }
+.list-header {
+  display: grid; grid-template-columns: 36px 44px 1fr 60px; gap: 12px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid #f0f0f0; color: #aaa; font-size: 12px; position: sticky; top: 0; background: #fff; z-index: 2;
+}
+.h-idx { text-align: center; }
+.song-row {
+  display: grid; grid-template-columns: 36px 44px 1fr 60px; gap: 12px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid #f5f5f5; cursor: default; transition: background .12s;
+}
+.song-row:hover { background: #fafafa; }
+.song-row.playing { background: rgba(49,194,124,.06); }
+.song-row.playing .c-name { color: #31c27c; }
+
+.c-idx { text-align: center; color: #bbb; font-size: 13px; }
+.eq { color: #31c27c; font-weight: bold; animation: pulse .5s infinite alternate; }
+@keyframes pulse { to { opacity: .3; } }
+
+.c-cover { position: relative; width: 36px; height: 36px; cursor: pointer; border-radius: 4px; overflow: hidden; background: #f0f0f0; }
+.cover-img { width: 100%; height: 100%; object-fit: cover; }
+.cover-icon { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; color: #ccc; font-size: 16px; }
+.play-hover { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.4); color: #fff; font-size: 13px; opacity: 0; transition: .12s; }
+.c-cover:hover .play-hover { opacity: 1; }
+
+.c-info { cursor: pointer; min-width: 0; }
+.c-name { font-size: 14px; color: #1a1a1a; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.c-plat { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: #ec4141; color: #fff; flex-shrink: 0; }
+.c-artist { font-size: 12px; color: #999; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.c-time { font-size: 12px; color: #bbb; text-align: right; }
+
+.empty { text-align: center; padding: 120px 0; color: #aaa; font-size: 15px; }
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .hero { height: 200px; padding: 20px; }
+  .hero-name { font-size: 22px; }
+  .action-bar { padding: 12px 16px; }
+  .song-list { padding: 0 16px; }
+}
 </style>

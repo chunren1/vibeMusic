@@ -718,6 +718,43 @@ app.all('/netease/*', async (req, res) => {
   }
 });
 
+// ==================== QQ 歌单详情 ====================
+
+app.get('/qq/playlist', async (req, res) => {
+  try {
+    const { id } = req.query;
+    if (!id) return res.json({ code: 400, message: '缺少 id 参数' });
+    const result = await qqMusic.api('/songlist', { disstid: id });
+    // qq-music-api 返回格式: { code, data: { cdlist: [...] } }
+    const pl = result?.data?.cdlist?.[0] || result?.cdlist?.[0];
+    if (!pl) return res.json({ code: 404, message: '歌单不存在' });
+    res.json({
+      code: 200,
+      data: {
+        id: String(pl.dissid || id),
+        name: pl.dissname || '',
+        description: pl.desc || '',
+        coverUrl: pl.logo || '',
+        creator: { name: pl.nickname || '', avatar: pl.headurl || '' },
+        playCount: pl.listennum || 0,
+        songCount: (pl.songlist || []).length,
+        source: 'qq',
+        songs: (pl.songlist || []).slice(0, 100).map(s => ({
+          id: String(s.songid || s.id),
+          name: s.songname || '',
+          artist: (s.singer || []).map(sg => sg.name).join('/') || '',
+          album: s.albumname || '',
+          coverUrl: s.albummid ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid}.jpg` : '',
+          duration: s.interval || 0,
+        })),
+      },
+    });
+  } catch (e) {
+    writeLog('api', 'ERROR', `[/qq/playlist] ${e.message}`);
+    res.json({ code: 500, message: e.message });
+  }
+});
+
 app.all('/qq/*', async (req, res) => {
   try {
     const path = req.path.replace('/qq/', '');
