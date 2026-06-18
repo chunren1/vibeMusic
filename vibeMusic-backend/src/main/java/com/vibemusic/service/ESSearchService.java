@@ -71,15 +71,15 @@ public class ESSearchService {
         }
     }
 
-    /** 轻量级可用性检查（无阻塞） */
+    /** 轻量级可用性检查 */
     public boolean isAvailable() {
-        // 快速重检：如果标记为不可用，尝试 ping
         if (!available.get()) {
             try {
-                String resp = client.get().uri("/")
-                        .retrieve().bodyToMono(String.class)
+                var resp = client.head().uri("/").retrieve()
+                        .toBodilessEntity()
                         .timeout(HEALTH_TIMEOUT).block();
-                if (resp != null) available.set(true);
+                if (resp != null && resp.getStatusCode().is2xxSuccessful())
+                    available.set(true);
             } catch (Exception ignored) {}
         }
         return available.get();
@@ -306,12 +306,12 @@ public class ESSearchService {
 
     private void ensureIndex() {
         try {
-            // 先检查 ES 是否可达（超时时优雅降级，避免 Reactor onErrorDropped 噪音）
-            String ping = client.get().uri("/").retrieve().bodyToMono(String.class)
+            // 先检查 ES 是否可达（用 head 请求，不读 body，避免超时后 Netty 响应体释放竞态）
+            var resp = client.head().uri("/").retrieve()
+                    .toBodilessEntity()
                     .timeout(HEALTH_TIMEOUT)
-                    .onErrorResume(e -> reactor.core.publisher.Mono.empty())
                     .block();
-            if (ping == null) {
+            if (resp == null || !resp.getStatusCode().is2xxSuccessful()) {
                 log.warn("[ES-LAYER] 初始化跳过：ES 服务不可达");
                 available.set(false);
                 return;
