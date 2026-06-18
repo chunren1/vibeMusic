@@ -4,18 +4,36 @@ import { useRouter } from 'vue-router'
 import { getBanners as apiBanners } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
 import { usePlayerStore } from '@/stores/player'
+import { useFavoriteStore } from '@/stores/favorite'
 import { useRecommendStore } from '@/stores/recommend'
+import PlaylistPopup from '@/components/PlaylistPopup.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const player = usePlayerStore()
+const favStore = useFavoriteStore()
 const recommendStore = useRecommendStore()
+
+const showPlaylistPopup = ref(false)
+const playlistTargetSong = ref(null)
 
 // ===== Play =====
 function playSong(song) {
   if (!song.sourceId) return
   player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
   router.push('/m/player')
+}
+
+function addToQueueFn(song) {
+  player.addToQueue({
+    sourceId: song.sourceId, name: song.name || '', artist: song.artist || '',
+    coverUrl: song.coverUrl || '', duration: song.duration || 0, platform: song.platform || '',
+  })
+}
+
+function openPlaylistPopup(song) {
+  playlistTargetSong.value = { ...song, sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration || 0 }
+  showPlaylistPopup.value = true
 }
 
 // ===== Search =====
@@ -172,11 +190,25 @@ function shuffleSongs() {
             <div class="m-song-name">{{ song.name }}</div>
             <div class="m-song-artist">{{ song.artist }}</div>
           </div>
+          <div class="m-song-acts" @click.stop>
+            <button :class="{ faved: favStore.isFav(song.sourceId) }" @click="favStore.toggleFav(song)">
+              <svg viewBox="0 0 24 24" width="16" height="16" :fill="favStore.isFav(song.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            </button>
+            <button @click="openPlaylistPopup(song)" title="加入歌单">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"/><path d="M18 2l4 4-8 8-4-1 1-4z"/></svg>
+            </button>
+          </div>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" class="m-play-icon"><polygon points="6,4 20,12 6,20"/></svg>
         </div>
       </div>
     </div>
   </div>
+
+  <PlaylistPopup
+    v-if="showPlaylistPopup && playlistTargetSong"
+    :song="playlistTargetSong"
+    @close="showPlaylistPopup = false"
+  />
 </template>
 
 <style scoped>
@@ -291,4 +323,14 @@ function shuffleSongs() {
 .m-play-icon { color: #888; flex-shrink: 0; opacity: 0.6; }
 .m-song-item:active .m-play-icon { color: #31c27c; opacity: 1; }
 .m-song-item.playing .m-play-icon { color: #31c27c; opacity: 1; }
+
+.m-song-acts { display: flex; gap: 6px; align-items: center; }
+.m-song-acts button {
+  width: 28px; height: 28px; border-radius: 6px; border: none;
+  background: rgba(255,255,255,.06); color: #888; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.m-song-acts button:hover { background: rgba(255,255,255,.12); color: #ccc; }
+.m-song-acts button.faved { color: #ffc107; }
 </style>

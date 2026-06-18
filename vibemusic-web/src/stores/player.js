@@ -392,6 +392,21 @@ export const usePlayerStore = defineStore('player', () => {
   window.vibeToggleMode = toggleMode
   window.vibeFavIds = new Set() // 收藏 ID 集合（由各组件维护）
 
+  /** 替换队列为歌单全部歌曲并从头播放 */
+  function playPlaylist(songs) {
+    if (!songs || songs.length === 0) return
+    clearQueue()
+    songs.forEach(s => addToQueue({
+      sourceId: s.sourceId,
+      name: s.songName || s.name || '',
+      artist: s.artist || '',
+      coverUrl: s.coverUrl || '',
+      duration: s.duration || 0,
+      platform: s.platform || '',
+    }))
+    playIndex(0)
+  }
+
   return {
     audio, queue, currentIdx, currentSong, isPlaying, isTrialSong,
     quality, qualityLabel,
@@ -399,7 +414,7 @@ export const usePlayerStore = defineStore('player', () => {
     modeLabels,
     playBySourceId, playSongFromApi, playCurrent, next, prev,
     toggleMode, togglePlay, toggleMute, addToQueue, removeFromQueue,
-    playIndex, clearQueue, seekTo, seekToTime,
+    playIndex, clearQueue, seekTo, seekToTime, playPlaylist,
     savePlaybackTime, flushSave, restorePlayback, restoreFromCurrentSong, resumeAudioContext,
     setupGlobalAnalyser, dispatchSongChange, fmtSec,
   }

@@ -47,6 +47,12 @@ function play(song) {
   player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
 }
 
+function playAll() {
+  if (songs.value.length === 0) return
+  player.playPlaylist(songs.value)
+  currentPlayId.value = songs.value[0].sourceId
+}
+
 function toggleFav(song) {
   favStore.toggleFav(song)
 }
@@ -76,6 +82,7 @@ onMounted(() => loadSongs())
     <div class="detail-header">
       <h2 class="detail-title">{{ playlistName }}</h2>
       <p class="subtitle">{{ songs.length }} 首歌曲</p>
+      <button v-if="songs.length > 0" class="btn-play-all" @click="playAll">▶ 播放全部</button>
     </div>
 
     <div v-if="songs.length > 0" class="song-table">
