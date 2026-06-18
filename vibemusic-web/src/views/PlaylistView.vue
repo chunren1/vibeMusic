@@ -148,11 +148,6 @@ onMounted(() => loadSongs())
       </div>
     </div>
 
-    <div v-else class="empty">
-      <p>歌单里还没有歌曲</p>
-      <p class="hint">去主页搜索音乐并添加到歌单吧</p>
-    </div>
-
     <PlaylistPopup
       v-if="showPlaylistPopup"
       :song="playlistTargetSong"
