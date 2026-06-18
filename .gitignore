@@ -23,6 +23,8 @@ vibemusic-web/dist/
 .env
 .env.docker
 .env.example
+.env.production
+.env.production.local
 
 # Cookie 配置（最高敏感度——包含真实 QQ/网易云 Cookie）
 musicapi/config.js
