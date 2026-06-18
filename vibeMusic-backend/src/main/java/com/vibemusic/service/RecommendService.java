@@ -182,12 +182,14 @@ public class RecommendService {
         // 标记离线状态
         markOfflineStatus(result);
 
-        // 生成欢迎语
+        // 生成欢迎语 + 推荐理由
         String greeting = buildGreeting(history.size(), topArtists);
+        String reason = buildReason(history);
 
         return RecommendResult.builder()
                 .songs(result)
                 .greeting(greeting)
+                .reason(reason)
                 .type("personalized")
                 .build();
     }
@@ -216,6 +218,38 @@ public class RecommendService {
                     .type("random")
                     .build();
         }
+    }
+
+    /**
+     * 生成推荐理由（基于播放历史的"温度"）
+     */
+    private String buildReason(List<PlayHistory> history) {
+        if (history.isEmpty()) return null;
+
+        // 找播放次数最多的歌
+        Map<String, Long> songCount = history.stream()
+                .collect(Collectors.groupingBy(
+                        h -> h.getSongName() != null ? h.getSongName() : "未知歌曲",
+                        Collectors.counting()));
+        String topSong = songCount.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElse(null);
+
+        // 找最常听的歌手
+        Map<String, Long> artistCount = history.stream()
+                .filter(h -> h.getArtist() != null)
+                .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()));
+        String topArtist = artistCount.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey).orElse(null);
+
+        if (topSong != null && topArtist != null && songCount.get(topSong) >= 3) {
+            return "因为你最近喜欢" + topArtist + "的《" + topSong + "》，为你推荐同风格歌曲";
+        }
+        if (topArtist != null) {
+            return "基于你常听" + topArtist + "的歌曲，为你推荐";
+        }
+        return "根据你的播放历史，为你推荐";
     }
 
     /**

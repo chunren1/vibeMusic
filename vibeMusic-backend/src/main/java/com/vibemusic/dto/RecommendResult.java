@@ -19,6 +19,9 @@ public class RecommendResult {
     /** 动态欢迎语 */
     private String greeting;
 
+    /** 推荐理由（如："因为你最近喜欢周杰伦的《晴天》"） */
+    private String reason;
+
     /** 推荐类型：personalized / random */
     private String type;
 }

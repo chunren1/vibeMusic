@@ -3,6 +3,10 @@ package com.vibemusic.service;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,6 +32,25 @@ public class SongSearchService {
     private final NeteaseApiService neteaseApiService;
     private final SongCacheService cacheService;
     private final ESSearchService esSearchService;
+    private final MeterRegistry meterRegistry;
+
+    // 缓存命中率仪表盘
+    private Counter redisHitCounter;
+    private Counter esHitCounter;
+    private Counter apiCallCounter;
+    private Timer searchTimer;
+
+    @PostConstruct
+    void initMetrics() {
+        redisHitCounter = Counter.builder("cache.hit.redis")
+                .description("Redis 缓存命中次数").register(meterRegistry);
+        esHitCounter = Counter.builder("cache.hit.es")
+                .description("ES 缓存命中次数").register(meterRegistry);
+        apiCallCounter = Counter.builder("cache.miss.api")
+                .description("穿透到 musicapi 的次数").register(meterRegistry);
+        searchTimer = Timer.builder("search.latency")
+                .description("搜索总耗时").register(meterRegistry);
+    }
 
     private static final double NET_WEIGHT = 1.0;
     private static final double QQ_WEIGHT = 0.9;
@@ -70,6 +93,8 @@ public class SongSearchService {
         long redisStart = System.currentTimeMillis();
         List<SongDTO> cached = cacheService.getSearchCache(kw + ":" + cacheExtra, page);
         if (cached != null && !cached.isEmpty()) {
+            redisHitCounter.increment();
+            searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
             long redisCost = System.currentTimeMillis() - redisStart;
             log.info("[CACHE-LAYER] Redis 命中: keyword='{}', page={}, totalCost={}ms",
                     kw, page, redisCost);
@@ -86,6 +111,8 @@ public class SongSearchService {
             long esStart = System.currentTimeMillis();
             List<SongDTO> esCached = esSearchService.findByKeyword(kw);
             if (!esCached.isEmpty()) {
+                esHitCounter.increment();
+                searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
                 long esCost = System.currentTimeMillis() - esStart;
                 log.info("[ES-LAYER] 返回ES缓存结果: keyword='{}', count={}, ES-cost={}ms, totalCost={}ms",
                         kw, esCached.size(), esCost, System.currentTimeMillis() - searchStart);
@@ -98,6 +125,7 @@ public class SongSearchService {
         }
 
         // ======== 第 3 步：API 实时搜索（兜底） ========
+        apiCallCounter.increment();
         log.info("[API-LAYER] 触发实时搜索: keyword='{}', 原因=Redis和ES均未命中", kw);
         long apiStart = System.currentTimeMillis();
 
