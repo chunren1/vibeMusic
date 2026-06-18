@@ -10,12 +10,14 @@ import { useFavoriteStore } from '@/stores/favorite'
 const route = useRoute()
 const favStore = useFavoriteStore()
 const player = usePlayerStore()
-const playlistId = ref(Number(route.params.id))
+const playlistId = ref(Number(route.params.id) || 0)
 const songs = ref([])
 const playlistName = ref('歌单详情')
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
+const loading = ref(true)
+const loadError = ref(false)
 
 function formatDuration(s) {
   if (!s) return ''
@@ -24,13 +26,15 @@ function formatDuration(s) {
 }
 
 async function loadSongs() {
+  if (!playlistId.value) return
+  loading.value = true; loadError.value = false
   try {
-    const plRes = await getPlaylists()
+    const [plRes, songsRes] = await Promise.all([
+      getPlaylists(), getPlaylistSongs(playlistId.value)
+    ])
     const pl = (plRes.data || []).find(p => p.id === playlistId.value)
     if (pl) playlistName.value = pl.name
-
-    const res = await getPlaylistSongs(playlistId.value)
-    songs.value = (res.data || []).map(s => ({
+    songs.value = (songsRes.data || []).map(s => ({
       sourceId: s.sourceId,
       name: s.songName,
       artist: s.artist || '',
@@ -38,7 +42,9 @@ async function loadSongs() {
       duration: s.duration || 0,
     }))
   } catch (e) {
-    console.error('加载歌单失败:', e)
+    loadError.value = true
+  } finally {
+    loading.value = false
   }
 }
 
@@ -85,7 +91,11 @@ onMounted(() => loadSongs())
       <button v-if="songs.length > 0" class="btn-play-all" @click="playAll">▶ 播放全部</button>
     </div>
 
-    <div v-if="songs.length > 0" class="song-table">
+    <div v-if="loading" class="empty">加载中...</div>
+    <div v-else-if="loadError" class="empty">加载失败，请检查是否登录或重试</div>
+    <div v-else-if="songs.length === 0" class="empty">歌单里还没有歌曲，去搜索页添加吧~</div>
+
+    <div v-else class="song-table">
       <div class="table-header">
         <span class="th-index">#</span>
         <span class="th-cover"></span>
