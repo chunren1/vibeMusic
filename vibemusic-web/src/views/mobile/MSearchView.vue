@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { API_HOST } from '@/api/request'
 import { useRoute, useRouter } from 'vue-router'
+import PlaylistPopup from '@/components/PlaylistPopup.vue'
 import { searchSongs, downloadSong as apiDownload } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
@@ -49,6 +50,13 @@ function useHistory(kw) {
 }
 
 const downloadingIds = ref(new Set())
+const showPlaylistPopup = ref(false)
+const playlistTargetSong = ref(null)
+
+function openPlaylistPopup(song) {
+  playlistTargetSong.value = { ...song, sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration || 0 }
+  showPlaylistPopup.value = true
+}
 
 favStore.fetchFavIds()
 
@@ -188,6 +196,9 @@ onMounted(() => {
           <button @click.stop="handleDownload(song)">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           </button>
+          <button @click.stop="openPlaylistPopup(song)" title="加入歌单">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"/><path d="M18 2l4 4-8 8-4-1 1-4z"/></svg>
+          </button>
         </div>
       </div>
 
@@ -198,6 +209,12 @@ onMounted(() => {
 
     <div v-else-if="!loading && hasSearched" class="m-empty">未找到相关歌曲</div>
   </div>
+
+  <PlaylistPopup
+    v-if="showPlaylistPopup && playlistTargetSong"
+    :song="playlistTargetSong"
+    @close="showPlaylistPopup = false"
+  />
 </template>
 
 <style scoped>
