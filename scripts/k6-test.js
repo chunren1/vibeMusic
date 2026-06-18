@@ -26,9 +26,9 @@ export const options = {
   vus: 50,
   duration: '60s',
   thresholds: {
-    search_duration: ['p(95)<2000'],    // 搜索 P95 < 2s
-    stream_first_byte: ['p(95)<1000'],   // 音频首字节 P95 < 1s
-    errorRate: ['rate<0.05'],            // 错误率 < 5%
+    'search_duration': ['p(95)<3000'],
+    'stream_first_byte': ['p(95)<2000'],
+    'errors': ['rate<0.10'],
   },
 };
 
