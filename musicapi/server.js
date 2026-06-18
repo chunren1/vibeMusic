@@ -739,7 +739,7 @@ app.get('/netease/playlist', async (req, res) => {
   try {
     const { id } = req.query;
     if (!id) return res.json({ code: 400, message: '缺少 id 参数' });
-    const result = await neteaseWithCookie('playlist_detail', { id });
+    const result = await NeteaseCloudMusicApi.playlist_detail(withNeteaseCookie({ id }));
     const pl = result?.body?.playlist;
     if (!pl) return res.json({ code: 404, message: '歌单不存在' });
     res.json({
