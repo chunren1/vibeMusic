@@ -86,7 +86,11 @@ onMounted(() => {
       </nav>
     </aside>
     <main class="main">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <keep-alive include="ChatView">
+          <component :is="Component" />
+        </keep-alive>
+      </RouterView>
     </main>
     <PlayerBar />
   </div>
