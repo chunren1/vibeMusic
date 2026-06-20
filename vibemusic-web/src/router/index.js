@@ -46,8 +46,14 @@ function isMobileDevice() {
     /Android|iPhone|iPad|iPod|webOS|BlackBerry|Windows Phone/i.test(ua)
 }
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
+
+  // 首次加载时，先尝试从 httpOnly Cookie 恢复会话，再判断登录状态
+  if (!authStore.sessionChecked) {
+    await authStore.tryRestoreSession()
+  }
+
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
     authStore.openLoginWithRedirect(to.fullPath)
     // 重定向到首页而非 next(false)，避免 RouterView 无内容渲染导致黑屏

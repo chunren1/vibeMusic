@@ -224,9 +224,6 @@ services:
       - ./docker-data/nginx/logs:/var/log/nginx
     networks:
       - vibemusic-net
-    depends_on:
-      backend:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/"]
       interval: 30s
