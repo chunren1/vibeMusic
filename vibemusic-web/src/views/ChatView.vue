@@ -1,4 +1,5 @@
 <script setup>
+defineOptions({ name: 'ChatView' })
 import { ref, nextTick, onMounted } from 'vue'
 import TopBar from '@/components/TopBar.vue'
 import request from '@/api/request'
