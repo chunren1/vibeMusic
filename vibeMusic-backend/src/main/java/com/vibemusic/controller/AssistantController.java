@@ -113,8 +113,11 @@ public class AssistantController {
 
     private List<Map<String, Object>> searchSongs(String userMessage) {
         try {
-            // 用用户消息作为关键词搜索
-            List<SongDTO> results = songSearchService.search(userMessage, 1, 6);
+            // 优先用 QQ 音乐搜索（中文曲库更全），失败再尝试聚合
+            List<SongDTO> results = songSearchService.search(userMessage, 1, 6, "qq");
+            if (results == null || results.isEmpty()) {
+                results = songSearchService.search(userMessage, 1, 6);
+            }
             if (results == null || results.isEmpty()) return List.of();
 
             return results.stream().map(s -> {
