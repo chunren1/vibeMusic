@@ -12,6 +12,7 @@ const routes = [
   { path: '/recent', name: 'recent', meta: { requiresAuth: true }, component: () => import('@/views/RecentView.vue') },
   { path: '/profile', name: 'profile', component: () => import('@/views/ProfileView.vue') },
   { path: '/profile/detail', name: 'profile-detail', component: () => import('@/views/ProfileDetailView.vue') },
+  { path: '/chat', name: 'chat', component: () => import('@/views/ChatView.vue') },
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
 
   // ===== 移动端路由 (/m) =====
@@ -29,6 +30,7 @@ const routes = [
       { path: 'playlist/:id', name: 'm-playlist', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistView.vue') },
       { path: 'playlist/:source/:id', name: 'm-playlist-detail', component: () => import('@/views/mobile/MPlaylistDetailView.vue') },
       { path: 'player', name: 'm-player', component: () => import('@/views/mobile/MPlayerView.vue') },
+      { path: 'chat', name: 'm-chat', component: () => import('@/views/mobile/MChatView.vue') },
     ]
   },
 
@@ -71,6 +73,7 @@ router.beforeEach(async (to, from, next) => {
       '/recent': '/m/recent',
       '/profile': '/m/profile',
       '/profile/detail': '/m/profile/detail',
+      '/chat': '/m/chat',
     }
     if (map[to.path]) return next(map[to.path])
     if (to.path.startsWith('/playlist/')) {

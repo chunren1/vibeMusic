@@ -10,6 +10,7 @@ const tabs = [
   { path: '/m', label: '首页', auth: false },
   { path: '/m/recent', label: '最近', auth: true },
   { path: '/m/playlists', label: '歌单', auth: true },
+  { path: '/m/chat', label: 'AI', auth: false },
   { path: '/m/likes', label: '收藏', auth: true },
   { path: '/m/profile', label: '我的', auth: false },
 ]
@@ -43,11 +44,15 @@ function isActive(path) {
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
       <span class="mtab-label">歌单</span>
     </div>
-    <div class="mtab-item" :class="{ active: isActive('/m/likes') }" @click="goTab(tabs[3])">
+    <div class="mtab-item" :class="{ active: isActive('/m/chat') }" @click="goTab(tabs[3])">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span class="mtab-label">AI</span>
+    </div>
+    <div class="mtab-item" :class="{ active: isActive('/m/likes') }" @click="goTab(tabs[4])">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
       <span class="mtab-label">收藏</span>
     </div>
-    <div class="mtab-item" :class="{ active: isActive('/m/profile') }" @click="goTab(tabs[4])">
+    <div class="mtab-item" :class="{ active: isActive('/m/profile') }" @click="goTab(tabs[5])">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       <span class="mtab-label">我的</span>
     </div>
