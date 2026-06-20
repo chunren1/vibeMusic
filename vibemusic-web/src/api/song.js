@@ -45,8 +45,8 @@ export function getPersonalizedRecommend(deviceId = null, refresh = false) {
 }
 
 /** 播放歌曲（获取 URL + 记录历史） */
-export function playSong(sourceId, name, artist, coverUrl) {
-  return request.get('/songs/play', { params: { sourceId, name, artist, coverUrl } })
+export function playSong(sourceId, name, artist, coverUrl, platform = '') {
+  return request.get('/songs/play', { params: { sourceId, name, artist, coverUrl, platform } })
 }
 
 /** 下载歌曲到 RustFS */

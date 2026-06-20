@@ -113,7 +113,7 @@ export const usePlayerStore = defineStore('player', () => {
     if (!sourceId) return
     resumeAudioContext()
     try {
-      const res = await apiPlaySong(sourceId, name, artist, coverUrl || '')
+      const res = await apiPlaySong(sourceId, name, artist, coverUrl || '', platform || '')
       if (res.data?.fromCache) {
         quality.value = 'LOCAL'
         qualityLabel.value = '本地缓存'
