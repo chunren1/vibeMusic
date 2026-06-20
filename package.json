@@ -13,7 +13,7 @@
     "tunnel": "start cpolar http 80",
     "tunnel:dev": "start cpolar http 5173",
     "docker:up": "docker-compose up -d --build",
-    "docker:dev": "docker-compose up -d mysql redis rustfs nginx",
+    "docker:dev": "docker-compose up -d mysql redis rustfs",
     "docker:prod": "docker-compose up -d --build",
     "docker:down": "docker-compose down",
     "docker:restart": "docker-compose down && docker-compose up -d --build",
