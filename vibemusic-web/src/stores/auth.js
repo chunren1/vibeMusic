@@ -68,14 +68,13 @@ export const useAuthStore = defineStore('auth', () => {
     return p
   }
 
-  /** 从 httpOnly cookie 恢复会话 */
+  /** 从 httpOnly cookie 恢复会话（浏览器自动发送 Cookie，前端无需手动传 Token） */
   async function tryRestoreSession() {
     if (token.value || sessionChecked.value) return
     try {
       const res = await getMe()
       if (res.code === 200 && res.data) {
-        token.value = 'cookie'
-        setToken('cookie')
+        token.value = 'ok'  // 标记已登录，但不设置 fake Bearer token
         user.value = {
           userId: res.data.userId,
           username: res.data.username,
