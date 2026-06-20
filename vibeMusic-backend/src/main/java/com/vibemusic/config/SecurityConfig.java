@@ -58,6 +58,9 @@ public class SecurityConfig {
                     "/api/playlists/songs"
                 ).permitAll()
 
+                // AI 助手公开
+                .requestMatchers("/api/assistant/**").permitAll()
+
                 // 图片代理公开（封面图无 JWT）
                 .requestMatchers(HttpMethod.GET,
                     "/api/image-proxy"
