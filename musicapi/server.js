@@ -117,9 +117,14 @@ async function checkCookies() {
   }
 }
 
-// 启动时立即检查一次，之后每小时检查
-checkCookies();
-setInterval(checkCookies, 60 * 60 * 1000);
+// 防止 qq-music-api 内部未捕获异常导致进程崩溃
+process.on('unhandledRejection', (reason) => {
+  writeLog('api', 'ERROR', `[unhandledRejection] ${reason?.message || reason}`);
+});
+
+// 启动时检查一次（容错：即使崩溃也不影响启动），之后每小时检查
+(async () => { try { await checkCookies(); } catch (e) { writeLog('cookie', 'ERROR', `Cookie check crashed: ${e.message}`); } })();
+setInterval(() => { checkCookies().catch(e => writeLog('cookie', 'ERROR', `Cookie timer failed: ${e.message}`)); }, 60 * 60 * 1000);
 
 // Cookie 状态查询端点
 app.get('/cookie-status', (req, res) => {
