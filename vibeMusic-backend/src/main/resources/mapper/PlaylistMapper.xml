@@ -4,7 +4,16 @@
 
     <!--
         一次查询获取用户所有歌单及统计数据（歌曲数 + 最新封面）
-        替代原来的 N+1 查询模式
+
+        索引依赖：
+        - idx_user_created (user_id, created_at) → 主查询过滤 + 排序
+        - idx_pl_added (playlist_id, added_at)   → 子查询定位最新封面，一次索引 seek 即返回
+
+        子查询为关联子查询，每个 playlist 触发一次：
+            ORDER BY added_at DESC LIMIT 1
+        因为 idx_pl_added 前缀是 playlist_id，MySQL 直接定位到该歌单的索引段，
+        按 added_at DESC 读取第一条即可，等价于一次覆盖索引的 range scan。
+        每个用户通常 ≤20 个歌单，总开销可忽略。
     -->
     <select id="listPlaylistsWithStats" resultType="java.util.HashMap">
         SELECT
