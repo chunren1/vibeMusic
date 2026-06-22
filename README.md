@@ -652,6 +652,17 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | 用户消息头像 | 桌面+移动端 AI 对话均显示真实头像 `auth.avatarSrc` |
 | HomeView 静默错误 | `loadBanners().catch(() => {})` → 加 `console.warn` 日志 |
 
+#### 🎛️ 批量管理与交互优化
+| 改进项 | 说明 |
+|--------|------|
+| 收藏批量管理 | MLikesView：管理模式 + 多选复选框 + 批量取消收藏底栏（毛玻璃风格） |
+| 歌单批量管理 | MPlaylistsView：管理模式 + 卡片复选框 + 批量删除底栏 |
+| 批量删除端点 | 后端新增 `POST /api/favorites/remove-batch` + `POST /api/playlists/delete-batch` |
+| 歌单去重 | `PlaylistService.addSong()` 新增 `exists()` 预检 + DB 唯一索引双重保障 |
+| 歌词页"＋"→加入歌单 | MPlayerView：原打开播放队列 → 歌单选择器弹窗，支持去重反馈 |
+| AI 对话停止输出 | MChatView + ChatView：`AbortController` + 红色方形停止按钮，点击立即中断生成 |
+| 批量管理 UI 统一 | 红色实底按钮 → 透明描边风格，复选框 icon → stroke 对勾，底栏 → 毛玻璃，统一暗色主题 |
+
 ---
 
 ### 2026-06-19 第四轮优化（上线前全面审查 + 安全加固）

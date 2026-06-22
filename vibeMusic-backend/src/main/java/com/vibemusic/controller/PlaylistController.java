@@ -225,6 +225,19 @@ public class PlaylistController {
         return Result.ok();
     }
 
+    /** 批量删除歌单 */
+    @PostMapping("/delete-batch")
+    public Result<Integer> deleteBatch(@RequestBody Map<String, Object> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        @SuppressWarnings("unchecked")
+        List<Integer> ids = (List<Integer>) body.get("ids");
+        if (ids == null || ids.isEmpty()) return Result.ok(0);
+        List<Long> longIds = ids.stream().map(Long::valueOf).collect(Collectors.toList());
+        int count = playlistService.deleteBatch(userId, longIds);
+        return Result.ok("已删除 " + count + " 个歌单", count);
+    }
+
     /** 导入外部歌单到我的歌单（一键收藏） */
     @PostMapping("/import")
     @SuppressWarnings("unchecked")

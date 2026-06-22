@@ -79,6 +79,11 @@ export function getFavoriteIds() {
   return request.get('/favorites/ids')
 }
 
+/** 批量取消收藏 */
+export function removeFavoritesBatch(sourceIds) {
+  return request.post('/favorites/remove-batch', { sourceIds })
+}
+
 // ========== 歌单 ==========
 
 /** 获取歌单列表 */
@@ -116,6 +121,11 @@ export function removeFromPlaylist(playlistId, sourceId) {
 /** 删除歌单 */
 export function deletePlaylist(playlistId) {
   return request.delete('/playlists/delete', { params: { playlistId } })
+}
+
+/** 批量删除歌单 */
+export function deletePlaylistsBatch(ids) {
+  return request.post('/playlists/delete-batch', { ids })
 }
 
 /** 导入外部歌单到我的歌单 */

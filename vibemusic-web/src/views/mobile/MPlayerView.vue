@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getLyric, downloadSong as apiDownload } from '@/api/song'
+import { getPlaylists, addToPlaylist } from '@/api/song'
 import { API_HOST } from '@/api/request'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
@@ -46,6 +47,38 @@ function doDownload() {
 
 // 弹窗
 const showQueuePopup = ref(false)
+
+// 加入歌单
+const showPlaylistPicker = ref(false)
+const userPlaylists = ref([])
+const addingToPlaylist = ref(null) // 正在添加的歌单ID
+
+function openPlaylistPicker() {
+  getPlaylists().then(r => { userPlaylists.value = r.data || [] }).catch(() => {})
+  showPlaylistPicker.value = true
+}
+
+function doAddToPlaylist(pl) {
+  if (addingToPlaylist.value || !store.currentSong.id) return
+  addingToPlaylist.value = pl.id
+  const song = {
+    sourceId: store.currentSong.id,
+    name: store.currentSong.title,
+    artist: store.currentSong.artist,
+    coverUrl: store.currentSong.coverUrl || '',
+    duration: store.duration || 0,
+  }
+  addToPlaylist(pl.id, song).then((res) => {
+    if (res.data === false) {
+      window.toast?.('歌曲已在歌单中', 'warning')
+    } else {
+      showPlaylistPicker.value = false
+      window.toast?.('已加入歌单', 'success')
+    }
+  }).catch(() => {
+    window.toast?.('加入失败', 'error')
+  }).finally(() => { addingToPlaylist.value = null })
+}
 
 // 播放模式
 const modeLabels = store.modeLabels
@@ -201,7 +234,7 @@ onUnmounted(() => {
       <button class="mp-top-btn" @click="doDownload" :disabled="downloading">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </button>
-      <button class="mp-top-btn" @click="showQueuePopup = true" title="播放列表">
+      <button class="mp-top-btn" @click="openPlaylistPicker" title="加入歌单">
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
     </div>
@@ -246,6 +279,30 @@ onUnmounted(() => {
     </div>
   </div>
   <MQueuePopup :visible="showQueuePopup" @close="showQueuePopup = false" />
+
+  <!-- 加入歌单弹窗 -->
+  <Teleport to="body">
+    <div v-if="showPlaylistPicker" class="mp-overlay" @click.self="showPlaylistPicker = false">
+      <div class="mp-picker">
+        <div class="mp-picker-hd">
+          <span>加入歌单</span>
+          <button @click="showPlaylistPicker = false">✕</button>
+        </div>
+        <div v-if="!userPlaylists.length" class="mp-picker-empty">还没有歌单，去创建一个吧</div>
+        <div v-else class="mp-picker-list">
+          <div
+            v-for="pl in userPlaylists" :key="pl.id"
+            class="mp-picker-item"
+            :class="{ adding: addingToPlaylist === pl.id }"
+            @click="doAddToPlaylist(pl)"
+          >
+            <span class="mp-picker-name">{{ pl.name }}</span>
+            <span class="mp-picker-count">{{ pl.songCount || 0 }} 首</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -373,4 +430,36 @@ onUnmounted(() => {
 .mp-ctrl.sm { font-size: 18px; padding: 6px; color: #888; }
 .mp-ctrl.sm.mode-active { color: #31c27c; }
 .mp-ctrl-play { color: #31c27c; }
+
+/* 加入歌单弹窗 */
+.mp-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.7);
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.mp-picker {
+  width: 100%; max-width: 420px; max-height: 60vh;
+  background: #151515; border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column;
+}
+.mp-picker-hd {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 12px; font-size: 16px; font-weight: 600; color: #e0e0e0;
+}
+.mp-picker-hd button {
+  border: none; background: none; color: #888; font-size: 18px; cursor: pointer;
+}
+.mp-picker-empty { text-align: center; color: #666; padding: 24px 0; font-size: 14px; }
+.mp-picker-list { overflow-y: auto; }
+.mp-picker-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 12px; border-radius: 10px;
+  background: rgba(255,255,255,.04); margin-bottom: 6px; cursor: pointer;
+  transition: .15s;
+}
+.mp-picker-item:active { background: rgba(49,194,124,.12); }
+.mp-picker-item.adding { opacity: .5; pointer-events: none; }
+.mp-picker-name { font-size: 14px; color: #e0e0e0; }
+.mp-picker-count { font-size: 12px; color: #666; }
 </style>

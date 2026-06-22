@@ -13,6 +13,7 @@ const messages = ref([])
 const inputText = ref('')
 const loading = ref(false)
 const chatBox = ref(null)
+const abortCtrl = ref(null)
 
 const greeting = '嗨！我是 vibe 音乐精灵 🎵 想听什么歌？告诉我吧～'
 
@@ -35,16 +36,28 @@ async function doSend() {
   scrollBottom()
   loading.value = true
 
+  abortCtrl.value = new AbortController()
   try {
-    const res = await request.post('/assistant/chat', { message: text, context: '' })
+    const res = await request.post('/assistant/chat', { message: text, context: '' }, { signal: abortCtrl.value.signal })
     aiMsg.content = res.data.reply || '让我想想...'
     aiMsg.songs = res.data.songs || []
-  } catch {
-    aiMsg.content = '网络不太稳，再试一次～'
+  } catch (e) {
+    if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') {
+      aiMsg.content = '（已停止生成）'
+    } else {
+      aiMsg.content = '网络不太稳，再试一次～'
+    }
   } finally {
     aiMsg.thinking = false
     loading.value = false
+    abortCtrl.value = null
     scrollBottom()
+  }
+}
+
+function stopGeneration() {
+  if (abortCtrl.value) {
+    abortCtrl.value.abort()
   }
 }
 
@@ -146,8 +159,11 @@ onMounted(() => {
         :disabled="loading"
         enterkeyhint="send"
       />
-      <button @click="doSend" :disabled="loading || !inputText.trim()">
+      <button v-if="!loading" @click="doSend" :disabled="!inputText.trim()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+      <button v-else class="mc-stop-btn" @click="stopGeneration">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
       </button>
     </div>
   </div>
@@ -309,4 +325,6 @@ onMounted(() => {
 }
 .mc-input-bar button:active { background: #4f46e5; }
 .mc-input-bar button:disabled { background: #2a2a2a; color: #555; }
+.mc-stop-btn { background: #e04040 !important; }
+.mc-stop-btn:active { background: #c53030 !important; }
 </style>

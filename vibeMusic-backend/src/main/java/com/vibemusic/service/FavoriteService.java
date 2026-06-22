@@ -62,4 +62,12 @@ public class FavoriteService {
                 .map(UserFavorite::getSourceId)
                 .collect(Collectors.toSet());
     }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int removeBatch(Long userId, List<String> sourceIds) {
+        if (sourceIds == null || sourceIds.isEmpty()) return 0;
+        return mapper.delete(new LambdaQueryWrapper<UserFavorite>()
+                .eq(UserFavorite::getUserId, userId)
+                .in(UserFavorite::getSourceId, sourceIds));
+    }
 }

@@ -68,4 +68,17 @@ public class FavoriteController {
         if (userId == null) return Result.ok(Set.of());
         return Result.ok(favoriteService.favoritesSet(userId));
     }
+
+    /** 批量取消收藏 */
+    @PostMapping("/remove-batch")
+    @Operation(summary = "批量取消收藏")
+    public Result<Integer> removeBatch(@RequestBody Map<String, Object> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        @SuppressWarnings("unchecked")
+        List<String> sourceIds = (List<String>) body.get("sourceIds");
+        if (sourceIds == null || sourceIds.isEmpty()) return Result.ok(0);
+        int count = favoriteService.removeBatch(userId, sourceIds);
+        return Result.ok("已移除 " + count + " 首", count);
+    }
 }
