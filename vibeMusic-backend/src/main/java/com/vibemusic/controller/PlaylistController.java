@@ -6,6 +6,7 @@ import com.vibemusic.service.NeteaseApiService;
 import com.vibemusic.service.PlaylistService;
 import com.vibemusic.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +14,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/playlists")
 @RequiredArgsConstructor
