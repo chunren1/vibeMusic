@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import org.slf4j.MDC;
+
 import java.util.stream.Collectors;
 
 /**
@@ -90,7 +92,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleException(Exception ex) {
-        log.error("未知异常", ex);
-        return Result.error(500, "服务器内部错误: " + ex.getMessage());
+        String traceId = MDC.get("traceId");
+        log.error("[traceId={}] 未知异常", traceId, ex);
+        return Result.error(500, "服务器内部错误 (traceId=" + traceId + ")");
     }
 }
