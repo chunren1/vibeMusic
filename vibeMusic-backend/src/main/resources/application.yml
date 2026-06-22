@@ -95,3 +95,13 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
+
+# Actuator 安全: 仅暴露 health，不暴露敏感端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: when-authorized
