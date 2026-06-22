@@ -251,29 +251,59 @@ public class AssistantController {
         return prompt;
     }
 
-    // ---- 歌曲搜索（根据用户消息提取关键词） ----
+    // ---- 歌曲搜索（智能提取关键词 + 降级策略）----
 
     private List<Map<String, Object>> searchSongs(String userMessage) {
+        // 1. 尝试提取歌手名或具体关键词
+        String keyword = extractSearchKeyword(userMessage);
         try {
-            List<SongDTO> results = songSearchService.search(userMessage, 1, 6, "qq");
-            if (results == null || results.isEmpty()) {
-                results = songSearchService.search(userMessage, 1, 6);
-            }
-            if (results == null || results.isEmpty()) return List.of();
+            List<SongDTO> results = songSearchService.search(keyword, 1, 6, "qq");
+            if (results != null && !results.isEmpty()) return toSongCards(results);
 
-            return results.stream().map(s -> {
-                Map<String, Object> card = new HashMap<>();
-                card.put("sourceId", s.getSourceId());
-                card.put("name", s.getName());
-                card.put("artist", s.getArtist() != null ? s.getArtist() : "");
-                card.put("coverUrl", s.getCoverUrl() != null ? s.getCoverUrl() : "");
-                card.put("duration", s.getDuration() != null ? s.getDuration() : 0);
-                card.put("platform", s.getPlatform() != null ? s.getPlatform() : "");
-                return card;
-            }).collect(Collectors.toList());
+            results = songSearchService.search(keyword, 1, 6);
+            if (results != null && !results.isEmpty()) return toSongCards(results);
         } catch (Exception e) {
             log.warn("Assistant 搜索失败: {}", e.getMessage());
-            return List.of();
         }
+
+        // 2. 降级：用原始消息再搜一次
+        try {
+            List<SongDTO> results = songSearchService.search(userMessage, 1, 6, "qq");
+            if (results != null && !results.isEmpty()) return toSongCards(results);
+        } catch (Exception ignored) {}
+
+        // 3. 最终降级：搜"热门歌曲"
+        try {
+            List<SongDTO> results = songSearchService.search("热门歌曲", 1, 6);
+            if (results != null && !results.isEmpty()) return toSongCards(results);
+        } catch (Exception ignored) {}
+
+        return List.of();
+    }
+
+    /**
+     * 从自然语言消息中提取搜索关键词
+     */
+    private String extractSearchKeyword(String msg) {
+        if (msg == null) return "热门歌曲";
+        // 去掉常见的口语前缀
+        String cleaned = msg
+            .replaceAll("推荐|几首|一首|一些|有什么|什么|最近|好听|的|歌|歌曲|音乐|来点|给我", "")
+            .replaceAll("\\s+", " ")
+            .trim();
+        return cleaned.isEmpty() ? msg.trim() : cleaned;
+    }
+
+    private List<Map<String, Object>> toSongCards(List<SongDTO> results) {
+        return results.stream().map(s -> {
+            Map<String, Object> card = new HashMap<>();
+            card.put("sourceId", s.getSourceId());
+            card.put("name", s.getName());
+            card.put("artist", s.getArtist() != null ? s.getArtist() : "");
+            card.put("coverUrl", s.getCoverUrl() != null ? s.getCoverUrl() : "");
+            card.put("duration", s.getDuration() != null ? s.getDuration() : 0);
+            card.put("platform", s.getPlatform() != null ? s.getPlatform() : "");
+            return card;
+        }).collect(Collectors.toList());
     }
 }
