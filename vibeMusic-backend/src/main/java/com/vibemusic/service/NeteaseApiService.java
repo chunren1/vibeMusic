@@ -64,33 +64,31 @@ public class NeteaseApiService {
 
     public Map<String, Object> searchNetease(String keyword, int limit) {
         URI uri = buildUri("/netease/search", "keyword", keyword, "limit", String.valueOf(limit));
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
-        return response.getBody();
+        return restTemplate.exchange(uri, HttpMethod.GET, EMPTY_ENTITY, Map.class).getBody();
     }
 
     public Map<String, Object> searchQQ(String keyword, int limit) {
         URI uri = buildUri("/qq/search", "keyword", keyword, "limit", String.valueOf(limit));
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
-        return response.getBody();
+        return restTemplate.exchange(uri, HttpMethod.GET, EMPTY_ENTITY, Map.class).getBody();
     }
 
     public Map<String, Object> getLyric(String musicId) {
         URI uri = buildUri("/lyric", "id", musicId);
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, EMPTY_ENTITY, Map.class);
         log.info("获取歌词: id={} status={}", musicId, response.getStatusCode());
         return response.getBody();
     }
 
     public Map<String, Object> getQQLyric(String songmid) {
         URI uri = buildUri("/qq/lyric", "songmid", songmid);
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, EMPTY_ENTITY, Map.class);
         log.info("获取QQ歌词: songmid={} status={}", songmid, response.getStatusCode());
         return response.getBody();
     }
 
     public Map<String, Object> getQQSongUrl(String songmid) {
         URI uri = buildUri("/song/url/qq", "id", songmid);
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, EMPTY_ENTITY, Map.class);
         log.info("QQ播放URL: {} status={}", songmid, response.getStatusCode());
         return response.getBody();
     }
@@ -134,10 +132,13 @@ public class NeteaseApiService {
         return URI.create(sb.toString());
     }
 
+    /** 复用 HttpHeaders / HttpEntity，避免每次请求创建 */
+    private static final HttpHeaders SHARED_HEADERS = new HttpHeaders();
+    private static final HttpEntity<Void> EMPTY_ENTITY = new HttpEntity<>(new HttpHeaders());
+    static { SHARED_HEADERS.set("User-Agent", "Mozilla/5.0"); }
+
     private HttpEntity<Void> buildHeaders() {
-        HttpHeaders headers = new HttpHeaders();
         // Cookie 已由 musicapi 统一注入，后端不再传递
-        headers.set("User-Agent", "Mozilla/5.0");
-        return new HttpEntity<>(headers);
+        return new HttpEntity<>(SHARED_HEADERS);
     }
 }
