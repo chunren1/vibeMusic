@@ -9,6 +9,16 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+
+  # 测试环境自动执行 schema + data SQL
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-test.sql
+
+  # 禁用 Flyway（测试用 H2 schema-test.sql 手动建表）
+  flyway:
+    enabled: false
       
   # 禁用 Redis（测试环境不依赖外部缓存）
   autoconfigure:
