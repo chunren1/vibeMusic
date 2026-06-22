@@ -119,7 +119,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.m-chat { display: flex; flex-direction: column; height: 100dvh; background: #0a0a0a; padding-bottom: 70px; box-sizing: border-box; }
+.m-chat { display: flex; flex-direction: column; height: 100dvh; background: #0a0a0a; padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; }
 
 .m-nav {
   display: flex; align-items: center; gap: 10px; padding: 12px 16px;
@@ -162,11 +162,11 @@ onMounted(() => {
 .mc-artist { font-size: 10px; color: #666; }
 .mc-time { font-size: 10px; color: #555; flex-shrink: 0; }
 
-.m-hints { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; justify-content: center; }
+.m-hints { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; justify-content: center; position: sticky; bottom: 56px; z-index: 5; }
 .m-hints button { padding: 6px 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: #888; font-size: 12px; cursor: pointer; }
 .m-hints button:active { border-color: #31c27c; color: #31c27c; }
 
-.m-input { display: flex; gap: 8px; padding: 12px 16px; background: #0a0a0a; border-top: 1px solid rgba(255,255,255,0.04); }
+.m-input { display: flex; gap: 8px; padding: 12px 16px; background: #0a0a0a; border-top: 1px solid rgba(255,255,255,0.04); position: sticky; bottom: 0; z-index: 10; }
 .m-input input { flex: 1; padding: 10px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); color: #e0e0e0; font-size: 14px; outline: none; }
 .m-input input::placeholder { color: #555; }
 .m-input button { width: 36px; height: 36px; border-radius: 50%; border: none; background: #31c27c; color: #fff; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
