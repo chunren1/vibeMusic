@@ -517,6 +517,31 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | 播放列表外部收起 | `useClickOutside` 组合式函数，点击面板外部自动关闭 |
 | 应用范围 | `PlayerBar.vue` + `LyricsView.vue` 播放队列面板均支持，组件卸载时自动移除监听 |
 
+#### 🤖 AI 对话优化
+| 改进项 | 说明 |
+|--------|------|
+| DeepSeek V4 模型 | AI 模型切换为 `deepseek-ai/DeepSeek-V4-Flash`（原 Qwen3.5-4B） |
+| 智能关键词提取 | `searchSongs()` 3 级降级：提取关键词 → 原始消息 → "热门歌曲" |
+| System prompt 增强 | 情绪/风格匹配规则（开心→轻快、伤感→治愈等） |
+| 流式简化 | 移除 SSE 复杂度，同步 POST + 思考动画，体验稳定可靠 |
+
+#### 🛡️ 安全与工程化
+| 改进项 | 说明 |
+|--------|------|
+| CORS 限制 | 从 `*` 限定为 localhost + 自定义域名 |
+| Actuator 安全 | 仅暴露 `/actuator/health`，隐藏敏感端点 |
+| 异常 traceId | `GlobalExceptionHandler` 返回 traceId 便于排障 |
+| 事务 self-invocation 修复 | `DownloadService` 改用 `TransactionTemplate`，避免代理失效 |
+| HttpHeaders 复用 | `NeteaseApiService` 静态常量复用，减少对象分配 |
+| CI/CD 部署流水线 | `.github/workflows/deploy.yml` tag 触发自动测试+构建 |
+| musicapi keep-alive | Express server 连接复用 65s |
+
+#### 📱 移动端适配
+| 改进项 | 说明 |
+|--------|------|
+| AI 聊天输入栏 | `100vh` → `100dvh` + `position: sticky` + `padding-bottom` |
+| 底部播放条遮挡 | 输入栏始终固定在可视区域底部 |
+
 ---
 
 ### 2026-06-16 第二轮优化 (后端 9 项 + 前端 2 项)
