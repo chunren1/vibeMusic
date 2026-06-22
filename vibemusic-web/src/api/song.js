@@ -117,3 +117,8 @@ export function removeFromPlaylist(playlistId, sourceId) {
 export function deletePlaylist(playlistId) {
   return request.delete('/playlists/delete', { params: { playlistId } })
 }
+
+/** 导入外部歌单到我的歌单 */
+export function importPlaylist(source, id) {
+  return request.post('/playlists/import', { source, id })
+}

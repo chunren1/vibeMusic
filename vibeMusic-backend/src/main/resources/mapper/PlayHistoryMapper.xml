@@ -4,20 +4,16 @@
 
     <!--
         删除旧播放记录，只保留每个用户最近 N 条
-        使用双层子查询绕过 MySQL "can't specify target table for update in FROM" 限制
+        使用 ROW_NUMBER() 窗口函数，单次扫描，避免 NOT IN 双重子查询的性能问题
     -->
     <delete id="deleteOldByUserId">
-        DELETE FROM play_history
-        WHERE user_id = #{userId}
-          AND id NOT IN (
-              SELECT id FROM (
-                  SELECT id
-                  FROM play_history
-                  WHERE user_id = #{userId}
-                  ORDER BY played_at DESC
-                  LIMIT #{keep}
-              ) AS t
-          )
+        DELETE p FROM play_history p
+        JOIN (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY played_at DESC) AS rn
+            FROM play_history
+            WHERE user_id = #{userId}
+        ) AS ranked ON p.id = ranked.id
+        WHERE ranked.rn > #{keep}
     </delete>
 
 </mapper>

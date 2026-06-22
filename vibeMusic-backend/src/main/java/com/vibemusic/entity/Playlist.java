@@ -22,6 +22,6 @@ public class Playlist {
 
     private String description;
 
-    @TableField(fill = FieldFill.INSERT)
+    @TableField(insertStrategy = FieldStrategy.NEVER)
     private LocalDateTime createdAt;
 }

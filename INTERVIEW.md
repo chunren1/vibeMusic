@@ -176,7 +176,7 @@ Redis 缓存 (登录用户 6h / 游客 10min)
 ```
 注册/登录 → BCrypt 加密密码 ($2b$10$)
   ↓
-后端 Set-Cookie: VIBE_TOKEN (HttpOnly + SameSite=Strict + Secure)
+后端 Set-Cookie: VIBE_TOKEN (HttpOnly + SameSite=Lax + Secure)
   ↓
 JWT Filter 优先级: Authorization Header → Cookie 降级
   ↓
@@ -186,7 +186,7 @@ JWT Filter 优先级: Authorization Header → Cookie 降级
 **安全措施：**
 - 密码 BCrypt 加密，明文永不出现在 DB 中
 - JWT httpOnly Cookie 防止 XSS 窃取
-- SameSite=Strict 防止 CSRF
+- SameSite=Lax + Secure 防 CSRF（手动 Set-Cookie 头构建，兼容所有 Servlet 容器）
 - 幂等防护：`X-Request-Id` + Redis 5min 去重
 - 所有权校验：歌单/收藏操作验证 user_id
 
@@ -216,10 +216,12 @@ JWT Filter 优先级: Authorization Header → Cookie 降级
 | **音频流 CORS 与断点续传** | 浏览器 Audio 元素对跨域流要求 Range 请求支持 | Nginx 透传 Range 头 + 关闭缓冲；后端 Stream 端点支持 `Accept-Ranges` |
 | **播放器跨页面状态保持** | 用户切换页面时播放不中断，刷新后恢复进度 | Pinia PlayerStore + 全局单例 `<audio>` + localStorage 持久化 + `beforeunload` 保存 |
 | **音质逐级降级阻塞** | 多级降级串联可能达到 20+ 秒无响应 | 8 秒 deadline 超时检查，超时直接中断降级链 |
-| **移动端混合内容拦截** | HTTPS 页面加载 HTTP 封面被浏览器拦截 | 封面 `http://` 自动升级为 `https://`，或走后端图片代理 `image-proxy` |
+| **移动端混合内容拦截** | HTTPS 页面加载 HTTP 封面被手机浏览器拦截，封面全白 | 全链路 6 处 API 响应自动 `http://`→`https://` 升级（CoverUrl / PicUrl / AvatarUrl），SQL 查询层 `REPLACE` |
 | **N+1 查询问题** | 歌单列表原来先查歌单再逐个查封面 | 合并为单条 SQL：LEFT JOIN + 关联子查询，配合 `idx_pl_added` 索引 |
 | **MySQL 索引冗余** | 多表存在被联合索引前缀覆盖的独立索引 | Flyway V2 迁移：删除 3 个冗余索引，新增 2 个缺失索引 |
 | **JWT 存储安全** | localStorage 存储 JWT 存在 XSS 窃取风险 | 迁移到 httpOnly Cookie，前端不再直接读写 token |
+| **Cookie SameSite 兼容** | `cookie.setAttribute("SameSite")` 在部分 Servlet 容器无效 | 改用 `response.addHeader("Set-Cookie", ...)` 手动构建 Cookie 字符串 |
+| **移动端 AI 输入栏遮挡** | 播放栏(pos:fixed 60px) + 标签栏(pos:fixed 56px) 共 116px 固定遮挡，覆盖输入栏 | shell `height: calc(100dvh - 116px)` 精确减掉 bottom bar 占用 |
 | **ES 初始化日志噪音** | 每次 detect 产生 Reactor 异常堆栈 | HEAD 请求 + `toBodilessEntity()` 代替 GET，消除响应体释放竞态 |
 | **Docker Alpine 兼容性** | 健康检查 wget 不存在 | 改用 curl 或 node 内建 http 模块 |
 
@@ -361,7 +363,7 @@ JWT Filter 优先级: Authorization Header → Cookie 降级
 >
 > 安全层面做了 **JWT httpOnly Cookie** 防 XSS、BCrypt 密码加密、幂等防护。工程化上做了 Flyway 数据库版本控制、GitHub Actions CI、K6 压测、Sentry 监控。
 >
-> 最近还深入做了一轮 **MySQL 性能审查**，清理了冗余索引、补充了缺失索引、开启了慢查询日志，对 MyBatis XML 中的关联子查询做了索引依赖分析。总共 **63 条测试**覆盖核心链路，**7 个 Docker 容器**一键部署。
+> 最近还深入做了一轮 **MySQL 性能审查**，清理了冗余索引、补充了缺失索引、开启了慢查询日志，对 MyBatis XML 中的关联子查询做了索引依赖分析。移动端做了**全链路 HTTP→HTTPS 升级**和 **AI 助手深度适配**（输入栏固定定位、真实头像、SVG 图标），总共 **63 条测试**覆盖核心链路，**7 个 Docker 容器**一键部署。
 
 ---
 
@@ -381,5 +383,5 @@ JWT Filter 优先级: Authorization Header → Cookie 降级
 
 ---
 
-> **最后更新：2026-06-22**
+> **最后更新：2026-06-23**
 > 本文档聚焦面试场景，建议结合自身理解做口语化练习，不必逐字背诵。

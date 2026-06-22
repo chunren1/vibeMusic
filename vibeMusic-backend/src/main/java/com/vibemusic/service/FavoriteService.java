@@ -47,7 +47,8 @@ public class FavoriteService {
             m.put("sourceId", f.getSourceId());
             m.put("songName", f.getSongName());
             m.put("artist", f.getArtist());
-            m.put("coverUrl", f.getCoverUrl());
+            String c = f.getCoverUrl();
+            m.put("coverUrl", c != null ? c.replace("http://", "https://") : "");
             m.put("createdAt", f.getCreatedAt());
             return m;
         }).collect(Collectors.toList());

@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS playlist_song (
     song_name VARCHAR(500),
     artist VARCHAR(500),
     cover_url VARCHAR(1000),
+    duration INT DEFAULT 0,
     sort_order INT DEFAULT 0,
-    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (playlist_id, source_id)
 );
 
 CREATE TABLE IF NOT EXISTS user_favorite (

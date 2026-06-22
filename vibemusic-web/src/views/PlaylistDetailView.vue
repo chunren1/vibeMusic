@@ -2,13 +2,16 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '@/api/request'
+import { importPlaylist } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const player = usePlayerStore()
 const favStore = useFavoriteStore()
+const authStore = useAuthStore()
 
 const source = computed(() => route.params.source || 'netease')
 const playlistId = computed(() => route.params.id)
@@ -59,6 +62,25 @@ function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m +
 function fmtCount(n) { if (!n) return ''; if (n > 100000000) return (n / 100000000).toFixed(1) + '亿'; if (n > 10000) return Math.floor(n / 10000) + '万'; return n }
 
 onMounted(() => { load(); favStore.fetchFavIds() })
+
+// ===== 收藏歌单 =====
+const importing = ref(false)
+async function handleImport() {
+  if (!info.value) return
+  if (!authStore.isLoggedIn) { authStore.openLogin(); return }
+  if (importing.value) return
+  importing.value = true
+  try {
+    const res = await importPlaylist(source.value, String(playlistId.value))
+    const data = res.data || {}
+    window.toast?.('success', `歌单「${data.name || info.value.name}」已收藏 (${data.imported || 0}/${data.total || 0}首)`)
+  } catch (e) {
+    const msg = e?.response?.data?.message || e?.message || '导入失败，请重试'
+    window.toast?.('error', msg)
+  } finally {
+    importing.value = false
+  }
+}
 </script>
 
 <template>
@@ -112,6 +134,9 @@ onMounted(() => { load(); favStore.fetchFavIds() })
             <button class="btn-play" @click="playAll" :disabled="!songs.length">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               播放全部
+            </button>
+            <button class="btn-import" @click="handleImport" :disabled="importing">
+              {{ importing ? '收藏中...' : '收藏歌单' }}
             </button>
           </div>
         </div>
@@ -328,6 +353,17 @@ onMounted(() => { load(); favStore.fetchFavIds() })
 }
 .btn-play:hover { background: #28a86b; transform: scale(1.02); }
 .btn-play:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.btn-import {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 28px;
+  background: transparent; color: #31c27c;
+  border: 1px solid #31c27c; border-radius: 24px;
+  font-size: 15px; font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+.btn-import:hover { background: #31c27c; color: #fff; }
+.btn-import:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ======== 歌曲列表（浅色） ======== */
 .song-list {
@@ -468,6 +504,7 @@ onMounted(() => { load(); favStore.fetchFavIds() })
   .hero-stats { text-align: center; color: #777; }
   .hero-desc { text-align: center; color: #666; }
   .hero-actions { justify-content: center; }
+  .btn-import { border-color: rgba(49,194,124,0.4); color: #31c27c; background: rgba(49,194,124,0.1); }
 
   .song-list { padding: 0 16px; }
   .list-header {

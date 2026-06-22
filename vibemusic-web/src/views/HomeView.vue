@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import request, { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
 import { searchSongs, getBanners as apiBanners, downloadSong as apiDownload } from '@/api/song'
@@ -27,9 +27,6 @@ function playSong(song) {
 // 收藏歌曲（调用后端API）
 import { useFavoriteStore } from '@/stores/favorite'
 const favStore = useFavoriteStore()
-
-// 初始化时加载收藏列表
-favStore.fetchFavIds()
 
 function toggleFav(song) {
   favStore.toggleFav(song)
@@ -94,7 +91,7 @@ function loadBanners() {
     if (res.data && res.data.length > 0) {
       slides.value = res.data
     }
-  }).catch(() => {})
+  }).catch(e => console.warn('[HomeView] Banner 加载失败:', e.message))
 }
 
 function startBanner() {
@@ -124,9 +121,11 @@ function onBannerEnter() { bannerHover.value = true; stopBanner() }
 function onBannerLeave() { bannerHover.value = false; startBanner() }
 
 onMounted(() => {
+  favStore.fetchFavIds()
   loadBanners()
   startBanner()
 })
+onUnmounted(() => stopBanner())
 
 // ===== 推荐歌曲（从 Store 获取） =====
 function shuffleSongs() {

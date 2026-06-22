@@ -8,8 +8,10 @@ import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -23,6 +25,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -42,6 +45,7 @@ public class AuthController {
     @PostMapping("/register")
     @Operation(summary = "用户注册")
     public Result<Map<String, Object>> register(@RequestBody Map<String, String> body,
+                                                 HttpServletRequest request,
                                                  HttpServletResponse response) {
         String username = body.get("username");
         String password = body.get("password");
@@ -58,7 +62,7 @@ public class AuthController {
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
         String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
 
-        setTokenCookie(response, token);
+        setTokenCookie(request, response, token);
 
         Map<String, Object> data = buildUserData(details);
         data.put("token", token);
@@ -68,22 +72,42 @@ public class AuthController {
     @PostMapping("/login")
     @Operation(summary = "用户登录")
     public Result<Map<String, Object>> login(@RequestBody Map<String, String> body,
+                                              HttpServletRequest request,
                                               HttpServletResponse response) {
+        log.info("[/api/auth/login] 收到请求 - origin={}, contentType={}, bodyKeys={}, cookies={}",
+                request.getHeader("Origin"),
+                request.getContentType(),
+                body != null ? body.keySet() : "null",
+                request.getCookies() != null ? request.getCookies().length : 0);
+
         String username = body.get("username");
         String password = body.get("password");
 
-        if (username == null || password == null) return Result.error("用户名和密码不能为空");
+        if (username == null || password == null) {
+            log.warn("[/api/auth/login] 缺少参数 username={} password={}", username != null, password != null);
+            return Result.error("用户名和密码不能为空");
+        }
+        username = username.trim();
+        if (username.isEmpty() || username.length() > 30) return Result.error("用户名格式不正确");
 
+        log.info("[/api/auth/login] 开始认证: username={}", username);
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
         String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
 
-        setTokenCookie(response, token);
+        setTokenCookie(request, response, token);
 
         Map<String, Object> data = buildUserData(details);
         data.put("token", token);
+        log.info("[/api/auth/login] 登录成功: userId={}, username={}", details.getUserId(), username);
         return Result.ok(data);
+    }
+
+    @GetMapping("/health")
+    @Operation(summary = "健康检查（公开端点，用于诊断网络连通性）")
+    public Result<String> health(HttpServletRequest request) {
+        return Result.ok("OK - " + request.getRemoteAddr() + " - " + java.time.Instant.now());
     }
 
     @GetMapping("/me")
@@ -233,13 +257,14 @@ public class AuthController {
 
     // ===== 辅助方法 =====
 
-    private void setTokenCookie(HttpServletResponse response, String token) {
-        Cookie cookie = new Cookie("VIBE_TOKEN", token);
-        cookie.setHttpOnly(true);           // JS 不可读，防 XSS
-        cookie.setPath("/");                // 全站有效
-        cookie.setMaxAge(86400);            // 24h（与 JWT 一致）
-        cookie.setAttribute("SameSite", "Strict");
-        response.addCookie(cookie);
+    private void setTokenCookie(HttpServletRequest request, HttpServletResponse response, String token) {
+        // 使用 ResponseCookie 确保 SameSite 在所有 Servlet 容器有效
+        String cookieValue = String.format(
+                "VIBE_TOKEN=%s; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax%s",
+                token,
+                ("https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")) || request.isSecure())
+                        ? "; Secure" : "");
+        response.addHeader("Set-Cookie", cookieValue);
     }
 
     private Map<String, Object> buildUserData(CustomUserDetails details) {

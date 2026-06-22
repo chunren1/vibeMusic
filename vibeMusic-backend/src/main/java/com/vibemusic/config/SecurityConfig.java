@@ -4,6 +4,7 @@ import com.vibemusic.security.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -25,6 +26,7 @@ import java.util.Map;
  * Spring Security 安全配置
  * 策略：前后端分离 + JWT 无状态认证
  */
+@Slf4j
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
@@ -40,6 +42,8 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // CORS 预检请求放行
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // 公开接口
                 .requestMatchers(
                     "/api/auth/**",
@@ -86,6 +90,9 @@ public class SecurityConfig {
                         Map.of("code", 401, "message", "登录已过期，请重新登录"));
                 })
                 .accessDeniedHandler((request, response, accessDeniedException) -> {
+                    log.warn("[Security] 403 拒绝: {} {} (auth={})",
+                            request.getMethod(), request.getRequestURI(),
+                            request.getUserPrincipal());
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.setCharacterEncoding("UTF-8");

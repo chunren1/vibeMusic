@@ -613,6 +613,47 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 
 ---
 
+### 2026-06-22/23 第五轮优化（移动端深度修复 + 全链路 HTTPS 升级 + AI 助手适配）
+
+#### 🔴 移动端严重问题修复
+| 改进项 | 说明 |
+|--------|------|
+| CORS 修复 | cors 白名单缺少 `*.cpolar.cn`（用户隧道子域名），手机 HTTPS 访问被拦截 403 |
+| HTTP→HTTPS 全链路升级 | 6 处 API 响应中封面 URL 从 `http://` 自动替换为 `https://`，防止手机混合内容拦截白屏 |
+| 歌单封面修复 | MPlaylistsView 背景图 → `<img>` 标签，兼容手机 WebView；MPlaylistView 重写为 hero 布局（封面+标题+描述+播放按钮） |
+| AI 助手移动端适配 | MChatView 重写：输入栏 `height: calc(100dvh - 116px)` 解决被播放栏+标签栏遮挡；AI 图标 emoji → SVG 音符；用户消息新增真实头像 |
+
+#### 🔒 安全与输入校验
+| 改进项 | 说明 |
+|--------|------|
+| AuthController 输入校验 | 登录 `username` 加 `trim()` + 30 字长度限制 |
+| SameSite Cookie 跨容器兼容 | `cookie.setAttribute("SameSite")` → `response.addHeader("Set-Cookie", ...)` 手动构建 |
+| AssistantController 输入校验 | `/chat` 和 `/stream` 加 2000 字长度上限，防止超长文本导致 OOM |
+
+#### 🐛 逻辑 Bug 修复
+| 改进项 | 说明 |
+|--------|------|
+| DownloadController null 安全 | `artist` 参数 key 存在但值为 null 时兜底；`song.getArtist()` 为 null 跳过前缀 |
+| PlaylistView Toast 参数 | `window.toast?.('success', '消息')` 参数顺序颠倒 → 修正为 `('消息', 'success')` |
+| HomeView 内存泄漏 | Banner `setInterval` 未在组件卸载时清除 → `onUnmounted(() => stopBanner())` |
+| HomeView favStore 调用 | `fetchFavIds()` 从模块顶层移入 `onMounted`，避免 Pinia 未就绪 |
+
+#### 📊 数据库优化
+| 改进项 | 说明 |
+|--------|------|
+| PlayHistory 清理 SQL | `DELETE...NOT IN (双重子查询)` → `ROW_NUMBER() OVER() + DELETE JOIN` 窗口函数 |
+| V3__add_indexes.sql | 新增 `idx_artist(100)` 索引 + `url` 字段扩容 2048 |
+| PlaylistMapper 封面查询 | SQL `REPLACE(cover_url, 'http://', 'https://')` 在查询层统一升级协议 |
+
+#### 🎨 前端体验优化
+| 改进项 | 说明 |
+|--------|------|
+| AI 助手图标 | 🎵 emoji → 精美 SVG 音符（紫色渐变），桌面+移动端统一 |
+| 用户消息头像 | 桌面+移动端 AI 对话均显示真实头像 `auth.avatarSrc` |
+| HomeView 静默错误 | `loadBanners().catch(() => {})` → 加 `console.warn` 日志 |
+
+---
+
 ### 2026-06-19 第四轮优化（上线前全面审查 + 安全加固）
 
 #### 🔒 安全加固

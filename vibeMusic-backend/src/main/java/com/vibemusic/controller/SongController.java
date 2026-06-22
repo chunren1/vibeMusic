@@ -73,7 +73,7 @@ public class SongController {
             List<Map<String, Object>> banners = list.stream().map(p -> {
                 Map<String, Object> b = new HashMap<>();
                 b.put("name", String.valueOf(p.getOrDefault("name", "")));
-                b.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                b.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")).replace("http://", "https://"));
                 b.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                 b.put("playCount", p.getOrDefault("playCount", 0));
                 return b;

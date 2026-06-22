@@ -4,8 +4,10 @@ import { ref, nextTick, onMounted } from 'vue'
 import TopBar from '@/components/TopBar.vue'
 import request from '@/api/request'
 import { usePlayerStore } from '@/stores/player'
+import { useAuthStore } from '@/stores/auth'
 
 const player = usePlayerStore()
+const auth = useAuthStore()
 
 const messages = ref([])
 const inputText = ref('')
@@ -78,7 +80,11 @@ onMounted(() => {
       <div v-for="(msg, idx) in messages" :key="idx" class="msg-row" :class="msg.role">
         <!-- AI 消息 -->
         <div v-if="msg.role === 'ai'" class="msg-ai">
-          <div class="ai-avatar">🎵</div>
+          <div class="ai-avatar">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+            </svg>
+          </div>
           <div class="msg-bubble ai">
             <!-- 思考过程 -->
             <div v-if="msg.thinking" class="thinking-box">
@@ -116,8 +122,16 @@ onMounted(() => {
         </div>
 
         <!-- 用户消息 -->
-        <div v-else class="msg-bubble user">
-          <p>{{ msg.content }}</p>
+        <div v-else class="msg-row-inner user-row">
+          <div class="msg-bubble user">
+            <p>{{ msg.content }}</p>
+          </div>
+          <div class="user-avatar">
+            <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="chat-avatar-img" />
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+          </div>
         </div>
       </div>
     </div>
@@ -160,12 +174,24 @@ onMounted(() => {
 .msg-row.ai { justify-content: flex-start; }
 .msg-row.user { justify-content: flex-end; }
 
-.msg-ai { display: flex; gap: 10px; max-width: 85%; }
-.ai-avatar {
+.msg-ai { display: flex; gap: 10px; max-width: 85%; align-items: flex-end; }
+.msg-row-inner.user-row {
+  display: flex; gap: 10px; max-width: 85%; align-items: flex-end;
+}
+.ai-avatar, .user-avatar {
   width: 36px; height: 36px; border-radius: 50%;
-  background: linear-gradient(135deg, #31c27c, #1abc9c);
   display: flex; align-items: center; justify-content: center;
-  font-size: 18px; flex-shrink: 0;
+  flex-shrink: 0; color: #fff;
+}
+.ai-avatar {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+.user-avatar {
+  background: linear-gradient(135deg, #31c27c, #1abc9c);
+  overflow: hidden;
+}
+.chat-avatar-img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
 }
 
 .msg-bubble {

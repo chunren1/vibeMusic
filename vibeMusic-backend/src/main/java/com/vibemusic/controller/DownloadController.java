@@ -38,7 +38,8 @@ public class DownloadController {
             @RequestBody @Parameter(description = "歌曲信息") Map<String, Object> params) {
 
         String name = (String) params.getOrDefault("name", sourceId);
-        String artist = (String) params.getOrDefault("artist", "未知歌手");
+        String artist = params.containsKey("artist") && params.get("artist") != null
+                ? (String) params.get("artist") : "未知歌手";
         String album = (String) params.getOrDefault("album", "");
         String coverUrl = (String) params.getOrDefault("coverUrl", "");
         Integer duration = params.get("duration") instanceof Number n ? n.intValue() : 0;
@@ -71,7 +72,8 @@ public class DownloadController {
         // 查询歌曲名用于下载文件名
         Song song = songService.getBySourceId(sourceId);
         String fileName = (song != null && song.getName() != null && !song.getName().isEmpty())
-                ? sanitizeFileName(song.getArtist() + " - " + song.getName())
+                ? sanitizeFileName(
+                    (song.getArtist() != null ? song.getArtist() + " - " : "") + song.getName())
                 : sourceId;
 
         try (InputStream in = storageService.getObject(objectName);

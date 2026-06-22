@@ -56,7 +56,8 @@ onMounted(() => loadPlaylists())
         @click="router.push({ name: 'playlist', params: { id: pl.id } })"
       >
         <div class="pl-cover">
-          <div class="cover-inner" :style="{ background: '#31c27c' }">♪</div>
+          <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-cover-img" alt="" loading="lazy" />
+          <div v-else class="cover-inner" :style="{ background: '#31c27c' }">♪</div>
           <span class="pl-count">{{ pl.songCount }}首</span>
         </div>
         <p class="pl-name">{{ pl.name }}</p>
@@ -109,6 +110,13 @@ onMounted(() => loadPlaylists())
   position: relative; padding-bottom: 100%;
   border-radius: 10px; overflow: hidden; margin-bottom: 10px;
 }
+.pl-cover-img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; object-fit: cover;
+  border-radius: 10px;
+  transition: transform .3s;
+}
+.playlist-card:hover .pl-cover-img { transform: scale(1.05); }
 .cover-inner {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
