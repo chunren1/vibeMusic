@@ -4,7 +4,7 @@ import com.vibemusic.common.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
@@ -26,6 +26,7 @@ public class DownloadService {
     private final StorageService storageService;
     private final SongService songService;
     private final SongPlayService songPlayService;
+    private final TransactionTemplate transactionTemplate;
 
     /** 每首歌一个锁，key 为 sourceId */
     private final ConcurrentHashMap<String, ReentrantLock> downloadLocks = new ConcurrentHashMap<>();
@@ -44,8 +45,10 @@ public class DownloadService {
         try {
             // 阶段 1：HTTP/文件 I/O（锁保护，无事务）
             String rustfsUrl = downloadAndUpload(sourceId, name, artist, album, coverUrl, duration, level);
-            // 阶段 2：DB 持久化（短事务，< 50ms）
-            persistToDb(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
+            // 阶段 2：DB 持久化 — 使用 TransactionTemplate 避免 self-invocation 导致事务失效
+            String finalUrl = rustfsUrl;
+            transactionTemplate.executeWithoutResult(status ->
+                songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, finalUrl));
             return rustfsUrl;
         } finally {
             lock.unlock();
@@ -96,13 +99,4 @@ public class DownloadService {
         }
     }
 
-    /**
-     * 阶段 2：仅 DB 操作（短事务，无 HTTP I/O）
-     */
-    @Transactional(rollbackFor = Exception.class)
-    protected void persistToDb(String sourceId, String name, String artist,
-                               String album, String coverUrl, Integer duration,
-                               String rustfsUrl) {
-        songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
-    }
 }
