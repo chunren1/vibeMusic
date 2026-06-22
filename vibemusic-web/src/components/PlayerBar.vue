@@ -4,6 +4,7 @@ import { storeToRefs } from 'pinia'
 import { API_HOST } from '@/api/request'
 import { downloadSong as apiDownload } from '@/api/song'
 import { useAudioBackground } from '@/composables/useAudioBackground'
+import { useClickOutside } from '@/composables/useClickOutside'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
 import LyricsView from '@/components/LyricsView.vue'
@@ -133,6 +134,9 @@ function handleDownload(song) {
 
 // 播放列表面板
 const showPlaylist = ref(false)
+const playlistPanelRef = ref(null)
+const playlistToggleRef = ref(null)
+useClickOutside(playlistPanelRef, () => { showPlaylist.value = false }, { exclude: [playlistToggleRef] })
 function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 </script>
 
@@ -205,7 +209,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
               <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
             </div>
           </div>
-          <button class="act-icon" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
+          <button ref="playlistToggleRef" class="act-icon" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
             <SvgIcon name="playlist" size="20" />
           </button>
         </div>
@@ -214,7 +218,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 
     <!-- 播放列表面板 -->
     <Transition name="panel">
-      <div v-if="showPlaylist" class="playlist-panel">
+      <div v-if="showPlaylist" ref="playlistPanelRef" class="playlist-panel">
         <div class="panel-header">
           <span>播放队列 ({{ queue.length }})</span>
           <div class="panel-header-actions">

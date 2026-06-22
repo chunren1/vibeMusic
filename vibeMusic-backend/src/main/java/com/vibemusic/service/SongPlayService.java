@@ -6,8 +6,10 @@ import com.vibemusic.mapper.SongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -24,7 +26,10 @@ public class SongPlayService {
     private final SongMapper songMapper;
     private final NeteaseApiService neteaseApiService;
     private final StorageService storageService;
+    private final StringRedisTemplate stringRedisTemplate;
 
+    private static final String RUSTFS_CACHE_PREFIX = "rustfs:exists:v1:";
+    private static final Duration RUSTFS_CACHE_TTL = Duration.ofMinutes(10);
     private final AtomicInteger degradationCount = new AtomicInteger(0);
 
     public int getDegradationCount() { return degradationCount.get(); }
@@ -42,9 +47,9 @@ public class SongPlayService {
         info.put("isTrial", false);
         info.put("platform", sourceId.matches("\\d+") ? "netease" : "qq");
 
-        // 1. 优先 RustFS 本地缓存
+        // 1. 优先 RustFS 本地缓存（Redis 缓存 exists 结果，TTL 10min，减少 MinIO statObject 调用）
         String rustfsObjectName = "songs/" + sourceId + ".mp3";
-        if (storageService.exists(rustfsObjectName)) {
+        if (isCachedInRustFS(sourceId)) {
             String directUrl = storageService.getDirectUrl(rustfsObjectName);
             info.put("url", directUrl);
             info.put("fromCache", true);
@@ -194,9 +199,9 @@ public class SongPlayService {
 
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform) {
-        // 1. 优先检查 RustFS 缓存
+        // 1. 优先检查 RustFS 缓存（Redis 缓存 exists 结果，TTL 10min）
         String rustfsObjectName = "songs/" + sourceId + ".mp3";
-        if (storageService.exists(rustfsObjectName)) {
+        if (isCachedInRustFS(sourceId)) {
             String directUrl = storageService.getDirectUrl(rustfsObjectName);
             log.info("getPlayUrl: {} 命中RustFS缓存", sourceId);
             return directUrl;
@@ -299,6 +304,25 @@ public class SongPlayService {
             log.warn("QQ降级搜索失败: {} - {}", songName, e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 检查歌曲是否缓存于 RustFS，Redis 缓存结果减少 MinIO HTTP 调用
+     */
+    private boolean isCachedInRustFS(String sourceId) {
+        if (sourceId == null) return false;
+        String cacheKey = RUSTFS_CACHE_PREFIX + sourceId;
+        // 先查 Redis
+        String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+        if ("1".equals(cached)) return true;
+        if ("0".equals(cached)) return false;
+
+        // Redis 未命中 → 查 MinIO
+        boolean exists = storageService.exists("songs/" + sourceId + ".mp3");
+        // 写入 Redis 缓存（存在 10min，不存在 30s）
+        Duration ttl = exists ? RUSTFS_CACHE_TTL : Duration.ofSeconds(30);
+        stringRedisTemplate.opsForValue().set(cacheKey, exists ? "1" : "0", ttl);
+        return exists;
     }
 
     @SuppressWarnings("unchecked")

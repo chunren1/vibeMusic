@@ -1,11 +1,13 @@
 package com.vibemusic.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.dto.RecommendResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.PlayHistory;
+import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.PlayHistoryMapper;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.vibemusic.mapper.SongMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -22,6 +24,7 @@ import java.util.stream.Collectors;
 public class RecommendService {
 
     private final PlayHistoryMapper playHistoryMapper;
+    private final SongMapper songMapper;
     private final SongSearchService songSearchService;
     private final StorageService storageService;
     private final StringRedisTemplate stringRedisTemplate;
@@ -265,27 +268,51 @@ public class RecommendService {
     }
 
     /**
-     * 标记歌曲离线缓存状态，直接修改 SongDTO 的扩展字段
+     * 标记歌曲离线缓存状态 — 通过 DB song 表批量查询（消除 N 次 MinIO statObject HTTP 调用）
+     * <p>
+     * 逻辑：song.url != null → 歌曲已下载到 RustFS
      */
     private void markOfflineStatus(List<SongDTO> songs) {
-        for (SongDTO s : songs) {
-            if (s.getSourceId() != null) {
-                try {
-                    s.setCached(storageService.exists("songs/" + s.getSourceId() + ".mp3"));
-                } catch (Exception e) {
-                    s.setCached(false);
+        if (songs.isEmpty()) return;
+        try {
+            List<String> ids = songs.stream()
+                    .map(SongDTO::getSourceId).filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            if (ids.isEmpty()) return;
+            // 一次 DB 查询替代 N 次 MinIO HTTP statObject
+            Set<String> cachedIds = songMapper.selectList(
+                    new LambdaQueryWrapper<Song>()
+                            .in(Song::getSourceId, ids)
+                            .isNotNull(Song::getUrl)
+                            .select(Song::getSourceId))
+                    .stream().map(Song::getSourceId)
+                    .collect(Collectors.toSet());
+            for (SongDTO s : songs) {
+                s.setCached(s.getSourceId() != null && cachedIds.contains(s.getSourceId()));
+            }
+        } catch (Exception e) {
+            log.warn("批量查询缓存状态失败，回退到逐个检查 MinIO", e);
+            // 降级兜底：仅异常时逐个查 MinIO
+            for (SongDTO s : songs) {
+                if (s.getSourceId() != null) {
+                    try { s.setCached(storageService.exists("songs/" + s.getSourceId() + ".mp3")); }
+                    catch (Exception ex) { s.setCached(false); }
                 }
             }
         }
     }
 
     /**
-     * 检查某首歌是否已缓存到 RustFS
+     * 检查某首歌是否已缓存到 RustFS（排序使用，通过 DB 查询）
      */
     private boolean checkCached(String sourceId) {
         if (sourceId == null) return false;
         try {
-            return storageService.exists("songs/" + sourceId + ".mp3");
+            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
+                    .eq(Song::getSourceId, sourceId)
+                    .isNotNull(Song::getUrl)
+                    .select(Song::getId));
+            return song != null;
         } catch (Exception e) {
             return false;
         }

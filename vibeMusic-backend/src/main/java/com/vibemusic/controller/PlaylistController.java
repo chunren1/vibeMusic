@@ -1,12 +1,15 @@
 package com.vibemusic.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.common.Result;
 import com.vibemusic.service.NeteaseApiService;
 import com.vibemusic.service.PlaylistService;
 import com.vibemusic.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -17,11 +20,25 @@ public class PlaylistController {
 
     private final PlaylistService playlistService;
     private final NeteaseApiService neteaseApiService;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
 
-    /** 歌单详情（网易云/QQ） */
+    private static final String PLAYLIST_CACHE_PREFIX = "playlist:v2:";
+    private static final String RECOMMEND_CACHE_KEY = "playlist:recommend:v2";
+    private static final Duration PLAYLIST_TTL = Duration.ofHours(6);
+    private static final Duration RECOMMEND_TTL = Duration.ofHours(3);
+
+    /** 歌单详情（网易云/QQ，Redis 缓存 6h） */
     @GetMapping("/detail")
     @SuppressWarnings("unchecked")
     public Result<Map<String, Object>> detail(@RequestParam String source, @RequestParam String id) {
+        // 1. 查缓存
+        String cacheKey = PLAYLIST_CACHE_PREFIX + source + ":" + id;
+        try {
+            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) return Result.ok(objectMapper.readValue(cached, Map.class));
+        } catch (Exception ignored) {}
+
         Map<String, Object> raw;
         if ("qq".equals(source)) {
             raw = neteaseApiService.getQQPlaylist(id);
@@ -67,26 +84,66 @@ public class PlaylistController {
             }
         }
         result.put("songs", songs);
+
+        // 2. 写缓存
+        try {
+            stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(result), PLAYLIST_TTL);
+        } catch (Exception ignored) {}
+
         return Result.ok(result);
     }
 
-    /** 网易云推荐歌单（首页"推荐歌单"区域） */
+    /** 网易云推荐歌单（首页"推荐歌单"区域，原始 30 个缓存 3h，每次随机取 6） */
     @GetMapping("/recommend")
     @SuppressWarnings("unchecked")
     public Result<List<Map<String, Object>>> recommend() {
         try {
-            // 一次性获取 30 个歌单，每次随机抽取 6 个，实现"换一批"效果
-            Map<String, Object> result = neteaseApiService.personalizedPlaylists(30);
-            if (result == null) return Result.ok(List.of());
-            List<Map<String, Object>> list = (List<Map<String, Object>>) result.get("result");
-            if (list == null || list.isEmpty()) return Result.ok(List.of());
+            // 1. 查缓存（缓存原始 30 个歌单数据，每次随机取 6）
+            List<Map<String, Object>> allPlaylists;
+            try {
+                String cached = stringRedisTemplate.opsForValue().get(RECOMMEND_CACHE_KEY);
+                if (cached != null) {
+                    allPlaylists = objectMapper.readValue(cached, List.class);
+                } else {
+                    Map<String, Object> result = neteaseApiService.personalizedPlaylists(30);
+                    if (result == null) return Result.ok(List.of());
+                    List<Map<String, Object>> list = (List<Map<String, Object>>) result.get("result");
+                    if (list == null || list.isEmpty()) return Result.ok(List.of());
+                    // 精简字段后缓存
+                    allPlaylists = list.stream().map(p -> {
+                        Map<String, Object> m = new HashMap<>();
+                        m.put("id", p.get("id"));
+                        m.put("name", String.valueOf(p.getOrDefault("name", "")));
+                        m.put("picUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                        m.put("copywriter", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
+                        m.put("playCount", p.getOrDefault("playCount", 0));
+                        return m;
+                    }).collect(Collectors.toList());
+                    stringRedisTemplate.opsForValue().set(RECOMMEND_CACHE_KEY,
+                            objectMapper.writeValueAsString(allPlaylists), RECOMMEND_TTL);
+                }
+            } catch (Exception e) {
+                log.warn("推荐歌单缓存处理失败，回退到 API", e);
+                Map<String, Object> result = neteaseApiService.personalizedPlaylists(30);
+                if (result == null) return Result.ok(List.of());
+                allPlaylists = ((List<Map<String, Object>>) result.get("result"))
+                        .stream().map(p -> {
+                            Map<String, Object> m = new HashMap<>();
+                            m.put("id", p.get("id"));
+                            m.put("name", String.valueOf(p.getOrDefault("name", "")));
+                            m.put("picUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                            m.put("copywriter", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
+                            m.put("playCount", p.getOrDefault("playCount", 0));
+                            return m;
+                        }).collect(Collectors.toList());
+            }
 
-            // 随机打乱取前 6 个
-            List<Map<String, Object>> shuffled = new ArrayList<>(list);
+            if (allPlaylists.isEmpty()) return Result.ok(List.of());
+
+            // 2. 随机打乱取 6 个
+            List<Map<String, Object>> shuffled = new ArrayList<>(allPlaylists);
             Collections.shuffle(shuffled);
-            List<Map<String, Object>> selected = shuffled.stream().limit(6).collect(Collectors.toList());
-
-            List<Map<String, Object>> playlists = selected.stream().map(p -> {
+            List<Map<String, Object>> playlists = shuffled.stream().limit(6).map(p -> {
                 Map<String, Object> m = new HashMap<>();
                 m.put("id", p.get("id"));
                 m.put("name", String.valueOf(p.getOrDefault("name", "")));

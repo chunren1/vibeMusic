@@ -13,7 +13,7 @@
           ┌────────────┴────────────┐
           ▼                         ▼
 ┌──────────────────┐    ┌──────────────────────────┐
-│  Vue 3 + Vite     │    │  Spring Boot 4 + Java 21  │
+│  Vue 3 + Vite     │    │  Spring Boot 4 + Java 17  │
 │  构建产物 (dist/)  │    │  MyBatis-Plus + JWT       │
 │  + Capacitor APK  │    │  (localhost:8080)         │
 └──────────────────┘    └──────────┬───────────────┘
@@ -73,9 +73,11 @@ vibeMusic/
 │   └── src/
 │       ├── views/                  # 桌面端 (/) + 移动端 (/m) 视图
 │       ├── components/             # PlayerBar, LyricsView, LoginModal + mobile/ 组件
+│       │   └── __tests__/          # PlayerBar 组件单测 (20 cases)
 │       ├── stores/                 # Pinia: auth, player, favorite, recommend
 │       │   └── __tests__/          # PlayerStore 单测 (21 cases)
-│       ├── composables/            # useAudioBackground, useVirtualList, useIsMobile
+│       ├── composables/            # useAudioBackground, useClickOutside, useIsMobile, useToast, useVirtualList
+├── test-setup.js                # 测试全局配置 (Mock Audio/composables/API)
 │       ├── directives/             # v-lazy-img 图片懒加载指令
 │       ├── router/                 # 路由定义（桌面/移动自动分流）
 │       └── api/                    # Axios 封装 + 接口定义
@@ -192,7 +194,7 @@ npm run tunnel           # 启动 cpolar http 5173（需先安装 cpolar）
 | `npm run dev` | 并发启动 musicapi + 前端 |
 | `npm run dev:api` | 单独启动 musicapi |
 | `npm run dev:web` | 单独启动前端 |
-| `npm run test` | 全量测试（后端 42 + 前端 21） |
+| `npm run test` | 全量测试（后端 42 + 前端 41） |
 | `npm run test:backend` | 后端 Maven 测试 |
 | `npm run test:frontend` | 前端 Vitest 测试 |
 | `npm run docker:dev` | 开发模式：启动中间件 (不拉 backend/musicapi) |
@@ -429,7 +431,7 @@ docker exec -i vibemusic-mysql mysql -uroot -p123456 vibemusic < vibemusic_20260
 ## 测试体系
 
 ```
-全链路 60+2 条测试
+全链路 83 条测试
 ├── 后端 42 条 (JUnit 5 + MockMvc + H2 内存数据库)
 │   ├── 单元测试 25+2 条 (2 条因 MySQL ON DUPLICATE KEY 语法 H2 不支持而跳过)
 │   │   ├── UserServiceTest        (9)  注册/登录/修改密码/更新资料
@@ -440,8 +442,9 @@ docker exec -i vibemusic-mysql mysql -uroot -p123456 vibemusic < vibemusic_20260
 │   └── 集成测试 15 条 (MockMvc)
 │       ├── AuthControllerTest      (4)  注册校验/未登录拦截
 │       └── SongControllerTest     (11)  搜索/播放/流/歌词/健康检查
-├── 前端 21 条 (Vitest + jsdom)
-│   └── PlayerStore Test           (21) 队列操作/切歌/模式/持久化
+├── 前端 41 条 (Vitest + jsdom)
+│   ├── PlayerStore Test           (21) 队列操作/切歌/模式/持久化
+│   └── PlayerBar Test             (20) 渲染/面板/控制/音量
 └── CI 自动化 (GitHub Actions)
     └── push/PR → 自动跑后端 + 前端测试
 ```
@@ -481,6 +484,38 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 |--------|------|
 | PlaylistMapper 去重 | 移除 Java @Select 注解中与 XML 完全重复的 SQL，统一在 XML 维护 |
 | 索引依赖标注 | XML 注释说明 `idx_user_created` + `idx_pl_added` 索引对关联子查询的加速原理 |
+
+#### ⚡ I/O 性能优化
+| 改进项 | 说明 |
+|--------|------|
+| DownloadService 事务拆分 | HTTP/文件 I/O 移出事务外（30s+），DB 持久化在短事务内（<50ms） |
+| RecommendService statObject → DB | `markOfflineStatus()` 从 N 次 MinIO statObject 改为 1 次 DB 批量查询 |
+| 播放 RustFS 缓存 | `SongPlayService.isCachedInRustFS()` Redis 缓存 exists 结果 (TTL 10min) |
+| AI 助手 SSE 流式 | 新增 `POST /api/assistant/stream`，逐 token 推送减少线程阻塞 |
+| Stream buffer 升级 | `StreamUtils` 8KB → 64KB 提升吞吐量 |
+| Redis pool 优化 | lettuce max-active 8→20, min-idle 0→2 |
+
+#### 💾 API 调用缓存
+| 改进项 | 说明 |
+|--------|------|
+| 歌词缓存 | `SongController.lyric` Redis TTL 365天，一次拉取永久复用 |
+| 首页轮播缓存 | `SongController.banner` TTL 2h |
+| 歌单详情缓存 | `PlaylistController.detail` TTL 6h |
+| 推荐歌单缓存 | `PlaylistController.recommend` 缓存原始 30 个精选 (TTL 3h)，每次随机取 6 |
+| API 死代码清理 | `NeteaseApiService` 删除 4 个无调用者的方法 + 废弃的 `downloadSong(byte[])` |
+
+#### 🧪 前端组件测试
+| 改进项 | 说明 |
+|--------|------|
+| 测试 setup | `src/test-setup.js` 全局 Mock (Audio/composables/API/ResizeObserver/SvgIcon) |
+| PlayerBar 组件测试 | 20 条用例：渲染/播放列表面板展开收起/播放控制/音量/时间格式化 |
+| 前端测试总数 | 21 → 41 条 |
+
+#### 🎯 UI 交互优化
+| 改进项 | 说明 |
+|--------|------|
+| 播放列表外部收起 | `useClickOutside` 组合式函数，点击面板外部自动关闭 |
+| 应用范围 | `PlayerBar.vue` + `LyricsView.vue` 播放队列面板均支持，组件卸载时自动移除监听 |
 
 ---
 

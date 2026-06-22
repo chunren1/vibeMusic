@@ -9,7 +9,7 @@ import java.io.OutputStream;
  */
 public class StreamUtils {
 
-    private static final int BUFFER_SIZE = 8192;
+    private static final int BUFFER_SIZE = 65536; // 64KB，提升流拷贝吞吐量
 
     /**
      * 流拷贝（带缓冲），完成后自动 flush
