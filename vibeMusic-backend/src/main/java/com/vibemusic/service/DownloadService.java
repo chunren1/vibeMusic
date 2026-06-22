@@ -105,14 +105,4 @@ public class DownloadService {
                                String rustfsUrl) {
         songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
     }
-
-    /**
-     * @deprecated 请使用拆分后的 {@link #download(String, String, String, String, String, Integer, String)}
-     */
-    @Deprecated
-    private String __unused_doDownload(String sourceId, String name, String artist,
-                              String album, String coverUrl, Integer duration,
-                              String level) {
-        throw new UnsupportedOperationException("Use download() instead");
-    }
 }
