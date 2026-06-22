@@ -10,13 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -36,7 +32,6 @@ import java.util.stream.Collectors;
 public class AssistantController {
 
     private final RestTemplate restTemplate;
-    private final RestClient restClient;
     private final SongSearchService songSearchService;
     private final ObjectMapper objectMapper;
     private final String apiKey;
@@ -44,12 +39,10 @@ public class AssistantController {
     private static final String MODEL = "deepseek-ai/DeepSeek-V4-Flash";
 
     public AssistantController(RestTemplate restTemplate,
-                               RestClient.Builder restClientBuilder,
                                SongSearchService songSearchService,
                                ObjectMapper objectMapper,
                                @Value("${ai.api-key:}") String apiKey) {
         this.restTemplate = restTemplate;
-        this.restClient = restClientBuilder.build();
         this.songSearchService = songSearchService;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
@@ -142,10 +135,10 @@ public class AssistantController {
     }
 
     /**
-     * 流式调用 LLM，逐 token 通过 emitter 推送
+     * 调用 LLM 并逐 token 推送到前端
      * <p>
-     * 使用 RestClient exchange() 逐行读取 SiliconFlow SSE 响应，
-     * token 到达即推送到前端，实现真正的流式输出。
+     * RestTemplate 不支持真正的流式读取，但通过收到完整响应后立即逐 token
+     * 发送给前端，模拟流式体验（用户看到文字逐字出现，延迟可接受）。
      */
     @SuppressWarnings("unchecked")
     private String callLLMStreaming(String userMessage, String context, SseEmitter emitter) {
@@ -159,7 +152,6 @@ public class AssistantController {
         ));
         requestBody.put("max_tokens", 600);
         requestBody.put("temperature", 0.7);
-        requestBody.put("stream", true);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -167,38 +159,42 @@ public class AssistantController {
 
         StringBuilder fullReply = new StringBuilder();
         try {
-            // RestClient.exchange() 回调中逐行读取响应流 — 真正的流式
-            return restClient.post()
-                    .uri(API_URL)
-                    .headers(h -> h.addAll(headers))
-                    .body(requestBody)
-                    .exchange((req, resp) -> {
-                        if (!resp.getStatusCode().is2xxSuccessful()) {
-                            throw new RuntimeException("AI API HTTP " + resp.getStatusCode());
-                        }
-                        try (BufferedReader reader = new BufferedReader(
-                                new InputStreamReader(resp.getBody(), StandardCharsets.UTF_8))) {
-                            String line;
-                            while ((line = reader.readLine()) != null) {
-                                if (!line.startsWith("data: ") || line.contains("[DONE]")) continue;
-                                String json = line.substring(6);
-                                try {
-                                    Map<String, Object> chunk = objectMapper.readValue(json, Map.class);
-                                    List<Map<String, Object>> choices = (List<Map<String, Object>>) chunk.get("choices");
-                                    if (choices == null || choices.isEmpty()) continue;
-                                    Map<String, Object> delta = (Map<String, Object>) choices.get(0).get("delta");
-                                    if (delta == null) continue;
-                                    String content = (String) delta.get("content");
-                                    if (content == null || content.isEmpty()) continue;
-                                    fullReply.append(content);
-                                    sendEvent(emitter, "token", Map.of("content", content));
-                                } catch (Exception ignored) {}
-                            }
-                        }
-                        return fullReply.toString();
-                    });
+            // 非流式请求获取完整回复（RestTemplate 可靠）
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                    API_URL, new HttpEntity<>(requestBody, headers), Map.class);
+
+            Map<String, Object> body = response.getBody();
+            if (body == null) {
+                String fallback = "我现在有点迷糊，稍等再聊～";
+                sendEvent(emitter, "token", Map.of("content", fallback));
+                return fallback;
+            }
+
+            List<Map<String, Object>> choices = (List<Map<String, Object>>) body.get("choices");
+            if (choices == null || choices.isEmpty()) {
+                String fallback = "网络不太好，再问我一次吧～";
+                sendEvent(emitter, "token", Map.of("content", fallback));
+                return fallback;
+            }
+
+            Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+            String fullContent = (String) message.get("content");
+            if (fullContent == null || fullContent.isEmpty()) {
+                String fallback = "...";
+                sendEvent(emitter, "token", Map.of("content", fallback));
+                return fallback;
+            }
+
+            // 逐字发送：模拟流式体验
+            for (int i = 0; i < fullContent.length(); i++) {
+                String token = String.valueOf(fullContent.charAt(i));
+                fullReply.append(token);
+                sendEvent(emitter, "token", Map.of("content", token));
+            }
+
+            log.info("LLM 回复完成: {} 字", fullReply.length());
         } catch (Exception e) {
-            log.warn("LLM 流式调用异常: {}", e.getMessage());
+            log.warn("LLM 调用异常: {}", e.getMessage());
             if (fullReply.isEmpty()) {
                 fullReply.append("网络不太好，再问我一次吧～");
                 sendEvent(emitter, "token", Map.of("content", fullReply.toString()));
