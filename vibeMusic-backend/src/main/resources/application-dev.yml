@@ -8,9 +8,5 @@ logging:
     org.springframework.security: debug
     org.springframework.web: debug
 
-mybatis-plus:
-  configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 开发环境打印 SQL
-
 knife4j:
   enable: true

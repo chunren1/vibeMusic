@@ -105,4 +105,3 @@ CREATE TABLE IF NOT EXISTS play_history (
 -- 初始化完成
 -- ==========================================
 SELECT 'vibeMusic 数据库初始化完成!' AS status;
-SHOW TABLES;

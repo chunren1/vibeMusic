@@ -61,10 +61,10 @@ public class PlaylistController {
         result.put("id", String.valueOf(pl.get("id")));
         result.put("name", pl.get("name"));
         result.put("description", pl.getOrDefault("description", ""));
-        result.put("coverUrl", pl.getOrDefault("coverImgUrl", ""));
+        result.put("coverUrl", String.valueOf(pl.getOrDefault("coverImgUrl", "")).replace("http://", "https://"));
         Map<String, Object> creator = (Map<String, Object>) pl.get("creator");
         result.put("creator", Map.of("name", creator != null ? creator.getOrDefault("nickname", "") : "",
-                "avatar", creator != null ? creator.getOrDefault("avatarUrl", "") : ""));
+                "avatar", creator != null ? String.valueOf(creator.getOrDefault("avatarUrl", "")).replace("http://", "https://") : ""));
         result.put("playCount", pl.getOrDefault("playCount", 0));
         result.put("songCount", pl.getOrDefault("trackCount", 0));
         result.put("source", source);
@@ -79,7 +79,7 @@ public class PlaylistController {
                 s.put("artist", ar != null ? ar.stream().map(a -> String.valueOf(a.get("name"))).collect(Collectors.joining("/")) : "");
                 Map<String, Object> al = (Map<String, Object>) t.get("al");
                 s.put("album", al != null ? al.get("name") : "");
-                s.put("coverUrl", al != null ? al.get("picUrl") : "");
+                s.put("coverUrl", al != null ? String.valueOf(al.get("picUrl")).replace("http://", "https://") : "");
                 Object dt = t.get("dt");
                 s.put("duration", dt instanceof Number ? ((Number) dt).intValue() / 1000 : 0);
                 songs.add(s);
@@ -116,7 +116,7 @@ public class PlaylistController {
                         Map<String, Object> m = new HashMap<>();
                         m.put("id", p.get("id"));
                         m.put("name", String.valueOf(p.getOrDefault("name", "")));
-                        m.put("picUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                        m.put("picUrl", String.valueOf(p.getOrDefault("picUrl", "")).replace("http://", "https://"));
                         m.put("copywriter", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                         m.put("playCount", p.getOrDefault("playCount", 0));
                         return m;
@@ -149,7 +149,7 @@ public class PlaylistController {
                 Map<String, Object> m = new HashMap<>();
                 m.put("id", p.get("id"));
                 m.put("name", String.valueOf(p.getOrDefault("name", "")));
-                m.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")));
+                m.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")).replace("http://", "https://"));
                 m.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                 m.put("count", p.getOrDefault("playCount", 0));
                 m.put("source", "netease");
@@ -223,5 +223,40 @@ public class PlaylistController {
         if (userId == null) return Result.error(401, "请先登录");
         playlistService.delete(userId, playlistId);
         return Result.ok();
+    }
+
+    /** 导入外部歌单到我的歌单（一键收藏） */
+    @PostMapping("/import")
+    @SuppressWarnings("unchecked")
+    public Result<Map<String, Object>> importPlaylist(@RequestBody Map<String, Object> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        String source = (String) body.get("source");
+        String id = (String) body.get("id");
+        if (source == null || id == null) return Result.error("缺少 source 或 id 参数");
+        log.info("导入歌单请求: userId={}, source={}, id={}", userId, source, id);
+
+        // 1. 获取歌单详情
+        Result<Map<String, Object>> detailResult = detail(source, id);
+        if (detailResult.getCode() != 200 || detailResult.getData() == null) {
+            return Result.error(404, "歌单不存在或获取失败");
+        }
+        Map<String, Object> playlistData = detailResult.getData();
+        String name = (String) playlistData.get("name");
+        String coverUrl = (String) playlistData.get("coverUrl");
+        List<Map<String, Object>> songs = (List<Map<String, Object>>) playlistData.get("songs");
+        log.info("导入歌单详情: name={}, songCount={}", name, songs != null ? songs.size() : 0);
+
+        if (songs == null || songs.isEmpty()) return Result.error("歌单中没有歌曲");
+
+        // 2. 导入到用户歌单
+        int count = playlistService.importPlaylist(userId, name, coverUrl, songs);
+        log.info("导入歌单完成: userId={}, name={}, imported={}/{}", userId, name, count, songs.size());
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("imported", count);
+        result.put("total", songs.size());
+        result.put("name", name);
+        return Result.ok(result);
     }
 }

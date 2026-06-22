@@ -20,13 +20,8 @@ public class CorsConfig {
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // 允许的来源（本地 + 内网穿透等外部域名）
-        config.setAllowedOriginPatterns(Arrays.asList(
-                "http://localhost:*",
-                "http://127.0.0.1:*",
-                "https://*.vibemusic.abrdns.com",
-                "https://*.trycloudflare.com"
-        ));
+        // 允许所有来源
+        config.setAllowedOriginPatterns(Arrays.asList("*"));
 
         // 允许携带 Cookie（如果需要的话）
         config.setAllowCredentials(true);

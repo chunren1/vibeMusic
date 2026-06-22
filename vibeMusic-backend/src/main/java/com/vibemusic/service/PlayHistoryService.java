@@ -61,7 +61,8 @@ public class PlayHistoryService {
                     m.put("sourceId", h.getSourceId());
                     m.put("songName", h.getSongName());
                     m.put("artist", h.getArtist());
-                    m.put("coverUrl", h.getCoverUrl());
+                    String c = h.getCoverUrl();
+                    m.put("coverUrl", c != null ? c.replace("http://", "https://") : "");
                     m.put("playedAt", h.getPlayedAt());
                     return m;
                 })

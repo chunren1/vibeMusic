@@ -54,6 +54,9 @@ public class AssistantController {
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
         String songContext = (String) body.getOrDefault("context", "");
 
+        // 输入校验
+        if (userMessage != null && userMessage.length() > 2000) return Result.error("消息过长，请限制在 2000 字以内");
+
         if (apiKey == null || apiKey.isBlank()) {
             return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY", "model", MODEL));
         }
@@ -89,9 +92,16 @@ public class AssistantController {
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "AI 流式聊天（SSE，逐字输出）")
     public SseEmitter streamChat(@RequestBody Map<String, Object> body) {
-        SseEmitter emitter = new SseEmitter(30_000L); // 30s 超时
+        SseEmitter emitter = new SseEmitter(30_000L);
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
         String songContext = (String) body.getOrDefault("context", "");
+
+        // 输入校验
+        if (userMessage != null && userMessage.length() > 2000) {
+            sendEvent(emitter, "error", Map.of("message", "消息过长，请限制在 2000 字以内"));
+            emitter.complete();
+            return emitter;
+        }
 
         if (apiKey == null || apiKey.isBlank()) {
             sendEvent(emitter, "error", Map.of("message", "AI_API_KEY 未配置"));

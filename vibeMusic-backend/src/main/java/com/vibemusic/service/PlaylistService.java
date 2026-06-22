@@ -68,7 +68,12 @@ public class PlaylistService {
     }
 
     public List<Map<String, Object>> listPlaylists(Long userId) {
-        return playlistMapper.listPlaylistsWithStats(userId).stream()
+        List<Map<String, Object>> rows = playlistMapper.listPlaylistsWithStats(userId);
+        log.info("查询歌单列表: userId={}, 原始行数={}", userId, rows.size());
+        if (!rows.isEmpty()) {
+            log.info("首条数据示例: {}", rows.get(0));
+        }
+        return rows.stream()
                 .map(PlaylistDTO::fromRow)
                 .map(PlaylistDTO::toMap)
                 .collect(Collectors.toList());
@@ -124,7 +129,9 @@ public class PlaylistService {
             m.put("sourceId", s.getSourceId());
             m.put("songName", s.getSongName());
             m.put("artist", s.getArtist());
-            m.put("coverUrl", s.getCoverUrl());
+            // 升级 HTTP → HTTPS，防止手机通过 HTTPS 隧道时混合内容被浏览器拦截
+            String cover = s.getCoverUrl();
+            m.put("coverUrl", cover != null ? cover.replace("http://", "https://") : "");
             m.put("duration", s.getDuration());
             m.put("addedAt", s.getAddedAt());
             return m;
@@ -138,5 +145,38 @@ public class PlaylistService {
         if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
         songMapper.delete(new LambdaQueryWrapper<PlaylistSong>().eq(PlaylistSong::getPlaylistId, playlistId));
         playlistMapper.deleteById(playlistId);
+    }
+
+    /**
+     * 导入外部歌单：创建歌单 + 批量添加歌曲
+     * @return 导入的歌曲数量
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int importPlaylist(Long userId, String name, String coverUrl,
+                              List<Map<String, Object>> songs) {
+        // 1. 创建歌单
+        Playlist pl = Playlist.builder().userId(userId).name(name)
+                .description("从推荐歌单导入").build();
+        playlistMapper.insert(pl);
+        // 2. 批量添加歌曲（跳过重复）
+        int added = 0;
+        for (Map<String, Object> s : songs) {
+            try {
+                PlaylistSong ps = PlaylistSong.builder()
+                        .playlistId(pl.getId())
+                        .sourceId(String.valueOf(s.get("id")))
+                        .songName(String.valueOf(s.getOrDefault("name", "")))
+                        .artist(String.valueOf(s.getOrDefault("artist", "")))
+                        .coverUrl(String.valueOf(s.getOrDefault("coverUrl", "")))
+                        .duration(s.get("duration") instanceof Number n ? n.intValue() : 0)
+                        .build();
+                songMapper.insert(ps);
+                added++;
+            } catch (DuplicateKeyException ignored) {
+                // 唯一索引兜底，跳过重复歌曲
+            }
+        }
+        log.info("用户 {} 导入歌单 [{}] ({} 首歌曲)", userId, name, added);
+        return added;
     }
 }

@@ -227,7 +227,7 @@ public class SongSearchService {
             List<Song> dbSongs = songMapper.findRandomSongs(need, offset);
             List<SongDTO> dbDtos = dbSongs.stream().map(s -> SongDTO.builder()
                     .sourceId(s.getSourceId()).name(s.getName()).artist(s.getArtist())
-                    .album(s.getAlbum()).coverUrl(s.getCoverUrl()).duration(s.getDuration()).build()
+                    .album(s.getAlbum()).coverUrl(s.getCoverUrl() != null ? s.getCoverUrl().replace("http://", "https://") : null).duration(s.getDuration()).build()
             ).collect(Collectors.toList());
             songs.addAll(dbDtos);
         }
