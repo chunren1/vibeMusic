@@ -13,6 +13,7 @@ const messages = ref([])
 const inputText = ref('')
 const loading = ref(false)
 const chatBox = ref(null)
+const abortCtrl = ref(null)
 
 const greeting = '嗨！我是 vibe 音乐精灵 🎵 想听什么歌？过什么心情？告诉我，我来帮你找～'
 
@@ -41,16 +42,28 @@ async function doSend() {
   const current = player.currentSong
   const context = current?.title ? `${current.title} - ${current.artist || ''}` : ''
 
+  abortCtrl.value = new AbortController()
   try {
-    const res = await request.post('/assistant/chat', { message: text, context })
+    const res = await request.post('/assistant/chat', { message: text, context }, { signal: abortCtrl.value.signal })
     aiMsg.content = res.data.reply || '让我想想...'
     aiMsg.songs = res.data.songs || []
-  } catch {
-    aiMsg.content = '抱歉，网络不太稳定，再试一次？'
+  } catch (e) {
+    if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') {
+      aiMsg.content = '（已停止生成）'
+    } else {
+      aiMsg.content = '抱歉，网络不太稳定，再试一次？'
+    }
   } finally {
     aiMsg.thinking = false
     loading.value = false
+    abortCtrl.value = null
     scrollBottom()
+  }
+}
+
+function stopGeneration() {
+  if (abortCtrl.value) {
+    abortCtrl.value.abort()
   }
 }
 
@@ -149,8 +162,11 @@ onMounted(() => {
         placeholder="输入想听的歌，或描述你的心情..."
         :disabled="loading"
       />
-      <button @click="doSend" :disabled="loading || !inputText.trim()">
+      <button v-if="!loading" @click="doSend" :disabled="!inputText.trim()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+      </button>
+      <button v-else class="stop-btn" @click="stopGeneration" title="停止生成">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
       </button>
     </div>
   </div>
@@ -292,6 +308,8 @@ onMounted(() => {
 }
 .chat-input button:hover { background: #28a86b; }
 .chat-input button:disabled { background: #ccc; cursor: default; }
+.chat-input .stop-btn { background: #e04040; }
+.chat-input .stop-btn:hover { background: #c53030; }
 
 @media (max-width: 768px) {
   .chat-page { padding: 0 16px; }

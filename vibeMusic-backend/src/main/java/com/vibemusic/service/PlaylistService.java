@@ -99,6 +99,13 @@ public class PlaylistService {
         Playlist pl = playlistMapper.selectById(playlistId);
         if (pl == null) throw new BusinessException(404, "歌单不存在");
         if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
+
+        // 去重预检：已存在则直接返回 false，避免抛异常开销
+        boolean exists = songMapper.exists(new LambdaQueryWrapper<PlaylistSong>()
+                .eq(PlaylistSong::getPlaylistId, playlistId)
+                .eq(PlaylistSong::getSourceId, sourceId));
+        if (exists) return false;
+
         PlaylistSong ps = PlaylistSong.builder()
                 .playlistId(playlistId).sourceId(sourceId).songName(songName)
                 .artist(artist).coverUrl(coverUrl).duration(duration).build();
@@ -106,7 +113,7 @@ public class PlaylistService {
             songMapper.insert(ps);
             return true;
         } catch (DuplicateKeyException e) {
-            return false; // 唯一索引兜底：同一歌单不重复添加
+            return false; // 唯一索引兜底：并发场景下仍按约束拒绝
         }
     }
 
@@ -145,6 +152,19 @@ public class PlaylistService {
         if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
         songMapper.delete(new LambdaQueryWrapper<PlaylistSong>().eq(PlaylistSong::getPlaylistId, playlistId));
         playlistMapper.deleteById(playlistId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int deleteBatch(Long userId, List<Long> playlistIds) {
+        int count = 0;
+        for (Long pid : playlistIds) {
+            Playlist pl = playlistMapper.selectById(pid);
+            if (pl == null || !pl.getUserId().equals(userId)) continue;
+            songMapper.delete(new LambdaQueryWrapper<PlaylistSong>().eq(PlaylistSong::getPlaylistId, pid));
+            playlistMapper.deleteById(pid);
+            count++;
+        }
+        return count;
     }
 
     /**
