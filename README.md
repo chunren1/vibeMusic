@@ -1,6 +1,6 @@
 # vibeMusic
 
-全栈音乐学习项目，模拟网易云音乐核心体验。不依赖第三方破解，使用自有 VIP 账号合法获取高品质音乐。
+自建全栈音乐平台，支持网易云 + QQ 音乐双源聚合搜索与高品质播放。不依赖第三方破解，使用自有 VIP 账号合法获取音乐资源。
 
 ## 技术架构
 
@@ -460,6 +460,29 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 ---
 
 ## 代码审查改进记录
+
+### 2026-06-22 MySQL 性能优化
+
+#### 🔍 慢查询监控
+| 改进项 | 说明 |
+|--------|------|
+| MySQL slow_query_log | 开启慢查询日志，`long_query_time=1`，未使用索引的查询一并记录 |
+| 日志落盘 | 输出到 `/var/lib/mysql/slow.log`，配合 Docker 日志驱动轮转 |
+
+#### 📊 索引优化
+| 改进项 | 说明 |
+|--------|------|
+| 删除冗余索引 x3 | `playlist_song.idx_playlist_id` / `user_favorite.idx_user_id` / `play_history.idx_user_id` 均被联合索引前缀覆盖 |
+| 新增索引 x2 | `song.idx_name(50)` 歌曲名搜索 + `song.idx_created_at` 排序查询，Flyway V2 迁移 |
+| Flyway V2__optimize.sql | 新增数据库迁移脚本，随后端启动自动执行 |
+
+#### 🧹 SQL 优化
+| 改进项 | 说明 |
+|--------|------|
+| PlaylistMapper 去重 | 移除 Java @Select 注解中与 XML 完全重复的 SQL，统一在 XML 维护 |
+| 索引依赖标注 | XML 注释说明 `idx_user_created` + `idx_pl_added` 索引对关联子查询的加速原理 |
+
+---
 
 ### 2026-06-16 第二轮优化 (后端 9 项 + 前端 2 项)
 

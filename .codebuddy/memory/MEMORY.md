@@ -20,6 +20,14 @@
 - 缓存键前缀 `song:search:v2:` (v2 是因为 v1 只有单平台数据)
 - 播放历史上限 300 条，自动清理旧数据
 
+## MySQL 优化 (2026-06-22)
+- MySQL 慢查询日志已开启：`long_query_time=1`，日志文件 `/var/lib/mysql/slow.log`
+- 删除了 3 个冗余索引（playlist_song.idx_playlist_id, user_favorite.idx_user_id, play_history.idx_user_id）
+- 新增 2 个索引：song.idx_name(50), song.idx_created_at
+- PlaylistMapper 删除了 Java 和 XML 中的重复 SQL，统一在 XML 维护
+- ORM: MyBatis-Plus + HikariCP（未引入 Druid）
+- Flyway 迁移：V2__optimize.sql
+
 ## 当前架构状态
 - musicapi (端口 3000): 提供 `/search` 多平台聚合搜索、`/cloudsearch` 网易云单平台、`/song/url/qq` QQ播放URL
 - 聚合搜索算法: 网易云权重 1.0，QQ 权重 0.9，同名歌曲 bonus 0.3

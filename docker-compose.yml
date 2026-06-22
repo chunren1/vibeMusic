@@ -33,6 +33,12 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+08:00
+      # 慢查询日志（超过 1 秒记录）
+      - --slow_query_log=ON
+      - --slow_query_log_file=/var/lib/mysql/slow.log
+      - --long_query_time=1
+      - --log_queries_not_using_indexes=ON
+      - --log_slow_admin_statements=ON
     networks:
       - vibemusic-net
     healthcheck:
