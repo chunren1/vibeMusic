@@ -2,6 +2,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { getLyric, downloadSong as apiDownload } from '@/api/song'
 import { API_HOST } from '@/api/request'
+import { useClickOutside } from '@/composables/useClickOutside'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
 
@@ -228,6 +229,9 @@ const modeLabel = computed(() => player.modeLabels[player.playMode] || '列表�
 
 // ===== 播放列表 =====
 const showPlaylist = ref(false)
+const lyricsPlaylistPanelRef = ref(null)
+const lyricsPlaylistToggleRef = ref(null)
+useClickOutside(lyricsPlaylistPanelRef, () => { showPlaylist.value = false }, { exclude: [lyricsPlaylistToggleRef] })
 
 // ===== 收藏 =====
 const isFav = computed(() => favStore.isFav(props.currentSong.id))
@@ -476,7 +480,7 @@ function close() { emit('update:visible', false) }
                   <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
                 </div>
               </div>
-              <button class="act-icon" :class="{ active: showPlaylist }" @click="showPlaylist = !showPlaylist" title="播放列表">
+              <button ref="lyricsPlaylistToggleRef" class="act-icon" :class="{ active: showPlaylist }" @click="showPlaylist = !showPlaylist" title="播放列表">
                 <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
               </button>
             </div>
@@ -485,7 +489,7 @@ function close() { emit('update:visible', false) }
 
         <!-- 播放列表面板 -->
         <Transition name="panel-slide">
-          <div v-if="showPlaylist" class="playlist-panel">
+          <div v-if="showPlaylist" ref="lyricsPlaylistPanelRef" class="playlist-panel">
             <div class="panel-hd">
               <span>播放队列 ({{ player.queue.length }})</span>
               <button class="panel-close" @click="showPlaylist = false">

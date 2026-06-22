@@ -34,24 +34,10 @@ public class NeteaseApiService {
 
     // Cookie 已集中到 musicapi/config.js 统一管理，后端不再持有
 
-    public Map<String, Object> search(String keyword, int limit) {
-        URI uri = buildUri("/cloudsearch", "keywords", keyword, "limit", String.valueOf(limit));
-        log.info("调用网易云搜索: {} (limit={})", keyword, limit);
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
-        log.info("搜索 '{}' 返回 status={}", keyword, response.getStatusCode());
-        return response.getBody();
-    }
-
     public Map<String, Object> getSongUrl(String musicId, String level) {
         URI uri = buildUri("/song/url/v1", "id", musicId, "level", level != null ? level : "exhigh");
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
         log.info("获取歌曲 {} URL, level={}, status={}", musicId, level, response.getStatusCode());
-        return response.getBody();
-    }
-
-    public Map<String, Object> getSongDetail(String musicIds) {
-        URI uri = buildUri("/song/detail", "ids", musicIds);
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
         return response.getBody();
     }
 
@@ -73,13 +59,6 @@ public class NeteaseApiService {
         URI uri = buildUri("/qq/playlist", "id", id);
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
         log.info("获取QQ歌单: id={}, status={}", id, response.getStatusCode());
-        return response.getBody();
-    }
-
-    public Map<String, Object> aggregatedSearch(String keyword, int page, int size) {
-        URI uri = buildUri("/search", "keyword", keyword, "page", String.valueOf(page), "size", String.valueOf(size));
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
-        log.info("聚合搜索: {} page={} size={} status={}", keyword, page, size, response.getStatusCode());
         return response.getBody();
     }
 
@@ -114,21 +93,6 @@ public class NeteaseApiService {
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), Map.class);
         log.info("QQ播放URL: {} status={}", songmid, response.getStatusCode());
         return response.getBody();
-    }
-
-    /**
-     * @deprecated 请使用 {@link #downloadSongToFile(String)} 避免 OOM
-     */
-    @Deprecated
-    public byte[] downloadSong(String downloadUrl) {
-        try {
-            ResponseEntity<byte[]> response = restTemplate.exchange(downloadUrl, HttpMethod.GET, new HttpEntity<>(new HttpHeaders()), byte[].class);
-            log.info("下载完成: {} bytes", response.getBody() != null ? response.getBody().length : 0);
-            return response.getBody();
-        } catch (Exception e) {
-            log.error("下载失败: {}", e.getMessage());
-            throw new BusinessException(502, "歌曲下载失败");
-        }
     }
 
     /**

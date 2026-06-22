@@ -32,6 +32,9 @@ public class DownloadService {
 
     /**
      * 下载歌曲到 RustFS 并入库（线程安全）
+     * <p>
+     * 事务拆分：HTTP I/O（下载 mp3 + 上传 MinIO）在事务外完成，
+     * 仅 DB 持久化在短事务内执行，避免长事务阻塞连接池。
      */
     public String download(String sourceId, String name, String artist,
                            String album, String coverUrl, Integer duration,
@@ -39,37 +42,41 @@ public class DownloadService {
         ReentrantLock lock = downloadLocks.computeIfAbsent(sourceId, k -> new ReentrantLock());
         lock.lock();
         try {
-            return doDownload(sourceId, name, artist, album, coverUrl, duration, level);
+            // 阶段 1：HTTP/文件 I/O（锁保护，无事务）
+            String rustfsUrl = downloadAndUpload(sourceId, name, artist, album, coverUrl, duration, level);
+            // 阶段 2：DB 持久化（短事务，< 50ms）
+            persistToDb(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
+            return rustfsUrl;
         } finally {
             lock.unlock();
-            // 清理无等待者的锁，防止内存泄漏
             if (!lock.hasQueuedThreads()) {
                 downloadLocks.remove(sourceId, lock);
             }
         }
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    private String doDownload(String sourceId, String name, String artist,
-                              String album, String coverUrl, Integer duration,
-                              String level) {
-        // 1. 获取锁后再次检查缓存（双重检查，避免锁外已检查但结果过时）
+    /**
+     * 阶段 1：下载 + 上传 RustFS（无事务，HTTP I/O 可能耗时 30s+）
+     */
+    private String downloadAndUpload(String sourceId, String name, String artist,
+                                     String album, String coverUrl, Integer duration,
+                                     String level) {
         String objectName = "songs/" + sourceId + ".mp3";
+
+        // 双重检查：获取锁后再次检查 RustFS 缓存
         if (storageService.exists(objectName)) {
-            log.info("歌曲 {} 已缓存，直接入库", name);
-            String url = storageService.getDirectUrl(objectName);
-            songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, url);
-            return url;
+            log.info("歌曲 {} 已缓存，跳过下载", name);
+            return storageService.getDirectUrl(objectName);
         }
 
-        // 2. 获取播放链接（自动识别QQ/网易云平台）
+        // 获取播放链接
         log.info("获取播放链接: {} ({})", name, sourceId);
         String downloadUrl = songPlayService.getPlayUrl(sourceId);
         if (downloadUrl == null) {
             throw new BusinessException(502, "无法获取 VIP 播放链接");
         }
 
-        // 3. 流式下载并上传到 RustFS（避免全量加载到内存）
+        // 流式下载并上传到 RustFS
         log.info("流式下载中: {}", name);
         java.io.File tempFile = null;
         try {
@@ -78,11 +85,7 @@ public class DownloadService {
             try (java.io.FileInputStream fis = new java.io.FileInputStream(tempFile)) {
                 rustfsUrl = storageService.uploadStream(objectName, fis, tempFile.length(), "audio/mpeg");
             }
-
-            // 4. 存入 DB
-            songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
-
-            log.info("下载完成: {} -> RustFS", name);
+            log.info("下载上传完成: {} -> RustFS", name);
             return rustfsUrl;
         } catch (java.io.IOException e) {
             throw new BusinessException(500, "流式下载上传失败: " + name);
@@ -91,5 +94,25 @@ public class DownloadService {
                 tempFile.deleteOnExit();
             }
         }
+    }
+
+    /**
+     * 阶段 2：仅 DB 操作（短事务，无 HTTP I/O）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    protected void persistToDb(String sourceId, String name, String artist,
+                               String album, String coverUrl, Integer duration,
+                               String rustfsUrl) {
+        songService.saveDownloadedSong(sourceId, name, artist, album, coverUrl, duration, rustfsUrl);
+    }
+
+    /**
+     * @deprecated 请使用拆分后的 {@link #download(String, String, String, String, String, Integer, String)}
+     */
+    @Deprecated
+    private String __unused_doDownload(String sourceId, String name, String artist,
+                              String album, String coverUrl, Integer duration,
+                              String level) {
+        throw new UnsupportedOperationException("Use download() instead");
     }
 }

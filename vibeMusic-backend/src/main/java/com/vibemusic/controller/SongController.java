@@ -20,6 +20,8 @@ import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.client.RestClient;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Slf4j
 @RestController
@@ -36,6 +38,8 @@ public class SongController {
     private final RecommendService recommendService;
     private final ESSearchService esSearchService;
     private final RestClient.Builder restClientBuilder;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
 
     /** 共享 HTTP 客户端（复用 Apache HttpClient 5 连接池） */
     private RestClient restClient;
@@ -45,11 +49,22 @@ public class SongController {
         this.restClient = restClientBuilder.build();
     }
 
-    /** Banner 轮播（网易云推荐歌单） */
+    private static final String BANNER_CACHE_KEY = "banner:v2:home";
+    private static final java.time.Duration BANNER_TTL = java.time.Duration.ofHours(2);
+
+    /** Banner 轮播（网易云推荐歌单，Redis 缓存 2h） */
     @GetMapping("/banner")
     @Operation(summary = "首页轮播图")
     @SuppressWarnings("unchecked")
     public Result<List<Map<String, Object>>> banner() {
+        // 1. 查缓存
+        try {
+            String cached = stringRedisTemplate.opsForValue().get(BANNER_CACHE_KEY);
+            if (cached != null) {
+                return Result.ok(objectMapper.readValue(cached, List.class));
+            }
+        } catch (Exception ignored) {}
+
         try {
             Map<String, Object> result = neteaseApiService.personalizedPlaylists(5);
             List<Map<String, Object>> list = (List<Map<String, Object>>) result.get("result");
@@ -63,6 +78,12 @@ public class SongController {
                 b.put("playCount", p.getOrDefault("playCount", 0));
                 return b;
             }).collect(Collectors.toList());
+
+            // 2. 写缓存
+            try {
+                stringRedisTemplate.opsForValue().set(BANNER_CACHE_KEY, objectMapper.writeValueAsString(banners), BANNER_TTL);
+            } catch (Exception ignored) {}
+
             return Result.ok(banners);
         } catch (Exception e) {
             return Result.ok(List.of());
@@ -140,63 +161,91 @@ public class SongController {
         return Result.ok(playHistoryService.recent(userId, count));
     }
 
-    /** 获取歌词 */
+    private static final String LYRIC_CACHE_PREFIX = "lyric:v2:";
+    private static final java.time.Duration LYRIC_TTL = java.time.Duration.ofDays(365); // 歌词永久不变
+
+    /** 获取歌词（Redis 缓存，歌词数据永不变，一次拉取永久复用） */
     @GetMapping("/lyric")
     @Operation(summary = "获取歌曲歌词（自动识别网易云/QQ平台）")
     @SuppressWarnings("unchecked")
     public Result<List<Map<String, Object>>> lyric(@RequestParam String sourceId) {
+        // 1. 查 Redis 缓存
+        String cacheKey = LYRIC_CACHE_PREFIX + sourceId;
         try {
-            // 判断平台：包含字母 → QQ音乐ID，纯数字 → 网易云ID
+            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                if ("__EMPTY__".equals(cached)) return Result.ok(List.of());
+                List<Map<String, Object>> lines = objectMapper.readValue(cached, List.class);
+                return Result.ok(lines);
+            }
+        } catch (Exception e) {
+            log.warn("读取歌词缓存失败: sourceId={}", sourceId);
+        }
+
+        // 2. 通过 API 获取
+        try {
             boolean isQQ = sourceId.matches(".*[a-zA-Z]+.*");
             Map<String, Object> result;
             String lyricStr;
 
             if (isQQ) {
-                // QQ音乐歌词：通过 /qq/lyric?songmid=xxx 获取
                 result = neteaseApiService.getQQLyric(sourceId);
-                if (result == null) return Result.ok(List.of());
-                // QQ返回格式: {code:200, data:{lyric:"...", trans:"..."}}
+                if (result == null) { cacheEmpty(cacheKey); return Result.ok(List.of()); }
                 Map<String, Object> data = (Map<String, Object>) result.get("data");
-                if (data == null) return Result.ok(List.of());
+                if (data == null) { cacheEmpty(cacheKey); return Result.ok(List.of()); }
                 lyricStr = (String) data.get("lyric");
             } else {
-                // 网易云歌词：通过 /lyric?id=xxx 获取
                 result = neteaseApiService.getLyric(sourceId);
-                if (result == null) return Result.ok(List.of());
+                if (result == null) { cacheEmpty(cacheKey); return Result.ok(List.of()); }
                 Map<String, Object> lrc = (Map<String, Object>) result.get("lrc");
-                if (lrc == null) return Result.ok(List.of());
+                if (lrc == null) { cacheEmpty(cacheKey); return Result.ok(List.of()); }
                 lyricStr = (String) lrc.get("lyric");
             }
 
-            if (lyricStr == null || lyricStr.isEmpty()) return Result.ok(List.of());
+            if (lyricStr == null || lyricStr.isEmpty()) { cacheEmpty(cacheKey); return Result.ok(List.of()); }
 
-            // 解析 LRC 格式 → [{time, text}]
-            List<Map<String, Object>> lines = new ArrayList<>();
-            String[] parts = lyricStr.split("\\n");
-            for (String line : parts) {
-                line = line.trim();
-                if (line.isEmpty()) continue;
-                java.util.regex.Matcher m = java.util.regex.Pattern
-                        .compile("\\[(\\d{2}):(\\d{2})(?:\\.(\\d+))?\\](.*)")
-                        .matcher(line);
-                if (m.find()) {
-                    int min = Integer.parseInt(m.group(1));
-                    int sec = Integer.parseInt(m.group(2));
-                    int ms = m.group(3) != null ? Integer.parseInt(m.group(3)) : 0;
-                    String text = m.group(4).trim();
-                    double time = min * 60 + sec + ms / 1000.0;
-                    Map<String, Object> item = new HashMap<>();
-                    item.put("time", time);
-                    item.put("text", text.isEmpty() ? "♪" : text);
-                    lines.add(item);
-                }
-            }
+            List<Map<String, Object>> lines = parseLrc(lyricStr);
             log.info("歌词解析: sourceId={} platform={} lines={}", sourceId, isQQ ? "QQ" : "Netease", lines.size());
+
+            // 3. 写入 Redis 缓存
+            try {
+                stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(lines), LYRIC_TTL);
+            } catch (Exception e) { log.warn("写入歌词缓存失败: sourceId={}", sourceId); }
+
             return Result.ok(lines);
         } catch (Exception e) {
             log.error("获取歌词失败: {}", e.getMessage());
             return Result.ok(List.of());
         }
+    }
+
+    private void cacheEmpty(String cacheKey) {
+        try { stringRedisTemplate.opsForValue().set(cacheKey, "__EMPTY__", java.time.Duration.ofHours(1)); }
+        catch (Exception ignored) {}
+    }
+
+    private List<Map<String, Object>> parseLrc(String lyricStr) {
+        List<Map<String, Object>> lines = new ArrayList<>();
+        String[] parts = lyricStr.split("\\n");
+        for (String line : parts) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\\[(\\d{2}):(\\d{2})(?:\\.(\\d+))?\\](.*)")
+                    .matcher(line);
+            if (m.find()) {
+                int min = Integer.parseInt(m.group(1));
+                int sec = Integer.parseInt(m.group(2));
+                int ms = m.group(3) != null ? Integer.parseInt(m.group(3)) : 0;
+                String text = m.group(4).trim();
+                double time = min * 60 + sec + ms / 1000.0;
+                Map<String, Object> item = new HashMap<>();
+                item.put("time", time);
+                item.put("text", text.isEmpty() ? "♪" : text);
+                lines.add(item);
+            }
+        }
+        return lines;
     }
 
     /**
