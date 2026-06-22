@@ -1,16 +1,17 @@
 <script setup>
 import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import request from '@/api/request'
 import { usePlayerStore } from '@/stores/player'
 
 const router = useRouter()
 const player = usePlayerStore()
+const API_BASE = import.meta.env.VITE_API_HOST || ''
 
 const messages = ref([])
 const inputText = ref('')
 const loading = ref(false)
 const chatBox = ref(null)
+const streamingIdx = ref(-1)
 
 const greeting = '嗨！我是 vibe 音乐精灵 🎵 想听什么歌？告诉我吧～'
 
@@ -28,23 +29,82 @@ async function doSend() {
   inputText.value = ''
 
   messages.value.push({ role: 'user', content: text })
-  messages.value.push({ role: 'ai', content: '', typing: true })
+  const aiMsg = { role: 'ai', content: '', thinking: true, thinkingText: '🎵 搜歌中...', songs: [] }
+  messages.value.push(aiMsg)
+  streamingIdx.value = messages.value.length - 1
   scrollBottom()
-
   loading.value = true
+
   try {
-    const res = await request.post('/assistant/chat', { message: text })
-    const last = messages.value[messages.value.length - 1]
-    last.content = res.data.reply || '让我想想...'
-    last.typing = false
-    last.songs = res.data.songs || []
-    scrollBottom()
+    await streamChat(text, aiMsg)
   } catch {
-    const last = messages.value[messages.value.length - 1]
-    last.content = '网络不太稳，再试一次～'
-    last.typing = false
+    try {
+      aiMsg.thinkingText = '🔄 切换普通模式...'
+      const { default: request } = await import('@/api/request')
+      const res = await request.post('/assistant/chat', { message: text })
+      aiMsg.content = res.data.reply || '让我想想...'
+      aiMsg.songs = res.data.songs || []
+      aiMsg.thinking = false
+    } catch {
+      aiMsg.content = '网络不太稳，再试一次～'
+      aiMsg.thinking = false
+    }
   } finally {
     loading.value = false
+    streamingIdx.value = -1
+    aiMsg.thinking = false
+    if (!aiMsg.content) aiMsg.content = '...'
+    scrollBottom()
+  }
+}
+
+async function streamChat(message, aiMsg) {
+  const token = localStorage.getItem('auth_token')
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const resp = await fetch(`${API_BASE}/api/assistant/stream`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ message, context: '' }),
+  })
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = '', fullContent = '', gotFirstToken = false
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const event = JSON.parse(line.slice(6))
+        switch (event.type) {
+          case 'songs':
+            aiMsg.thinkingText = '💭 思考中...'
+            aiMsg.songs = event.list || []
+            scrollBottom()
+            break
+          case 'token':
+            if (!gotFirstToken) { aiMsg.thinking = false; gotFirstToken = true }
+            fullContent += event.content
+            aiMsg.content = fullContent
+            scrollBottom()
+            break
+          case 'done':
+            aiMsg.content = event.full || fullContent
+            break
+          case 'error':
+            aiMsg.content = event.message || 'AI 服务暂时不可用'
+            aiMsg.thinking = false
+            break
+        }
+      } catch {}
+    }
   }
 }
 
@@ -53,6 +113,8 @@ function playSong(song) {
 }
 
 function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0') }
+
+function isStreaming(idx) { return idx === streamingIdx.value }
 
 onMounted(() => {
   messages.value.push({ role: 'ai', content: greeting })
@@ -76,27 +138,32 @@ onMounted(() => {
         <div v-if="msg.role === 'ai'" class="m-ai">
           <div class="m-avatar">🎵</div>
           <div class="m-bubble ai">
-            <span v-if="msg.typing" class="typing"><i></i><i></i><i></i></span>
-            <template v-else>
-              <p>{{ msg.content }}</p>
-              <div v-if="msg.songs && msg.songs.length" class="m-cards">
-                <div
-                  v-for="song in msg.songs" :key="song.sourceId"
-                  class="m-card" @click="playSong(song)"
-                  :class="{ playing: player.currentSong?.id === song.sourceId && player.isPlaying }"
-                >
-                  <div class="mc-cover">
-                    <img v-if="song.coverUrl" :src="song.coverUrl + '?param=80y80'" />
-                    <span v-else>♪</span>
-                  </div>
-                  <div class="mc-info">
-                    <div class="mc-name">{{ song.name }}</div>
-                    <div class="mc-artist">{{ song.artist }}</div>
-                  </div>
-                  <span class="mc-time">{{ fmtSec(song.duration) }}</span>
+            <!-- 思考过程 -->
+            <div v-if="msg.thinking" class="thinking-line">
+              {{ msg.thinkingText || '🎵 搜歌中...' }}
+              <span class="think-dot" v-for="i in 3" :key="i" :style="{ animationDelay: (i-1)*0.2+'s' }">●</span>
+            </div>
+            <!-- 流式文本 -->
+            <p v-if="msg.content" :class="{ streaming: isStreaming(idx) }">{{ msg.content }}<span v-if="isStreaming(idx)" class="cursor">|</span></p>
+            <!-- 歌曲卡片 -->
+            <div v-if="msg.songs && msg.songs.length" class="m-cards">
+              <div class="m-cards-label">🎶 为你找到：</div>
+              <div
+                v-for="song in msg.songs" :key="song.sourceId"
+                class="m-card" @click="playSong(song)"
+                :class="{ playing: player.currentSong?.id === song.sourceId && player.isPlaying }"
+              >
+                <div class="mc-cover">
+                  <img v-if="song.coverUrl" :src="song.coverUrl + '?param=80y80'" loading="lazy" />
+                  <span v-else>♪</span>
                 </div>
+                <div class="mc-info">
+                  <div class="mc-name">{{ song.name }}</div>
+                  <div class="mc-artist">{{ song.artist }}</div>
+                </div>
+                <span class="mc-time">{{ fmtSec(song.duration) }}</span>
               </div>
-            </template>
+            </div>
           </div>
         </div>
         <div v-else class="m-bubble user"><p>{{ msg.content }}</p></div>
@@ -140,12 +207,16 @@ onMounted(() => {
 .m-bubble.user { background: #31c27c; color: #fff; border-bottom-right-radius: 4px; }
 .m-bubble p { margin: 0; }
 
-.typing { display: inline-flex; gap: 4px; padding: 4px 0; }
-.typing i { width: 5px; height: 5px; border-radius: 50%; background: #555; animation: dot 1.2s infinite; }
-.typing i:nth-child(2) { animation-delay: 0.2s; }
-.typing i:nth-child(3) { animation-delay: 0.4s; }
-@keyframes dot { 0%,60%,100% { opacity: 0.2; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
+/* 思考过程 */
+.thinking-line { font-size: 12px; color: #666; padding: 4px 0; display: flex; align-items: center; gap: 4px; }
+.think-dot { color: #31c27c; font-size: 8px; animation: bounce 1s ease-in-out infinite; }
+@keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
+/* 流式光标 */
+.cursor { color: #31c27c; animation: blink 0.6s step-end infinite; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+.m-cards-label { font-size: 11px; color: #555; margin-bottom: 4px; }
 .m-cards { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px; }
 .m-card {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;
