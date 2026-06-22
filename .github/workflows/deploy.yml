@@ -1,117 +1,61 @@
-# ============================================================
-# vibeMusic CD 自动部署
-# 触发条件：手动触发 或 推送 tag (v*)
-# ============================================================
+# vibeMusic 自动部署流水线
+# 触发: 手动触发 / 推送 tag (v*.*.*)
 name: Deploy
 
 on:
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: '部署环境'
-        required: true
-        default: 'production'
-        type: choice
-        options:
-          - production
-          - staging
+  workflow_dispatch:  # 手动触发
   push:
     tags:
-      - 'v*'
+      - 'v*'          # 推送 tag 如 v1.0.0 时自动部署
 
 jobs:
-  build-backend:
-    name: Build Backend JAR
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    outputs:
-      artifact: backend-jar
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
-          distribution: "temurin"
-          cache: maven
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Maven Package (skip tests, CI already ran)
-        run: mvn package -B -DskipTests
-        working-directory: vibeMusic-backend
-
-      - name: Upload JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-jar
-          path: vibeMusic-backend/target/*.jar
-          retention-days: 3
-
-  build-frontend:
-    name: Build Frontend
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node 20
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: vibemusic-web/package-lock.json
+          node-version: '20'
 
-      - name: Install & Build
-        run: |
-          npm ci
-          npm run build
-        working-directory: vibemusic-web
+      - name: Backend Tests
+        run: cd vibeMusic-backend && mvn test -B
 
-      - name: Upload dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: vibemusic-web/dist/
-          retention-days: 3
+      - name: Frontend Install & Test
+        run: cd vibemusic-web && npm ci && npm test
 
-  deploy:
-    name: Deploy to Server
-    needs: [build-backend, build-frontend]
+  build-and-deploy:
+    needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Backend JAR
-        uses: actions/download-artifact@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
-          name: backend-jar
-          path: vibeMusic-backend/target/
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Download Frontend dist
-        uses: actions/download-artifact@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          name: frontend-dist
-          path: vibemusic-web/dist/
+          node-version: '20'
 
-      - name: Build Docker Images
-        run: |
-          docker compose build --no-cache
-          docker compose push
+      - name: Build Backend JAR
+        run: cd vibeMusic-backend && mvn package -DskipTests -B
 
-      - name: Deploy
-        run: |
-          docker compose down
-          docker compose up -d --pull always
-          docker compose ps
+      - name: Build Frontend
+        run: cd vibemusic-web && npm ci && npm run build
 
-      - name: Health Check
-        run: |
-          echo "Waiting for services to be healthy..."
-          sleep 20
-          curl -sf http://localhost:80/ || echo "Nginx not ready"
-          curl -sf http://localhost:8080/actuator/health || echo "Backend not ready"
+      - name: Docker Compose Build
+        run: docker compose build
+
+      - name: Deploy Notification
+        run: echo "Build completed. Manual deployment required or configure auto-deploy target."

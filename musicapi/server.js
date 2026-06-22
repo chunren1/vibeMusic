@@ -791,7 +791,7 @@ app.use((err, req, res, next) => {
 
 // ==================== 启动 ====================
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  vibeMusic API v3`);
   console.log(`  http://localhost:${PORT}`);
@@ -800,3 +800,6 @@ app.listen(PORT, () => {
   console.log(`  日志: ./logs/ (api-errors / cookie / access)`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 });
+// HTTP keep-alive: 复用 TCP 连接，减少后端 → 网关握手开销
+server.keepAliveTimeout = 65000; // 略大于 nginx 默认 60s
+server.headersTimeout = 66000;
