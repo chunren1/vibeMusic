@@ -36,7 +36,7 @@ public class AssistantController {
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private static final String API_URL = "https://api.siliconflow.cn/v1/chat/completions";
-    private static final String MODEL = "Qwen/Qwen3.5-4B";
+    private static final String MODEL = "deepseek-ai/DeepSeek-V4-Flash";
 
     public AssistantController(RestTemplate restTemplate,
                                SongSearchService songSearchService,

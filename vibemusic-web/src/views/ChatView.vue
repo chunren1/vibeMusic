@@ -1,16 +1,18 @@
 <script setup>
 defineOptions({ name: 'ChatView' })
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, nextTick, onMounted, computed } from 'vue'
 import TopBar from '@/components/TopBar.vue'
-import request from '@/api/request'
 import { usePlayerStore } from '@/stores/player'
 
 const player = usePlayerStore()
+const API_BASE = import.meta.env.VITE_API_HOST || ''
 
 const messages = ref([])
 const inputText = ref('')
 const loading = ref(false)
 const chatBox = ref(null)
+// 当前正在流式输出的 AI 消息下标（用于逐 token 追加）
+const streamingIdx = ref(-1)
 
 const greeting = '嗨！我是 vibe 音乐精灵 🎵 想听什么歌？过什么心情？告诉我，我来帮你找～'
 
@@ -18,7 +20,6 @@ function scrollBottom() {
   nextTick(() => { if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight })
 }
 
-// 快捷提示
 const hints = ['推荐几首周杰伦的歌', '适合下雨天听的歌', '最近有什么热门歌曲', '来点治愈系音乐']
 
 function sendHint(h) { inputText.value = h; doSend() }
@@ -29,23 +30,105 @@ async function doSend() {
   inputText.value = ''
 
   messages.value.push({ role: 'user', content: text })
-  messages.value.push({ role: 'ai', content: '', typing: true })
+  // 新建 AI 消息：思考阶段
+  const aiMsg = { role: 'ai', content: '', thinking: true, thinkingText: '🎵 正在为你搜歌...', songs: [] }
+  messages.value.push(aiMsg)
+  streamingIdx.value = messages.value.length - 1
   scrollBottom()
-
   loading.value = true
+
   try {
-    const res = await request.post('/assistant/chat', { message: text })
-    const last = messages.value[messages.value.length - 1]
-    last.content = res.data.reply || '让我想想...'
-    last.typing = false
-    last.songs = res.data.songs || []
-    scrollBottom()
+    await streamChat(text, aiMsg)
   } catch {
-    const last = messages.value[messages.value.length - 1]
-    last.content = '抱歉，网络不太稳定，再试一次？'
-    last.typing = false
+    // SSE 失败 → 降级到普通接口
+    try {
+      aiMsg.thinkingText = '🔄 切换为普通模式...'
+      const { default: request } = await import('@/api/request')
+      const res = await request.post('/assistant/chat', { message: text })
+      aiMsg.content = res.data.reply || '让我想想...'
+      aiMsg.songs = res.data.songs || []
+      aiMsg.thinking = false
+    } catch {
+      aiMsg.content = '抱歉，网络不太稳定，再试一次？'
+      aiMsg.thinking = false
+    }
   } finally {
     loading.value = false
+    streamingIdx.value = -1
+    aiMsg.thinking = false
+    if (!aiMsg.content) aiMsg.content = '...'
+    scrollBottom()
+  }
+}
+
+/**
+ * SSE 流式聊天：fetch + ReadableStream 逐行解析 SSE
+ * 后端事件类型: songs | token | done | error
+ */
+async function streamChat(message, aiMsg) {
+  const token = localStorage.getItem('auth_token')
+  const headers = { 'Content-Type': 'application/json' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const resp = await fetch(`${API_BASE}/api/assistant/stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ message, context: '' }),
+  })
+
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let fullContent = ''
+  let gotFirstToken = false
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    // 按行分割 SSE 事件
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || '' // 保留未完成行
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      const json = line.slice(6)
+      try {
+        const event = JSON.parse(json)
+        switch (event.type) {
+          case 'songs': {
+            // 歌曲搜索结果先到达 → 展示卡片
+            aiMsg.thinkingText = '💭 正在思考...'
+            aiMsg.songs = event.list || []
+            scrollBottom()
+            break
+          }
+          case 'token': {
+            if (!gotFirstToken) {
+              // 第一个 token → 进入流式输出阶段
+              aiMsg.thinking = false
+              gotFirstToken = true
+            }
+            fullContent += event.content
+            aiMsg.content = fullContent
+            scrollBottom()
+            break
+          }
+          case 'done': {
+            aiMsg.content = event.full || fullContent
+            break
+          }
+          case 'error': {
+            aiMsg.content = event.message || 'AI 服务暂时不可用'
+            aiMsg.thinking = false
+            break
+          }
+        }
+      } catch { /* 跳过非 JSON 行 */ }
+    }
   }
 }
 
@@ -62,6 +145,9 @@ function addToQueue(song) {
 
 function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0') }
 
+// 是否为正在流式输出的消息
+function isStreaming(idx) { return idx === streamingIdx.value }
+
 onMounted(() => {
   messages.value.push({ role: 'ai', content: greeting })
   scrollBottom()
@@ -77,32 +163,38 @@ onMounted(() => {
         <div v-if="msg.role === 'ai'" class="msg-ai">
           <div class="ai-avatar">🎵</div>
           <div class="msg-bubble ai">
-            <template v-if="msg.typing">
-              <span class="typing"><i></i><i></i><i></i></span>
-            </template>
-            <template v-else>
-              <p>{{ msg.content }}</p>
-              <!-- 音乐推荐卡片 -->
-              <div v-if="msg.songs && msg.songs.length" class="song-cards">
-                <div
-                  v-for="song in msg.songs" :key="song.sourceId"
-                  class="song-card"
-                  :class="{ playing: player.currentSong?.id === song.sourceId && player.isPlaying }"
-                >
-                  <div class="sc-cover" @click="playSong(song)">
-                    <img v-if="song.coverUrl" :src="song.coverUrl + '?param=120y120'" />
-                    <span v-else>♪</span>
-                    <div class="sc-play"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-                  </div>
-                  <div class="sc-info" @click="playSong(song)">
-                    <div class="sc-name">{{ song.name }}</div>
-                    <div class="sc-artist">{{ song.artist }}</div>
-                  </div>
-                  <span class="sc-time">{{ fmtSec(song.duration) }}</span>
-                  <button class="sc-add" @click.stop="addToQueue(song)" title="加入队列">+</button>
-                </div>
+            <!-- 思考过程 -->
+            <div v-if="msg.thinking" class="thinking-box">
+              <div class="thinking-text">{{ msg.thinkingText || '🎵 正在为你搜歌...' }}</div>
+              <div class="thinking-dots">
+                <span class="dot-bounce" v-for="i in 3" :key="i" :style="{ animationDelay: (i - 1) * 0.2 + 's' }">●</span>
               </div>
-            </template>
+            </div>
+
+            <!-- 流式 / 最终文本 -->
+            <p v-if="msg.content" class="ai-text" :class="{ streaming: isStreaming(idx) }">{{ msg.content }}<span v-if="isStreaming(idx)" class="cursor-blink">|</span></p>
+
+            <!-- 音乐推荐卡片 -->
+            <div v-if="msg.songs && msg.songs.length" class="song-cards">
+              <div class="song-cards-label">🎶 为你找到这些歌曲：</div>
+              <div
+                v-for="song in msg.songs" :key="song.sourceId"
+                class="song-card"
+                :class="{ playing: player.currentSong?.id === song.sourceId && player.isPlaying }"
+              >
+                <div class="sc-cover" @click="playSong(song)">
+                  <img v-if="song.coverUrl" :src="song.coverUrl + '?param=120y120'" loading="lazy" />
+                  <span v-else>♪</span>
+                  <div class="sc-play"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+                </div>
+                <div class="sc-info" @click="playSong(song)">
+                  <div class="sc-name">{{ song.name }}</div>
+                  <div class="sc-artist">{{ song.artist }}</div>
+                </div>
+                <span class="sc-time">{{ fmtSec(song.duration) }}</span>
+                <button class="sc-add" @click.stop="addToQueue(song)" title="加入队列">+</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -167,17 +259,34 @@ onMounted(() => {
 .msg-bubble.user { background: #31c27c; color: #fff; border-bottom-right-radius: 4px; }
 .msg-bubble p { margin: 0; }
 
-/* 打字动画 */
-.typing { display: inline-flex; gap: 4px; padding: 4px 0; }
-.typing i {
-  width: 6px; height: 6px; border-radius: 50%; background: #ccc;
-  animation: dot 1.2s infinite;
+/* 思考过程 */
+.thinking-box {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 0; color: #999; font-size: 13px;
+  animation: fadeIn .3s ease;
 }
-.typing i:nth-child(2) { animation-delay: 0.2s; }
-.typing i:nth-child(3) { animation-delay: 0.4s; }
-@keyframes dot { 0%, 60%, 100% { opacity: 0.2; transform: scale(0.8); } 30% { opacity: 1; transform: scale(1); } }
+.thinking-text { flex-shrink: 0; }
+.thinking-dots { display: inline-flex; gap: 3px; }
+.dot-bounce {
+  color: #31c27c;
+  animation: bounce 1s ease-in-out infinite;
+  font-size: 10px;
+}
+@keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+/* 流式输出文本 */
+.ai-text { margin: 0; }
+.ai-text.streaming { min-height: 1.5em; }
+.cursor-blink {
+  display: inline; color: #31c27c; font-weight: bold;
+  animation: blink 0.6s step-end infinite;
+}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
 /* 音乐卡片 */
+.song-cards-label {
+  font-size: 12px; color: #999; margin-bottom: 6px;
+}
 .song-cards {
   margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
   border-top: 1px solid #f0f0f0; padding-top: 10px;
