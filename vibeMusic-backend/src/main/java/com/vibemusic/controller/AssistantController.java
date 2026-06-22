@@ -10,9 +10,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +36,7 @@ import java.util.stream.Collectors;
 public class AssistantController {
 
     private final RestTemplate restTemplate;
+    private final RestClient restClient;
     private final SongSearchService songSearchService;
     private final ObjectMapper objectMapper;
     private final String apiKey;
@@ -39,10 +44,12 @@ public class AssistantController {
     private static final String MODEL = "deepseek-ai/DeepSeek-V4-Flash";
 
     public AssistantController(RestTemplate restTemplate,
+                               RestClient.Builder restClientBuilder,
                                SongSearchService songSearchService,
                                ObjectMapper objectMapper,
                                @Value("${ai.api-key:}") String apiKey) {
         this.restTemplate = restTemplate;
+        this.restClient = restClientBuilder.build();
         this.songSearchService = songSearchService;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
@@ -136,12 +143,12 @@ public class AssistantController {
 
     /**
      * 流式调用 LLM，逐 token 通过 emitter 推送
+     * <p>
+     * 使用 RestClient exchange() 逐行读取 SiliconFlow SSE 响应，
+     * token 到达即推送到前端，实现真正的流式输出。
      */
+    @SuppressWarnings("unchecked")
     private String callLLMStreaming(String userMessage, String context, SseEmitter emitter) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(apiKey);
-
         String systemPrompt = buildSystemPrompt(context);
 
         Map<String, Object> requestBody = new HashMap<>();
@@ -150,40 +157,46 @@ public class AssistantController {
                 Map.of("role", "system", "content", systemPrompt),
                 Map.of("role", "user", "content", userMessage)
         ));
-        requestBody.put("max_tokens", 200);
+        requestBody.put("max_tokens", 600);
         requestBody.put("temperature", 0.7);
-        requestBody.put("stream", true); // 开启流式
+        requestBody.put("stream", true);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
 
         StringBuilder fullReply = new StringBuilder();
         try {
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(API_URL, entity, String.class);
-
-            if (response.getBody() == null) {
-                sendEvent(emitter, "token", Map.of("content", "我现在有点迷糊，稍等再聊～"));
-                return "我现在有点迷糊，稍等再聊～";
-            }
-
-            // 解析 SSE 流响应（SiliconFlow 格式: data:{...}）
-            for (String line : response.getBody().split("\n")) {
-                if (line.startsWith("data: ") && !line.contains("[DONE]")) {
-                    String json = line.substring(6);
-                    try {
-                        Map<String, Object> chunk = objectMapper.readValue(json, Map.class);
-                        List<Map<String, Object>> choices = (List<Map<String, Object>>) chunk.get("choices");
-                        if (choices != null && !choices.isEmpty()) {
-                            Map<String, Object> delta = (Map<String, Object>) choices.get(0).get("delta");
-                            if (delta != null) {
-                                String content = (String) delta.get("content");
-                                if (content != null && !content.isEmpty()) {
+            // RestClient.exchange() 回调中逐行读取响应流 — 真正的流式
+            return restClient.post()
+                    .uri(API_URL)
+                    .headers(h -> h.addAll(headers))
+                    .body(requestBody)
+                    .exchange((req, resp) -> {
+                        if (!resp.getStatusCode().is2xxSuccessful()) {
+                            throw new RuntimeException("AI API HTTP " + resp.getStatusCode());
+                        }
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(resp.getBody(), StandardCharsets.UTF_8))) {
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                if (!line.startsWith("data: ") || line.contains("[DONE]")) continue;
+                                String json = line.substring(6);
+                                try {
+                                    Map<String, Object> chunk = objectMapper.readValue(json, Map.class);
+                                    List<Map<String, Object>> choices = (List<Map<String, Object>>) chunk.get("choices");
+                                    if (choices == null || choices.isEmpty()) continue;
+                                    Map<String, Object> delta = (Map<String, Object>) choices.get(0).get("delta");
+                                    if (delta == null) continue;
+                                    String content = (String) delta.get("content");
+                                    if (content == null || content.isEmpty()) continue;
                                     fullReply.append(content);
                                     sendEvent(emitter, "token", Map.of("content", content));
-                                }
+                                } catch (Exception ignored) {}
                             }
                         }
-                    } catch (Exception ignored) {}
-                }
-            }
+                        return fullReply.toString();
+                    });
         } catch (Exception e) {
             log.warn("LLM 流式调用异常: {}", e.getMessage());
             if (fullReply.isEmpty()) {
@@ -207,7 +220,7 @@ public class AssistantController {
                 Map.of("role", "system", "content", buildSystemPrompt(context)),
                 Map.of("role", "user", "content", userMessage)
         ));
-        requestBody.put("max_tokens", 200);
+        requestBody.put("max_tokens", 600);
         requestBody.put("temperature", 0.7);
 
         ResponseEntity<Map> response = restTemplate.postForEntity(
@@ -224,13 +237,14 @@ public class AssistantController {
 
     private String buildSystemPrompt(String context) {
         String prompt = """
-            你是一个温暖的音乐推荐助手，叫 vibe 音乐精灵。
+            你是 vibe 音乐精灵，一个温暖的音乐推荐助手。
             规则：
-            1. 回复自然、有共情力，像朋友聊天
-            2. 控制在 100 字以内
-            3. 如果用户让推荐歌曲，推荐真实华语歌曲并解释推荐理由
-            4. 不要输出 Markdown 或 JSON
-            5. 如果用户问"你是谁"之类的 → 说你是 vibe 音乐精灵""";
+            1. 自然、有共情力，像朋友聊天，控制在 120 字以内
+            2. 如果用户让推荐歌曲，简要解释推荐原因（风格/情绪/场景）
+            3. 熟悉华语流行、民谣、说唱、摇滚、R&B、电子、纯音乐等风格
+            4. 根据情绪推荐：开心→轻快节奏 伤感→治愈抒情 运动→燃曲 学习→纯音乐
+            5. 不要输出 Markdown、JSON 或代码块
+            6. 问"你是谁" → 说你是 vibe 音乐精灵""";
         if (context != null && !context.isEmpty()) {
             prompt += "\n当前用户正在听：" + context;
         }
