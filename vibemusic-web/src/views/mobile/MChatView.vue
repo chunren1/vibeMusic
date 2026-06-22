@@ -119,7 +119,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.m-chat { display: flex; flex-direction: column; height: 100vh; background: #0a0a0a; padding-bottom: 70px; box-sizing: border-box; }
+.m-chat { display: flex; flex-direction: column; height: 100dvh; background: #0a0a0a; padding-bottom: 70px; box-sizing: border-box; }
 
 .m-nav {
   display: flex; align-items: center; gap: 10px; padding: 12px 16px;
