@@ -156,15 +156,18 @@ public class PlaylistService {
 
     @Transactional(rollbackFor = Exception.class)
     public int deleteBatch(Long userId, List<Long> playlistIds) {
-        int count = 0;
-        for (Long pid : playlistIds) {
-            Playlist pl = playlistMapper.selectById(pid);
-            if (pl == null || !pl.getUserId().equals(userId)) continue;
-            songMapper.delete(new LambdaQueryWrapper<PlaylistSong>().eq(PlaylistSong::getPlaylistId, pid));
-            playlistMapper.deleteById(pid);
-            count++;
-        }
-        return count;
+        // 先验证所有权
+        List<Playlist> owned = playlistMapper.selectBatchIds(playlistIds);
+        List<Long> validIds = owned.stream()
+                .filter(pl -> pl.getUserId().equals(userId))
+                .map(Playlist::getId)
+                .collect(Collectors.toList());
+        if (validIds.isEmpty()) return 0;
+        // 批量删除歌曲 + 批量删除歌单（2 次 SQL 替代 N×2 次）
+        songMapper.delete(new LambdaQueryWrapper<PlaylistSong>()
+                .in(PlaylistSong::getPlaylistId, validIds));
+        playlistMapper.deleteBatchIds(validIds);
+        return validIds.size();
     }
 
     /**

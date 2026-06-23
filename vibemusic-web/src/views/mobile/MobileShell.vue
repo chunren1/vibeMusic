@@ -41,7 +41,7 @@ onMounted(() => {
 <template>
   <div class="mobile-shell" :class="{ 'no-padding': isPlayerPage }">
     <RouterView v-slot="{ Component }">
-      <keep-alive :include="['MHomeView', 'MLikesView', 'MRecentView', 'MPlaylistsView', 'MProfileView', 'MChatView']">
+      <keep-alive :include="['MHomeView', 'MLikesView', 'MRecentView', 'MPlaylistsView', 'MProfileView', 'MChatView']" :max="4">
         <component :is="Component" />
       </keep-alive>
     </RouterView>
