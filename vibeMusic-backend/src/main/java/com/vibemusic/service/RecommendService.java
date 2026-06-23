@@ -154,11 +154,11 @@ public class RecommendService {
 
         // 先随机打乱，再按 RustFS 缓存优先排列（保证多样性 + 离线优先）
         Collections.shuffle(candidates);
-        candidates.sort((a, b) -> {
-            boolean aCached = checkCached(a.getSourceId());
-            boolean bCached = checkCached(b.getSourceId());
-            return Boolean.compare(bCached, aCached);
-        });
+        // 批量查询缓存状态（一次 DB 查询替代 N 次逐条查询）
+        markOfflineStatus(candidates);
+        candidates.sort((a, b) -> Boolean.compare(
+                b.getCached() != null && b.getCached(),
+                a.getCached() != null && a.getCached()));
 
         // 截取
         int take = Math.min(candidates.size(), RECOMMEND_COUNT);

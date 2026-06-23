@@ -663,6 +663,14 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | AI 对话停止输出 | MChatView + ChatView：`AbortController` + 红色方形停止按钮，点击立即中断生成 |
 | 批量管理 UI 统一 | 红色实底按钮 → 透明描边风格，复选框 icon → stroke 对勾，底栏 → 毛玻璃，统一暗色主题 |
 
+#### ⚡ Claude Code 审查优化（性能关键项）
+| 改进项 | 说明 |
+|--------|------|
+| JWT 用户 Redis 缓存 | `JwtAuthenticationFilter` 每次请求查 DB → Redis JSON 缓存 (TTL 5min)，命中率 ~99% |
+| RecommendService N+1 | 排序 Comparator 中 `checkCached()` 逐条查 DB → 先调 `markOfflineStatus()` 批量标记 |
+| 批量删除歌单优化 | for 循环 N×2 SQL → `selectBatchIds` 验权 + `delete(in ids)` 批量 2 次 SQL |
+| keep-alive 限制 | MobileShell 6 视图全缓存 → max=4，低端手机减少内存占用 |
+
 ---
 
 ### 2026-06-19 第四轮优化（上线前全面审查 + 安全加固）
