@@ -56,8 +56,8 @@ html.mobile {
   font-size: 14px;
 }
 html.mobile body {
-  background: #0a0a0a;
-  color: #e0e0e0;
+  background: var(--m-bg-base);
+  color: var(--m-text-primary);
   -webkit-tap-highlight-color: transparent;
 }
 </style>

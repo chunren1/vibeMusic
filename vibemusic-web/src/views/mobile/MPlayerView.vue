@@ -315,8 +315,8 @@ onUnmounted(() => {
 .mp-blur-bg {
   position: absolute; inset: 0; z-index: 0;
   background: var(--m-bg-base) center/cover no-repeat;
-  filter: blur(40px) brightness(0.3);
-  opacity: 0.6; transform: scale(1.1);
+  filter: blur(50px) brightness(0.25) saturate(1.4);
+  opacity: 0.7; transform: scale(1.15);
   pointer-events: none;
 }
 .mp-bar {
@@ -324,142 +324,149 @@ onUnmounted(() => {
   position: relative; z-index: 1;
 }
 .mp-back {
-  border: none; background: none; color: #ccc; font-size: 36px; line-height: 1;
+  border: none; background: none; color: var(--m-text-secondary); font-size: 36px; line-height: 1;
   cursor: pointer; padding: 0; width: 40px; text-align: left;
 }
 .mp-bar-center { flex: 1; text-align: center; min-width: 0; padding-top: 4px; }
-.mp-name { font-size: 17px; font-weight: 600; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mp-quality { font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 6px; background: rgba(49,194,124,0.15); color: #31c27c; font-weight: 500; vertical-align: middle; }
-.mp-artist { font-size: 13px; color: #888; margin-top: 2px; }
+.mp-name { font-size: 17px; font-weight: 700; color: var(--m-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px; }
+.mp-quality { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; background: rgba(46,229,154,0.12); color: var(--m-primary); font-weight: 600; vertical-align: middle; }
+.mp-artist { font-size: 13px; color: var(--m-text-secondary); margin-top: 2px; }
 .mp-spacer { width: 40px; }
 .mp-cover-section {
-  flex: 0 0 auto; display: flex; justify-content: center; align-items: center; padding: 8px 0 12px;
+  flex: 0 0 auto; display: flex; justify-content: center; align-items: center; padding: 10px 0 16px;
   position: relative; z-index: 1;
 }
 .mp-cover {
-  width: 200px; height: 200px; border-radius: 50%;
-  background: rgba(255,255,255,0.05) center/cover no-repeat;
-  box-shadow: 0 0 40px var(--m-primary-glow), 0 8px 24px rgba(0,0,0,0.4);
+  width: 210px; height: 210px; border-radius: 50%;
+  background: rgba(255,255,255,0.04) center/cover no-repeat;
+  box-shadow: 0 0 60px var(--m-primary-glow), 0 0 120px rgba(46,229,154,0.1), 0 12px 32px rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.04);
 }
 .mp-cover-empty {
   display: flex; align-items: center; justify-content: center;
-  height: 100%; font-size: 40px; color: #333;
+  height: 100%; font-size: 44px; color: var(--m-text-tertiary);
 }
-.mp-cover.spinning { animation: cover-spin 20s linear infinite; will-change: transform; }
+.mp-cover.spinning { animation: cover-spin 24s linear infinite; will-change: transform; }
 .mp-lyric-section {
   flex: 1; display: flex; flex-direction: column; justify-content: center;
-  padding: 0 24px; min-height: 100px; overflow: hidden;
+  padding: 0 28px; min-height: 100px; overflow: hidden;
 }
 .mp-lyric-prev, .mp-lyric-next {
-  text-align: center; font-size: 13px; color: #555; line-height: 1.6;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 26px;
+  text-align: center; font-size: 13px; color: var(--m-text-tertiary); line-height: 1.7;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 28px;
+  opacity: 0.5;
 }
 .mp-lyric-curr {
-  text-align: center; font-size: 17px; font-weight: 500; color: #31c27c;
-  line-height: 1.6; padding: 6px 0;
+  text-align: center; font-size: 18px; font-weight: 600; color: var(--m-primary);
+  line-height: 1.7; padding: 8px 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  filter: drop-shadow(0 0 8px var(--m-primary-glow));
 }
-.mp-lyric-placeholder { text-align: center; color: #666; font-size: 14px; }
+.mp-lyric-placeholder { text-align: center; color: var(--m-text-secondary); font-size: 14px; }
 
 /* 进度条上方操作 */
 .mp-top-actions {
-  display: flex; justify-content: space-around; padding: 8px 0 12px; flex-shrink: 0;
+  display: flex; justify-content: space-around; padding: 10px 0 14px; flex-shrink: 0;
 }
 .mp-top-btn {
-  border: none; background: none; cursor: pointer; padding: 6px; color: #888;
-  flex: 1; display: flex; justify-content: center;
+  border: none; background: none; cursor: pointer; padding: 8px; color: var(--m-text-secondary);
+  flex: 1; display: flex; justify-content: center; transition: color 0.2s, transform 0.2s var(--m-ease-spring);
 }
-.mp-top-btn.faved { color: #ffc107; }
-.mp-top-btn:active { color: #31c27c; }
-.mp-top-btn:disabled { opacity: .4; }
+.mp-top-btn:active { color: var(--m-primary); transform: scale(0.9); }
+.mp-top-btn.faved { color: var(--m-gold); filter: drop-shadow(0 0 4px var(--m-gold-glow)); }
+.mp-top-btn:disabled { opacity: .3; }
 
 .mp-progress {
-  height: 4px; margin: 0 28px; background: rgba(255,255,255,.12);
+  height: 4px; margin: 0 28px; background: rgba(255,255,255,.08);
   border-radius: 2px; cursor: pointer; flex-shrink: 0; position: relative;
   transition: height .15s;
 }
-/* 拖拽时进度条加粗 */
 .mp-progress.seeking { height: 6px; }
 
-/* 拖拽时间气泡 */
 .mp-seek-bubble {
   position: absolute; top: -28px; left: 50%; transform: translateX(-50%);
-  background: #31c27c; color: #fff; font-size: 11px; font-weight: 600;
-  padding: 3px 8px; border-radius: 10px; white-space: nowrap;
+  background: var(--m-gradient-brand); color: #fff; font-size: 11px; font-weight: 600;
+  padding: 3px 10px; border-radius: 10px; white-space: nowrap;
   pointer-events: none; z-index: 2;
   animation: bubbleIn .15s ease-out;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
 @keyframes bubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(4px); } }
 
 .mp-progress-fill {
-  height: 100%; width: 100%; background: #31c27c; border-radius: 2px;
+  height: 100%; width: 100%; background: var(--m-gradient-brand); border-radius: 2px;
   position: relative; transform-origin: left;
   will-change: transform; transition: filter .15s;
+  box-shadow: 0 0 6px var(--m-primary-glow);
 }
-/* 拖拽时进度条更亮 */
-.mp-progress.seeking .mp-progress-fill { filter: brightness(1.3); }
+.mp-progress.seeking .mp-progress-fill { filter: brightness(1.4); }
 
 .mp-dot {
   position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
-  width: 12px; height: 12px; border-radius: 50%; background: #31c27c;
-  opacity: 0; transition: all .2s;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--m-primary); opacity: 0; transition: all .2s;
+  box-shadow: 0 0 10px var(--m-primary-glow);
 }
 .mp-progress:hover .mp-dot { opacity: 1; }
-/* 拖拽时拇指放大 */
 .mp-progress.seeking .mp-dot {
-  opacity: 1;
-  width: 16px; height: 16px; right: -8px;
-  box-shadow: 0 0 8px rgba(49,194,124,.5);
+  opacity: 1; width: 18px; height: 18px; right: -9px;
+  box-shadow: 0 0 14px var(--m-primary-glow);
 }
 
-.mp-time.seeking { color: #31c27c; }
-
+.mp-time.seeking { color: var(--m-primary); }
 
 .mp-time {
   display: flex; justify-content: space-between; padding: 6px 28px 0;
-  font-size: 11px; color: #666; flex-shrink: 0;
+  font-size: 11px; color: var(--m-text-tertiary); flex-shrink: 0;
 }
 .mp-ctrls {
-  display: flex; align-items: center; justify-content: center; gap: 20px;
-  padding: 8px 0 calc(24px + env(safe-area-inset-bottom, 0px)); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; gap: 24px;
+  padding: 10px 0 calc(28px + env(safe-area-inset-bottom, 0px)); flex-shrink: 0;
 }
 .mp-ctrl {
-  border: none; background: none; color: #ccc; cursor: pointer; padding: 6px;
-  display: flex; align-items: center; justify-content: center;
+  border: none; background: none; color: var(--m-text-primary); cursor: pointer;
+  padding: 8px; display: flex; align-items: center; justify-content: center;
+  transition: color 0.2s, transform 0.2s var(--m-ease-spring);
 }
-.mp-ctrl.sm { font-size: 18px; padding: 6px; color: #888; }
-.mp-ctrl.sm.mode-active { color: #31c27c; }
-.mp-ctrl-play { color: #31c27c; }
+.mp-ctrl:active { transform: scale(0.88); }
+.mp-ctrl.sm { padding: 8px; color: var(--m-text-secondary); }
+.mp-ctrl.sm.mode-active { color: var(--m-primary); }
+.mp-ctrl-play {
+  color: var(--m-primary); width: 56px; height: 56px;
+  background: var(--m-gradient-brand); border-radius: 50%;
+  box-shadow: 0 0 20px var(--m-primary-glow);
+}
+.mp-ctrl-play:active { box-shadow: 0 0 30px var(--m-primary-glow); }
 
 /* 加入歌单弹窗 */
 .mp-overlay {
   position: fixed; inset: 0; z-index: 1000;
-  background: rgba(0,0,0,.7);
+  background: rgba(0,0,0,.75);
   display: flex; align-items: flex-end; justify-content: center;
 }
 .mp-picker {
-  width: 100%; max-width: 420px; max-height: 60vh;
-  background: #151515; border-radius: 16px 16px 0 0;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 100%; max-width: 420px; max-height: 65vh;
+  background: var(--m-bg-elevated); border-radius: var(--m-radius-lg) var(--m-radius-lg) 0 0;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
   display: flex; flex-direction: column;
 }
 .mp-picker-hd {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 12px; font-size: 16px; font-weight: 600; color: #e0e0e0;
+  margin-bottom: 14px; font-size: 17px; font-weight: 700; color: var(--m-text-primary);
 }
 .mp-picker-hd button {
-  border: none; background: none; color: #888; font-size: 18px; cursor: pointer;
+  border: none; background: none; color: var(--m-text-secondary); font-size: 18px; cursor: pointer;
 }
-.mp-picker-empty { text-align: center; color: #666; padding: 24px 0; font-size: 14px; }
+.mp-picker-empty { text-align: center; color: var(--m-text-secondary); padding: 32px 0; font-size: 14px; }
 .mp-picker-list { overflow-y: auto; }
 .mp-picker-item {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 12px; border-radius: 10px;
-  background: rgba(255,255,255,.04); margin-bottom: 6px; cursor: pointer;
-  transition: .15s;
+  padding: 14px 12px; border-radius: var(--m-radius-md);
+  background: var(--m-bg-card); margin-bottom: 6px; cursor: pointer;
+  transition: background 0.15s;
 }
-.mp-picker-item:active { background: rgba(49,194,124,.12); }
+.mp-picker-item:active { background: rgba(46,229,154,0.1); }
 .mp-picker-item.adding { opacity: .5; pointer-events: none; }
-.mp-picker-name { font-size: 14px; color: #e0e0e0; }
-.mp-picker-count { font-size: 12px; color: #666; }
+.mp-picker-name { font-size: 14px; color: var(--m-text-primary); font-weight: 500; }
+.mp-picker-count { font-size: 12px; color: var(--m-text-secondary); }
 </style>

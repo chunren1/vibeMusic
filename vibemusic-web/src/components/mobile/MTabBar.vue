@@ -64,13 +64,25 @@ function isActive(path) {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 99;
   display: flex; justify-content: space-around; align-items: center;
   height: 56px;
-  border-top: 1px solid rgba(255,255,255,0.06);
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .mtab-item {
   display: flex; flex-direction: column; align-items: center; gap: 3px;
-  text-decoration: none; color: #666; font-size: 10px; flex: 1; padding: 6px 0; cursor: pointer;
+  text-decoration: none; color: #5a5a64; font-size: 10px; flex: 1;
+  padding: 8px 0; cursor: pointer; position: relative;
+  transition: color 0.25s var(--m-ease-out), transform 0.25s var(--m-ease-out);
+  -webkit-tap-highlight-color: transparent;
 }
-.mtab-item.active { color: #31c27c; }
-.mtab-label { font-size: 10px; }
+.mtab-item:active { transform: scale(0.92); }
+.mtab-item.active {
+  color: var(--m-primary);
+  filter: drop-shadow(0 0 8px var(--m-primary-glow));
+}
+.mtab-item.active::before {
+  content: ''; position: absolute; top: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 20px; height: 2px; border-radius: 1px;
+  background: var(--m-gradient-brand);
+}
+.mtab-label { font-size: 10px; font-weight: 500; letter-spacing: 0.3px; }
 </style>
