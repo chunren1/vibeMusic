@@ -65,7 +65,7 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 </script>
 
 <template>
-  <div v-if="visible" class="mbp m-glass" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
+  <div v-if="visible" class="mbp m-glass-gold" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
     <div class="mbp-progress" :style="{ width: store.progress + '%' }"></div>
     <div class="mbp-cover" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=80y80)` } : {}"></div>
     <div class="mbp-info" @click="goToPlayer">
@@ -95,28 +95,29 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 </template>
 
 <style scoped>
-.mbp { 
+.mbp {
   position: fixed; left: 0; right: 0; z-index: 100;
-  height: 60px; display: flex; align-items: center; gap: 8px;
-  /* backdrop-filter moved to .m-glass via global mobile-theme.css */
-  border-top: 1px solid rgba(255,255,255,0.06);
-  padding: 0 8px; cursor: pointer;
+  height: 60px; display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; cursor: pointer;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 .mbp-icons { display: flex; align-items: center; justify-content: space-evenly; flex: 0 0 auto; min-width: 140px; }
 .mbp-progress {
   position: absolute; top: 0; left: 0; height: 2px;
-  background: #31c27c; border-radius: 0 2px 2px 0;
-  transition: width .3s linear;
+  background: var(--m-gradient-brand); border-radius: 0 4px 4px 0;
+  transition: width 0.3s linear;
+  box-shadow: 0 0 6px var(--m-primary-glow);
 }
 .mbp-cover {
-  width: 42px; height: 42px; border-radius: 8px; flex-shrink: 0;
-  background: rgba(255,255,255,0.06) center/cover no-repeat;
+  width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+  background: rgba(255,255,255,0.05) center/cover no-repeat;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
 .mbp-info { flex: 1; min-width: 0; }
-.mbp-title { font-size: 15px; color: #e0e0e0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mbp-artist { font-size: 13px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mbp-btn { flex-shrink: 0; width: 40px; height: 40px; border: none; background: none; color: #e0e0e0; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.mbp-btn.sm { width: 32px; height: 32px; color: #888; }
-.mbp-btn.faved { color: #ffc107; }
+.mbp-title { font-size: 14px; font-weight: 600; color: var(--m-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mbp-artist { font-size: 12px; color: var(--m-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.mbp-btn { flex-shrink: 0; width: 40px; height: 40px; border: none; background: none; color: var(--m-text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s, transform 0.2s var(--m-ease-spring); }
+.mbp-btn:active { transform: scale(0.85); }
+.mbp-btn.sm { width: 32px; height: 32px; color: var(--m-text-secondary); }
+.mbp-btn.faved { color: var(--m-gold); filter: drop-shadow(0 0 4px var(--m-gold-glow)); }
 </style>

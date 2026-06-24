@@ -20,11 +20,9 @@ public class CorsConfig {
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // 允许所有来源
+        // 允许所有来源（JWT 通过 Authorization Header 传递，不依赖跨域 Cookie）
         config.setAllowedOriginPatterns(Arrays.asList("*"));
-
-        // 允许携带 Cookie（如果需要的话）
-        config.setAllowCredentials(true);
+        config.setAllowCredentials(false);
 
         // 允许的 HTTP 方法
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
