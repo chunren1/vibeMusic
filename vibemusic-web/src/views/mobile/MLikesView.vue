@@ -112,6 +112,7 @@ onMounted(() => {
 .m-list { display: flex; flex-direction: column; gap: 2px; }
 .m-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
 }
 .m-item:active { background: rgba(255,255,255,.03); }
 .m-item.playing { background: rgba(49,194,124,.06); }

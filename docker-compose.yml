@@ -42,7 +42,7 @@ services:
     networks:
       - vibemusic-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -136,8 +136,8 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      MINIO_ROOT_USER: rustfsadmin
-      MINIO_ROOT_PASSWORD: rustfsadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rustfsadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
       TZ: Asia/Shanghai
     ports:
       # API 端口（S3 兼容）
@@ -179,12 +179,12 @@ services:
       ES_URI: http://elasticsearch:9200
       # MinIO / RustFS
       RUSTFS_ENDPOINT: http://rustfs:9000
-      RUSTFS_ACCESS_KEY: rustfsadmin
-      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-change-me}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-change-me}
       # JWT
-      JWT_SECRET: SyQ8bG9uZ1NlY3JldEtleUZvclZpYmVNdXNpY1Byb2plY3QyMDI2
-      # AI 助手 (SiliconFlow Qwen)
-      AI_API_KEY: sk-edxzhukrjgewgdjspwnoedpnlgdmnkgkrbrswdoqzghrrwnd
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      # AI 助手
+      AI_API_KEY: ${AI_API_KEY:-change-me}
       # musicapi (网易云 API 代理)
       MUSICAPI_URL: http://musicapi:3000
       # Profile
@@ -244,7 +244,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set rustfs http://rustfs:9000 rustfsadmin rustfsadmin;
+      /usr/bin/mc alias set rustfs http://rustfs:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-rustfsadmin};
       /usr/bin/mc mb --ignore-existing rustfs/vibemusic;
       echo 'Bucket vibemusic ready';
       exit 0;
