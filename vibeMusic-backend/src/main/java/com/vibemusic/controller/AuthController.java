@@ -53,7 +53,7 @@ public class AuthController {
                 ? body.get("nickname") : username;
 
         if (username == null || username.trim().isEmpty()) return Result.error("用户名不能为空");
-        if (password == null || password.length() < 4) return Result.error("密码至少4位");
+        if (password == null || password.length() < 8) return Result.error("密码至少8位");
 
         userService.register(username.trim(), password, nickname);
 

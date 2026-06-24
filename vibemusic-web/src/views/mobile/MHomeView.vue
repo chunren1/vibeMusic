@@ -319,6 +319,7 @@ function shuffleSongs() {
   display: flex; align-items: center; gap: 12px; padding: 10px 10px;
   border-radius: var(--m-radius-md); transition: background 0.2s;
   position: relative;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
 }
 .m-song-item:active { background: var(--m-bg-card-hover); }
 .m-song-item.playing {

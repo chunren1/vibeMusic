@@ -77,6 +77,7 @@ function downloadViaBackend(song) {
 const username = computed(() => authStore.user?.nickname || authStore.user?.username || '未登录')
 
 // ===== Banner 轮播（从网易云获取推荐歌单） =====
+const bannerLoading = ref(true)
 const slides = ref([
   { name: '总有一首歌', desc: '让你想起最初的自己', coverUrl: '' },
   { name: '发现好音乐', desc: '从这里开始你的音乐之旅', coverUrl: '' },
@@ -87,11 +88,13 @@ const bannerHover = ref(false)
 let bannerTimer = null
 
 function loadBanners() {
+  bannerLoading.value = true
   apiBanners().then(res => {
     if (res.data && res.data.length > 0) {
       slides.value = res.data
     }
   }).catch(e => console.warn('[HomeView] Banner 加载失败:', e.message))
+  .finally(() => { bannerLoading.value = false })
 }
 
 function startBanner() {
@@ -354,6 +357,7 @@ function formatDuration(seconds) {
 
     <template v-if="!showResultPage">
     <div class="banner" @mouseenter="onBannerEnter" @mouseleave="onBannerLeave">
+      <div v-if="bannerLoading" class="banner-skel skeleton"></div>
       <div
         v-for="(slide, idx) in slides"
         :key="idx"
@@ -720,6 +724,12 @@ function formatDuration(seconds) {
   position: relative; height: 300px; overflow: hidden;
   margin: 0 32px 32px; border-radius: 14px;
 }
+.banner-skel {
+  position: absolute; inset: 0; border-radius: 14px;
+  background: linear-gradient(90deg, #eee 25%, #f0f0f0 50%, #eee 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
 .banner-slide {
   position: absolute; inset: 0; opacity: 0; transform: scale(0.96);
   transition: all .6s ease; cursor: pointer;
@@ -773,7 +783,15 @@ function formatDuration(seconds) {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 20px;
 }
-.song-card { cursor: pointer; text-align: center; }
+.song-card {
+  cursor: pointer; text-align: center;
+  border-radius: 16px; padding: 12px;
+  transition: transform .25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow .25s ease;
+}
+.song-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.15);
+}
 .song-card:hover .play-overlay { opacity: 1; }
 .card-cover {
   position: relative; padding-bottom: 100%;
@@ -805,7 +823,14 @@ function formatDuration(seconds) {
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 20px;
 }
-.playlist-card { cursor: pointer; }
+.playlist-card {
+  cursor: pointer; border-radius: 16px; padding: 12px;
+  transition: transform .25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow .25s ease;
+}
+.playlist-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.15);
+}
 .pl-cover {
   position: relative; padding-bottom: 100%;
   border-radius: 10px; overflow: hidden; margin-bottom: 10px;

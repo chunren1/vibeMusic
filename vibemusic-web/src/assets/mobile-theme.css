@@ -37,7 +37,7 @@
   --m-space-page: 16px;
 
   /* 字体 */
-  --m-font-stack: "PingFang SC", "HarmonyOS Sans", -apple-system, sans-serif;
+  --m-font-stack: "HarmonyOS Sans", "PingFang SC", -apple-system, sans-serif;
   --m-font-size-sm: 12px;
   --m-font-size-md: 14px;
   --m-font-size-lg: 16px;

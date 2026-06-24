@@ -324,7 +324,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .func-btn:hover { background: rgba(0,0,0,.05); color: #ec4141; }
 .func-btn.fav { color: #ec4141; }
 
-.center-ctrl { display: flex; align-items: center; gap: 12px; }
+.center-ctrl { display: flex; align-items: center; gap: 16px; }
 .ctrl-btn { border: none; background: none; color: #555; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .ctrl-btn:hover { color: #1a1a1a; }
 .ctrl-btn.mode-btn { width: 40px; height: 40px; border-radius: 50%; color: #999; }
@@ -332,7 +332,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .ctrl-btn.mode-btn.active { color: #31c27c; }
 .ctrl-btn.skip { opacity: 0.75; }
 .ctrl-btn.skip:hover { opacity: 1; }
-.ctrl-btn.main { width: 52px; height: 28px; border-radius: 7px; background: #31c27c; color: #fff; }
+.ctrl-btn.main { width: 64px; height: 36px; border-radius: 10px; background: #31c27c; color: #fff; }
 .ctrl-btn.main:hover { transform: scale(1.06); }
 
 .right-actions { display: flex; align-items: center; gap: 12px; min-width: 180px; justify-content: flex-end; }
