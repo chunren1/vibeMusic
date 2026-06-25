@@ -745,6 +745,27 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | 📦 运维 | docker:dev 隔离 | 去 nginx→backend 硬依赖，避免拉全链 |
 | 📦 运维 | npm scripts 简化 | docker:* 命令去 ps1 中转，直接调 docker-compose |
 
+## 🤖 AI 工程化（Harness Engineering）
+
+本项目内置了完整的 AI 开发规范，支持 **Claude Code** 和 **CodeBuddy** 双工具：
+
+| 文件 | 用途 |
+|------|------|
+| `AI-GUIDE.md` | 非技术用户使用指南（复制粘贴即可） |
+| `CLAUDE.md` | Claude Code 规则（TDD 铁律 + 安全约束 + 工作流） |
+| `.claude/commands/` | CC 自定义命令：`/plan`（规划）、`/audit-time`（时间审计） |
+| `.codebuddy/agents/vibeMusic.md` | CodeBuddy Agent 配置 |
+| `.codebuddy/rules/` | 编码规范、安全规则、测试规范、工作流 |
+| `.codebuddy/skills/` | 4 个可复用技能（建 API、建页面、写测试、修时间字段） |
+
+**使用方式**：终端 `claude` 启动 → 读 `CLAUDE.md` → 自动遵循规则。遇到 Bug 直接说现象即可，AI 会按 TDD 流程诊断 → 修复 → 验证。
+
+## 已知问题
+- `PlayHistory.playedAt` 已修复（FieldStrategy.NEVER + MetaObjectHandler 注入）
+- `BaseEntity.createdAt/updatedAt` 已修复
+- QQ 搜索需 `t:0` 参数指定单曲类型
+- `MyBatisPlusConfig` 自定义 SqlSessionFactory 需显式注入 MetaObjectHandler 到 GlobalConfig
+
 ## License
 
 MIT
