@@ -43,13 +43,43 @@ npm run test:backend            # 仅后端
 npm run test:frontend           # 仅前端
 ```
 
-## 关键规则（详见 .codebuddy/rules/）
+## 铁律 (Hard Constraints)
+
+### 代码修改
 - 修改 Java 文件后必须提醒用户重启后端
 - 实体类时间字段必须加 `insertStrategy = FieldStrategy.NEVER`
-- 修改 `search()` 返回类型时须检查所有调用处
+- 修改 `search()` 返回类型时须检查所有调用处（RecommendService、AssistantController、getRandomSongs）
 - 新增 Controller 必须加 `@Operation` 注解
 - 前端新页面需要同时创建桌面端和移动端版本
-- 安全：JWT httpOnly Cookie + BCrypt + 幂等防护
+
+### TDD 铁律
+收到 Bug 修复需求时：
+1. 先写一个会失败的测试用例（Red）
+2. 运行测试，向我证明它确实失败了
+3. 编写最小化代码让测试通过（Green）
+4. 重构代码（Refactor）
+禁止跳过第一步直接写业务代码
+
+### 安全
+- JWT httpOnly Cookie + BCrypt + 幂等防护
+- 密码 ≥ 8 位，BCrypt $2b$10$ 加密
+- API Key 仅存 .env，禁止硬编码
+- 新增端点需检查 SecurityConfig 权限配置
+
+### 验证闭环
+- 每完成一个子任务：`cd vibeMusic-backend && mvn compile -DskipTests -q`
+- 修改涉及多模块：列出受影响模块并逐一验证
+- 修复 Bug 后必须运行关联测试
+- 禁止在未确认数据写入链路完整性的情况下仅修改查询/展示逻辑
+
+## 自定义命令
+- `/plan <spec>` — 规划模式：分析 Spec，输出实施计划，等待确认
+- `/audit-time` — 审计所有 Entity 的时间字段配置
+
+## Git 工作流
+- Commit: `<type>: <描述>` (feat/fix/perf/refactor/docs/test/chore/security)
+- 大重构前：创建分支 + 提交当前状态
+- 3 次尝试仍失败：git reset --hard 回滚 + 报告原因
 
 ## 已知问题
 - `UserFavorite.createdAt` 已修复 (FieldStrategy.NEVER)
