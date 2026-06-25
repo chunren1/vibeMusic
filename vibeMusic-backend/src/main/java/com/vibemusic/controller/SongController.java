@@ -2,6 +2,7 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.StreamUtils;
+import com.vibemusic.dto.SearchResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.service.*;
 import io.swagger.v3.oas.annotations.Operation;
@@ -92,8 +93,8 @@ public class SongController {
 
     /** 搜索（v2：独立平台搜索 + 去重合并 + 排序打分 + 分页 + 分源） */
     @GetMapping("/search")
-    @Operation(summary = "搜索歌曲（三级缓存：Redis → ES → musicapi）")
-    public Result<List<SongDTO>> search(
+    @Operation(summary = "搜索歌曲（三级缓存：Redis → ES → musicapi），返回 SearchResult 含 total/hasMore/source")
+    public Result<SearchResult> search(
             @RequestParam String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "40") int size,

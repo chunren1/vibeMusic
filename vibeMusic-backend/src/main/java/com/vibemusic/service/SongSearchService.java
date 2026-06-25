@@ -1,5 +1,6 @@
 package com.vibemusic.service;
 
+import com.vibemusic.dto.SearchResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
@@ -72,17 +73,19 @@ public class SongSearchService {
     }
 
     @SuppressWarnings("unchecked")
-    public List<SongDTO> search(String keyword, int page, int size) {
+    public SearchResult search(String keyword, int page, int size) {
         return search(keyword, page, size, null);
     }
 
     /**
      * 搜索歌曲（支持分源）
      * @param platform 可选: "netease", "qq", null=全部
+     * @return SearchResult 包含分页信息 + 命中层级
      */
     @SuppressWarnings("unchecked")
-    public List<SongDTO> search(String keyword, int page, int size, String platform) {
-        if (keyword == null || keyword.trim().isEmpty()) return Collections.emptyList();
+    public SearchResult search(String keyword, int page, int size, String platform) {
+        if (keyword == null || keyword.trim().isEmpty())
+            return SearchResult.of(Collections.emptyList(), 0, page, size, "none");
         final String kw = keyword.trim();
         final boolean searchBoth = (platform == null || platform.trim().isEmpty());
         final long searchStart = System.currentTimeMillis();
@@ -100,8 +103,8 @@ public class SongSearchService {
                     kw, page, redisCost);
             int from = (page - 1) * size;
             int to = Math.min(from + size, cached.size());
-            if (from >= cached.size()) return Collections.emptyList();
-            return cached.subList(from, to);
+            if (from >= cached.size()) return SearchResult.of(Collections.emptyList(), cached.size(), page, size, "redis");
+            return SearchResult.of(cached.subList(from, to), cached.size(), page, size, "redis");
         }
         long redisCost = System.currentTimeMillis() - redisStart;
         log.info("[CACHE-LAYER] Redis 未命中: keyword='{}', page={}, cost={}ms", kw, page, redisCost);
@@ -119,8 +122,8 @@ public class SongSearchService {
                 cacheService.setSearchCache(kw + ":all", page, esCached, true, false);
                 int from = (page - 1) * size;
                 int to = Math.min(from + size, esCached.size());
-                if (from >= esCached.size()) return Collections.emptyList();
-                return esCached.subList(from, to);
+                if (from >= esCached.size()) return SearchResult.of(Collections.emptyList(), esCached.size(), page, size, "es");
+                return SearchResult.of(esCached.subList(from, to), esCached.size(), page, size, "es");
             }
         }
 
@@ -135,8 +138,8 @@ public class SongSearchService {
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":netease", 1, songs, true);
             int from = (page - 1) * size;
             int to = Math.min(from + size, songs.size());
-            if (from >= songs.size()) return Collections.emptyList();
-            return songs.subList(from, to);
+            if (from >= songs.size()) return SearchResult.of(Collections.emptyList(), songs.size(), page, size, "api");
+            return SearchResult.of(songs.subList(from, to), songs.size(), page, size, "api");
         }
         if ("qq".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchQQ(kw));
@@ -144,8 +147,8 @@ public class SongSearchService {
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", 1, songs, true);
             int from = (page - 1) * size;
             int to = Math.min(from + size, songs.size());
-            if (from >= songs.size()) return Collections.emptyList();
-            return songs.subList(from, to);
+            if (from >= songs.size()) return SearchResult.of(Collections.emptyList(), songs.size(), page, size, "api");
+            return SearchResult.of(songs.subList(from, to), songs.size(), page, size, "api");
         }
 
         // 合并搜索（复用共享线程池）
@@ -204,8 +207,10 @@ public class SongSearchService {
 
         int from = (page - 1) * size;
         int to = Math.min(from + size, resultList.size());
-        if (from >= resultList.size()) return Collections.emptyList();
-        return resultList.subList(from, to);
+        if (from >= resultList.size())
+            return SearchResult.of(Collections.emptyList(), resultList.size(), page, size, "api");
+        searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
+        return SearchResult.of(resultList.subList(from, to), resultList.size(), page, size, "api");
     }
 
     public List<SongDTO> search(String keyword) {

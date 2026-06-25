@@ -35,7 +35,7 @@ public class RestTemplateConfig {
                 .build();
 
         var requestConfig = RequestConfig.custom()
-                .setResponseTimeout(Timeout.ofSeconds(30))
+                .setResponseTimeout(Timeout.ofSeconds(45))
                 .build();
 
         return HttpClients.custom()

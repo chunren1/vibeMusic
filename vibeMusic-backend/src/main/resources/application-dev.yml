@@ -8,5 +8,9 @@ logging:
     org.springframework.security: debug
     org.springframework.web: debug
 
+flyway:
+  enabled: true
+  baseline-on-migrate: true
+
 knife4j:
   enable: true

@@ -671,6 +671,26 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | 批量删除歌单优化 | for 循环 N×2 SQL → `selectBatchIds` 验权 + `delete(in ids)` 批量 2 次 SQL |
 | keep-alive 限制 | MobileShell 6 视图全缓存 → max=4，低端手机减少内存占用 |
 
+#### 🔧 搜索与 API 标准化
+| 改进项 | 说明 |
+|--------|------|
+| 搜索分页标准化 | 新增 `SearchResult` DTO：`{list, total, hasMore, source}`，替代裸返回 `List` |
+| 前端适配 | TopBar/MSearchView/HomeView 接入新分页结构，`hasMore` 精确判断 |
+| AI 助手限流 | `RateLimitService` Redis INCR 滑动窗口，每用户每分钟限 10 次 |
+| musicapi 评分优化 | QQ 搜索加 `t=0` 单曲参数 + 热度归一化对齐 + URL 缓存独立 |
+
+#### 🎛️ 桌面端批量管理
+| 改进项 | 说明 |
+|--------|------|
+| 歌单批量删除 | PlaylistsView：管理复选框 + 绿色选中边框 + 批量删除底栏 |
+| 收藏批量移除 | LikesView：管理复选框 + 批量取消收藏 + 同步 Pinia store |
+| 最近播放批量清除 | RecentView：前端过滤移除，即时生效 |
+
+#### 🐛 Bug 修复
+| 改进项 | 说明 |
+|--------|------|
+| PlayHistory 播放时间丢失 | `FieldFill.INSERT` → `INSERT_UPDATE`，`updateFill()` 补填 `playedAt` |
+
 ---
 
 ### 2026-06-19 第四轮优化（上线前全面审查 + 安全加固）

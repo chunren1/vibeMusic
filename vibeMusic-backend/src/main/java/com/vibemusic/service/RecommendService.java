@@ -140,7 +140,7 @@ public class RecommendService {
 
         for (String artist : topArtists) {
             try {
-                List<SongDTO> songs = songSearchService.search(artist, 1, 20, null); // 每位歌手搜20首
+                List<SongDTO> songs = songSearchService.search(artist, 1, 20, null).getList(); // 每位歌手搜20首
                 for (SongDTO s : songs) {
                     if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
                         if (s.getDuration() != null && s.getDuration() <= 30) continue;

@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
-import { getPlaylists, createPlaylist } from '@/api/song'
+import { getPlaylists, createPlaylist, deletePlaylistsBatch } from '@/api/song'
 
 const router = useRouter()
 const playlists = ref([])
@@ -10,6 +10,11 @@ const showCreate = ref(false)
 const newName = ref('')
 const newDesc = ref('')
 const creating = ref(false)
+
+// 批量管理
+const manageMode = ref(false)
+const selectedIds = ref(new Set())
+const removing = ref(false)
 
 async function loadPlaylists() {
   try {
@@ -35,6 +40,35 @@ async function handleCreate() {
   }
 }
 
+function toggleManage() {
+  manageMode.value = !manageMode.value
+  selectedIds.value = new Set()
+}
+
+function toggleSelect(id) {
+  const s = new Set(selectedIds.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  selectedIds.value = s
+}
+
+function goPlaylist(pl) {
+  if (manageMode.value) return
+  router.push({ name: 'playlist', params: { id: pl.id } })
+}
+
+async function doBatchDelete() {
+  if (removing.value || !selectedIds.value.size) return
+  removing.value = true
+  try {
+    await deletePlaylistsBatch([...selectedIds.value])
+    playlists.value = playlists.value.filter(pl => !selectedIds.value.has(pl.id))
+    selectedIds.value = new Set()
+    manageMode.value = false
+    window.toast?.('已删除', 'success')
+  } catch { window.toast?.('操作失败', 'error') }
+  finally { removing.value = false }
+}
+
 onMounted(() => loadPlaylists())
 </script>
 
@@ -46,15 +80,23 @@ onMounted(() => loadPlaylists())
         <h2 class="page-title">📂 我的歌单</h2>
         <p class="subtitle">{{ playlists.length }} 个歌单</p>
       </div>
-      <button class="btn-create" @click="showCreate = true">+ 创建歌单</button>
+      <div class="header-actions">
+        <button class="btn-manage" @click="toggleManage">{{ manageMode ? '完成' : '管理' }}</button>
+        <button v-if="!manageMode" class="btn-create" @click="showCreate = true">+ 创建歌单</button>
+      </div>
     </div>
 
     <div v-if="playlists.length > 0" class="playlist-grid">
       <div
         v-for="pl in playlists" :key="pl.id"
         class="playlist-card"
-        @click="router.push({ name: 'playlist', params: { id: pl.id } })"
+        :class="{ selected: manageMode && selectedIds.has(pl.id) }"
+        @click="manageMode ? toggleSelect(pl.id) : goPlaylist(pl)"
       >
+        <div v-if="manageMode" class="card-check">
+          <svg v-if="selectedIds.has(pl.id)" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#999" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
+        </div>
         <div class="pl-cover">
           <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-cover-img" alt="" loading="lazy" />
           <div v-else class="cover-inner" :style="{ background: '#31c27c' }">♪</div>
@@ -65,7 +107,14 @@ onMounted(() => loadPlaylists())
       </div>
     </div>
 
-    <div v-else class="empty">
+    <!-- 批量删除栏 -->
+    <div v-if="manageMode && selectedIds.size" class="batch-bar">
+      <button class="batch-btn" :disabled="removing" @click="doBatchDelete">
+        {{ removing ? '删除中...' : `删除 (${selectedIds.size})` }}
+      </button>
+    </div>
+
+    <div v-else-if="!playlists.length" class="empty">
       <p>还没有歌单</p>
       <p class="hint">点击上方"创建歌单"按钮，或在搜索歌曲时添加到歌单</p>
     </div>
@@ -94,6 +143,12 @@ onMounted(() => loadPlaylists())
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
 .page-title { font-size: 24px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
 .subtitle { font-size: 13px; color: #999; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
+.btn-manage {
+  padding: 10px 20px; border: 1px solid #ccc; border-radius: 20px;
+  background: transparent; color: #666; font-size: 14px; cursor: pointer;
+}
+.btn-manage:hover { border-color: #31c27c; color: #31c27c; }
 .btn-create {
   padding: 10px 24px; background: #31c27c; color: #fff; border: none;
   border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: 600;
@@ -104,8 +159,20 @@ onMounted(() => loadPlaylists())
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 20px;
+  padding-bottom: 80px;
 }
-.playlist-card { cursor: pointer; }
+.playlist-card { cursor: pointer; position: relative; }
+.playlist-card.selected { opacity: .7; }
+.playlist-card.selected::after {
+  content: ''; position: absolute; inset: -4px; border-radius: 14px;
+  border: 2px solid #31c27c; pointer-events: none;
+}
+.card-check {
+  position: absolute; top: 8px; right: 8px; z-index: 2;
+  background: #fff; border-radius: 50%; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.1);
+}
 .pl-cover {
   position: relative; padding-bottom: 100%;
   border-radius: 10px; overflow: hidden; margin-bottom: 10px;
@@ -167,4 +234,17 @@ onMounted(() => loadPlaylists())
 }
 .btn-ok:disabled { opacity: .5; cursor: not-allowed; }
 .btn-ok:not(:disabled):hover { background: #28a86b; }
+
+.batch-bar {
+  position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;
+  display: flex; justify-content: center; padding: 12px;
+  background: #fff; border-top: 1px solid #eee;
+}
+.batch-btn {
+  padding: 10px 36px; border-radius: 22px;
+  border: 1px solid #e0e0e0; background: transparent;
+  color: #e04040; font-size: 14px; cursor: pointer;
+}
+.batch-btn:hover { border-color: #e04040; }
+.batch-btn:disabled { opacity: .4; }
 </style>

@@ -81,6 +81,22 @@ public class PlaylistService {
 
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> create(Long userId, String name, String description, String coverUrl) {
+        // 去重：同名歌单已存在则直接返回已有歌单
+        Playlist existing = playlistMapper.selectOne(new LambdaQueryWrapper<Playlist>()
+                .eq(Playlist::getUserId, userId)
+                .eq(Playlist::getName, name));
+        if (existing != null) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", existing.getId());
+            m.put("name", existing.getName());
+            m.put("description", existing.getDescription());
+            m.put("coverUrl", coverUrl != null ? coverUrl : "");
+            m.put("songCount", songMapper.selectCount(new LambdaQueryWrapper<PlaylistSong>()
+                    .eq(PlaylistSong::getPlaylistId, existing.getId())));
+            m.put("createdAt", existing.getCreatedAt());
+            m.put("duplicate", true);
+            return m;
+        }
         Playlist pl = Playlist.builder().userId(userId).name(name).description(description).build();
         playlistMapper.insert(pl);
         Map<String, Object> m = new HashMap<>();
@@ -177,10 +193,20 @@ public class PlaylistService {
     @Transactional(rollbackFor = Exception.class)
     public int importPlaylist(Long userId, String name, String coverUrl,
                               List<Map<String, Object>> songs) {
-        // 1. 创建歌单
-        Playlist pl = Playlist.builder().userId(userId).name(name)
-                .description("从推荐歌单导入").build();
-        playlistMapper.insert(pl);
+        // 去重：同名歌单已存在则复用，只追加新歌
+        Playlist existing = playlistMapper.selectOne(new LambdaQueryWrapper<Playlist>()
+                .eq(Playlist::getUserId, userId)
+                .eq(Playlist::getName, name));
+        Playlist pl;
+        boolean reuse = existing != null;
+        if (reuse) {
+            pl = existing;
+        } else {
+            // 1. 创建歌单
+            pl = Playlist.builder().userId(userId).name(name)
+                    .description("从推荐歌单导入").build();
+            playlistMapper.insert(pl);
+        }
         // 2. 批量添加歌曲（跳过重复）
         int added = 0;
         for (Map<String, Object> s : songs) {

@@ -13,6 +13,10 @@ const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
 
+// 批量管理
+const manageMode = ref(false)
+const selectedIds = ref(new Set())
+
 favStore.fetchFavIds()
 
 function formatTime(dt) {
@@ -33,8 +37,28 @@ function toggleFav(song) {
 function openPlaylistPopup(item) { playlistTargetSong.value = item; showPlaylistPopup.value = true }
 
 function play(item) {
+  if (manageMode.value) return
   currentPlayId.value = item.sourceId
   player.playSongFromApi(item.sourceId, item.songName, item.artist, item.coverUrl || '')
+}
+
+function toggleManage() {
+  manageMode.value = !manageMode.value
+  selectedIds.value = new Set()
+}
+
+function toggleSelect(sourceId, idx) {
+  const key = sourceId + '_' + idx
+  const s = new Set(selectedIds.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  selectedIds.value = s
+}
+
+function doBatchClear() {
+  const keys = new Set(selectedIds.value)
+  recentSongs.value = recentSongs.value.filter((item, idx) => !keys.has(item.sourceId + '_' + idx))
+  selectedIds.value = new Set()
+  manageMode.value = false
 }
 
 onMounted(() => {
@@ -49,11 +73,13 @@ onMounted(() => {
   <div class="recent-page">
     <div class="page-header">
       <h2 class="page-title">🕐 最近播放</h2>
+      <button class="btn-manage" @click="toggleManage">{{ manageMode ? '完成' : '管理' }}</button>
     </div>
     <p class="subtitle">{{ recentSongs.length }} 首歌曲</p>
 
     <div v-if="recentSongs.length > 0" class="song-table">
       <div class="table-header">
+        <span v-if="manageMode" class="th-check"></span>
         <span class="th-index">#</span>
         <span class="th-cover"></span>
         <span class="th-title">歌名</span>
@@ -63,21 +89,26 @@ onMounted(() => {
       <div
         v-for="(item, idx) in recentSongs" :key="item.sourceId + '_' + idx"
         class="table-row"
-        :class="{ playing: currentPlayId === item.sourceId }"
+        :class="{ playing: currentPlayId === item.sourceId, selected: manageMode && selectedIds.has(item.sourceId + '_' + idx) }"
+        @click="manageMode ? toggleSelect(item.sourceId, idx) : play(item)"
       >
+        <span v-if="manageMode" class="td-check">
+          <svg v-if="selectedIds.has(item.sourceId + '_' + idx)" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
+        </span>
         <span class="td-index">
-          <span v-if="currentPlayId === item.sourceId" class="playing-eq">▮▮</span>
+          <span v-if="!manageMode && currentPlayId === item.sourceId" class="playing-eq">▮▮</span>
           <span v-else>{{ idx + 1 }}</span>
         </span>
         <div class="td-cover">
-          <div class="cover-img" :style="item.coverUrl ? { backgroundImage: 'url(' + item.coverUrl + '?param=100y100)' } : {}" @click="play(item)"><span v-if="!item.coverUrl">♪</span><div class="cover-hover">▶</div></div>
+          <div class="cover-img" :style="item.coverUrl ? { backgroundImage: 'url(' + item.coverUrl + '?param=100y100)' } : {}" @click.stop="play(item)"><span v-if="!item.coverUrl">♪</span><div class="cover-hover">▶</div></div>
         </div>
-        <div class="td-info" @click="play(item)">
+        <div class="td-info" @click.stop="play(item)">
           <span class="td-name" :class="{ active: currentPlayId === item.sourceId }">{{ item.songName }}</span>
           <span class="td-artist">{{ item.artist || '-' }}</span>
         </div>
         <span class="td-time">{{ formatTime(item.playedAt) }}</span>
-        <div class="td-actions">
+        <div v-if="!manageMode" class="td-actions" @click.stop>
           <button
             class="action-btn fav-btn" :class="{ faved: favStore.isFav(item.sourceId) }"
             @click.stop="toggleFav(item)" :title="favStore.isFav(item.sourceId) ? '取消收藏' : '收藏'"
@@ -85,6 +116,10 @@ onMounted(() => {
           <button class="action-btn add-btn" @click.stop="openPlaylistPopup(item)" title="加入歌单"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </div>
+    </div>
+
+    <div v-if="manageMode && selectedIds.size" class="batch-bar">
+      <button class="batch-btn" @click="doBatchClear">清除 ({{ selectedIds.size }})</button>
     </div>
 
     <div v-else class="empty">
@@ -97,10 +132,15 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.recent-page { padding: 24px 32px; }
+.recent-page { padding: 24px 32px; padding-bottom: 80px; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .page-title { font-size: 22px; font-weight: 700; color: #333; }
 .subtitle { font-size: 13px; color: #999; margin-bottom: 20px; }
+.btn-manage {
+  padding: 8px 18px; border: 1px solid #ccc; border-radius: 18px;
+  background: transparent; color: #666; font-size: 13px; cursor: pointer;
+}
+.btn-manage:hover { border-color: #31c27c; color: #31c27c; }
 
 .song-table { display: flex; flex-direction: column; }
 .table-header {
@@ -108,6 +148,7 @@ onMounted(() => {
   padding: 8px 0 12px; border-bottom: 1px solid #ddd;
   color: #999; font-size: 12px;
 }
+.th-check { text-align: center; }
 .th-index { text-align: center; }
 .th-actions { text-align: center; }
 
@@ -118,6 +159,8 @@ onMounted(() => {
 .table-row:hover { background: #f0f0f0; }
 .table-row:nth-child(odd) { background: #f9f9f9; }
 .table-row.playing { background: rgba(49,194,124,.08); }
+.table-row.selected { background: rgba(49,194,124,.06); }
+.td-check { text-align: center; }
 
 .td-index { text-align: center; font-size: 14px; color: #999; }
 .playing-eq { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
@@ -150,4 +193,17 @@ onMounted(() => {
 
 .empty { text-align: center; padding: 80px 0; color: #999; }
 .hint { font-size: 13px; margin-top: 8px; }
+
+.batch-bar {
+  position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;
+  display: flex; justify-content: center; padding: 12px;
+  background: #fff; border-top: 1px solid #eee;
+}
+.batch-btn {
+  padding: 10px 36px; border-radius: 22px;
+  border: 1px solid #e0e0e0; background: transparent;
+  color: #e04040; font-size: 14px; cursor: pointer;
+}
+.batch-btn:hover { border-color: #e04040; }
+.batch-btn:disabled { opacity: .4; }
 </style>

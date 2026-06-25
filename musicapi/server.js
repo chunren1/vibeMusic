@@ -196,6 +196,7 @@ class LRUCache {
 }
 
 const searchCache = new LRUCache(200);
+const urlCache = new LRUCache(200, 10 * 60 * 1000); // URL 缓存 10min，不污染搜索缓存
 
 // ==================== 数据清洗工具 ====================
 
@@ -259,22 +260,21 @@ function calcRelevance(songName, songArtists, keyword) {
 
 /**
  * 归一化热度 (0~1)
- * 不同平台字段不同，需要分别处理
+ * 统一对数归一化函数，两平台用相同参考值对齐
  */
+function normalizeLog(value, reference = 500000) {
+  return Math.min(1, Math.log10((value || 0) + 1) / Math.log10(reference + 1));
+}
+
 function calcPopularity(song) {
-  let raw = 0;
-
   if (song.platform === 'netease') {
-    // 网易云有 playCount (播放量) 或 score
-    const pc = song._raw?.playCount || song._raw?.score || 0;
-    raw = pc > 0 ? Math.log10(pc + 1) / 8 : 0; // 对数归一化
+    const pc = song._raw?.playCount || 0;
+    return normalizeLog(pc, 1000000);
   } else if (song.platform === 'qq') {
-    // QQ音乐有 popularity 或 listenCount
-    const pop = song._raw?.popularity || song._raw?.listenCount || song._raw?.pay?.pay_play || 0;
-    raw = pop > 0 ? Math.min(1, Math.log10(pop + 1) / 6) : 0;
+    const pop = song._raw?.listenCount || song._raw?.popularity || song._raw?.pay?.pay_play || 0;
+    return normalizeLog(pop, 1000000);
   }
-
-  return Math.min(1, Math.max(0, raw || 0.5)); // 默认 0.5
+  return 0.5; // 默认中等热度
 }
 
 // ==================== 核心：多维度加权评分 ====================
@@ -525,7 +525,7 @@ async function searchNetease(keyword, limit) {
 
 async function searchQQ(keyword, limit) {
   try {
-    const result = await qqMusic.api('search', { key: keyword, limit });
+    const result = await qqMusic.api('search', { key: keyword, limit, t: 0 }); // t=0: 单曲搜索
     // QQ API 正常时无 code 字段，仅在有 code 且非0时告警
     if (result && result.code != null && result.code !== 0) {
       console.warn(`[QQ] API 返回异常: code=${result.code}`);
@@ -616,7 +616,7 @@ function refineResults(songs, keyword) {
     }
   });
 
-  // 5. 重排 + 截取
+  // 5. 加分后重排 + 截取
   songs.sort((a, b) => (b.score || 0) - (a.score || 0));
   return songs.slice(0, SEARCH_FILTER.maxResults);
 }
@@ -704,13 +704,13 @@ app.get('/song/url/qq', async (req, res) => {
   try {
     const { id } = req.query;
     const cacheKey = `qq_url:${id}`;
-    const cached = searchCache.get(cacheKey);
+    const cached = urlCache.get(cacheKey);
     if (cached) return res.json({ code: 200, data: cached });
 
     const result = await qqMusic.api('/song/urls', { id });
     const url = result && result[id] ? result[id] : null;
     const data = [{ id: id, url: url }];
-    searchCache.set(cacheKey, data);
+    urlCache.set(cacheKey, data);
     res.json({ code: 200, data });
   } catch (error) {
     res.status(500).json({ code: 500, message: error.message });
