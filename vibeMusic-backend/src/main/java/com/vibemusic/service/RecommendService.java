@@ -31,11 +31,12 @@ public class RecommendService {
     private final ObjectMapper objectMapper;
 
     private static final int RECOMMEND_COUNT = 8;
+    private static final int RANDOM_BASE = 4; // 基础随机歌曲数，保证多样性
     private static final int HISTORY_DAYS = 30;
     private static final int HISTORY_SAMPLE = 100;
-    private static final String CACHE_PREFIX = "recommend:v2:"; // v2 清旧缓存(ECONNRESET污染)
-    private static final Duration USER_CACHE_TTL = Duration.ofHours(6);
-    private static final Duration GUEST_CACHE_TTL = Duration.ofMinutes(10); // 游客推荐10分钟过期，加速API恢复后生效
+    private static final String CACHE_PREFIX = "recommend:v3:"; // v3: 新算法
+    private static final Duration USER_CACHE_TTL = Duration.ofMinutes(30); // 30min，推荐更及时
+    private static final Duration GUEST_CACHE_TTL = Duration.ofMinutes(10);
 
     /**
      * 个性化推荐入口
@@ -99,7 +100,7 @@ public class RecommendService {
     // ================== 私有方法 ==================
 
     /**
-     * 已登录用户个性化推荐
+     * 已登录用户个性化推荐（v3: 随机打底 + 兴趣扩展，保证多样性）
      */
     private RecommendResult buildPersonalized(Long userId) {
         // 获取近30天播放记录
@@ -111,88 +112,78 @@ public class RecommendService {
                         .orderByDesc(PlayHistory::getPlayedAt)
                         .last("LIMIT " + HISTORY_SAMPLE));
 
-        if (history.isEmpty()) {
-            log.info("用户{}无近期播放记录，降级随机推荐", userId);
-            return buildGuestResult("最近没有听过歌？试试这些吧~");
-        }
-
-        // 已听过的 sourceId 集合（用于过滤）
+        // 已听过的 sourceId 集合（用于去重）
         Set<String> playedIds = history.stream()
                 .map(PlayHistory::getSourceId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+        Set<String> seenSourceIds = new HashSet<>(playedIds);
 
-        // 按歌手聚合兴趣权重
-        Map<String, Long> artistWeight = history.stream()
-                .filter(h -> h.getArtist() != null && !h.getArtist().isEmpty())
-                .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()));
+        List<SongDTO> result = new ArrayList<>();
 
-        // 提取最常听的歌手（最多5个，增加多样性）
-        List<String> topArtists = artistWeight.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(5)
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
-
-        // 搜索歌手的歌，汇总去重，过滤已听
-        Set<String> seenSourceIds = new HashSet<>(playedIds); // 直接从已听开始排除
-        List<SongDTO> candidates = new ArrayList<>();
-
-        for (String artist : topArtists) {
-            try {
-                List<SongDTO> songs = songSearchService.search(artist, 1, 20, null).getList(); // 每位歌手搜20首
-                for (SongDTO s : songs) {
-                    if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
-                        if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                        candidates.add(s);
+        // ① 随机打底：保证多样性
+        try {
+            List<SongDTO> random = songSearchService.getRandomSongs(RANDOM_BASE);
+            for (SongDTO s : random) {
+                if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
+                    if (s.getDuration() == null || s.getDuration() > 30) {
+                        result.add(s);
                     }
                 }
-            } catch (Exception e) {
-                log.warn("搜索歌手 {} 失败", artist, e);
+            }
+        } catch (Exception e) { log.warn("随机推荐获取失败", e); }
+
+        // ② 兴趣扩展：基于常听歌手搜歌
+        if (result.size() < RECOMMEND_COUNT && !history.isEmpty()) {
+            Map<String, Long> artistWeight = history.stream()
+                    .filter(h -> h.getArtist() != null && !h.getArtist().isEmpty())
+                    .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()));
+            List<String> topArtists = artistWeight.entrySet().stream()
+                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .limit(3) // 只取前3，搜索引擎会返回多样性结果
+                    .map(Map.Entry::getKey)
+                    .collect(Collectors.toList());
+
+            for (String artist : topArtists) {
+                if (result.size() >= RECOMMEND_COUNT) break;
+                try {
+                    List<SongDTO> songs = songSearchService.search(artist, 1, 10, null).getList();
+                    for (SongDTO s : songs) {
+                        if (result.size() >= RECOMMEND_COUNT) break;
+                        if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
+                            if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                            result.add(s);
+                        }
+                    }
+                } catch (Exception e) { log.warn("搜索歌手 {} 失败", artist, e); }
             }
         }
 
-        // 先随机打乱，再按 RustFS 缓存优先排列（保证多样性 + 离线优先）
-        Collections.shuffle(candidates);
-        // 批量查询缓存状态（一次 DB 查询替代 N 次逐条查询）
-        markOfflineStatus(candidates);
-        candidates.sort((a, b) -> Boolean.compare(
-                b.getCached() != null && b.getCached(),
-                a.getCached() != null && a.getCached()));
-
-        // 截取
-        int take = Math.min(candidates.size(), RECOMMEND_COUNT);
-        List<SongDTO> result = new ArrayList<>(candidates.subList(0, take));
-
-        // 不够补充随机
+        // ③ 仍有空缺 → 补随机
         if (result.size() < RECOMMEND_COUNT) {
             try {
                 List<SongDTO> supplement = songSearchService.getRandomSongs(RECOMMEND_COUNT - result.size());
                 for (SongDTO s : supplement) {
+                    if (result.size() >= RECOMMEND_COUNT) break;
                     if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
                         if (s.getDuration() != null && s.getDuration() <= 30) continue;
                         result.add(s);
                     }
                 }
-            } catch (Exception e) {
-                log.warn("补充随机歌曲失败", e);
-            }
+            } catch (Exception e) { log.warn("补充随机歌曲失败", e); }
         }
 
-        // 再次随机打乱
+        // 仍无结果 → 全随机兜底
+        if (result.isEmpty()) {
+            return buildGuestResult("最近没有听过歌？试试这些吧~");
+        }
+
         Collections.shuffle(result);
-
-        // 标记离线状态
         markOfflineStatus(result);
-
-        // 生成欢迎语 + 推荐理由
-        String greeting = buildGreeting(history.size(), topArtists);
-        String reason = buildReason(history);
 
         return RecommendResult.builder()
                 .songs(result)
-                .greeting(greeting)
-                .reason(reason)
+                .greeting("根据你喜爱的歌曲，为你推荐~")
                 .type("personalized")
                 .build();
     }

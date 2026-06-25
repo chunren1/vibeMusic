@@ -25,6 +25,7 @@ public class PlayHistoryService {
 
     @Transactional(rollbackFor = Exception.class)
     public void record(Long userId, String sourceId, String songName, String artist, String coverUrl) {
+        log.info("记录播放: userId={}, sourceId={}, name={}", userId, sourceId, songName);
         // 去重：检查最近一条记录是否同 sourceId，是则只更新时间
         PlayHistory last = mapper.selectOne(new LambdaQueryWrapper<PlayHistory>()
                 .eq(PlayHistory::getUserId, userId)
@@ -33,13 +34,19 @@ public class PlayHistoryService {
         if (last != null && last.getSourceId().equals(sourceId)) {
             last.setPlayedAt(LocalDateTime.now());
             mapper.updateById(last);
+            log.info("更新播放时间: id={}", last.getId());
             return;
         }
 
-        PlayHistory history = PlayHistory.builder()
-                .userId(userId).sourceId(sourceId)
-                .songName(songName).artist(artist).coverUrl(coverUrl).build();
+        PlayHistory history = new PlayHistory();
+        history.setUserId(userId);
+        history.setSourceId(sourceId);
+        history.setSongName(songName);
+        history.setArtist(artist);
+        history.setCoverUrl(coverUrl);
+        history.setPlayedAt(LocalDateTime.now());
         mapper.insert(history);
+        log.info("新增播放记录: id={}, playedAt={}", history.getId(), history.getPlayedAt());
 
         // 概率性清理：每 CLEANUP_INTERVAL 次播放触发 1 次，减少 DELETE 开销
         if (recordCounter.incrementAndGet() % CLEANUP_INTERVAL == 0) {
@@ -67,5 +74,13 @@ public class PlayHistoryService {
                     return m;
                 })
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int deleteBatch(Long userId, List<String> sourceIds) {
+        if (sourceIds == null || sourceIds.isEmpty()) return 0;
+        return mapper.delete(new LambdaQueryWrapper<PlayHistory>()
+                .eq(PlayHistory::getUserId, userId)
+                .in(PlayHistory::getSourceId, sourceIds));
     }
 }

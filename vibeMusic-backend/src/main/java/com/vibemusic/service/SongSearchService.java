@@ -213,12 +213,12 @@ public class SongSearchService {
         return SearchResult.of(resultList.subList(from, to), resultList.size(), page, size, "api");
     }
 
-    public List<SongDTO> search(String keyword) {
+    public SearchResult search(String keyword) {
         return search(keyword, 1, 20);
     }
 
     public List<SongDTO> getRandomSongs(int count) {
-        List<SongDTO> songs = search("热歌", 1, 30, null);
+        List<SongDTO> songs = search("热歌", 1, 30, null).getList();
         songs = songs.stream()
                 .filter(s -> s.getSourceId() != null && !s.getSourceId().isEmpty())
                 .filter(s -> s.getDuration() == null || s.getDuration() > 30)

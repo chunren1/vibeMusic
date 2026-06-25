@@ -62,6 +62,11 @@ export function getPlayHistory(count = 999) {
   return request.get('/songs/history', { params: { count } })
 }
 
+/** 批量删除播放历史 */
+export function removePlayHistoryBatch(sourceIds) {
+  return request.post('/songs/history/remove', { sourceIds })
+}
+
 // ========== 收藏 ==========
 
 /** 切换收藏 */

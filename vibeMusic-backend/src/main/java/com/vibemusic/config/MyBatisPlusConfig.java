@@ -35,6 +35,8 @@ public class MyBatisPlusConfig {
             public void updateFill(MetaObject metaObject) {
                 this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());
                 this.strictUpdateFill(metaObject, "playedAt", LocalDateTime.class, LocalDateTime.now());
+                this.strictUpdateFill(metaObject, "createdAt", LocalDateTime.class, LocalDateTime.now());
+                this.strictUpdateFill(metaObject, "addedAt", LocalDateTime.class, LocalDateTime.now());
             }
         };
     }

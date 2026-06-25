@@ -285,10 +285,10 @@ public class AssistantController {
         // 1. 尝试提取歌手名或具体关键词
         String keyword = extractSearchKeyword(userMessage);
         try {
-            List<SongDTO> results = songSearchService.search(keyword, 1, 6, "qq");
+            List<SongDTO> results = songSearchService.search(keyword, 1, 6, "qq").getList();
             if (results != null && !results.isEmpty()) return toSongCards(results);
 
-            results = songSearchService.search(keyword, 1, 6);
+            results = songSearchService.search(keyword, 1, 6).getList();
             if (results != null && !results.isEmpty()) return toSongCards(results);
         } catch (Exception e) {
             log.warn("Assistant 搜索失败: {}", e.getMessage());
@@ -296,13 +296,13 @@ public class AssistantController {
 
         // 2. 降级：用原始消息再搜一次
         try {
-            List<SongDTO> results = songSearchService.search(userMessage, 1, 6, "qq");
+            List<SongDTO> results = songSearchService.search(userMessage, 1, 6, "qq").getList();
             if (results != null && !results.isEmpty()) return toSongCards(results);
         } catch (Exception ignored) {}
 
         // 3. 最终降级：搜"热门歌曲"
         try {
-            List<SongDTO> results = songSearchService.search("热门歌曲", 1, 6);
+            List<SongDTO> results = songSearchService.search("热门歌曲", 1, 6).getList();
             if (results != null && !results.isEmpty()) return toSongCards(results);
         } catch (Exception ignored) {}
 
