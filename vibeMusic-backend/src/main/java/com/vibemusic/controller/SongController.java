@@ -162,6 +162,19 @@ public class SongController {
         return Result.ok(playHistoryService.recent(userId, count));
     }
 
+    /** 批量删除播放历史 */
+    @PostMapping("/history/remove")
+    @Operation(summary = "批量删除播放历史")
+    public Result<Integer> removeHistory(@RequestBody Map<String, Object> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        @SuppressWarnings("unchecked")
+        List<String> sourceIds = (List<String>) body.get("sourceIds");
+        if (sourceIds == null || sourceIds.isEmpty()) return Result.ok(0);
+        int count = playHistoryService.deleteBatch(userId, sourceIds);
+        return Result.ok("已删除 " + count + " 条记录", count);
+    }
+
     private static final String LYRIC_CACHE_PREFIX = "lyric:v2:";
     private static final java.time.Duration LYRIC_TTL = java.time.Duration.ofDays(365); // 歌词永久不变
 

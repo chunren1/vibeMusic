@@ -26,6 +26,6 @@ public class UserFavorite {
 
     private String artist;
 
-    @TableField(fill = FieldFill.INSERT)
+    @TableField(insertStrategy = FieldStrategy.NEVER)
     private LocalDateTime createdAt;
 }

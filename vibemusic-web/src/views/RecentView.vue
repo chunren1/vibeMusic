@@ -1,8 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import TopBar from '@/components/TopBar.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
-import { getPlayHistory } from '@/api/song'
+import { getPlayHistory, removePlayHistoryBatch } from '@/api/song'
 import { useFavoriteStore } from '@/stores/favorite'
 import { usePlayerStore } from '@/stores/player'
 
@@ -54,11 +54,31 @@ function toggleSelect(sourceId, idx) {
   selectedIds.value = s
 }
 
-function doBatchClear() {
-  const keys = new Set(selectedIds.value)
-  recentSongs.value = recentSongs.value.filter((item, idx) => !keys.has(item.sourceId + '_' + idx))
-  selectedIds.value = new Set()
-  manageMode.value = false
+const allSelected = computed(() => {
+  return recentSongs.value.length > 0 && selectedIds.value.size === recentSongs.value.length
+})
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = new Set()
+  } else {
+    const s = new Set()
+    recentSongs.value.forEach((item, idx) => s.add(item.sourceId + '_' + idx))
+    selectedIds.value = s
+  }
+}
+
+async function doBatchClear() {
+  if (!selectedIds.value.size) return
+  // 从 key 中提取 sourceId（去重）
+  const ids = [...new Set([...selectedIds.value].map(k => k.split('_')[0]))]
+  try {
+    await removePlayHistoryBatch(ids)
+    recentSongs.value = recentSongs.value.filter((item, idx) => !selectedIds.value.has(item.sourceId + '_' + idx))
+    selectedIds.value = new Set()
+    manageMode.value = false
+    window.toast?.('已清除', 'success')
+  } catch { window.toast?.('操作失败', 'error') }
 }
 
 onMounted(() => {
@@ -79,7 +99,10 @@ onMounted(() => {
 
     <div v-if="recentSongs.length > 0" class="song-table">
       <div class="table-header">
-        <span v-if="manageMode" class="th-check"></span>
+        <span v-if="manageMode" class="th-check" @click="toggleSelectAll" style="cursor:pointer">
+          <svg v-if="allSelected" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
+        </span>
         <span class="th-index">#</span>
         <span class="th-cover"></span>
         <span class="th-title">歌名</span>
@@ -118,8 +141,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="manageMode && selectedIds.size" class="batch-bar">
-      <button class="batch-btn" @click="doBatchClear">清除 ({{ selectedIds.size }})</button>
+    <div v-if="manageMode" class="batch-bar">
+      <button v-if="!allSelected" class="batch-select-all" @click="toggleSelectAll">全选</button>
+      <button v-if="selectedIds.size" class="batch-btn" @click="doBatchClear">清除 ({{ selectedIds.size }})</button>
     </div>
 
     <div v-else class="empty">
@@ -196,9 +220,15 @@ onMounted(() => {
 
 .batch-bar {
   position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;
-  display: flex; justify-content: center; padding: 12px;
+  display: flex; justify-content: center; gap: 12px; padding: 12px;
   background: #fff; border-top: 1px solid #eee;
 }
+.batch-select-all {
+  padding: 10px 24px; border-radius: 22px;
+  border: 1px solid #31c27c; background: transparent;
+  color: #31c27c; font-size: 14px; cursor: pointer;
+}
+.batch-select-all:hover { background: rgba(49,194,124,.06); }
 .batch-btn {
   padding: 10px 36px; border-radius: 22px;
   border: 1px solid #e0e0e0; background: transparent;
