@@ -734,6 +734,20 @@ cd vibemusic-web && npm run test:watch   # 前端监听模式
 | 📦 运维 | docker:dev 隔离 | 去 nginx→backend 硬依赖，避免拉全链 |
 | 📦 运维 | npm scripts 简化 | docker:* 命令去 ps1 中转，直接调 docker-compose |
 
+## 开发规范
+
+本 Agent 自动遵循以下规则（详见 `.codebuddy/rules/`）：
+- `coding-standards.md` — 命名规范、注释、错误处理、日志
+- `security-rules.md` — JWT/Cookie/SQL注入/幂等/限流
+- `testing-rules.md` — JUnit/Vitest 测试规范
+- `workflow-rules.md` — Git/PR/部署检查
+
+可复用技能（详见 `.codebuddy/skills/`）：
+- `generate-api-endpoint` — Spec → Controller+Service+Test
+- `generate-vue-page` — 双端 Vue 页面脚手架
+- `write-backend-test` — JUnit 测试生成
+- `fix-entity-time-field` — MyBatis-Plus 时间字段修复
+
 ## License
 
 MIT
