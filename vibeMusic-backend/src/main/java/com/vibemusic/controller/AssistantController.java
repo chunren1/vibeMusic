@@ -1,9 +1,11 @@
-package com.vibemusic.controller;
+ package com.vibemusic.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.common.Result;
 import com.vibemusic.dto.SongDTO;
+import com.vibemusic.service.RateLimitService;
 import com.vibemusic.service.SongSearchService;
+import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
@@ -33,17 +35,21 @@ public class AssistantController {
 
     private final RestTemplate restTemplate;
     private final SongSearchService songSearchService;
+    private final RateLimitService rateLimitService;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private static final String API_URL = "https://api.siliconflow.cn/v1/chat/completions";
-    private static final String MODEL = "Qwen/Qwen3.5-4B";
+    private static final String MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+    private static final int AI_RATE_LIMIT = 10; // 每分钟最多10次
 
     public AssistantController(RestTemplate restTemplate,
                                SongSearchService songSearchService,
+                               RateLimitService rateLimitService,
                                ObjectMapper objectMapper,
                                @Value("${ai.api-key:}") String apiKey) {
         this.restTemplate = restTemplate;
         this.songSearchService = songSearchService;
+        this.rateLimitService = rateLimitService;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
     }
@@ -61,12 +67,19 @@ public class AssistantController {
             return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY", "model", MODEL));
         }
 
+        // 限流：每用户每分钟最多 AI_RATE_LIMIT 次
+        Long userId = UserService.getCurrentUserId();
+        String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anonymous");
+        if (!rateLimitService.tryAcquire(rateKey, AI_RATE_LIMIT, java.time.Duration.ofMinutes(1))) {
+            return Result.error(429, "请求太频繁，请稍后再试（每分钟最多 " + AI_RATE_LIMIT + " 次）");
+        }
+
         // 并行调用：AI 对话 + 歌曲搜索
         CompletableFuture<String> aiFuture = CompletableFuture.supplyAsync(() -> callLLM(userMessage, songContext));
         CompletableFuture<List<Map<String, Object>>> searchFuture = CompletableFuture.supplyAsync(() -> searchSongs(userMessage));
 
         try {
-            String reply = aiFuture.get(15, TimeUnit.SECONDS);
+            String reply = aiFuture.get(30, TimeUnit.SECONDS);
             List<Map<String, Object>> songs = searchFuture.get(5, TimeUnit.SECONDS);
 
             Map<String, Object> result = new HashMap<>();
@@ -229,16 +242,25 @@ public class AssistantController {
         requestBody.put("max_tokens", 600);
         requestBody.put("temperature", 0.7);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-                API_URL, new HttpEntity<>(requestBody, headers), Map.class);
+        try {
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                    API_URL, new HttpEntity<>(requestBody, headers), Map.class);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> body = response.getBody();
-        if (body == null) return "我现在有点迷糊，稍等再聊～";
-        List<Map<String, Object>> choices = (List<Map<String, Object>>) body.get("choices");
-        if (choices == null || choices.isEmpty()) return "网络不太好，再问我一次吧～";
-        Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
-        return (String) message.get("content");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> body = response.getBody();
+            if (body == null) return "我现在有点迷糊，稍等再聊～";
+            List<Map<String, Object>> choices = (List<Map<String, Object>>) body.get("choices");
+            if (choices == null || choices.isEmpty()) return "网络不太好，再问我一次吧～";
+            Map<String, Object> message = (Map<String, Object>) choices.get(0).get("message");
+            return (String) message.get("content");
+        } catch (Exception e) {
+            String detail = e.getMessage();
+            if (e instanceof org.springframework.web.client.HttpClientErrorException httpEx) {
+                detail = httpEx.getResponseBodyAsString();
+            }
+            log.error("AI 调用失败: model={}, error={}", MODEL, detail);
+            throw new RuntimeException("AI: " + detail, e);
+        }
     }
 
     private String buildSystemPrompt(String context) {

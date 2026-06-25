@@ -18,7 +18,7 @@ async function doSearch() {
   const keyword = searchKeyword.value.trim()
   if (!keyword) { searchResults.value = []; showDropdown.value = false; return }
   searchLoading.value = true; showDropdown.value = true
-  try { const res = await searchSongs(keyword); searchResults.value = res.data || []; }
+  try { const res = await searchSongs(keyword); searchResults.value = res.data?.list || []; }
   catch { searchResults.value = []; }
   finally { searchLoading.value = false }
 }

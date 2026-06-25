@@ -197,7 +197,7 @@ async function doSearch(reset = true) {
   try {
     const platform = sourceFilter.value === 'all' ? null : sourceFilter.value
     const res = await searchSongs(keyword, searchPage.value, SEARCH_PAGE_SIZE, platform)
-    const data = res.data || []
+    const data = res.data?.list || []
     if (reset) {
       searchResults.value = data
     } else {
@@ -236,7 +236,7 @@ async function doSearchSuggest() {
   searchLoading.value = true
   try {
     const res = await searchSongs(keyword, 1, 8)
-    searchResults.value = res.data || []
+    searchResults.value = res.data?.list || []
   } catch (e) {
     searchResults.value = []
   } finally {

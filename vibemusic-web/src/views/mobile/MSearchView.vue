@@ -71,9 +71,10 @@ async function doSearch(reset = true, saveHist = false) {
   try {
     const platform = sourceFilter.value === 'all' ? null : sourceFilter.value
     const res = await searchSongs(kw, page.value, PAGE_SIZE, platform)
-    const data = res.data || []
+    const result = res.data || {}
+    const data = result.list || []
     results.value = reset ? data : [...results.value, ...data]
-    hasMore.value = data.length >= PAGE_SIZE
+    hasMore.value = result.hasMore ?? (data.length >= PAGE_SIZE)
   } catch { if (reset) results.value = [] }
   finally { loading.value = false }
 }

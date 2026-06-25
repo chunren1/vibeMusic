@@ -34,6 +34,7 @@ public class MyBatisPlusConfig {
             @Override
             public void updateFill(MetaObject metaObject) {
                 this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());
+                this.strictUpdateFill(metaObject, "playedAt", LocalDateTime.class, LocalDateTime.now());
             }
         };
     }
