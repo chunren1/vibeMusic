@@ -30,6 +30,16 @@
 | 📦 运维 | Docker 一键部署，K6 压力测试，数据库备份，Sentry 错误监控 |
 | 📖 API 文档 | Knife4j OpenAPI 3.0 → `http://localhost:8080/doc.html` |
 
+## 📸 项目演示
+
+| 首页 | 推荐+歌单 | 搜索 |
+|------|----------|------|
+| ![首页](docs/screenshots/home.png) | ![推荐](docs/screenshots/home-playlists.png) | ![搜索](docs/screenshots/search.png) |
+
+| 播放器 | 歌单管理 | 最近播放 |
+|--------|---------|---------|
+| ![播放器](docs/screenshots/player.png) | ![歌单](docs/screenshots/playlists.png) | ![最近](docs/screenshots/recent.png) |
+
 ## 技术架构
 
 ```
@@ -57,7 +67,7 @@
             └─────────────────┘
 ```
 
-> 点击查看高清架构图 → [docs/architecture.png](docs/architecture.png) *(即将添加)*
+
 
 ## 快速开始
 
