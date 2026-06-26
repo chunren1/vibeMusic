@@ -3,9 +3,9 @@
 > **全栈音乐平台** — 独立完成从浏览器到数据库的全链路开发，覆盖 Vue 3 + Spring Boot 4 + Express BFF + Docker 七容器编排。
 > 支持网易云 + QQ 音乐双源聚合搜索，自建三级缓存体系和推荐引擎，83 条自动化测试，GitHub Actions CI/CD。
 
-[![Test](https://github.com/green-leavesQAQ/vibeMusic/actions/workflows/test.yml/badge.svg)](https://github.com/green-leavesQAQ/vibeMusic/actions/workflows/test.yml)
-[![Tests](https://img.shields.io/badge/tests-83%20passed-brightgreen)](https://github.com/green-leavesQAQ/vibeMusic)
-[![JaCoCo](https://img.shields.io/badge/coverage-JaCoCo%20enabled-brightgreen)](https://github.com/green-leavesQAQ/vibeMusic)
+[![CI](https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg)](https://github.com/chunren1/vibeMusic/actions/workflows/test.yml)
+[![Tests](https://img.shields.io/badge/tests-83%20passed-brightgreen)](https://github.com/chunren1/vibeMusic)
+[![JaCoCo](https://img.shields.io/badge/coverage-JaCoCo%20enabled-brightgreen)](https://github.com/chunren1/vibeMusic)
 [![Java](https://img.shields.io/badge/Java-17-orange)](https://adoptium.net/)
 [![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.0-6DB33F)](https://spring.io/projects/spring-boot)
 [![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D)](https://vuejs.org/)
