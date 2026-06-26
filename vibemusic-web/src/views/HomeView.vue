@@ -363,7 +363,7 @@ function formatDuration(seconds) {
         :key="idx"
         class="banner-slide"
         :class="{ active: idx === activeSlide }"
-        :style="slide.coverUrl ? { backgroundImage: 'linear-gradient(rgba(0,0,0,.3), rgba(0,0,0,.7)), url(' + slide.coverUrl + '?param=800y340)' } : {}"
+        :style="slide.coverUrl ? { backgroundImage: 'url(' + slide.coverUrl + '?param=1600y900)' } : {}"
       >
         <div class="slide-text">
           <h2>{{ slide.name }}</h2>
@@ -721,7 +721,7 @@ function formatDuration(seconds) {
 .logout-btn:hover { border-color: #ec4141; color: #ec4141; }
 
 .banner {
-  position: relative; height: 300px; overflow: hidden;
+  position: relative; height: min(360px, 30vw); overflow: hidden;
   margin: 0 32px 32px; border-radius: 14px;
 }
 .banner-skel {
@@ -734,7 +734,7 @@ function formatDuration(seconds) {
   position: absolute; inset: 0; opacity: 0; transform: scale(0.96);
   transition: all .6s ease; cursor: pointer;
   border-radius: 14px;
-  background-size: cover; background-position: center;
+  background-size: cover; background-position: 35% center;
 }
 .banner-slide.active { opacity: 1; transform: scale(1); }
 .slide-text { position: absolute; left: 48px; bottom: 32px; }
