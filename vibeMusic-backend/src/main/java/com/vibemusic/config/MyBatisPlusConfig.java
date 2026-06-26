@@ -10,6 +10,9 @@ import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import org.springframework.core.io.Resource;
+
 import javax.sql.DataSource;
 import java.time.LocalDateTime;
 
@@ -41,11 +44,17 @@ public class MyBatisPlusConfig {
 
     /**
      * 显式创建 SqlSessionFactory（Spring Boot 4.x 自动配置兼容性问题）
+     * 注意：必须显式设置 mapperLocations，否则自定义 XML mapper 无法绑定
      */
     @Bean
     public SqlSessionFactory sqlSessionFactory(DataSource dataSource, MetaObjectHandler metaObjectHandler) throws Exception {
         MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
+
+        // 必须显式设置 mapper XML 路径，否则报 BindingException
+        Resource[] mapperLocations = new PathMatchingResourcePatternResolver()
+                .getResources("classpath*:/mapper/**/*.xml");
+        factoryBean.setMapperLocations(mapperLocations);
 
         // 使用 MyBatis-Plus 的 Configuration
         MybatisConfiguration configuration = new MybatisConfiguration();
