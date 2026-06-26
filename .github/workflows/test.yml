@@ -14,7 +14,7 @@ jobs:
   backend-test:
     name: Backend (Maven + JUnit 5)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -25,10 +25,17 @@ jobs:
         with:
           java-version: "17"
           distribution: "temurin"
-          cache: maven
+
+      - name: Cache Maven Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('vibeMusic-backend/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
 
       - name: Maven Test
-        run: mvn test -B -DfailIfNoTests=false
+        run: mvn test -B -DfailIfNoTests=false -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=warn
         working-directory: vibeMusic-backend
 
       - name: Upload Test Report
