@@ -39,6 +39,13 @@
   - stream 端点增加 RustFS 直读兜底（StorageService.getObject）
   - 下载文件名改为 "歌手 - 歌曲名.mp3"
 
+## README 优化 (2026-06-27)
+- README 全面重写，面向面试官视角，展示完整全栈能力
+- 移除所有移动端引用（APK、多端等）
+- 新增深度内容：搜索降级链详解、BFF 网关设计理由、推荐引擎 v3 演进、六级音质 SLA
+- 新增性能优化清单（18 项含具体效果数据）、安全体系 12 层防护表
+- 每个技术选型附带理由，让面试官理解"为什么这样设计"
+
 ## 内网穿透（Cloudflare Tunnel）
 - 域名: www.vibemusic.abrdns.com (注册于 abrdns.com/cloudns.net)
 - Cloudflare Tunnel ID: ae061393-aae9-4ced-b40e-3a9818849993

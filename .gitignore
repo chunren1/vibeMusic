@@ -10,6 +10,11 @@ musicapi/node_modules/
 *.dump
 *.dumpstream
 mvn-test-output.txt
+vibeMusic-backend/test-output*.txt
+
+# 私人文档（不公开）
+INTERVIEW.md
+docs/UI-OPTIMIZATION-PLAN.md
 
 # 前端构建产物
 vibemusic-web/dist/
