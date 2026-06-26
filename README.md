@@ -429,10 +429,84 @@ vibeMusic/
 
 ---
 
+## 📊 项目规模
+
+| 维度 | 数据 |
+|------|------|
+| 后端代码 | ~8,000 行 Java (Spring Boot + MyBatis-Plus) |
+| 前端代码 | ~12,000 行 Vue 3 + JavaScript |
+| 网关代码 | ~800 行 Express.js |
+| 数据库表 | 6 张核心表 (Flyway V1→V4 版本管理) |
+| API 端点 | 30+ REST 端点 + 15+ 网关端点 |
+| 前端页面 | 11 个桌面端 + 12 个移动端路由 |
+| 自动化测试 | 83 条 (后端 42 + 前端 41) |
+| 提交记录 | 212 次提交，5 轮迭代 |
+
+---
+
+## 🗄️ 数据库设计
+
+```
+users ───────── 用户表
+  │ id, username, password(BCrypt), nickname, avatar, bg_image
+  │
+  ├── playlist ───── 歌单表
+  │     │ id, user_id → users.id, name, description
+  │     │
+  │     └── playlist_song ── 歌单歌曲关联 (多对多)
+  │           playlist_id + source_id 联合唯一
+  │
+  ├── user_favorite ── 收藏表
+  │     user_id + source_id 联合唯一, 冗余 song_name/artist/cover_url
+  │
+  └── play_history ─── 播放历史 (上限 300 条，定时清理)
+        user_id + played_at 复合索引，连续同歌 UPDATE 去重
+```
+
+| 表 | 核心索引 | 说明 |
+|------|----------|------|
+| `users` | `uk_username` | BCrypt 密码存储 |
+| `song` | `uk_source_id`, `idx_name`, `idx_artist` | 歌曲缓存 + ES 同步源 |
+| `playlist` | `idx_user_created` | 用户歌单排序查询 |
+| `playlist_song` | `uk_pl_song` (playlist_id + source_id) | 防重复添加 |
+| `user_favorite` | `uk_user_song`, `idx_user_fav_created` | 收藏去重 + 排序 |
+| `play_history` | `idx_user_played`, `idx_played_at` | 历史列表 + 定时清理 |
+
+---
+
+## 🗺️ 前端路由
+
+```
+桌面端 (/)                        需要登录
+├── /              → 首页         ✗
+├── /search        → 搜索         ✗
+├── /playlists     → 我的歌单      ✓
+├── /playlist/:id  → 歌单详情      ✗
+├── /likes         → 我的收藏      ✓
+├── /recent        → 最近播放      ✓
+├── /profile       → 个人中心      ✗
+├── /chat          → AI 助手      ✗
+└── /login         → 登录         ✗
+
+移动端 (/m)       自动检测设备跳转
+├── /m             → 首页 (Shell)
+├── /m/search      → 搜索
+├── /m/playlists   → 歌单
+├── /m/likes       → 收藏
+├── /m/recent      → 历史
+├── /m/profile     → 个人
+├── /m/player      → 播放器
+├── /m/chat        → AI 对话
+└── ...
+```
+
+> 路由守卫：`beforeEach` 自动从 httpOnly Cookie 恢复会话，需登录页面未认证→弹登录框；移动端/桌面端按 User-Agent 自动分流。
+
+---
+
 ## 已知问题
 
 - QQ 搜索需 `t:0` 参数指定单曲类型
-- `MyBatisPlusConfig` 自定义 SqlSessionFactory 需显式注入 MetaObjectHandler（已修复）
 
 ## License
 
