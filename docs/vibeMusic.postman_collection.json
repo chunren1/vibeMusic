@@ -1,0 +1,491 @@
+{
+	"info": {
+		"name": "vibeMusic API",
+		"description": "vibeMusic 全栈音乐平台 API 集合\n\n环境变量:\n  baseUrl = http://localhost:8080\n  musicapiUrl = http://localhost:3000",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "musicapiUrl",
+			"value": "http://localhost:3000"
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{token}}",
+				"type": "string"
+			}
+		]
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"description": "用户认证相关接口",
+			"item": [
+				{
+					"name": "注册",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser\",\n  \"password\": \"Test1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "register"]
+						}
+					}
+				},
+				{
+					"name": "登录",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin\",\n  \"password\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "当前用户信息",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "me"]
+						}
+					}
+				},
+				{
+					"name": "修改密码",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"oldPassword\": \"123456\",\n  \"newPassword\": \"NewPass1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/change-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "change-password"]
+						}
+					}
+				},
+				{
+					"name": "退出登录",
+					"request": {
+						"method": "POST",
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Songs",
+			"description": "歌曲搜索、播放、推荐相关接口",
+			"item": [
+				{
+					"name": "搜索歌曲",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/search?keyword=周杰伦&page=1&size=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "search"],
+							"query": [
+								{"key": "keyword", "value": "周杰伦"},
+								{"key": "page", "value": "1"},
+								{"key": "size", "value": "20"}
+							]
+						}
+					}
+				},
+				{
+					"name": "记录播放",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/play?sourceId=xxx",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "play"],
+							"query": [
+								{"key": "sourceId", "value": "xxx"}
+							]
+						}
+					}
+				},
+				{
+					"name": "音频流代理",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/stream?sourceId=xxx",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "stream"],
+							"query": [
+								{"key": "sourceId", "value": "xxx"}
+							]
+						}
+					}
+				},
+				{
+					"name": "歌词",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/lyric?sourceId=xxx&source=netease",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "lyric"],
+							"query": [
+								{"key": "sourceId", "value": "xxx"},
+								{"key": "source", "value": "netease"}
+							]
+						}
+					}
+				},
+				{
+					"name": "随机推荐",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/random",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "random"]
+						}
+					}
+				},
+				{
+					"name": "首页轮播推荐",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/banner",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "banner"]
+						}
+					}
+				},
+				{
+					"name": "播放历史",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/history",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "history"]
+						}
+					}
+				},
+				{
+					"name": "ES 健康检查",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/songs/es-health",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "songs", "es-health"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Recommend",
+			"description": "个性化推荐",
+			"item": [
+				{
+					"name": "个性化推荐",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/recommend/personalized",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "recommend", "personalized"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Favorites",
+			"description": "收藏管理",
+			"item": [
+				{
+					"name": "收藏/取消收藏",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"sourceId\": \"xxx\",\n  \"songName\": \"xxx\",\n  \"artist\": \"xxx\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/favorites/toggle",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "favorites", "toggle"]
+						}
+					}
+				},
+				{
+					"name": "收藏列表",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/favorites/list",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "favorites", "list"]
+						}
+					}
+				},
+				{
+					"name": "收藏 ID 集合",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/favorites/ids",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "favorites", "ids"]
+						}
+					}
+				},
+				{
+					"name": "批量取消收藏",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"sourceIds\": [\"id1\", \"id2\"]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/favorites/remove-batch",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "favorites", "remove-batch"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Playlists",
+			"description": "歌单管理（需认证）",
+			"item": [
+				{
+					"name": "我的歌单列表",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/list",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "list"]
+						}
+					}
+				},
+				{
+					"name": "创建歌单",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"我的歌单\",\n  \"description\": \"描述\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/create",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "create"]
+						}
+					}
+				},
+				{
+					"name": "歌单歌曲",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/songs?playlistId=1",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "songs"],
+							"query": [{"key": "playlistId", "value": "1"}]
+						}
+					}
+				},
+				{
+					"name": "添加歌曲到歌单",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"playlistId\": 1,\n  \"sourceId\": \"xxx\",\n  \"songName\": \"xxx\",\n  \"artist\": \"xxx\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/add-song",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "add-song"]
+						}
+					}
+				},
+				{
+					"name": "从歌单移除歌曲",
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/remove-song?playlistId=1&sourceId=xxx",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "remove-song"],
+							"query": [
+								{"key": "playlistId", "value": "1"},
+								{"key": "sourceId", "value": "xxx"}
+							]
+						}
+					}
+				},
+				{
+					"name": "删除歌单",
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/delete?playlistId=1",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "delete"],
+							"query": [{"key": "playlistId", "value": "1"}]
+						}
+					}
+				},
+				{
+					"name": "推荐歌单",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/playlists/recommend",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "playlists", "recommend"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Download",
+			"description": "歌曲下载到 RustFS 缓存",
+			"item": [
+				{
+					"name": "下载歌曲",
+					"request": {
+						"method": "POST",
+						"url": {
+							"raw": "{{baseUrl}}/api/download/{{sourceId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "download", "{{sourceId}}"]
+						}
+					}
+				},
+				{
+					"name": "检查下载状态",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/download/check/{{sourceId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "download", "check", "{{sourceId}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "AI Assistant",
+			"description": "AI 音乐助手",
+			"item": [
+				{
+					"name": "AI 对话",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"message\": \"推荐一些适合下雨天听的歌\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/assistant/chat",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "assistant", "chat"]
+						}
+					}
+				},
+				{
+					"name": "缓存统计",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/api/monitor/cache-stats",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "monitor", "cache-stats"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "MusicAPI Gateway",
+			"description": "Express 网关 (port 3000)",
+			"item": [
+				{
+					"name": "聚合搜索",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{musicapiUrl}}/search?keyword=周杰伦",
+							"host": ["{{musicapiUrl}}"],
+							"path": ["search"],
+							"query": [{"key": "keyword", "value": "周杰伦"}]
+						}
+					}
+				},
+				{
+					"name": "健康检查",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{musicapiUrl}}/health",
+							"host": ["{{musicapiUrl}}"],
+							"path": ["health"]
+						}
+					}
+				},
+				{
+					"name": "Cookie 状态",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{musicapiUrl}}/cookie-status",
+							"host": ["{{musicapiUrl}}"],
+							"path": ["cookie-status"]
+						}
+					}
+				}
+			]
+		}
+	]
+}

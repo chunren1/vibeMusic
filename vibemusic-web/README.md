@@ -1,38 +1,53 @@
 # vibemusic-web
 
-This template should help get you started developing with Vue 3 in Vite.
+vibeMusic 前端应用 — Vue 3 + Vite + Pinia
 
-## Recommended IDE Setup
+## 技术栈
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+| 技术 | 版本 | 用途 |
+|------|------|------|
+| Vue | 3.5 | Composition API 响应式框架 |
+| Vite | 6 | 构建工具 + HMR 热更新 |
+| Pinia | 2 | 全局状态管理（auth / player / favorite） |
+| Vue Router | 4 | 桌面端 `/` + 移动端 `/m` 自动分流路由 |
+| Axios | 1 | HTTP 请求封装 + JWT 拦截器 + 幂等 X-Request-Id |
 
-## Recommended Browser Setup
+## 目录结构
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+```
+src/
+├── views/              # 桌面端页面 (HomeView, SearchView, PlaylistView...)
+│   └── mobile/         # 移动端页面（每个桌面页对应一个移动端版本）
+├── components/         # PlayerBar, LyricsView, LoginModal
+│   ├── mobile/         # 移动端专用组件
+│   └── __tests__/      # PlayerBar 组件单测 (20 cases)
+├── stores/             # Pinia Stores: auth, player, favorite, recommend
+│   └── __tests__/      # PlayerStore 单测 (21 cases)
+├── composables/        # useAudioBackground, useClickOutside, useIsMobile, useToast, useVirtualList
+├── router/             # 桌面/移动端路由自动分流
+├── directives/         # v-lazy-img 图片懒加载指令
+├── api/                # Axios 封装 + 请求拦截器 + 自动刷新 Token
+└── assets/             # SVG 图标系统 (SvgIcon 组件 + 17 个内联 symbol)
+```
 
-## Customize configuration
+## 开发
 
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
-
-```sh
+```bash
 npm install
+npm run dev             # → http://localhost:5173
+npm run test            # Vitest 41 条测试
+npm run test:watch      # 监听模式
+npm run build           # 生产构建 → dist/
 ```
 
-### Compile and Hot-Reload for Development
+## 特性
 
-```sh
-npm run dev
-```
+- **双端适配** — 桌面侧栏布局 + 移动端底部 TabBar，共享 API/Store
+- **播放状态管理** — 全局单例 Audio，队列/模式/音量/进度持久化到 localStorage
+- **收藏全局同步** — Pinia Favorite Store，10 个组件统一接入，乐观更新 + 回滚
+- **移动端优化** — `100dvh` 安全区域，`position: sticky` 输入栏，路由懒加载
+- **暗色主题** — 统一暗色主题，SVG 图标 currentColor 自适应
 
-### Compile and Minify for Production
+---
 
-```sh
-npm run build
-```
+详见项目根目录 [README.md](../README.md)

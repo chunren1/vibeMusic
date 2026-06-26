@@ -1,6 +1,7 @@
 package com.vibemusic.config;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.config.GlobalConfig;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import org.apache.ibatis.reflection.MetaObject;
@@ -28,15 +29,12 @@ public class MyBatisPlusConfig {
             public void insertFill(MetaObject metaObject) {
                 this.strictInsertFill(metaObject, "createdAt", LocalDateTime.class, LocalDateTime.now());
                 this.strictInsertFill(metaObject, "playedAt", LocalDateTime.class, LocalDateTime.now());
-                this.strictInsertFill(metaObject, "addedAt", LocalDateTime.class, LocalDateTime.now());
             }
 
             @Override
             public void updateFill(MetaObject metaObject) {
                 this.strictUpdateFill(metaObject, "updatedAt", LocalDateTime.class, LocalDateTime.now());
                 this.strictUpdateFill(metaObject, "playedAt", LocalDateTime.class, LocalDateTime.now());
-                this.strictUpdateFill(metaObject, "createdAt", LocalDateTime.class, LocalDateTime.now());
-                this.strictUpdateFill(metaObject, "addedAt", LocalDateTime.class, LocalDateTime.now());
             }
         };
     }
@@ -45,15 +43,20 @@ public class MyBatisPlusConfig {
      * 显式创建 SqlSessionFactory（Spring Boot 4.x 自动配置兼容性问题）
      */
     @Bean
-    public SqlSessionFactory sqlSessionFactory(DataSource dataSource) throws Exception {
+    public SqlSessionFactory sqlSessionFactory(DataSource dataSource, MetaObjectHandler metaObjectHandler) throws Exception {
         MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
         factoryBean.setDataSource(dataSource);
 
         // 使用 MyBatis-Plus 的 Configuration
         MybatisConfiguration configuration = new MybatisConfiguration();
         configuration.setMapUnderscoreToCamelCase(true);
-        factoryBean.setConfiguration(configuration);
 
+        // 注入 MetaObjectHandler 到 GlobalConfig（否则自动填充不生效）
+        GlobalConfig globalConfig = new GlobalConfig();
+        globalConfig.setMetaObjectHandler(metaObjectHandler);
+        factoryBean.setGlobalConfig(globalConfig);
+
+        factoryBean.setConfiguration(configuration);
         return factoryBean.getObject();
     }
 
