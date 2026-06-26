@@ -308,21 +308,27 @@ public class SongPlayService {
 
     /**
      * 检查歌曲是否缓存于 RustFS，Redis 缓存结果减少 MinIO HTTP 调用
+     * 任何异常（Redis/MinIO 不可用）均返回 false，调用方继续走 API/DB 降级
      */
     private boolean isCachedInRustFS(String sourceId) {
         if (sourceId == null) return false;
-        String cacheKey = RUSTFS_CACHE_PREFIX + sourceId;
-        // 先查 Redis
-        String cached = stringRedisTemplate.opsForValue().get(cacheKey);
-        if ("1".equals(cached)) return true;
-        if ("0".equals(cached)) return false;
+        try {
+            String cacheKey = RUSTFS_CACHE_PREFIX + sourceId;
+            // 先查 Redis
+            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+            if ("1".equals(cached)) return true;
+            if ("0".equals(cached)) return false;
 
-        // Redis 未命中 → 查 MinIO
-        boolean exists = storageService.exists("songs/" + sourceId + ".mp3");
-        // 写入 Redis 缓存（存在 10min，不存在 30s）
-        Duration ttl = exists ? RUSTFS_CACHE_TTL : Duration.ofSeconds(30);
-        stringRedisTemplate.opsForValue().set(cacheKey, exists ? "1" : "0", ttl);
-        return exists;
+            // Redis 未命中 → 查 MinIO
+            boolean exists = storageService.exists("songs/" + sourceId + ".mp3");
+            // 写入 Redis 缓存（存在 10min，不存在 30s）
+            Duration ttl = exists ? RUSTFS_CACHE_TTL : Duration.ofSeconds(30);
+            stringRedisTemplate.opsForValue().set(cacheKey, exists ? "1" : "0", ttl);
+            return exists;
+        } catch (Exception e) {
+            log.debug("isCachedInRustFS failed for {} (Redis/MinIO unavailable): {}", sourceId, e.getMessage());
+            return false;
+        }
     }
 
     @SuppressWarnings("unchecked")
