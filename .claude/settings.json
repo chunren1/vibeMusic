@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(mvn *)",
+      "Bash(git *)",
+      "Bash(docker *)",
+      "Bash(powershell *)",
+      "Bash(node *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force *)",
+      "Bash(docker rm *)",
+      "Bash(docker system prune *)"
+    ]
+  }
+}

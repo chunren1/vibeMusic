@@ -39,6 +39,14 @@ jobs:
           path: vibeMusic-backend/target/surefire-reports/
           retention-days: 7
 
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: vibeMusic-backend/target/site/jacoco/
+          retention-days: 7
+
   frontend-test:
     name: Frontend (Vitest)
     runs-on: ubuntu-latest
