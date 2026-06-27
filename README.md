@@ -85,50 +85,93 @@
 
 ## 🏗️ 技术架构
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                  Nginx (port 80) 统一入口                  │
-│         静态资源 serve + /api/* 反向代理 + SPA fallback     │
-│          Gzip 压缩 + upstream keepalive 连接池              │
-└────────────┬─────────────────────────┬────────────────────┘
-             │                         │
-   dist/ 静态资源                /api/* 代理
-             │                         │
-             ▼                         ▼
-┌─────────────────────┐   ┌────────────────────────────────┐
-│   Vue 3 + Vite       │   │   Spring Boot 4 + Java 17       │
-│   Composition API    │   │   MyBatis-Plus + HikariCP       │
-│   Pinia 状态管理      │   │   JWT httpOnly Cookie 认证       │
-│   Vitest 测试         │   │   Micrometer + Prometheus       │
-│   (dev:5173)         │   │   (localhost:8080)              │
-└─────────────────────┘   └──────────┬─────────────────────┘
-                                     │
-                   ┌─────────────────┴────────────────┐
-                   ▼                                  ▼
-         ┌──────────────────┐            ┌──────────────────────────┐
-         │   musicapi BFF    │            │   数据层 (Docker)          │
-         │   Express.js 网关  │            │                          │
-         │   (port 3000)     │            │  MySQL 8.0  · 主数据库     │
-         │                   │            │  Redis 7    · 三级缓存     │
-         │  网易云搜索/URL     │            │  ES 8.18    · IK 分词搜索  │
-         │  QQ 搜索/URL       │            │  MinIO      · 歌曲离线缓存  │
-         │  搜索评分聚合       │            │                          │
-         │  Cookie 统一管理    │            └──────────────────────────┘
-         └──────────────────┘
-                                     │
-                   ┌─────────────────┴────────────────┐
-                   ▼                                  ▼
-         ┌──────────────────┐            ┌──────────────────────────┐
-         │   Prometheus      │            │   Grafana                  │
-         │   指标采集存储      │            │   可视化仪表盘              │
-         │   (port 9090)     │            │   (port 3001)              │
-         └────────┬─────────┘            └──────────────────────────┘
-                  │
-         ┌────────┴─────────┐
-         │  Alertmanager     │
-         │  告警通知管理       │
-         │  (port 9093)      │
-         └──────────────────┘
+```mermaid
+graph TB
+    subgraph "用户层"
+        U[浏览器 / 移动端]
+    end
+
+    subgraph "接入层 :80"
+        NG["Nginx
+            静态资源 / API反向代理
+            Gzip / keepalive"]
+    end
+
+    subgraph "前端 :5173"
+        V["Vue 3 + Vite
+            Composition API / Pinia
+            Vitest / Axios"]
+    end
+
+    subgraph "后端 :8080"
+        SB["Spring Boot 4 + Java 17
+            MyBatis-Plus / HikariCP
+            JWT httpOnly Cookie
+            Micrometer + Prometheus"]
+    end
+
+    subgraph "BFF 网关 :3000"
+        BFF["musicapi Express.js
+            网易云 + QQ 搜索
+            评分聚合 / Cookie 管理
+            prom-client /metrics"]
+    end
+
+    subgraph "三方音乐源"
+        NE["网易云音乐 API"]
+        Q["QQ 音乐 API"]
+    end
+
+    subgraph "数据层 (Docker)"
+        M[("MySQL 8.0
+            核心数据")]
+        R[("Redis 7
+            三级缓存 / 幂等锁
+            对话记忆")]
+        E["Elasticsearch 8.18
+            IK 分词索引"]
+        ST["MinIO / RustFS
+            歌曲离线缓存"]
+    end
+
+    subgraph "监控体系 (Docker)"
+        P["Prometheus
+            指标采集 :9090"]
+        G["Grafana
+            可视化 :3001"]
+        A["Alertmanager
+            告警通知 :9093"]
+    end
+
+    U --> NG
+    NG --> V
+    NG --> SB
+    NG --> BFF
+    SB --> BFF
+    BFF --> NE
+    BFF --> Q
+    SB --> M
+    SB --> R
+    SB --> E
+    SB --> ST
+    SB --> P
+    P --> G
+    P --> A
+
+    style U fill:#1a1a2e,stroke:#e94560,color:#fff
+    style NG fill:#16213e,stroke:#0f3460,color:#fff
+    style V fill:#0f3460,stroke:#e94560,color:#fff
+    style SB fill:#533483,stroke:#e94560,color:#fff
+    style BFF fill:#2d6a4f,stroke:#52b788,color:#fff
+    style NE fill:#1b4332,stroke:#52b788,color:#fff
+    style Q fill:#1b4332,stroke:#52b788,color:#fff
+    style M fill:#0d1b2a,stroke:#778da9,color:#fff
+    style R fill:#0d1b2a,stroke:#778da9,color:#fff
+    style E fill:#0d1b2a,stroke:#778da9,color:#fff
+    style ST fill:#0d1b2a,stroke:#778da9,color:#fff
+    style P fill:#3b0a11,stroke:#e94560,color:#fff
+    style G fill:#3b0a11,stroke:#e94560,color:#fff
+    style A fill:#3b0a11,stroke:#e94560,color:#fff
 ```
 
 ---
@@ -137,13 +180,35 @@
 
 ### 一、双源音乐搜索体系（四级降级链）
 
-```
-用户输入 "周杰伦 晴天"
-  → 并行搜索（CompletableFuture + 线程池，3s 超时）:
-      ├── L1: Redis 缓存命中？→ 直接返回 (~2ms)
-      ├── L2: ES IK 分词匹配 (~15ms) → 命中回写 Redis
-      ├── L3: musicapi 双源实时搜索 (~800ms) → 命中回写 Redis + 索引到 ES
-      └── L4: 空结果兜底 (<1ms) — 全部源不可用时优雅降级
+```mermaid
+flowchart LR
+    U["用户输入 '周杰伦 晴天'"]
+    L1{{"L1: Redis 缓存 ?"}}
+    L2{{"L2: ES IK 分词 ?"}}
+    L3{{"L3: musicapi 双源实时搜索"}}
+    L4{{"L4: 空结果兜底"}}
+    HIT["✅ 直接返回 (~2ms)"]
+    ESHIT["✅ ES 命中 → 回写 Redis (~15ms)"]
+    APIHIT["✅ API 命中 → 回写 Redis + ES (~800ms)"]
+    EMPTY["✅ 优雅降级 (<1ms)"]
+
+    U --> L1
+    L1 -- 命中 --> HIT
+    L1 -- 未命中 --> L2
+    L2 -- 命中 --> ESHIT
+    L2 -- 未命中 --> L3
+    L3 -- 命中 --> APIHIT
+    L3 -- 全部失败 --> L4 --> EMPTY
+
+    style U fill:#1a1a2e,stroke:#e94560,color:#fff
+    style L1 fill:#0f3460,stroke:#e94560,color:#fff
+    style L2 fill:#0f3460,stroke:#e94560,color:#fff
+    style L3 fill:#533483,stroke:#e94560,color:#fff
+    style L4 fill:#3b0a11,stroke:#e94560,color:#fff
+    style HIT fill:#1b4332,stroke:#52b788,color:#fff
+    style ESHIT fill:#1b4332,stroke:#52b788,color:#fff
+    style APIHIT fill:#1b4332,stroke:#52b788,color:#fff
+    style EMPTY fill:#1b4332,stroke:#52b788,color:#fff
 ```
 
 ### 二、AI 音乐助手（Function Calling Agent）
@@ -158,25 +223,62 @@
 
 ### 三、个性化推荐引擎（v3）
 
-```
-算法流程：
-  1. 随机种子 (4 首) → 保证多样性，避免信息茧房
-  2. 歌手扩展 (3 位 × 10 首) → 基于用户播放历史的歌手权重 Top-3
-  3. 补充 → 结果不足时随机补全
-  4. Redis 缓存 → key: recommend:v3:{userId}, TTL 30min
-  5. 离线标记 → 批量 DB 查询替代 N 次 MinIO API 调用
+```mermaid
+flowchart TB
+    S1["① 随机种子 4 首
+    避免信息茧房"]
+    S2["② 歌手权重 Top-3
+    从播放历史提取"]
+    S3["③ 各歌手扩展 10 首
+    → 最多 30 首候选"]
+    S4["④ 不足时随机补全"]
+    S5["⑤ Redis 缓存
+    recommend:v3:{userId}
+    TTL 30min"]
+    DONE2["✅ 返回推荐列表"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> DONE2
+
+    style S1 fill:#16213e,stroke:#0f3460,color:#fff
+    style S2 fill:#16213e,stroke:#0f3460,color:#fff
+    style S3 fill:#0f3460,stroke:#e94560,color:#fff
+    style S4 fill:#533483,stroke:#e94560,color:#fff
+    style S5 fill:#1b4332,stroke:#52b788,color:#fff
+    style DONE2 fill:#1b4332,stroke:#52b788,color:#fff,stroke-width:3px
 ```
 
 ### 四、音频播放与六级 SLA
 
-```
-音质降级链：
-  LOCAL (RustFS 本地文件, ~0ms)
-  → HIRES (Hi-Res 无损, 96kHz/24bit)
-  → EXHIGH (320kbps)
-  → HIGHER (192kbps)
-  → STANDARD (128kbps)
-  → FALLBACK (搜索同名歌曲兜底)
+```mermaid
+flowchart LR
+    L0["LOCAL
+    RustFS 直读 ~0ms"]
+    L1["HIRES
+    Hi-Res 96/24"]
+    L2["EXHIGH
+    320kbps"]
+    L3["HIGHER
+    192kbps"]
+    L4["STANDARD
+    128kbps"]
+    L5["FALLBACK
+    同名搜索兜底"]
+
+    L0 -->|失败| L1 -->|失败| L2 -->|失败| L3 -->|失败| L4 -->|失败| L5
+    L0 -->|成功| DONE["✅ 返回播放"]
+    L1 -->|成功| DONE
+    L2 -->|成功| DONE
+    L3 -->|成功| DONE
+    L4 -->|成功| DONE
+    L5 -->|成功| DONE
+
+    style L0 fill:#1b4332,stroke:#52b788,color:#fff
+    style L1 fill:#0f3460,stroke:#e94560,color:#fff
+    style L2 fill:#0f3460,stroke:#e94560,color:#fff
+    style L3 fill:#0f3460,stroke:#e94560,color:#fff
+    style L4 fill:#533483,stroke:#e94560,color:#fff
+    style L5 fill:#3b0a11,stroke:#e94560,color:#fff
+    style DONE fill:#1b4332,stroke:#52b788,color:#fff,stroke-width:3px
 ```
 
 ### 五、监控可观测性（Prometheus + Grafana）
