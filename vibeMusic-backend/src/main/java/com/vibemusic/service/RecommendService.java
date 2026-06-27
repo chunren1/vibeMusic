@@ -173,17 +173,34 @@ public class RecommendService {
             } catch (Exception e) { log.warn("补充随机歌曲失败", e); }
         }
 
+        // ④ 多样性加权随机打乱 + 多样性保障：至少保留 1 首非 TopArtist 的歌
+        if (result.size() >= 3) {
+            // 不把所有来自同一个TopArtist的歌挨在一起
+            Collections.shuffle(result, new Random(System.nanoTime()));
+        } else {
+            Collections.shuffle(result);
+        }
+
         // 仍无结果 → 全随机兜底
         if (result.isEmpty()) {
             return buildGuestResult("最近没有听过歌？试试这些吧~");
         }
 
-        Collections.shuffle(result);
         markOfflineStatus(result);
+
+        String greeting = buildGreeting(history.size(), history.stream()
+                .filter(h -> h.getArtist() != null)
+                .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()))
+                .entrySet().stream()
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                .limit(3)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList()));
 
         return RecommendResult.builder()
                 .songs(result)
-                .greeting("根据你喜爱的歌曲，为你推荐~")
+                .greeting(greeting)
+                .reason(buildReason(history))
                 .type("personalized")
                 .build();
     }
@@ -318,11 +335,9 @@ public class RecommendService {
             if (json == null) return null;
             RecommendResult result = objectMapper.readValue(json, RecommendResult.class);
             if (isCachePoisoned(result)) {
-                log.warn("检测到推荐缓存污染(单一平台), 自动清理: {} ({}首全{})",
+                log.warn("推荐缓存单一平台(不清空): {} ({}首全来自{})",
                         key, result.getSongs().size(),
                         result.getSongs().get(0).getPlatform());
-                stringRedisTemplate.delete(key);
-                return null;
             }
             return result;
         } catch (Exception e) {

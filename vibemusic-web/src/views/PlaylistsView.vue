@@ -2,7 +2,10 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
-import { getPlaylists, createPlaylist, deletePlaylistsBatch } from '@/api/song'
+import {
+  getPlaylists, createPlaylist, deletePlaylistsBatch,
+  updatePlaylist, reorderPlaylists, exportPlaylist
+} from '@/api/song'
 
 const router = useRouter()
 const playlists = ref([])
@@ -10,6 +13,12 @@ const showCreate = ref(false)
 const newName = ref('')
 const newDesc = ref('')
 const creating = ref(false)
+
+// 编辑
+const editing = ref(false)
+const editId = ref(null)
+const editName = ref('')
+const editDesc = ref('')
 
 // 批量管理
 const manageMode = ref(false)
@@ -19,7 +28,7 @@ const removing = ref(false)
 async function loadPlaylists() {
   try {
     const res = await getPlaylists()
-    playlists.value = res.data || []
+    playlists.value = (res.data || []).map((p, i) => ({ ...p, _sortIndex: i }))
   } catch (e) { playlists.value = [] }
 }
 
@@ -38,6 +47,83 @@ async function handleCreate() {
   } finally {
     creating.value = false
   }
+}
+
+// 编辑歌单
+function openEdit(pl, e) {
+  e.stopPropagation()
+  editId.value = pl.id
+  editName.value = pl.name
+  editDesc.value = pl.description || ''
+  editing.value = true
+}
+
+async function handleEdit() {
+  if (!editName.value.trim()) return
+  try {
+    await updatePlaylist(editId.value, editName.value.trim(), editDesc.value.trim(), null)
+    editing.value = false
+    window.toast?.('已更新', 'success')
+    loadPlaylists()
+  } catch { window.toast?.('更新失败', 'error') }
+}
+
+// 排序
+async function moveToTop(pl, e) {
+  e.stopPropagation()
+  try {
+    const order = playlists.value.map((p, i) => ({
+      playlistId: p.id,
+      sortOrder: p.id === pl.id ? 0 : (i + 1)
+    }))
+    await reorderPlaylists(order)
+    window.toast?.('已置顶', 'success')
+    loadPlaylists()
+  } catch { window.toast?.('操作失败', 'error') }
+}
+
+async function moveUp(pl, e) {
+  e.stopPropagation()
+  const idx = playlists.value.findIndex(p => p.id === pl.id)
+  if (idx <= 0) return
+  const order = playlists.value.map((p, i) => ({
+    playlistId: p.id,
+    sortOrder: i === idx ? idx - 1 : i === idx - 1 ? idx : i
+  }))
+  try {
+    await reorderPlaylists(order)
+    loadPlaylists()
+  } catch { window.toast?.('操作失败', 'error') }
+}
+
+async function moveDown(pl, e) {
+  e.stopPropagation()
+  const idx = playlists.value.findIndex(p => p.id === pl.id)
+  if (idx >= playlists.value.length - 1) return
+  const order = playlists.value.map((p, i) => ({
+    playlistId: p.id,
+    sortOrder: i === idx ? idx + 1 : i === idx + 1 ? idx : i
+  }))
+  try {
+    await reorderPlaylists(order)
+    loadPlaylists()
+  } catch { window.toast?.('操作失败', 'error') }
+}
+
+// 导出
+async function handleExport(pl, e) {
+  e.stopPropagation()
+  try {
+    const res = await exportPlaylist(pl.id)
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${pl.name}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    window.toast?.('已导出', 'success')
+  } catch { window.toast?.('导出失败', 'error') }
 }
 
 function toggleManage() {
@@ -97,6 +183,11 @@ onMounted(() => loadPlaylists())
           <svg v-if="selectedIds.has(pl.id)" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
           <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#999" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
         </div>
+        <div v-if="!manageMode" class="card-actions">
+          <button class="ca-btn" title="编辑" @click="openEdit(pl, $event)">✏️</button>
+          <button class="ca-btn" title="置顶" @click="moveToTop(pl, $event)">⬆</button>
+          <button class="ca-btn" title="导出" @click="handleExport(pl, $event)">📥</button>
+        </div>
         <div class="pl-cover">
           <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-cover-img" alt="" loading="lazy" />
           <div v-else class="cover-inner" :style="{ background: '#31c27c' }">♪</div>
@@ -132,6 +223,21 @@ onMounted(() => loadPlaylists())
           <button class="btn-ok" :disabled="!newName.trim() || creating" @click="handleCreate">
             {{ creating ? '创建中...' : '创建' }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑歌单弹窗 -->
+    <div v-if="editing" class="overlay" @click.self="editing = false">
+      <div class="dialog">
+        <h3>编辑歌单</h3>
+        <label>歌单名称</label>
+        <input v-model="editName" placeholder="歌单名称" class="inp" @keyup.enter="handleEdit" />
+        <label>描述</label>
+        <input v-model="editDesc" placeholder="歌单描述" class="inp" />
+        <div class="dialog-acts">
+          <button class="btn-cancel" @click="editing = false">取消</button>
+          <button class="btn-ok" :disabled="!editName.trim()" @click="handleEdit">保存</button>
         </div>
       </div>
     </div>
@@ -173,6 +279,18 @@ onMounted(() => loadPlaylists())
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 2px 6px rgba(0,0,0,.1);
 }
+.card-actions {
+  position: absolute; top: 6px; right: 6px; z-index: 2;
+  display: flex; gap: 4px; opacity: 0; transition: opacity .2s;
+}
+.playlist-card:hover .card-actions { opacity: 1; }
+.ca-btn {
+  width: 28px; height: 28px; border: none; border-radius: 50%;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 13px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: background .15s;
+}
+.ca-btn:hover { background: rgba(0,0,0,.8); }
 .pl-cover {
   position: relative; padding-bottom: 100%;
   border-radius: 10px; overflow: hidden; margin-bottom: 10px;

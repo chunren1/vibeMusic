@@ -12,6 +12,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -19,7 +20,7 @@ import java.util.stream.Collectors;
  * 歌单 DTO（替代裸 Map，提供编译期类型安全）
  */
 record PlaylistDTO(Long id, String name, String description, long songCount,
-                   String coverUrl, Object createdAt) {
+                   String coverUrl, Integer sortOrder, Object createdAt) {
     static PlaylistDTO fromRow(Map<String, Object> row) {
         return new PlaylistDTO(
                 toLong(row.get("playlist_id")),
@@ -27,6 +28,7 @@ record PlaylistDTO(Long id, String name, String description, long songCount,
                 Objects.toString(row.get("description"), ""),
                 row.get("song_count") instanceof Number n ? n.longValue() : 0L,
                 Objects.toString(row.get("cover_url"), ""),
+                row.get("sort_order") instanceof Number n ? n.intValue() : 0,
                 row.get("created_at")
         );
     }
@@ -34,7 +36,8 @@ record PlaylistDTO(Long id, String name, String description, long songCount,
         Map<String, Object> m = new HashMap<>();
         m.put("id", id);           m.put("name", name);
         m.put("description", description); m.put("songCount", songCount);
-        m.put("coverUrl", coverUrl);       m.put("createdAt", createdAt);
+        m.put("coverUrl", coverUrl);       m.put("sortOrder", sortOrder);
+        m.put("createdAt", createdAt);
         return m;
     }
     private static Long toLong(Object v) {
@@ -97,7 +100,8 @@ public class PlaylistService {
             m.put("duplicate", true);
             return m;
         }
-        Playlist pl = Playlist.builder().userId(userId).name(name).description(description).build();
+        Playlist pl = Playlist.builder().userId(userId).name(name)
+                .description(description).coverUrl(coverUrl != null ? coverUrl : "").build();
         playlistMapper.insert(pl);
         Map<String, Object> m = new HashMap<>();
         m.put("id", pl.getId());
@@ -131,6 +135,56 @@ public class PlaylistService {
         } catch (DuplicateKeyException e) {
             return false; // 唯一索引兜底：并发场景下仍按约束拒绝
         }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void update(Long userId, Long playlistId, String name, String description, String coverUrl) {
+        Playlist pl = playlistMapper.selectById(playlistId);
+        if (pl == null) throw new BusinessException(404, "歌单不存在");
+        if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
+        if (name != null && !name.isBlank()) pl.setName(name.trim());
+        if (description != null) pl.setDescription(description);
+        if (coverUrl != null) pl.setCoverUrl(coverUrl);
+        playlistMapper.updateById(pl);
+        log.info("歌单更新: id={}, name={}", playlistId, pl.getName());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void reorder(Long userId, List<Map<String, Object>> order) {
+        // order: [{playlistId: 1, sortOrder: 0}, ...]
+        for (Map<String, Object> item : order) {
+            Long id = item.get("playlistId") instanceof Number n ? n.longValue() : null;
+            int sort = item.get("sortOrder") instanceof Number n ? n.intValue() : 0;
+            if (id == null) continue;
+            Playlist pl = playlistMapper.selectById(id);
+            if (pl == null || !pl.getUserId().equals(userId)) continue;
+            pl.setSortOrder(sort);
+            playlistMapper.updateById(pl);
+        }
+    }
+
+    /** 导出歌单为 JSON 文本 */
+    public Map<String, Object> export(Long userId, Long playlistId) {
+        Playlist pl = playlistMapper.selectById(playlistId);
+        if (pl == null) throw new BusinessException(404, "歌单不存在");
+        if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
+        List<PlaylistSong> songs = songMapper.selectList(new LambdaQueryWrapper<PlaylistSong>()
+                .eq(PlaylistSong::getPlaylistId, playlistId)
+                .orderByDesc(PlaylistSong::getAddedAt));
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("name", pl.getName());
+        data.put("description", pl.getDescription());
+        data.put("exportTime", java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        data.put("songCount", songs.size());
+        List<Map<String, String>> songList = songs.stream().map(s -> {
+            Map<String, String> m = new LinkedHashMap<>();
+            m.put("songName", s.getSongName());
+            m.put("artist", s.getArtist());
+            m.put("sourceId", s.getSourceId());
+            return m;
+        }).collect(Collectors.toList());
+        data.put("songs", songList);
+        return data;
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -74,6 +75,16 @@ public class PlayHistoryService {
                     return m;
                 })
                 .collect(Collectors.toList());
+    }
+
+    /** 导出播放历史为结构化数据 */
+    public Map<String, Object> export(Long userId) {
+        List<Map<String, Object>> history = recent(userId, MAX_HISTORY);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("exportTime", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        data.put("total", history.size());
+        data.put("records", history);
+        return data;
     }
 
     @Transactional(rollbackFor = Exception.class)

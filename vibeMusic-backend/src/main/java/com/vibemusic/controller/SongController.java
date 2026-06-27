@@ -162,6 +162,15 @@ public class SongController {
         return Result.ok(playHistoryService.recent(userId, count));
     }
 
+    /** 导出播放历史 */
+    @GetMapping("/history/export")
+    @Operation(summary = "导出播放历史")
+    public Result<Map<String, Object>> exportHistory() {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        return Result.ok(playHistoryService.export(userId));
+    }
+
     /** 批量删除播放历史 */
     @PostMapping("/history/remove")
     @Operation(summary = "批量删除播放历史")

@@ -216,6 +216,40 @@ public class PlaylistController {
         return Result.ok();
     }
 
+    /** 更新歌单信息（重命名、改描述、换封面） */
+    @PostMapping("/update")
+    public Result<Void> update(@RequestBody Map<String, Object> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        Long playlistId = body.get("playlistId") instanceof Number n ? n.longValue() : null;
+        if (playlistId == null) return Result.error("缺少 playlistId");
+        String name = (String) body.get("name");
+        String description = (String) body.get("description");
+        String coverUrl = (String) body.get("coverUrl");
+        playlistService.update(userId, playlistId, name, description, coverUrl);
+        return Result.ok();
+    }
+
+    /** 歌单排序/置顶 */
+    @PostMapping("/reorder")
+    public Result<Void> reorder(@RequestBody Map<String, Object> body) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> order = (List<Map<String, Object>>) body.get("order");
+        if (order == null || order.isEmpty()) return Result.error("缺少 order");
+        playlistService.reorder(userId, order);
+        return Result.ok();
+    }
+
+    /** 导出歌单为 JSON */
+    @GetMapping("/export")
+    public Result<Map<String, Object>> export(@RequestParam Long playlistId) {
+        Long userId = UserService.getCurrentUserId();
+        if (userId == null) return Result.error(401, "请先登录");
+        return Result.ok(playlistService.export(userId, playlistId));
+    }
+
     /** 删除歌单 */
     @DeleteMapping("/delete")
     public Result<Void> delete(@RequestParam Long playlistId) {
