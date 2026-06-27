@@ -86,38 +86,45 @@
 ## 🏗️ 技术架构
 
 ```mermaid
-graph LR
+graph TB
     U[浏览器 / 移动端]
-    NG["Nginx
+    NG["Nginx :80
         反向代理 / 静态资源"]
 
-    V["Vue 3
+    V["Vue 3 :5173
         Composition API
         Pinia / Vitest"]
 
-    SB["Spring Boot 4
+    SB["Spring Boot 4 :8080
         MyBatis-Plus / JWT
-        Micrometer"]
+        Micrometer + Prometheus"]
 
-    BFF["musicapi Express
-        网易云 / QQ 搜索
-        评分聚合 / Cookie 管理"]
+    BFF["musicapi Express :3000
+        网易云 + QQ 搜索
+        评分聚合 / Cookie管理"]
 
-    NE["网易云 API"]
+    NE["网易云音乐 API"]
     Q["QQ 音乐 API"]
 
-    M[("MySQL")]
-    R[("Redis")]
-    ST[("MinIO")]
-    P["Prometheus"]
-    G["Grafana"]
-    A["Alertmanager"]
+    M[("MySQL 8.0
+        核心数据")]
+    R[("Redis 7
+        三级缓存")]
+    ST[("MinIO / RustFS
+        歌曲缓存")]
+
+    P["Prometheus :9090
+        指标采集"]
+    G["Grafana :3001
+        仪表盘"]
+    A["Alertmanager :9093
+        告警通知"]
 
     U --> NG
     NG --> V
     NG --> SB
     NG --> BFF
-    SB -.->|HTTP| V
+    SB --> V
     SB --> BFF
     BFF --> NE
     BFF --> Q
