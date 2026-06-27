@@ -9,6 +9,7 @@ import {
 
 const router = useRouter()
 const playlists = ref([])
+const renderKey = ref(0)
 const showCreate = ref(false)
 const newName = ref('')
 const newDesc = ref('')
@@ -29,6 +30,7 @@ async function loadPlaylists() {
   try {
     const res = await getPlaylists()
     playlists.value = (res.data || []).map((p, i) => ({ ...p, _sortIndex: i }))
+    renderKey.value++
   } catch (e) { playlists.value = [] }
 }
 
@@ -177,7 +179,7 @@ onMounted(() => loadPlaylists())
 
     <div v-if="playlists.length > 0" class="playlist-grid">
       <div
-        v-for="pl in playlists" :key="pl.id"
+        v-for="pl in playlists" :key="`${renderKey}-${pl.id}`"
         class="playlist-card"
         :class="{ selected: manageMode && selectedIds.has(pl.id) }"
         @click="manageMode ? toggleSelect(pl.id) : goPlaylist(pl)"
