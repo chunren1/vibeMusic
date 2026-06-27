@@ -281,7 +281,7 @@ public class AssistantController {
         requestBody.put("max_tokens", 800);
         requestBody.put("temperature", 0.7);
         requestBody.put("tools", aiToolService.getToolDefinitions());
-        requestBody.put("tool_choice", "auto");
+        requestBody.put("tool_choice", "required");
 
         try {
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
