@@ -151,16 +151,18 @@ public class PlaylistService {
 
     @Transactional(rollbackFor = Exception.class)
     public void reorder(Long userId, List<Map<String, Object>> order) {
-        // order: [{playlistId: 1, sortOrder: 0}, ...]
         for (Map<String, Object> item : order) {
             Long id = item.get("playlistId") instanceof Number n ? n.longValue() : null;
             int sort = item.get("sortOrder") instanceof Number n ? n.intValue() : 0;
             if (id == null) continue;
-            Playlist pl = playlistMapper.selectById(id);
-            if (pl == null || !pl.getUserId().equals(userId)) continue;
-            pl.setSortOrder(sort);
-            playlistMapper.updateById(pl);
+            // 直接用 UpdateWrapper SET，绕过 MyBatis-Plus 字段策略
+            playlistMapper.update(null,
+                new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Playlist>()
+                    .eq(Playlist::getId, id)
+                    .eq(Playlist::getUserId, userId)
+                    .set(Playlist::getSortOrder, sort));
         }
+        log.info("歌单排序更新: userId={}, 歌单数={}", userId, order.size());
     }
 
     /** 导出歌单为 JSON 文本 */
