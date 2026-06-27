@@ -245,7 +245,7 @@ onMounted(() => loadPlaylists())
 </template>
 
 <style scoped>
-.playlists-page { padding: 32px; }
+.playlists-page { padding: 36px 48px; max-width: 1400px; margin: 0 auto; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
 .page-title { font-size: 24px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
 .subtitle { font-size: 13px; color: #999; }
@@ -263,10 +263,12 @@ onMounted(() => loadPlaylists())
 
 .playlist-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 24px;
   padding-bottom: 80px;
 }
+@media (max-width: 1200px) { .playlist-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 800px) { .playlist-grid { grid-template-columns: repeat(2, 1fr); } }
 .playlist-card { cursor: pointer; position: relative; }
 .playlist-card.selected { opacity: .7; }
 .playlist-card.selected::after {
