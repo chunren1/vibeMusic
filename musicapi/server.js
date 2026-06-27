@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
+const promClient = require('prom-client');
 
 const app = express();
 const PORT = 3000;
@@ -45,6 +46,58 @@ app.use((req, res, next) => {
   next();
 });
 
+// ==================== Prometheus 监控指标 ====================
+const register = new promClient.Registry();
+promClient.collectDefaultMetrics({ register, prefix: 'musicapi_' });
+
+// 自定义指标
+const httpRequestTotal = new promClient.Counter({
+  name: 'musicapi_http_requests_total',
+  help: 'HTTP 请求总数',
+  labelNames: ['method', 'path', 'status'],
+  registers: [register],
+});
+
+const httpRequestDuration = new promClient.Histogram({
+  name: 'musicapi_http_request_duration_seconds',
+  help: 'HTTP 请求耗时（秒）',
+  labelNames: ['method', 'path'],
+  buckets: [0.01, 0.05, 0.1, 0.3, 0.5, 1, 3, 5, 10],
+  registers: [register],
+});
+
+const cacheHitTotal = new promClient.Counter({
+  name: 'musicapi_cache_hits_total',
+  help: '缓存命中次数',
+  labelNames: ['cache_type'],
+  registers: [register],
+});
+
+const cookieStatusGauge = new promClient.Gauge({
+  name: 'musicapi_cookie_status',
+  help: 'Cookie 状态 (1=正常, 0=降级)',
+  labelNames: ['platform'],
+  registers: [register],
+});
+
+const upGauge = new promClient.Gauge({
+  name: 'musicapi_up',
+  help: '服务存活 (1=运行中)',
+  registers: [register],
+});
+upGauge.set(1);
+
+// Prometheus HTTP 指标中间件（记录请求耗时和数量）
+app.use((req, res, next) => {
+  const pathLabel = req.route ? req.route.path : req.path;
+  const end = httpRequestDuration.startTimer({ method: req.method, path: pathLabel });
+  res.on('finish', () => {
+    end();
+    httpRequestTotal.inc({ method: req.method, path: pathLabel, status: res.statusCode });
+  });
+  next();
+});
+
 // 根路由（健康检查）
 app.get('/', (req, res) => {
   res.json({ service: 'vibeMusic API', version: '3.0', status: 'running', endpoints: ['/netease/search', '/qq/search', '/lyric', '/personalized', '/cookie-status', '/health'] });
@@ -62,6 +115,16 @@ app.get('/health', (req, res) => {
       timestamp: new Date().toISOString(),
     },
   });
+});
+
+// Prometheus 指标暴露端点
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (err) {
+    res.status(500).end(err.message);
+  }
 });
 
 // favicon 占位（避免 404 日志）
@@ -85,6 +148,9 @@ function withNeteaseCookie(extra = {}) {
 
 // ==================== Cookie 存活监控（随 API 启动自动运行） ====================
 let cookieStatus = { netease: true, qq: true };
+// Prometheus gauge 初始值：假设 Cookie 可用，checkCookies 会更新为实际值
+cookieStatusGauge.set({ platform: 'netease' }, 1);
+cookieStatusGauge.set({ platform: 'qq' }, 1);
 
 async function checkCookies() {
   writeLog('cookie', 'INFO', '🔄 Cookie 存活检查开始...');
@@ -94,13 +160,16 @@ async function checkCookies() {
     const neRes = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords: '周杰伦', limit: 1, type: 1 }));
     if (neRes.body.code === 200 && neRes.body.result) {
       cookieStatus.netease = true;
+      cookieStatusGauge.set({ platform: 'netease' }, 1);
       writeLog('cookie', 'INFO', '✅ 网易云 Cookie 正常');
     } else {
       cookieStatus.netease = false;
+      cookieStatusGauge.set({ platform: 'netease' }, 0);
       writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 异常: ${JSON.stringify(neRes.body).slice(0, 200)}`);
     }
   } catch (e) {
     cookieStatus.netease = false;
+    cookieStatusGauge.set({ platform: 'netease' }, 0);
     writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 检查失败: ${e.message}`);
   }
 
@@ -109,13 +178,16 @@ async function checkCookies() {
     const qqRes = await qqMusic.api('search', { key: '周杰伦', limit: 1 });
     if (qqRes && qqRes.list) {
       cookieStatus.qq = true;
+      cookieStatusGauge.set({ platform: 'qq' }, 1);
       writeLog('cookie', 'INFO', '✅ QQ音乐 Cookie 正常');
     } else {
       cookieStatus.qq = false;
+      cookieStatusGauge.set({ platform: 'qq' }, 0);
       writeLog('cookie', 'ERROR', '❌ QQ音乐 Cookie 异常: 无搜索结果');
     }
   } catch (e) {
     cookieStatus.qq = false;
+    cookieStatusGauge.set({ platform: 'qq' }, 0);
     writeLog('cookie', 'ERROR', `❌ QQ音乐 Cookie 检查失败: ${e.message}`);
   }
 }
@@ -341,7 +413,8 @@ app.get('/search', async (req, res) => {
     const cacheKey = `search:${kw}:${maxRank}`;
     const cached = searchCache.get(cacheKey);
     if (cached) {
-      console.log(`[Cache] HIT for "${kw}"`);
+      cacheHitTotal.inc({ cache_type: 'search' });
+      writeLog('access', 'INFO', `[Cache] HIT for "${kw}"`);
       const pageData = paginate(cached, page, size);
       return res.json({ code: 200, message: 'success (cached)', data: pageData });
     }

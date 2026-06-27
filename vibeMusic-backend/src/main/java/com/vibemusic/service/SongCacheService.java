@@ -23,7 +23,7 @@ public class SongCacheService {
 
     // 版本号递增即可自然淘汰旧缓存，无需 KEYS 扫描
     private static final String SEARCH_PREFIX = "song:search:v4:";
-    private static final Duration TTL_RESULTS = Duration.ofHours(1);
+    private static final Duration TTL_RESULTS = Duration.ofHours(2);
     private static final Duration TTL_PARTIAL = Duration.ofSeconds(30); // 某平台空结果仅存30秒，快速重试
     private static final Duration TTL_EMPTY = Duration.ofSeconds(10); // 空结果仅缓存10秒，快速恢复
 
@@ -41,15 +41,15 @@ public class SongCacheService {
             }
             log.debug("[CACHE-LAYER] Redis 命中搜索: {} page={}", keyword, page);
             List<SongDTO> songs = objectMapper.readValue(json, new TypeReference<List<SongDTO>>() {});
-            // 校验：:all 缓存若全来自单平台 → 污染，自动清理
+            // 单平台检测：仅告警，不清空缓存。
+            // 原因：某些关键词（如"告白气球"）可能只在 QQ 有结果，清空缓存会导致每次请求都穿透 API 等 4 秒。
+            // 有部分结果总比每次重新穿透 API 好。
             if (keyword.endsWith(":all") && songs.size() >= 4) {
                 long netease = songs.stream().filter(s -> "netease".equals(s.getPlatform())).count();
                 long qq = songs.stream().filter(s -> "qq".equals(s.getPlatform())).count();
                 if (netease == 0 || qq == 0) {
-                    log.warn("[CACHE-LAYER] 检测到缓存污染: {} ({}首全{}平台), 自动清理",
-                            keyword, songs.size(), netease == 0 ? "QQ" : "网易云");
-                    stringRedisTemplate.delete(SEARCH_PREFIX + keyword);
-                    return Collections.emptyList(); // 触发重新搜索
+                    log.warn("[CACHE-LAYER] 单平台缓存 ({}首全来自{}), 保留缓存避免穿透: {}",
+                            songs.size(), netease == 0 ? "QQ" : "网易云", keyword);
                 }
             }
             return songs;
