@@ -169,10 +169,10 @@ class RecommendServiceTest {
     @Nested @DisplayName("缓存污染检测")
     class CachePollutionTest {
 
-        @Test @DisplayName("8 首歌全来自同一平台应视为缓存污染并自动清除")
+        @Test @DisplayName("单平台缓存仅告警不清空")
         void shouldDetectAndCleanPollutedCache() throws Exception {
             when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
-            // 模拟缓存中 8 首歌全来自 netease（污染）
+            // 模拟缓存中 8 首歌全来自 netease
             RecommendResult polluted = RecommendResult.builder()
                     .songs(List.of(
                             createSong("p1","a","歌手","netease"), createSong("p2","b","歌手","netease"),
@@ -183,14 +183,12 @@ class RecommendServiceTest {
             when(valueOps.get("recommend:v3:user:1"))
                     .thenReturn(objectMapper.writeValueAsString(polluted));
 
-            // 被污染后应该删除缓存并重新生成
-            when(songSearchService.getRandomSongs(8)).thenReturn(List.of());
-            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
-
+            // 策略改为仅告警不清空，应直接返回缓存结果
             RecommendResult result = recommendService.getPersonalized(1L, "device-123");
 
-            verify(stringRedisTemplate).delete("recommend:v3:user:1");
-            assertEquals("random", result.getType());
+            verify(stringRedisTemplate, never()).delete("recommend:v3:user:1");
+            assertNotNull(result);
+            assertEquals("污染", result.getGreeting());
         }
 
         @Test @DisplayName("4 首以下不应触发污染检测")
