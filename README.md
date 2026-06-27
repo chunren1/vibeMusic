@@ -279,9 +279,9 @@ npm run docker:dev       # 开发模式：仅启动中间件
 
 ## 📖 API 文档
 
-启动后端后，Knife4j OpenAPI 3.0 文档可直接在浏览器测试所有接口：
+启动后端后，SpringDoc OpenAPI 3.0 文档可直接在浏览器测试所有接口：
 
-> **[http://localhost:8080/doc.html](http://localhost:8080/doc.html)**
+> **[http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)**
 
 ### 核心端点
 

@@ -92,11 +92,6 @@ springdoc:
       paths-to-match: '/**'
       packages-to-scan: com.vibemusic
 
-knife4j:
-  enable: true
-  setting:
-    language: zh_cn
-
 # Actuator 监控: 暴露 health + prometheus + metrics 端点
 management:
   endpoints:

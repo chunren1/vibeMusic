@@ -47,7 +47,7 @@ public class SecurityConfig {
                 // 公开接口
                 .requestMatchers(
                     "/api/auth/**",
-                    "/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/favicon.ico",
+                    "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/favicon.ico",
                     "/uploads/**",
                     "/actuator/**"
                 ).permitAll()

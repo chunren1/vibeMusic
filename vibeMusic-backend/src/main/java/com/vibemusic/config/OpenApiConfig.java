@@ -9,9 +9,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Knife4j / OpenAPI 3.0 API 文档配置
+ * SpringDoc / OpenAPI 3.0 API 文档配置
  *
- * 访问地址: http://localhost:8080/doc.html
+ * 访问地址: http://localhost:8080/swagger-ui/index.html
  */
 @Configuration
 public class OpenApiConfig {
