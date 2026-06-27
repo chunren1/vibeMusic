@@ -87,45 +87,49 @@
 
 ```mermaid
 graph TB
-    U(("🌐 用户"))
-    NG["📡 Nginx
-        反向代理 / 负载均衡 :80"]
+    subgraph USER[" "]
+        U[浏览器 / 移动端]
+    end
 
-    V["🖥 Vue 3
-        Composition API / Pinia
-        Vite / Vitest :5173"]
+    subgraph GATEWAY[" "]
+        NG["Nginx :80<br/>反向代理 / 静态资源 / SPA fallback"]
+    end
 
-    SB["☕ Spring Boot 4
-        MyBatis-Plus / JWT
-        HikariCP / Micrometer :8080"]
+    subgraph APP[" "]
+        V["Vue 3 :5173<br/>Composition API / Pinia<br/>Vite / Vitest"]
+        SB["Spring Boot 4 :8080<br/>MyBatis-Plus / JWT<br/>HikariCP / Micrometer"]
+        BFF["musicapi Express :3000<br/>网易云 + QQ 搜索<br/>评分聚合 / Cookie 管理"]
+    end
 
-    BFF["🔗 musicapi Express
-        网易云 + QQ 搜索
-        评分聚合 / Cookie 管理 :3000"]
+    subgraph EXT[" "]
+        NE[网易云音乐 API]
+        QQ[QQ 音乐 API]
+    end
 
-    NE["🎵 网易云 API"]
-    Q["🎵 QQ 音乐 API"]
+    subgraph DATA[" "]
+        M[("MySQL 8.0<br/>核心数据")]
+        R[("Redis 7<br/>三级缓存 / 幂等锁")]
+        ST[("MinIO / RustFS<br/>歌曲缓存")]
+    end
 
-    M[("🗄 MySQL 8.0")]
-    R[("⚡ Redis 7")]
-    ST[("📦 MinIO / RustFS")]
-
-    P["📊 Prometheus :9090"]
-    G["📈 Grafana :3001"]
-    A["🔔 Alertmanager :9093"]
+    subgraph MON[" "]
+        P["Prometheus :9090<br/>指标采集"]
+        G["Grafana :3001<br/>仪表盘"]
+        A["Alertmanager :9093<br/>告警通知"]
+    end
 
     U --> NG
     NG --> V
     NG --> SB
     NG --> BFF
-    SB -.->|HTTP| V
-    SB --> BFF
+    SB -.->|HTTP 代理| V
+    SB -->|搜索/URL| BFF
     BFF --> NE
-    BFF --> Q
+    BFF --> QQ
     SB --> M
     SB --> R
     SB --> ST
-    SB --> P
+    SB -->|/actuator/prometheus| P
     P --> G
     P --> A
 
@@ -135,13 +139,19 @@ graph TB
     style SB fill:#3b1f4e,stroke:#a855f7,color:#f8fafc
     style BFF fill:#1a3a2a,stroke:#22c55e,color:#f8fafc
     style NE fill:#0f2937,stroke:#06b6d4,color:#f8fafc
-    style Q fill:#0f2937,stroke:#06b6d4,color:#f8fafc
+    style QQ fill:#0f2937,stroke:#06b6d4,color:#f8fafc
     style M fill:#0b1120,stroke:#475569,color:#94a3b8
     style R fill:#0b1120,stroke:#475569,color:#94a3b8
     style ST fill:#0b1120,stroke:#475569,color:#94a3b8
     style P fill:#2d1b2e,stroke:#d946ef,color:#f8fafc
     style G fill:#1c2d2a,stroke:#10b981,color:#f8fafc
     style A fill:#2d1b1b,stroke:#ef4444,color:#f8fafc
+    style USER fill:none,stroke:#64748b,stroke-dasharray: 5 5
+    style GATEWAY fill:none,stroke:#334155,stroke-dasharray: 5 5
+    style APP fill:none,stroke:#475569,stroke-dasharray: 5 5
+    style EXT fill:none,stroke:#06b6d4,stroke-dasharray: 5 5
+    style DATA fill:none,stroke:#475569,stroke-dasharray: 5 5
+    style MON fill:none,stroke:#d946ef,stroke-dasharray: 5 5
 ```
 
 ---
