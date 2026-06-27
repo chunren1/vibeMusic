@@ -60,7 +60,10 @@ export default function (data) {
     if (!ok) errorRate.add(1);
 
     let songs = [];
-    try { songs = res.json('data') || []; } catch (e) {}
+    try {
+      const searchResult = res.json('data');
+      songs = (searchResult && searchResult.list) || [];
+    } catch (e) {}
 
     // 2. 如果有结果，获取第一首的歌词 + 播放
     if (songs.length > 0) {
@@ -87,11 +90,11 @@ export default function (data) {
       if (data.token) {
         group('favorite', () => {
           const start = Date.now();
-          const fav = http.post(`${BASE}/api/favorites`, JSON.stringify({
+          const fav = http.post(`${BASE}/api/favorites/toggle`, JSON.stringify({
             sourceId: song.sourceId,
-            songName: song.name || keyword,
+            songName: song.name || keyword || '',
             artist: song.artist || '未知',
-            coverUrl: song.coverUrl || '',
+            coverUrl: '',
           }), { headers: { ...headers, 'Content-Type': 'application/json' } });
           favoriteTrend.add(Date.now() - start);
           check(fav, { 'favorite 200': (r) => r.status === 200 || r.status === 201 });
