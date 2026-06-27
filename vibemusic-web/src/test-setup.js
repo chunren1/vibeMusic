@@ -54,7 +54,10 @@ vi.mock('@/api/song', () => ({
 }))
 
 vi.mock('@/api/request', () => ({
+  getToken: () => null,
+  setToken: () => {},
   API_HOST: 'http://localhost:8081',
+  default: { post: () => {} },
 }))
 
 // ============ Mock SvgIcon（全局注册，避免测试中渲染真实 SVG） ============
