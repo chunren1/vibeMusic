@@ -87,44 +87,38 @@
 
 ```mermaid
 graph TB
-    U[浏览器 / 移动端]
-    NG["Nginx :80
-        反向代理 / 静态资源"]
+    U(("🌐 用户"))
+    NG["📡 Nginx
+        反向代理 / 负载均衡 :80"]
 
-    V["Vue 3 :5173
-        Composition API
-        Pinia / Vitest"]
+    V["🖥 Vue 3
+        Composition API / Pinia
+        Vite / Vitest :5173"]
 
-    SB["Spring Boot 4 :8080
+    SB["☕ Spring Boot 4
         MyBatis-Plus / JWT
-        Micrometer + Prometheus"]
+        HikariCP / Micrometer :8080"]
 
-    BFF["musicapi Express :3000
+    BFF["🔗 musicapi Express
         网易云 + QQ 搜索
-        评分聚合 / Cookie管理"]
+        评分聚合 / Cookie 管理 :3000"]
 
-    NE["网易云音乐 API"]
-    Q["QQ 音乐 API"]
+    NE["🎵 网易云 API"]
+    Q["🎵 QQ 音乐 API"]
 
-    M[("MySQL 8.0
-        核心数据")]
-    R[("Redis 7
-        三级缓存")]
-    ST[("MinIO / RustFS
-        歌曲缓存")]
+    M[("🗄 MySQL 8.0")]
+    R[("⚡ Redis 7")]
+    ST[("📦 MinIO / RustFS")]
 
-    P["Prometheus :9090
-        指标采集"]
-    G["Grafana :3001
-        仪表盘"]
-    A["Alertmanager :9093
-        告警通知"]
+    P["📊 Prometheus :9090"]
+    G["📈 Grafana :3001"]
+    A["🔔 Alertmanager :9093"]
 
     U --> NG
     NG --> V
     NG --> SB
     NG --> BFF
-    SB --> V
+    SB -.->|HTTP| V
     SB --> BFF
     BFF --> NE
     BFF --> Q
@@ -135,19 +129,19 @@ graph TB
     P --> G
     P --> A
 
-    style U fill:#1a1a2e,stroke:#e94560,color:#fff
-    style NG fill:#16213e,stroke:#0f3460,color:#fff
-    style V fill:#0f3460,stroke:#e94560,color:#fff
-    style SB fill:#533483,stroke:#e94560,color:#fff
-    style BFF fill:#2d6a4f,stroke:#52b788,color:#fff
-    style NE fill:#1b4332,stroke:#52b788,color:#fff
-    style Q fill:#1b4332,stroke:#52b788,color:#fff
-    style M fill:#0d1b2a,stroke:#778da9,color:#fff
-    style R fill:#0d1b2a,stroke:#778da9,color:#fff
-    style ST fill:#0d1b2a,stroke:#778da9,color:#fff
-    style P fill:#3b0a11,stroke:#e94560,color:#fff
-    style G fill:#3b0a11,stroke:#e94560,color:#fff
-    style A fill:#3b0a11,stroke:#e94560,color:#fff
+    style U fill:#1e293b,stroke:#64748b,color:#f8fafc
+    style NG fill:#0f172a,stroke:#334155,color:#f8fafc
+    style V fill:#1e3a5f,stroke:#3b82f6,color:#f8fafc
+    style SB fill:#3b1f4e,stroke:#a855f7,color:#f8fafc
+    style BFF fill:#1a3a2a,stroke:#22c55e,color:#f8fafc
+    style NE fill:#0f2937,stroke:#06b6d4,color:#f8fafc
+    style Q fill:#0f2937,stroke:#06b6d4,color:#f8fafc
+    style M fill:#0b1120,stroke:#475569,color:#94a3b8
+    style R fill:#0b1120,stroke:#475569,color:#94a3b8
+    style ST fill:#0b1120,stroke:#475569,color:#94a3b8
+    style P fill:#2d1b2e,stroke:#d946ef,color:#f8fafc
+    style G fill:#1c2d2a,stroke:#10b981,color:#f8fafc
+    style A fill:#2d1b1b,stroke:#ef4444,color:#f8fafc
 ```
 
 ---
