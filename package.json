@@ -14,7 +14,6 @@
     "tunnel:dev": "start cpolar http 5173",
     "docker:up": "docker-compose up -d --build",
     "docker:dev": "docker-compose up -d mysql redis rustfs",
-    "docker:prod": "docker-compose up -d --build",
     "docker:down": "docker-compose down",
     "docker:restart": "docker-compose down && docker-compose up -d --build",
     "docker:status": "docker-compose ps",
@@ -26,8 +25,6 @@
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "cd vibeMusic-backend && mvn test",
     "test:frontend": "cd vibemusic-web && npm test",
-    "test:ci": "npm run test:backend && npm run test:frontend",
-    "deploy:full": "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1",
     "backup:db": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
     "health": "powershell -ExecutionPolicy Bypass -File scripts/health-check.ps1"
   },

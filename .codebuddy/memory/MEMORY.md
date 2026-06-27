@@ -39,6 +39,24 @@
   - stream 端点增加 RustFS 直读兜底（StorageService.getObject）
   - 下载文件名改为 "歌手 - 歌曲名.mp3"
 
+## 监控体系 (2026-06-27 搭建)
+- Prometheus(9090) + Grafana(3001) + Alertmanager(9093) 三容器已加入 docker-compose
+- pom.xml 有 micrometer-registry-prometheus 依赖
+- application.yml 暴露 /actuator/prometheus,metrics 端点
+- SecurityConfig 放行 /actuator/**
+- Grafana Dashboard: docker-data/grafana/provisioning/dashboards/json/vibemusic-overview.json
+- 已埋点指标: cache.hit.redis / cache.hit.es / cache.miss.api / search.latency
+- 告警规则: 服务宕机 / 搜索P95>1s / JVM内存>85% / 缓存穿透率>70%
+- Docker 容器总数: 10（原7 + 监控三件套）
+
+## AI 助手架构 (2026-06-27 升级)
+- 从"聊天框+独立搜索"升级为"Function Calling Agent"
+- ChatMemoryService: Redis 存会话历史，保留最近 10 轮，TTL 30min
+- AiToolService: 定义 search_songs + get_user_history 两个工具
+- AssistantController /chat: 带 tools 调用 LLM → 解析 tool_calls → 执行 → 结果回传 → 最终回复
+- AssistantController /stream: WebClient 真正 SSE 流式（替代 RestTemplate 伪流式）
+- 新增 DELETE /api/assistant/history 清除对话记忆
+
 ## README 优化 (2026-06-27)
 - README 全面重写，面向面试官视角，展示完整全栈能力
 - 移除所有移动端引用（APK、多端等）

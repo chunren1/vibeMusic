@@ -48,7 +48,8 @@ public class SecurityConfig {
                 .requestMatchers(
                     "/api/auth/**",
                     "/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/favicon.ico",
-                    "/uploads/**"
+                    "/uploads/**",
+                    "/actuator/**"
                 ).permitAll()
 
                 // 歌曲搜索/浏览 GET 公开

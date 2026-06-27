@@ -34,10 +34,11 @@ public class IdempotentGuard {
         if (requestId == null || requestId.isBlank()) return true; // 无 Request-Id，放行
         String key = PREFIX + requestId;
         Boolean set = stringRedisTemplate.opsForValue().setIfAbsent(key, "1", WINDOW);
-        boolean first = Boolean.TRUE.equals(set);
-        if (!first) {
-            log.info("[IDEMPOTENT] 重复请求已拦截: {}", requestId);
+        // null：Redis 异常降级，放行；true：首次请求；false：重复请求
+        if (set == null || Boolean.TRUE.equals(set)) {
+            return true;
         }
-        return first;
+        log.info("[IDEMPOTENT] 重复请求已拦截: {}", requestId);
+        return false;
     }
 }

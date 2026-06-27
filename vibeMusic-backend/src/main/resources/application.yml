@@ -97,12 +97,20 @@ knife4j:
   setting:
     language: zh_cn
 
-# Actuator 安全: 仅暴露 health，不暴露敏感端点
+# Actuator 监控: 暴露 health + prometheus + metrics 端点
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus,metrics,info
   endpoint:
     health:
       show-details: when-authorized
+  metrics:
+    tags:
+      application: vibemusic-backend
+    distribution:
+      percentiles-histogram:
+        search.latency: true
+      percentiles:
+        search.latency: 0.5,0.95,0.99
