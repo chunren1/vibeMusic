@@ -127,6 +127,20 @@ graph LR
     SB --> P
     P --> G
     P --> A
+
+    style U fill:#1a1a2e,stroke:#e94560,color:#fff
+    style NG fill:#16213e,stroke:#0f3460,color:#fff
+    style V fill:#0f3460,stroke:#e94560,color:#fff
+    style SB fill:#533483,stroke:#e94560,color:#fff
+    style BFF fill:#2d6a4f,stroke:#52b788,color:#fff
+    style NE fill:#1b4332,stroke:#52b788,color:#fff
+    style Q fill:#1b4332,stroke:#52b788,color:#fff
+    style M fill:#0d1b2a,stroke:#778da9,color:#fff
+    style R fill:#0d1b2a,stroke:#778da9,color:#fff
+    style ST fill:#0d1b2a,stroke:#778da9,color:#fff
+    style P fill:#3b0a11,stroke:#e94560,color:#fff
+    style G fill:#3b0a11,stroke:#e94560,color:#fff
+    style A fill:#3b0a11,stroke:#e94560,color:#fff
 ```
 
 ---
@@ -154,6 +168,16 @@ flowchart LR
     L2 -- 未命中 --> L3
     L3 -- 命中 --> APIHIT
     L3 -- 全部不可用 --> L4 --> EMPTY
+
+    style U fill:#1a1a2e,stroke:#e94560,color:#fff
+    style L1 fill:#0f3460,stroke:#e94560,color:#fff
+    style L2 fill:#0f3460,stroke:#e94560,color:#fff
+    style L3 fill:#533483,stroke:#e94560,color:#fff
+    style L4 fill:#3b0a11,stroke:#e94560,color:#fff
+    style HIT fill:#1b4332,stroke:#52b788,color:#fff
+    style ESHIT fill:#1b4332,stroke:#52b788,color:#fff
+    style APIHIT fill:#1b4332,stroke:#52b788,color:#fff
+    style EMPTY fill:#1b4332,stroke:#52b788,color:#fff
 ```
 
 ### 二、AI 音乐助手（Function Calling Agent）
@@ -183,6 +207,13 @@ flowchart TB
     DONE2["返回推荐列表"]
 
     S1 --> S2 --> S3 --> S4 --> S5 --> DONE2
+
+    style S1 fill:#16213e,stroke:#0f3460,color:#fff
+    style S2 fill:#16213e,stroke:#0f3460,color:#fff
+    style S3 fill:#0f3460,stroke:#e94560,color:#fff
+    style S4 fill:#533483,stroke:#e94560,color:#fff
+    style S5 fill:#1b4332,stroke:#52b788,color:#fff
+    style DONE2 fill:#1b4332,stroke:#52b788,color:#fff
 ```
 
 ### 四、音频播放与六级 SLA
@@ -210,6 +241,14 @@ flowchart LR
     L3 -->|可用| DONE
     L4 -->|可用| DONE
     L5 -->|可用| DONE
+
+    style L0 fill:#1b4332,stroke:#52b788,color:#fff
+    style L1 fill:#0f3460,stroke:#e94560,color:#fff
+    style L2 fill:#0f3460,stroke:#e94560,color:#fff
+    style L3 fill:#0f3460,stroke:#e94560,color:#fff
+    style L4 fill:#533483,stroke:#e94560,color:#fff
+    style L5 fill:#3b0a11,stroke:#e94560,color:#fff
+    style DONE fill:#1b4332,stroke:#52b788,color:#fff,stroke-width:3px
 ```
 
 ### 五、监控可观测性（Prometheus + Grafana）
