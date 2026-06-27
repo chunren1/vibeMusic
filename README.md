@@ -86,21 +86,17 @@
 ## 🏗️ 技术架构
 
 ```mermaid
-graph TB
+graph LR
     U[浏览器 / 移动端]
     NG[Nginx :80]
-
     V[Vue 3 :5173]
     SB[Spring Boot 4 :8080]
     BFF[musicapi Express :3000]
-
     NE[网易云音乐 API]
     QQ[QQ 音乐 API]
-
     M[(MySQL 8.0)]
     R[(Redis 7)]
     ST[(MinIO / RustFS)]
-
     P[Prometheus :9090]
     G[Grafana :3001]
     A[Alertmanager :9093]
@@ -109,16 +105,14 @@ graph TB
     NG ===> V
     NG ===> SB
     NG ===> BFF
-    SB -.->|HTTP 代理| V
-    SB ===> BFF
-    BFF ===> NE
-    BFF ===> QQ
     SB ===> M
     SB ===> R
     SB ===> ST
     SB ===> P
     P ===> G
     P ===> A
+    BFF ===> NE
+    BFF ===> QQ
 
     style U fill:#1e293b,stroke:#64748b,color:#f8fafc
     style NG fill:#0f172a,stroke:#334155,color:#f8fafc
