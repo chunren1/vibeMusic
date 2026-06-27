@@ -68,45 +68,48 @@ async function handleEdit() {
   } catch { window.toast?.('更新失败', 'error') }
 }
 
-// 排序
+// 排序：直接用下标重新赋值全部 sortOrder（下标 = 目标顺序）
+// 后端 ORDER BY sort_order ASC 返回列表，保证刷新后顺序正确
 async function moveToTop(pl, e) {
   e.stopPropagation()
   try {
-    const order = playlists.value.map((p, i) => ({
-      playlistId: p.id,
-      sortOrder: p.id === pl.id ? 0 : (i + 1)
-    }))
+    const idx = playlists.value.findIndex(p => p.id === pl.id)
+    if (idx <= 0) { window.toast?.('已在最前', 'info'); return }
+    // 把目标移到索引0，其余顺延
+    const reordered = [pl, ...playlists.value.filter(p => p.id !== pl.id)]
+    const order = reordered.map((p, i) => ({ playlistId: p.id, sortOrder: i }))
     await reorderPlaylists(order)
     window.toast?.('已置顶', 'success')
-    loadPlaylists()
+    await loadPlaylists()
   } catch { window.toast?.('操作失败', 'error') }
 }
 
 async function moveUp(pl, e) {
   e.stopPropagation()
   const idx = playlists.value.findIndex(p => p.id === pl.id)
-  if (idx <= 0) return
+  if (idx <= 0) { window.toast?.('已在最前', 'info'); return }
+  // 交换目标与前一个的 sortOrder
   const order = playlists.value.map((p, i) => ({
     playlistId: p.id,
     sortOrder: i === idx ? idx - 1 : i === idx - 1 ? idx : i
   }))
   try {
     await reorderPlaylists(order)
-    loadPlaylists()
+    await loadPlaylists()
   } catch { window.toast?.('操作失败', 'error') }
 }
 
 async function moveDown(pl, e) {
   e.stopPropagation()
   const idx = playlists.value.findIndex(p => p.id === pl.id)
-  if (idx >= playlists.value.length - 1) return
+  if (idx >= playlists.value.length - 1) { window.toast?.('已在最后', 'info'); return }
   const order = playlists.value.map((p, i) => ({
     playlistId: p.id,
     sortOrder: i === idx ? idx + 1 : i === idx + 1 ? idx : i
   }))
   try {
     await reorderPlaylists(order)
-    loadPlaylists()
+    await loadPlaylists()
   } catch { window.toast?.('操作失败', 'error') }
 }
 
