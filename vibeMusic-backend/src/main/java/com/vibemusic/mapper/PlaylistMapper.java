@@ -12,11 +12,14 @@ import java.util.Map;
 @Mapper
 public interface PlaylistMapper extends BaseMapper<Playlist> {
 
-    @Select("SELECT p.id AS playlist_id, p.name AS playlist_name, p.description AS description, p.sort_order AS sort_order, " +
-            "p.created_at AS created_at, COUNT(ps.id) AS song_count, " +
-            "REPLACE((SELECT ps2.cover_url FROM playlist_song ps2 " +
-            " WHERE ps2.playlist_id = p.id ORDER BY ps2.added_at DESC LIMIT 1), 'http://', 'https://') AS cover_url " +
-            "FROM playlist p LEFT JOIN playlist_song ps ON ps.playlist_id = p.id " +
-            "WHERE p.user_id = #{userId} GROUP BY p.id ORDER BY p.sort_order ASC, p.created_at DESC")
+    @Select("SELECT p.id AS playlist_id, p.name AS playlist_name, p.description AS description, " +
+            "CAST(p.sort_order AS SIGNED INTEGER) AS sort_order, " +
+            "p.created_at AS created_at, " +
+            "COALESCE((SELECT COUNT(1) FROM playlist_song ps WHERE ps.playlist_id = p.id), 0) AS song_count, " +
+            "COALESCE((SELECT REPLACE(ps2.cover_url, 'http://', 'https://') FROM playlist_song ps2 " +
+            " WHERE ps2.playlist_id = p.id ORDER BY ps2.added_at DESC LIMIT 1), '') AS cover_url " +
+            "FROM playlist p " +
+            "WHERE p.user_id = #{userId} " +
+            "ORDER BY p.sort_order ASC, p.created_at DESC")
     List<Map<String, Object>> listPlaylistsWithStats(@Param("userId") Long userId);
 }
