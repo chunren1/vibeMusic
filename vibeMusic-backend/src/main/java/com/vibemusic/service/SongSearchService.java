@@ -53,6 +53,38 @@ public class SongSearchService {
                 .description("搜索总耗时").register(meterRegistry);
     }
 
+    // ==================== 热门关键词预热 ====================
+
+    private static final List<String> HOT_KEYWORDS = List.of(
+            "周杰伦", "晴天", "陈奕迅", "告白气球",
+            "稻香", "夜曲", "七里香", "热歌"
+    );
+
+    /**
+     * 启动时异步预热热门搜索词到 Redis + ES 缓存，
+     * 避免上线后的首次 API 穿透造成 P95 延迟飙升。
+     * 每个关键词间隔 1.5 秒防止同时击穿第三方 API。
+     */
+    @PostConstruct
+    void preWarmHotKeywords() {
+        WARM_EXECUTOR.submit(() -> {
+            log.info("[PREWARM] 开始预热 {} 个热门搜索关键词 ...", HOT_KEYWORDS.size());
+            for (String kw : HOT_KEYWORDS) {
+                try {
+                    search(kw, 1, 20);
+                    log.info("[PREWARM] '{}' 预热完成 (缓存已回写 Redis + ES)", kw);
+                    Thread.sleep(1500);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    log.warn("[PREWARM] '{}' 预热失败: {}", kw, e.getMessage());
+                }
+            }
+            log.info("[PREWARM] 热门搜索关键词预热全部完成");
+        });
+    }
+
     private static final double NET_WEIGHT = 1.0;
     private static final double QQ_WEIGHT = 0.9;
     private static final double CROSS_PLATFORM_BONUS = 0.3;
@@ -60,9 +92,22 @@ public class SongSearchService {
     private static final int SEARCH_TIMEOUT_SEC = 4;
     private static final Pattern NON_ALPHANUM = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
-    /** 共享搜索线程池（避免每次搜索创建/销毁） */
-    private static final ExecutorService SEARCH_EXECUTOR = Executors.newFixedThreadPool(4, r -> {
+    /**
+     * 共享搜索线程池
+     * 注意：池大小需 >= 预期最大并发 API 穿透数。
+     * 50 VU 同时穿透时，每个搜索需 2 个线程（netease + qq），
+     * 池大小 4 会导致严重排队延迟（P95 飙升），现扩大至 50。
+     */
+    private static final int SEARCH_POOL_SIZE = 50;
+    private static final ExecutorService SEARCH_EXECUTOR = Executors.newFixedThreadPool(SEARCH_POOL_SIZE, r -> {
         Thread t = new Thread(r, "search-worker");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /** 预热线程池（独立于搜索线程池，预热不会阻塞正式请求） */
+    private static final ExecutorService WARM_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "prewarm-worker");
         t.setDaemon(true);
         return t;
     });
@@ -70,6 +115,7 @@ public class SongSearchService {
     @jakarta.annotation.PreDestroy
     public void shutdown() {
         SEARCH_EXECUTOR.shutdown();
+        WARM_EXECUTOR.shutdown();
     }
 
     @SuppressWarnings("unchecked")

@@ -27,8 +27,7 @@ scrape_configs:
           service: 'spring-boot'
           application: 'vibemusic-backend'
 
-  # ── musicapi Express 网关 ──
-  # 注：musicapi 无 /metrics 端点，此 job 会 down，保留为占位
+  # ── musicapi Express 网关（已集成 prom-client /metrics）──
   - job_name: 'musicapi'
     metrics_path: '/metrics'
     static_configs:

@@ -33,9 +33,12 @@ public class ESSearchService {
     private final WebClient client;
     private final ObjectMapper mapper;
     private static final String INDEX = "search_cache";
-    private static final Duration TIMEOUT = Duration.ofSeconds(3); // 容错：3s 超时
-    private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(1); // 健康检查 1s
+    private static final Duration TIMEOUT = Duration.ofSeconds(3);
+    private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(1);
+    // ES 不可用时不重复检查（每 30s 重检一次，避免每次搜索卡 1 秒超时）
     private final AtomicBoolean available = new AtomicBoolean(false);
+    private volatile long lastCheckNanos = 0;
+    private static final Duration RETRY_INTERVAL = Duration.ofSeconds(30);
 
     public ESSearchService(@Value("${spring.elasticsearch.uris:http://localhost:9201}") String esUris,
                            ObjectMapper mapper) {
@@ -71,17 +74,19 @@ public class ESSearchService {
         }
     }
 
-    /** 轻量级可用性检查 */
+    /** 轻量级可用性检查（不可用时最多每 30s 重检一次，其余时间直接返回 false） */
     public boolean isAvailable() {
-        if (!available.get()) {
-            try {
-                var resp = client.head().uri("/").retrieve()
-                        .toBodilessEntity()
-                        .timeout(HEALTH_TIMEOUT).block();
-                if (resp != null && resp.getStatusCode().is2xxSuccessful())
-                    available.set(true);
-            } catch (Exception ignored) {}
-        }
+        if (available.get()) return true;
+        // 距离上次检查 < 30s → 直接返回 false，不发起 HEAD 请求
+        if (System.nanoTime() - lastCheckNanos < RETRY_INTERVAL.toNanos()) return false;
+        lastCheckNanos = System.nanoTime();
+        try {
+            var resp = client.head().uri("/").retrieve()
+                    .toBodilessEntity()
+                    .timeout(HEALTH_TIMEOUT).block();
+            if (resp != null && resp.getStatusCode().is2xxSuccessful())
+                available.set(true);
+        } catch (Exception ignored) {}
         return available.get();
     }
 

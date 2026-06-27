@@ -190,6 +190,19 @@
 | HTTP | 各端点 QPS |
 | 告警 | 服务宕机 / 高延迟 / 低缓存命中率 |
 
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Grafana 仪表盘 — JVM / GC / 缓存命中率 / 搜索延迟/Tomcat 线程</strong><br/>
+      <img src="image/grafana.png" alt="Grafana Dashboard" width="100%" />
+    </td>
+    <td width="50%" align="center">
+      <strong>Prometheus Targets — 3 个任务全部 UP</strong><br/>
+      <img src="image/peometheus.png" alt="Prometheus Targets" width="100%" />
+    </td>
+  </tr>
+</table>
+
 ---
 
 ## ⚡ 性能优化清单
@@ -206,6 +219,11 @@
 | 🌐 HTTP | Nginx upstream keepalive 32 | 消除每次反向代理 TCP 握手 |
 | ⚡ I/O | 下载 I/O 与 DB 事务分离 | HTTP 下载 30s 不占 DB 连接 |
 | 🤖 AI | WebClient 真正流式 | 首字延迟数秒 → < 500ms |
+| 🔥 全链路 | K6 压测 50 VU × 60s | 全部阈值通过 ✅ 搜索 P95 3.48s→0.36s 音频流 P95 4.41s→0.38s 收藏 97%→100% 吞吐量 ↑104% |
+
+<p align="center">
+  <img src="image/k6.png" alt="K6 Benchmark" width="90%" />
+</p>
 
 ---
 
@@ -254,6 +272,10 @@
 npm run docker:up        # 全栈启动 (Nginx + Spring Boot + Express + MySQL + Redis + ES + MinIO + Prometheus + Grafana + Alertmanager)
 npm run docker:dev       # 开发模式：仅启动中间件
 ```
+
+<p align="center">
+  <img src="image/docker.png" alt="Docker Containers" width="90%" />
+</p>
 
 ### 监控访问
 

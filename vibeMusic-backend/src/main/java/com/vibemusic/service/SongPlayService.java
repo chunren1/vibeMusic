@@ -11,6 +11,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -67,38 +70,57 @@ public class SongPlayService {
 
         try {
             if (sourceId.matches("\\d+")) {
-                // 网易云音质降级链：HIRES → EXHIGH → HIGHER → STANDARD
+                // 网易云音质降级：并行探测所有级别，按质量优先级取首个非试听结果
+                // 优化前（串行）：P95 4.41s — HIRES→EXHIGH→HIGHER→STANDARD 逐级等待，4次API累计
+                // 优化后（并行）：所有级别同时请求，最快可用结果 = max(单次API耗时)，P95 目标 < 2s
                 AudioQualityTier[] tiers = {
                     AudioQualityTier.HIRES, AudioQualityTier.EXHIGH,
                     AudioQualityTier.HIGHER, AudioQualityTier.STANDARD
                 };
+                // 并行提交所有音质级别请求
+                Map<AudioQualityTier, CompletableFuture<Map<String, Object>>> futures = new HashMap<>();
+                for (AudioQualityTier tier : tiers) {
+                    if (System.currentTimeMillis() > DEADLINE) break;
+                    futures.put(tier, CompletableFuture.supplyAsync(() ->
+                            neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel())));
+                }
+                // 按音质优先级顺序检查结果（已完成的高优级别立即返回，未完成的等待但不再串行累积）
                 for (AudioQualityTier tier : tiers) {
                     if (System.currentTimeMillis() > DEADLINE) {
-                        log.warn("音质降级链超时: {}, 已尝试至 {}", sourceId, tier.getLabel());
+                        log.warn("音质降级链超时: {}, 已检查至 {}", sourceId, tier.getLabel());
                         break;
                     }
-                    achievedTier = tier;
-                    Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel());
-                    if (result == null) continue;
-                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                    if (data == null || data.isEmpty()) continue;
-                    String url = (String) data.get(0).get("url");
-                    if (url == null || url.isEmpty()) continue;
-                    Object trial = data.get(0).get("freeTrialInfo");
-                    Object time = data.get(0).get("time");
-                    if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
-                        degradationCount.incrementAndGet();
-                        degraded = true;
-                        log.info("音质降级: {} [{}] 为试听片段 → 尝试下一级", sourceId, tier.getLabel());
-                        continue;
+                    CompletableFuture<Map<String, Object>> cf = futures.get(tier);
+                    if (cf == null) continue;
+                    try {
+                        long remaining = Math.max(1, DEADLINE - System.currentTimeMillis());
+                        Map<String, Object> result = cf.get(remaining, TimeUnit.MILLISECONDS);
+                        if (result == null) continue;
+                        List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                        if (data == null || data.isEmpty()) continue;
+                        String url = (String) data.get(0).get("url");
+                        if (url == null || url.isEmpty()) continue;
+                        Object trial = data.get(0).get("freeTrialInfo");
+                        Object time = data.get(0).get("time");
+                        if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
+                            degradationCount.incrementAndGet();
+                            degraded = true;
+                            log.info("音质降级: {} [{}] 为试听片段 → 尝试下一级", sourceId, tier.getLabel());
+                            continue;
+                        }
+                        achievedTier = tier;
+                        info.put("url", url);
+                        info.put("quality", achievedTier.name());
+                        info.put("qualityLabel", achievedTier.getLabel());
+                        info.put("degraded", degraded);
+                        log.info("音质[{}] 歌曲 {} 在线获取成功{}",
+                            achievedTier.getLabel(), sourceId, degraded ? " (经并行降级)" : "");
+                        return info;
+                    } catch (TimeoutException e) {
+                        log.info("音质[{}] 歌曲 {} 超时 → 尝试下一级", tier.getLabel(), sourceId);
+                    } catch (Exception e) {
+                        log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", tier.getLabel(), sourceId, e.getMessage());
                     }
-                    info.put("url", url);
-                    info.put("quality", achievedTier.name());
-                    info.put("qualityLabel", achievedTier.getLabel());
-                    info.put("degraded", degraded);
-                    log.info("音质[{}] 歌曲 {} 在线获取成功{}",
-                        achievedTier.getLabel(), sourceId, degraded ? " (经逐级降级)" : "");
-                    return info;
                 }
                 // 网易云全部降级为试听 → QQ降级（超时则跳过）
                 if (System.currentTimeMillis() > DEADLINE) {

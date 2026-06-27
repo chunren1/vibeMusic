@@ -53,6 +53,7 @@ docker-data/nginx/logs/
 
 # 临时文件
 *.tmp
+*.txt
 .DS_Store
 Thumbs.db
 
@@ -67,3 +68,6 @@ vibemusic-web/android/gradle/wrapper/gradle-wrapper.jar
 
 # ES IK 插件 (应在 Docker 构建时下载)
 docker-data/elasticsearch/plugins/
+
+# AI 工作记忆（项目内部数据，不公开）
+.codebuddy/
