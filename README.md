@@ -86,92 +86,47 @@
 ## 🏗️ 技术架构
 
 ```mermaid
-graph TB
-    subgraph "用户层"
-        U[浏览器 / 移动端]
-    end
+graph LR
+    U[浏览器 / 移动端]
+    NG["Nginx
+        反向代理 / 静态资源"]
 
-    subgraph "接入层 :80"
-        NG["Nginx
-            静态资源 / API反向代理
-            Gzip / keepalive"]
-    end
+    V["Vue 3
+        Composition API
+        Pinia / Vitest"]
 
-    subgraph "前端 :5173"
-        V["Vue 3 + Vite
-            Composition API / Pinia
-            Vitest / Axios"]
-    end
+    SB["Spring Boot 4
+        MyBatis-Plus / JWT
+        Micrometer"]
 
-    subgraph "后端 :8080"
-        SB["Spring Boot 4 + Java 17
-            MyBatis-Plus / HikariCP
-            JWT httpOnly Cookie
-            Micrometer + Prometheus"]
-    end
+    BFF["musicapi Express
+        网易云 / QQ 搜索
+        评分聚合 / Cookie 管理"]
 
-    subgraph "BFF 网关 :3000"
-        BFF["musicapi Express.js
-            网易云 + QQ 搜索
-            评分聚合 / Cookie 管理
-            prom-client /metrics"]
-    end
+    NE["网易云 API"]
+    Q["QQ 音乐 API"]
 
-    subgraph "三方音乐源"
-        NE["网易云音乐 API"]
-        Q["QQ 音乐 API"]
-    end
-
-    subgraph "数据层 (Docker)"
-        M[("MySQL 8.0
-            核心数据")]
-        R[("Redis 7
-            三级缓存 / 幂等锁
-            对话记忆")]
-        E["Elasticsearch 8.18
-            IK 分词索引"]
-        ST["MinIO / RustFS
-            歌曲离线缓存"]
-    end
-
-    subgraph "监控体系 (Docker)"
-        P["Prometheus
-            指标采集 :9090"]
-        G["Grafana
-            可视化 :3001"]
-        A["Alertmanager
-            告警通知 :9093"]
-    end
+    M[("MySQL")]
+    R[("Redis")]
+    ST[("MinIO")]
+    P["Prometheus"]
+    G["Grafana"]
+    A["Alertmanager"]
 
     U --> NG
     NG --> V
     NG --> SB
     NG --> BFF
+    SB -.->|HTTP| V
     SB --> BFF
     BFF --> NE
     BFF --> Q
     SB --> M
     SB --> R
-    SB --> E
     SB --> ST
     SB --> P
     P --> G
     P --> A
-
-    style U fill:#1a1a2e,stroke:#e94560,color:#fff
-    style NG fill:#16213e,stroke:#0f3460,color:#fff
-    style V fill:#0f3460,stroke:#e94560,color:#fff
-    style SB fill:#533483,stroke:#e94560,color:#fff
-    style BFF fill:#2d6a4f,stroke:#52b788,color:#fff
-    style NE fill:#1b4332,stroke:#52b788,color:#fff
-    style Q fill:#1b4332,stroke:#52b788,color:#fff
-    style M fill:#0d1b2a,stroke:#778da9,color:#fff
-    style R fill:#0d1b2a,stroke:#778da9,color:#fff
-    style E fill:#0d1b2a,stroke:#778da9,color:#fff
-    style ST fill:#0d1b2a,stroke:#778da9,color:#fff
-    style P fill:#3b0a11,stroke:#e94560,color:#fff
-    style G fill:#3b0a11,stroke:#e94560,color:#fff
-    style A fill:#3b0a11,stroke:#e94560,color:#fff
 ```
 
 ---
@@ -182,15 +137,15 @@ graph TB
 
 ```mermaid
 flowchart LR
-    U["用户输入 '周杰伦 晴天'"]
-    L1{{"L1: Redis 缓存 ?"}}
-    L2{{"L2: ES IK 分词 ?"}}
-    L3{{"L3: musicapi 双源实时搜索"}}
+    U["用户输入 周杰伦"]
+    L1{{"L1: Redis 缓存"}}
+    L2{{"L2: ES IK 分词"}}
+    L3{{"L3: musicapi 实时搜索"}}
     L4{{"L4: 空结果兜底"}}
-    HIT["✅ 直接返回 (~2ms)"]
-    ESHIT["✅ ES 命中 → 回写 Redis (~15ms)"]
-    APIHIT["✅ API 命中 → 回写 Redis + ES (~800ms)"]
-    EMPTY["✅ 优雅降级 (<1ms)"]
+    HIT["直接返回 (~2ms)"]
+    ESHIT["ES 命中, 回写 Redis (~15ms)"]
+    APIHIT["API 命中, 回写 Redis (~800ms)"]
+    EMPTY["返回空 (<1ms)"]
 
     U --> L1
     L1 -- 命中 --> HIT
@@ -198,17 +153,7 @@ flowchart LR
     L2 -- 命中 --> ESHIT
     L2 -- 未命中 --> L3
     L3 -- 命中 --> APIHIT
-    L3 -- 全部失败 --> L4 --> EMPTY
-
-    style U fill:#1a1a2e,stroke:#e94560,color:#fff
-    style L1 fill:#0f3460,stroke:#e94560,color:#fff
-    style L2 fill:#0f3460,stroke:#e94560,color:#fff
-    style L3 fill:#533483,stroke:#e94560,color:#fff
-    style L4 fill:#3b0a11,stroke:#e94560,color:#fff
-    style HIT fill:#1b4332,stroke:#52b788,color:#fff
-    style ESHIT fill:#1b4332,stroke:#52b788,color:#fff
-    style APIHIT fill:#1b4332,stroke:#52b788,color:#fff
-    style EMPTY fill:#1b4332,stroke:#52b788,color:#fff
+    L3 -- 全部不可用 --> L4 --> EMPTY
 ```
 
 ### 二、AI 音乐助手（Function Calling Agent）
@@ -235,16 +180,9 @@ flowchart TB
     S5["⑤ Redis 缓存
     recommend:v3:{userId}
     TTL 30min"]
-    DONE2["✅ 返回推荐列表"]
+    DONE2["返回推荐列表"]
 
     S1 --> S2 --> S3 --> S4 --> S5 --> DONE2
-
-    style S1 fill:#16213e,stroke:#0f3460,color:#fff
-    style S2 fill:#16213e,stroke:#0f3460,color:#fff
-    style S3 fill:#0f3460,stroke:#e94560,color:#fff
-    style S4 fill:#533483,stroke:#e94560,color:#fff
-    style S5 fill:#1b4332,stroke:#52b788,color:#fff
-    style DONE2 fill:#1b4332,stroke:#52b788,color:#fff,stroke-width:3px
 ```
 
 ### 四、音频播放与六级 SLA
@@ -252,9 +190,9 @@ flowchart TB
 ```mermaid
 flowchart LR
     L0["LOCAL
-    RustFS 直读 ~0ms"]
+    RustFS 缓存"]
     L1["HIRES
-    Hi-Res 96/24"]
+    96kHz / 24bit"]
     L2["EXHIGH
     320kbps"]
     L3["HIGHER
@@ -262,23 +200,16 @@ flowchart LR
     L4["STANDARD
     128kbps"]
     L5["FALLBACK
-    同名搜索兜底"]
+    同名歌曲兜底"]
+    DONE["返回播放"]
 
-    L0 -->|失败| L1 -->|失败| L2 -->|失败| L3 -->|失败| L4 -->|失败| L5
-    L0 -->|成功| DONE["✅ 返回播放"]
-    L1 -->|成功| DONE
-    L2 -->|成功| DONE
-    L3 -->|成功| DONE
-    L4 -->|成功| DONE
-    L5 -->|成功| DONE
-
-    style L0 fill:#1b4332,stroke:#52b788,color:#fff
-    style L1 fill:#0f3460,stroke:#e94560,color:#fff
-    style L2 fill:#0f3460,stroke:#e94560,color:#fff
-    style L3 fill:#0f3460,stroke:#e94560,color:#fff
-    style L4 fill:#533483,stroke:#e94560,color:#fff
-    style L5 fill:#3b0a11,stroke:#e94560,color:#fff
-    style DONE fill:#1b4332,stroke:#52b788,color:#fff,stroke-width:3px
+    L0 -->|不可用| L1 -->|不可用| L2 -->|不可用| L3 -->|不可用| L4 -->|不可用| L5
+    L0 -->|可用| DONE
+    L1 -->|可用| DONE
+    L2 -->|可用| DONE
+    L3 -->|可用| DONE
+    L4 -->|可用| DONE
+    L5 -->|可用| DONE
 ```
 
 ### 五、监控可观测性（Prometheus + Grafana）
