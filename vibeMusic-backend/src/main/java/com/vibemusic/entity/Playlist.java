@@ -22,6 +22,10 @@ public class Playlist {
 
     private String description;
 
+    private String coverUrl;
+
+    private Integer sortOrder;
+
     @TableField(insertStrategy = FieldStrategy.NEVER)
     private LocalDateTime createdAt;
 }

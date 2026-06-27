@@ -137,3 +137,23 @@ export function deletePlaylistsBatch(ids) {
 export function importPlaylist(source, id) {
   return request.post('/playlists/import', { source, id })
 }
+
+/** 更新歌单信息 */
+export function updatePlaylist(playlistId, name, description, coverUrl) {
+  return request.post('/playlists/update', { playlistId, name, description, coverUrl })
+}
+
+/** 歌单排序 */
+export function reorderPlaylists(order) {
+  return request.post('/playlists/reorder', { order })
+}
+
+/** 导出歌单 */
+export function exportPlaylist(playlistId) {
+  return request.get('/playlists/export', { params: { playlistId } })
+}
+
+/** 导出播放历史 */
+export function exportPlayHistory() {
+  return request.get('/songs/history/export')
+}
