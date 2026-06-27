@@ -1,0 +1,63 @@
+# Prometheus 告警规则
+
+groups:
+  # ── 服务可用性告警 ──
+  - name: service-alerts
+    rules:
+      # 后端服务宕机
+      - alert: BackendDown
+        expr: up{job="vibemusic-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "后端服务宕机"
+          description: "vibemusic-backend 已离线超过 1 分钟"
+
+      # musicapi 网关宕机
+      - alert: MusicApiDown
+        expr: up{job="musicapi"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "musicapi 网关宕机"
+          description: "musicapi Express 网关已离线超过 1 分钟"
+
+  # ── 性能告警 ──
+  - name: performance-alerts
+    rules:
+      # 搜索 P95 延迟超过 1 秒
+      - alert: HighSearchLatency
+        expr: histogram_quantile(0.95, rate(search_latency_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "搜索延迟过高"
+          description: "搜索 P95 延迟超过 1 秒，持续 5 分钟"
+
+      # JVM 内存使用率超过 85%
+      - alert: HighJvmMemoryUsage
+        expr: (jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 堆内存使用率过高"
+          description: "JVM 堆内存使用率超过 85%，持续 5 分钟"
+
+  # ── 缓存告警 ──
+  - name: cache-alerts
+    rules:
+      # 缓存命中率低于 30%（5分钟内 API 穿透占比过高）
+      - alert: LowCacheHitRate
+        expr: |
+          (rate(cache_miss_api_total[5m]) /
+           (rate(cache_hit_redis_total[5m]) + rate(cache_hit_es_total[5m]) + rate(cache_miss_api_total[5m]))) > 0.7
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "缓存命中率偏低"
+          description: "API 穿透率超过 70%，缓存命中率持续偏低，可能存在缓存失效问题"

@@ -1,0 +1,49 @@
+# Prometheus 全局配置
+global:
+  scrape_interval: 15s          # 每 15s 抓取一次指标
+  evaluation_interval: 15s      # 每 15s 评估一次告警规则
+
+# 告警规则文件
+rule_files:
+  - "alert-rules.yml"
+
+# Alertmanager 配置
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# 抓取目标
+scrape_configs:
+  # ── Spring Boot 后端 ──
+  - job_name: 'vibemusic-backend'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['backend:8080']
+        labels:
+          service: 'spring-boot'
+          application: 'vibemusic-backend'
+
+  # ── musicapi Express 网关 ──
+  - job_name: 'musicapi'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['musicapi:3000']
+        labels:
+          service: 'express-bff'
+
+  # ── Prometheus 自身 ──
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── MySQL Exporter (可选，需要额外启动 mysqld-exporter 容器) ──
+  # - job_name: 'mysql'
+  #   static_configs:
+  #     - targets: ['mysqld-exporter:9104']
+
+  # ── Redis Exporter (可选) ──
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']

@@ -57,6 +57,7 @@ public class JwtUtils {
      * 校验 Token 是否有效
      */
     public boolean validateToken(String token) {
+        if (token == null || token.isBlank()) return false;
         try {
             parseClaims(token);
             return true;

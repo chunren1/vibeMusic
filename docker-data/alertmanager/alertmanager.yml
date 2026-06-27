@@ -1,0 +1,38 @@
+# Alertmanager 告警通知配置
+global:
+  # 默认 SMTP 配置（按需启用，环境变量注入）
+  # smtp_smarthost: 'smtp.qq.com:465'
+  # smtp_from: 'alert@vibemusic.com'
+  # smtp_auth_username: '${SMTP_USER}'
+  # smtp_auth_password: '${SMTP_PASS}'
+
+# 告警路由
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s          # 同组告警等待 30s 合并发送
+  group_interval: 5m       # 同组告警间隔 5 分钟
+  repeat_interval: 4h      # 重复告警间隔 4 小时
+  receiver: 'default'
+
+receivers:
+  # 默认接收器：Webhook（可对接钉钉/飞书/企业微信）
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://127.0.0.1:5001/alert'
+        send_resolved: true
+
+  # 严重告警接收器（按需启用邮件通知）
+  # - name: 'critical-email'
+  #   email_configs:
+  #     - to: 'admin@vibemusic.com'
+  #       headers:
+  #         Subject: '【vibeMusic 严重告警】{{ .GroupLabels.alertname }}'
+
+# 告警抑制规则
+inhibit_rules:
+  # 服务宕机时抑制该服务的其他告警
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']
