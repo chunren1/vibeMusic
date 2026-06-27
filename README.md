@@ -87,51 +87,38 @@
 
 ```mermaid
 graph TB
-    subgraph USER[" "]
-        U[浏览器 / 移动端]
-    end
+    U[浏览器 / 移动端]
+    NG[Nginx :80]
 
-    subgraph GATEWAY[" "]
-        NG["Nginx :80<br/>反向代理 / 静态资源 / SPA fallback"]
-    end
+    V[Vue 3 :5173]
+    SB[Spring Boot 4 :8080]
+    BFF[musicapi Express :3000]
 
-    subgraph APP[" "]
-        V["Vue 3 :5173<br/>Composition API / Pinia<br/>Vite / Vitest"]
-        SB["Spring Boot 4 :8080<br/>MyBatis-Plus / JWT<br/>HikariCP / Micrometer"]
-        BFF["musicapi Express :3000<br/>网易云 + QQ 搜索<br/>评分聚合 / Cookie 管理"]
-    end
+    NE[网易云音乐 API]
+    QQ[QQ 音乐 API]
 
-    subgraph EXT[" "]
-        NE[网易云音乐 API]
-        QQ[QQ 音乐 API]
-    end
+    M[(MySQL 8.0)]
+    R[(Redis 7)]
+    ST[(MinIO / RustFS)]
 
-    subgraph DATA[" "]
-        M[("MySQL 8.0<br/>核心数据")]
-        R[("Redis 7<br/>三级缓存 / 幂等锁")]
-        ST[("MinIO / RustFS<br/>歌曲缓存")]
-    end
+    P[Prometheus :9090]
+    G[Grafana :3001]
+    A[Alertmanager :9093]
 
-    subgraph MON[" "]
-        P["Prometheus :9090<br/>指标采集"]
-        G["Grafana :3001<br/>仪表盘"]
-        A["Alertmanager :9093<br/>告警通知"]
-    end
-
-    U --> NG
-    NG --> V
-    NG --> SB
-    NG --> BFF
+    U ===> NG
+    NG ===> V
+    NG ===> SB
+    NG ===> BFF
     SB -.->|HTTP 代理| V
-    SB -->|搜索/URL| BFF
-    BFF --> NE
-    BFF --> QQ
-    SB --> M
-    SB --> R
-    SB --> ST
-    SB -->|/actuator/prometheus| P
-    P --> G
-    P --> A
+    SB ===> BFF
+    BFF ===> NE
+    BFF ===> QQ
+    SB ===> M
+    SB ===> R
+    SB ===> ST
+    SB ===> P
+    P ===> G
+    P ===> A
 
     style U fill:#1e293b,stroke:#64748b,color:#f8fafc
     style NG fill:#0f172a,stroke:#334155,color:#f8fafc
@@ -146,12 +133,6 @@ graph TB
     style P fill:#2d1b2e,stroke:#d946ef,color:#f8fafc
     style G fill:#1c2d2a,stroke:#10b981,color:#f8fafc
     style A fill:#2d1b1b,stroke:#ef4444,color:#f8fafc
-    style USER fill:none,stroke:#64748b,stroke-dasharray: 5 5
-    style GATEWAY fill:none,stroke:#334155,stroke-dasharray: 5 5
-    style APP fill:none,stroke:#475569,stroke-dasharray: 5 5
-    style EXT fill:none,stroke:#06b6d4,stroke-dasharray: 5 5
-    style DATA fill:none,stroke:#475569,stroke-dasharray: 5 5
-    style MON fill:none,stroke:#d946ef,stroke-dasharray: 5 5
 ```
 
 ---
