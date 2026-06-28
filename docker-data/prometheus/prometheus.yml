@@ -17,21 +17,25 @@ alerting:
 # 抓取目标
 scrape_configs:
   # ── Spring Boot 后端 ──
-  # 本地开发模式：后端在 IntelliJ 运行，用 host.docker.internal 访问宿主机
-  # Docker 部署模式：后端在容器中，用 backend:8080 访问
+  # Docker 部署：后端容器名 backend
+  # 本地开发：用 host.docker.internal 访问宿主机 IntelliJ
   - job_name: 'vibemusic-backend'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['host.docker.internal:8080']
+      - targets:
+          - 'host.docker.internal:8080'   # 本地 dev
+          - 'backend:8080'                # Docker prod
         labels:
           service: 'spring-boot'
           application: 'vibemusic-backend'
 
-  # ── musicapi Express 网关（已集成 prom-client /metrics）──
+  # ── musicapi Express 网关 ──
   - job_name: 'musicapi'
     metrics_path: '/metrics'
     static_configs:
-      - targets: ['host.docker.internal:3000']
+      - targets:
+          - 'host.docker.internal:3000'   # 本地 dev
+          - 'musicapi:3000'               # Docker prod
         labels:
           service: 'express-bff'
 
