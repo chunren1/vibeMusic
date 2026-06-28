@@ -26,7 +26,7 @@
 
 ---
 
-## 🎯 Why vibeMusic?
+## 🎯 设计理念
 
 市面上的音乐播放器项目大多停留在 CRUD 和播放功能。本项目希望**完整模拟互联网音乐平台的后台架构**，因此加入了：
 
@@ -44,11 +44,11 @@
   <img src="image/架构图.png" alt="System Architecture" width="90%" />
 </p>
 
-> Vue SPA → Nginx → Spring Boot / Express BFF → MySQL / Redis / ES / MinIO → Prometheus → Grafana
+> 用户 → Nginx → Vue 前端 / Spring Boot 后端 / Express BFF → MySQL / Redis / ES / MinIO → Prometheus → Grafana
 
 ---
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
 ```bash
 # 开发模式
@@ -100,7 +100,7 @@ docker compose up -d
 
 ## 📊 性能
 
-> **K6 Benchmark** — 50 虚拟用户 × 60 秒 × 9,961 请求 · 0 错误 · 所有阈值通过 ✅
+> **K6 压测** — 50 虚拟用户 × 60 秒 × 9,961 请求 · 0 错误 · 全部达标 ✅
 
 <p align="center">
   <img src="image/k6.png" alt="K6 Benchmark" width="90%" />
@@ -192,6 +192,6 @@ docker compose up -d
 
 ---
 
-## 📄 License
+## 📄 开源协议
 
 MIT © [chunren1](https://github.com/chunren1)
