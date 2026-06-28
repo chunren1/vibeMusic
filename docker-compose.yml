@@ -137,7 +137,7 @@ services:
     logging: *default-logging
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rustfsadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ChangeMe456!}
       TZ: Asia/Shanghai
     ports:
       # API 端口（S3 兼容）
@@ -179,10 +179,10 @@ services:
       ES_URI: http://elasticsearch:9200
       # MinIO / RustFS
       RUSTFS_ENDPOINT: http://rustfs:9000
-      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-change-me}
-      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-change-me}
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-ChangeMe456!}
       # JWT
-      JWT_SECRET: ${JWT_SECRET:-change-me}
+      JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecretKey123!}
       # AI 助手
       AI_API_KEY: ${AI_API_KEY:-change-me}
       # musicapi (网易云 API 代理)
@@ -198,14 +198,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      elasticsearch:
-        condition: service_healthy
       rustfs:
         condition: service_healthy
       musicapi:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/songs/es-health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 20s
       timeout: 10s
       retries: 5
@@ -244,7 +242,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set rustfs http://rustfs:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-rustfsadmin};
+      /usr/bin/mc alias set rustfs http://rustfs:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-ChangeMe456!};
       /usr/bin/mc mb --ignore-existing rustfs/vibemusic;
       echo 'Bucket vibemusic ready';
       exit 0;

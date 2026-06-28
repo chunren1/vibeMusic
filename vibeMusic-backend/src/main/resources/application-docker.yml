@@ -1,0 +1,22 @@
+# ===== vibeMusic Docker 生产环境配置 =====
+# 激活方式: SPRING_PROFILES_ACTIVE=docker
+# 由 docker-compose 自动设置
+
+logging:
+  level:
+    com.vibemusic: info
+    org.springframework: warn
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# 关闭 MyBatis SQL 日志（生产环境不需要）
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# 生产环境关闭 Swagger
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
