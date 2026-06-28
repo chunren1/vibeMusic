@@ -85,49 +85,9 @@
 
 ## 🏗️ 技术架构
 
-```mermaid
-graph LR
-    U[浏览器 / 移动端]
-    NG[Nginx :80]
-    V[Vue 3 :5173]
-    SB[Spring Boot 4 :8080]
-    BFF[musicapi Express :3000]
-    NE[网易云音乐 API]
-    QQ[QQ 音乐 API]
-    M[(MySQL 8.0)]
-    R[(Redis 7)]
-    ST[(MinIO / RustFS)]
-    P[Prometheus :9090]
-    G[Grafana :3001]
-    A[Alertmanager :9093]
-
-    U ===> NG
-    NG ===> V
-    NG ===> SB
-    NG ===> BFF
-    SB ===> M
-    SB ===> R
-    SB ===> ST
-    SB ===> P
-    P ===> G
-    P ===> A
-    BFF ===> NE
-    BFF ===> QQ
-
-    style U fill:#1e293b,stroke:#64748b,color:#f8fafc
-    style NG fill:#0f172a,stroke:#334155,color:#f8fafc
-    style V fill:#1e3a5f,stroke:#3b82f6,color:#f8fafc
-    style SB fill:#3b1f4e,stroke:#a855f7,color:#f8fafc
-    style BFF fill:#1a3a2a,stroke:#22c55e,color:#f8fafc
-    style NE fill:#0f2937,stroke:#06b6d4,color:#f8fafc
-    style QQ fill:#0f2937,stroke:#06b6d4,color:#f8fafc
-    style M fill:#0b1120,stroke:#475569,color:#94a3b8
-    style R fill:#0b1120,stroke:#475569,color:#94a3b8
-    style ST fill:#0b1120,stroke:#475569,color:#94a3b8
-    style P fill:#2d1b2e,stroke:#d946ef,color:#f8fafc
-    style G fill:#1c2d2a,stroke:#10b981,color:#f8fafc
-    style A fill:#2d1b1b,stroke:#ef4444,color:#f8fafc
-```
+<p align="center">
+  <img src="image/架构图.png" alt="vibeMusic 技术架构" width="90%" />
+</p>
 
 ---
 
