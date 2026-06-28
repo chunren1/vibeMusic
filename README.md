@@ -41,7 +41,7 @@
 ## 🏗️ 架构
 
 <p align="center">
-  <img src="image/架构图.png" alt="System Architecture" width="90%" />
+  <img src="image/架构图.png" alt="系统架构图" width="90%" />
 </p>
 
 > 用户 → Nginx → Vue 前端 / Spring Boot 后端 / Express BFF → MySQL / Redis / ES / MinIO → Prometheus → Grafana
