@@ -1,16 +1,9 @@
-<p align="center">
-  <img src="image/logo.png" alt="vibeMusic" width="120" />
-</p>
+<h1>
+  <img src="image/logo.png" alt="vibeMusic" width="48" style="vertical-align: middle; margin-right: 12px;" />
+  vibeMusic
+</h1>
 
-<h1 align="center">vibeMusic</h1>
-
-<p align="center">
-  <em>A modern full-stack music platform with multi-source aggregation, AI Agent, observability and cloud-native deployment.</em>
-</p>
-
-<p align="center">
-  Vue · Spring Boot · Redis · Elasticsearch · Docker · Prometheus · Grafana
-</p>
+> 独立开发的全栈音乐平台 — 双源聚合搜索、AI Function Calling Agent、Redis + ES 四级缓存降级、Docker 十容器编排、Prometheus 可观测性。
 
 <p align="center">
   <a href="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml"><img src="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg" alt="CI"></a>
