@@ -2,19 +2,23 @@
   <img src="image/logo.png" alt="vibeMusic" width="120" />
 </p>
 
-<h1 align="center">🎵 vibeMusic</h1>
+<h1 align="center">vibeMusic</h1>
 
-> A modern full-stack music platform with multi-source aggregation, AI Agent, observability and cloud-native deployment.
+<p align="center">
+  <em>A modern full-stack music platform with multi-source aggregation, AI Agent, observability and cloud-native deployment.</em>
+</p>
 
 <p align="center">
   Vue · Spring Boot · Redis · Elasticsearch · Docker · Prometheus · Grafana
 </p>
 
-[![CI](https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg)](https://github.com/chunren1/vibeMusic/actions/workflows/test.yml)
-[![Coverage](https://img.shields.io/badge/coverage-60%25%2B%20gate-brightgreen)](https://github.com/chunren1/vibeMusic)
-[![Java](https://img.shields.io/badge/Java-17-orange)](https://adoptium.net/)
-[![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D)](https://vuejs.org/)
-[![Docker](https://img.shields.io/badge/Docker-10_Containers-2496ED)](https://www.docker.com/)
+<p align="center">
+  <a href="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml"><img src="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/chunren1/vibeMusic"><img src="https://img.shields.io/badge/coverage-60%25%2B%20gate-brightgreen" alt="Coverage"></a>
+  <a href="https://adoptium.net/"><img src="https://img.shields.io/badge/Java-17-orange" alt="Java"></a>
+  <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.5-4FC08D" alt="Vue"></a>
+  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-10_Containers-2496ED" alt="Docker"></a>
+</p>
 
 ---
 
@@ -47,29 +51,28 @@
   <img src="image/架构图.png" alt="System Architecture" width="90%" />
 </p>
 
-> **数据流**：Vue SPA → Nginx → Spring Boot + Express BFF → MySQL / Redis / ES / MinIO → Prometheus → Grafana
+> Vue SPA → Nginx → Spring Boot / Express BFF → MySQL / Redis / ES / MinIO → Prometheus → Grafana
 
 ---
 
 ## 🚀 Quick Start
 
 ```bash
-# 1. 构建前端
-npm run build
-
-# 2. 启动全栈（需 docker）
-docker compose up -d mysql redis rustfs musicapi backend nginx
-
-# 3. 开发模式（前端热更新）
+# 开发模式
+git clone https://github.com/chunren1/vibeMusic.git
+npm run install:all
 npm run dev
+
+# Docker 全栈部署
+npm run build
+docker compose up -d
 ```
 
 | 服务 | 地址 |
 |------|------|
 | Web | http://localhost |
 | API 文档 | http://localhost:8080/swagger-ui.html |
-| Grafana | http://localhost:3001 / admin:admin |
-| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3001 |
 
 ---
 
@@ -85,18 +88,18 @@ npm run dev
 
 ---
 
-## 📸 截图
+## 📸 页面展示
 
 <table>
   <tr>
     <td width="33%" align="center"><img src="image/首页.png" alt="首页" width="100%" /></td>
-    <td width="33%" align="center"><img src="image/歌曲播放页.png" alt="播放" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/歌曲播放页.png" alt="播放器" width="100%" /></td>
     <td width="33%" align="center"><img src="image/ai助手页.png" alt="AI助手" width="100%" /></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="image/grafana.png" alt="Grafana" width="100%" /></td>
-    <td width="33%" align="center"><img src="image/docker.png" alt="Docker" width="100%" /></td>
-    <td width="33%" align="center"><img src="image/k6.png" alt="K6" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/歌单页.png" alt="歌单" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/收藏页.png" alt="收藏" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/播放历史页.png" alt="播放历史" width="100%" /></td>
   </tr>
 </table>
 
@@ -110,28 +113,47 @@ npm run dev
   <img src="image/k6.png" alt="K6 Benchmark" width="90%" />
 </p>
 
-| 指标 | 基线 | 优化后 | 变化 | 目标 |
-|------|:---:|:-----:|:----:|:----:|
-| 搜索 P95 | 3.48s | **0.36s** | ↓ 90% | < 3s ✅ |
-| 音频流 P95 | 4.41s | **0.38s** | ↓ 91% | < 2s ✅ |
-| 收藏成功率 | 97% | **100%** | 17→0 失败 | > 99.9% ✅ |
-| 吞吐量 | 77.7 req/s | **158 req/s** | ↑ 104% | — |
-
-> 详细压测报告: [docs/PERFORMANCE-REPORT.md](docs/PERFORMANCE-REPORT.md)
+| 指标 | 基线 | 优化后 | 变化 |
+|------|:---:|:-----:|:----:|
+| 搜索 P95 | 3.48s | **0.36s** | ↓ 90% |
+| 音频流 P95 | 4.41s | **0.38s** | ↓ 91% |
+| 收藏成功率 | 97% | **100%** | 17→0 失败 |
+| 吞吐量 | 77.7 req/s | **158 req/s** | ↑ 104% |
 
 ---
 
-## 🐳 DevOps
+## 🐳 运维监控
 
-**监控体系**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化 → Alertmanager 告警推送
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>10 容器编排</strong><br/>
+      <img src="image/docker.png" alt="Docker" width="100%" />
+    </td>
+    <td width="50%" align="center">
+      <strong>Grafana 监控面板</strong><br/>
+      <img src="image/grafana.png" alt="Grafana" width="100%" />
+    </td>
+  </tr>
+</table>
 
-**10 容器**：Nginx · Spring Boot · Express BFF · MySQL · Redis · ES · MinIO · Prometheus · Grafana · Alertmanager
+**10 容器**：Nginx · Spring Boot 4 · Express BFF · MySQL 8.0 · Redis 7 · ES 8.18 · MinIO · Prometheus · Grafana · Alertmanager
+
+**监控链路**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化 → Alertmanager 告警
 
 ---
 
-## 🧪 质量
+## 🧪 测试
 
-164 条自动化测试覆盖后端 (JUnit 5 + Mockito)、前端 (Vitest + jsdom) 和 CI (GitHub Actions + JaCoCo 60% 覆盖率门禁)。
+```text
+164 条自动化测试
+├── 后端 87 条 (JUnit 5 + Mockito + H2)
+│   └── Service · Controller · JWT · 幂等守卫 · 限流
+├── 前端 77 条 (Vitest + jsdom)
+│   └── PlayerStore · AuthStore · FavoriteStore
+└── CI/CD (GitHub Actions)
+    └── push / PR → 全量测试 → JaCoCo 60% 覆盖率门禁
+```
 
 ---
 
