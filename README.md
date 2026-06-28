@@ -80,6 +80,23 @@ npm run dev
 
 ---
 
+## 📸 截图
+
+<table>
+  <tr>
+    <td width="33%" align="center"><img src="image/首页.png" alt="首页" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/歌曲播放页.png" alt="播放" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/歌单页.png" alt="歌单" width="100%" /></td>
+  </tr>
+  <tr>
+    <td width="33%" align="center"><img src="image/收藏页.png" alt="收藏" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/播放历史页.png" alt="历史" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/ai助手页.png" alt="AI助手" width="100%" /></td>
+  </tr>
+</table>
+
+---
+
 ## 📊 性能
 
 <p align="center">
