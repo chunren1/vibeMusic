@@ -13,16 +13,14 @@
 
 ---
 
-## ✨ 亮点
+## 📊 量化指标
 
-| 🚀 指标 | 数值 | 💡 核心能力 | 说明 |
-|--------|:----:|-----------|------|
-| 全栈测试 | **164 条** | 双源聚合搜索 | 网易云 + QQ 音乐统一评分排序 |
-| Docker 容器 | **10 个** | AI Function Calling | LLM 自主调用 `search_songs` 工具 |
-| 代码覆盖率 | **60%+ 门禁** | 四级搜索降级 | Redis 2ms → ES 15ms → API 800ms → 兜底 |
-| 搜索 P95 | **< 0.4s** | 六级音质 SLA | LOCAL → HIRES → ... → FALLBACK |
-| 音频流 P95 | **< 0.4s** | 完整监控体系 | Prometheus + Grafana + Alertmanager |
-| AI 首字 | **< 500ms** | 10 容器编排 | Nginx → 后端 → BFF → 数据 → 监控 |
+| 🚀 指标 | 数值 | 🚀 指标 | 数值 |
+|--------|:----:|--------|:----:|
+| 全栈测试 | **164 条** | Docker 容器 | **10 个** |
+| 代码覆盖率 | **60%+ 门禁** | 搜索 P95 | **< 0.4s** |
+| 音频流 P95 | **< 0.4s** | 缓存命中率 | **92%** |
+| AI 首字延迟 | **< 500ms** | API 端点 | **30+** |
 
 ---
 
@@ -136,17 +134,21 @@ npm run dev
 
 ## 🛡️ 技术栈
 
-![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs)
-![Vite](https://img.shields.io/badge/Vite-6-646CFF?logo=vite)
-![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.0-6DB33F?logo=springboot)
-![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql)
-![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis)
-![Elasticsearch](https://img.shields.io/badge/ES-8.18-005571?logo=elasticsearch)
-![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker)
-![Nginx](https://img.shields.io/badge/Nginx-009639?logo=nginx)
-![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus)
-![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana)
-![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?logo=githubactions)
+<p align="center">
+  <img src="https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vuedotjs&style=flat" />
+  <img src="https://img.shields.io/badge/Spring_Boot-4.0-6DB33F?logo=springboot&style=flat" />
+  <img src="https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&style=flat" />
+  <img src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&style=flat" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&style=flat" />
+  <img src="https://img.shields.io/badge/Nginx-009639?logo=nginx&style=flat" />
+  <br/>
+  <img src="https://img.shields.io/badge/Prometheus-E6522C?logo=prometheus&style=flat" />
+  <img src="https://img.shields.io/badge/Grafana-F46800?logo=grafana&style=flat" />
+  <img src="https://img.shields.io/badge/Elasticsearch-8.18-005571?logo=elasticsearch&style=flat" />
+  <img src="https://img.shields.io/badge/JUnit5-25A162?logo=junit5&style=flat" />
+  <img src="https://img.shields.io/badge/GitHub_Actions-2088FF?logo=githubactions&style=flat" />
+  <img src="https://img.shields.io/badge/DeepSeek-4FC08D?logo=openai&style=flat" />
+</p>
 
 ---
 
