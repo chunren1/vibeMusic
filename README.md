@@ -1,15 +1,20 @@
-# 🎵 vibeMusic
+<p align="center">
+  <img src="image/logo.png" alt="vibeMusic" width="120" />
+</p>
 
-> **独立开发的全栈音乐平台** — 双源聚合搜索、AI Function Calling Agent、四级缓存降级、Docker 十容器编排、Prometheus 可观测性。
+<h1 align="center">🎵 vibeMusic</h1>
+
+> A modern full-stack music platform with multi-source aggregation, AI Agent, observability and cloud-native deployment.
+
+<p align="center">
+  Vue · Spring Boot · Redis · Elasticsearch · Docker · Prometheus · Grafana
+</p>
 
 [![CI](https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg)](https://github.com/chunren1/vibeMusic/actions/workflows/test.yml)
-[![Tests](https://img.shields.io/badge/tests-164%20passed-brightgreen)](https://github.com/chunren1/vibeMusic)
 [![Coverage](https://img.shields.io/badge/coverage-60%25%2B%20gate-brightgreen)](https://github.com/chunren1/vibeMusic)
 [![Java](https://img.shields.io/badge/Java-17-orange)](https://adoptium.net/)
-[![Spring Boot](https://img.shields.io/badge/Spring_Boot-4.0-6DB33F)](https://spring.io/projects/spring-boot)
 [![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D)](https://vuejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-10_Containers-2496ED)](https://www.docker.com/)
-[![Vite](https://img.shields.io/badge/Vite-6-646CFF)](https://vite.dev)
 
 ---
 
@@ -42,6 +47,8 @@
   <img src="image/架构图.png" alt="System Architecture" width="90%" />
 </p>
 
+> **数据流**：Vue SPA → Nginx → Spring Boot + Express BFF → MySQL / Redis / ES / MinIO → Prometheus → Grafana
+
 ---
 
 ## 🚀 Quick Start
@@ -68,8 +75,6 @@ npm run dev
 
 ## 🔍 功能
 
-### 双源搜索 · AI Agent · 六级音质 · 个性化推荐
-
 **搜索四级降级** — `Redis 2ms → ES 15ms → API 实时 800ms → 空结果兜底`，热门词预热确保缓存命中率 92%。
 
 **AI Function Calling** — DeepSeek V4 + `search_songs` / `get_user_history` 工具，LLM 自主决定搜索关键词，SSE 流式输出，首字延迟 < 500ms。
@@ -86,18 +91,20 @@ npm run dev
   <tr>
     <td width="33%" align="center"><img src="image/首页.png" alt="首页" width="100%" /></td>
     <td width="33%" align="center"><img src="image/歌曲播放页.png" alt="播放" width="100%" /></td>
-    <td width="33%" align="center"><img src="image/歌单页.png" alt="歌单" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/ai助手页.png" alt="AI助手" width="100%" /></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="image/收藏页.png" alt="收藏" width="100%" /></td>
-    <td width="33%" align="center"><img src="image/播放历史页.png" alt="历史" width="100%" /></td>
-    <td width="33%" align="center"><img src="image/ai助手页.png" alt="AI助手" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/grafana.png" alt="Grafana" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/docker.png" alt="Docker" width="100%" /></td>
+    <td width="33%" align="center"><img src="image/k6.png" alt="K6" width="100%" /></td>
   </tr>
 </table>
 
 ---
 
 ## 📊 性能
+
+> **K6 Benchmark** — 50 虚拟用户 × 60 秒 × 9,961 请求 · 0 错误 · 所有阈值通过 ✅
 
 <p align="center">
   <img src="image/k6.png" alt="K6 Benchmark" width="90%" />
@@ -110,24 +117,11 @@ npm run dev
 | 收藏成功率 | 97% | **100%** | 17→0 失败 | > 99.9% ✅ |
 | 吞吐量 | 77.7 req/s | **158 req/s** | ↑ 104% | — |
 
-> 压测工具: K6 | 50 VUs × 60s | 详细报告: [docs/PERFORMANCE-REPORT.md](docs/PERFORMANCE-REPORT.md)
+> 详细压测报告: [docs/PERFORMANCE-REPORT.md](docs/PERFORMANCE-REPORT.md)
 
 ---
 
 ## 🐳 DevOps
-
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <strong>10 容器一键部署</strong><br/>
-      <img src="image/docker.png" alt="Docker" width="100%" />
-    </td>
-    <td width="50%" align="center">
-      <strong>Grafana 仪表盘 — JVM / GC / 缓存命中率 / 搜索延迟</strong><br/>
-      <img src="image/grafana.png" alt="Grafana" width="100%" />
-    </td>
-  </tr>
-</table>
 
 **监控体系**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化 → Alertmanager 告警推送
 
@@ -137,15 +131,7 @@ npm run dev
 
 ## 🧪 质量
 
-```
-全链路 164 条自动化测试
-├── 后端 87 条 (JUnit 5 + Mockito + H2)
-│   └── Service/Controller/安全组件/幂等/限流
-├── 前端 77 条 (Vitest + jsdom)
-│   └── Player/Auth/Favorite/Playlist Store
-└── CI/CD (GitHub Actions)
-    └── push / PR → 全量测试 → JaCoCo 60% 覆盖率门禁
-```
+164 条自动化测试覆盖后端 (JUnit 5 + Mockito)、前端 (Vitest + jsdom) 和 CI (GitHub Actions + JaCoCo 60% 覆盖率门禁)。
 
 ---
 
@@ -185,16 +171,9 @@ npm run dev
 
 ## 📖 API
 
-启动后端后访问 [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) 在线测试所有接口。
+启动后端后访问 [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) 在线测试。
 
-| 模块 | 端点 |
-|------|------|
-| Auth | `/api/auth/register` `login` `me` `logout` |
-| Songs | `/api/songs/search` `play` `stream` `lyric` `random` |
-| AI | `/api/assistant/chat` `stream` `history` |
-| Favorites | `/api/favorites/toggle` `list` |
-| Playlists | `/api/playlists/list` `create` `add-song` |
-| Monitor | `/actuator/prometheus` `/api/monitor/cache-stats` |
+端点示例：`/api/songs/search` · `/api/songs/stream` · `/api/assistant/chat` · `/api/favorites/toggle`
 
 ---
 
