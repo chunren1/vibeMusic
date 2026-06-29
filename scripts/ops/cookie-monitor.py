@@ -37,12 +37,14 @@ session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 })
 
-# ==================== 日志 ====================
+# ==================== 日志（按天轮转，保留30天） ====================
+from logging.handlers import TimedRotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        TimedRotatingFileHandler(LOG_FILE, when='midnight', interval=1, backupCount=30, encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
