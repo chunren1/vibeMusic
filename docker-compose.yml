@@ -226,6 +226,12 @@ services:
       - ./vibemusic-web/dist:/usr/share/nginx/html:ro
       # 日志持久化
       - ./docker-data/nginx/logs:/var/log/nginx
+      # 日志轮转配置
+      - ./nginx/logrotate-nginx.conf:/etc/nginx/logrotate-nginx.conf:ro
+      # 自定义入口脚本
+      - ./nginx/docker-entrypoint.sh:/usr/local/bin/vibe-nginx-entrypoint.sh:ro
+    command: ["nginx", "-g", "daemon off;"]
+    entrypoint: ["/usr/local/bin/vibe-nginx-entrypoint.sh"]
     networks:
       - vibemusic-net
     healthcheck:
