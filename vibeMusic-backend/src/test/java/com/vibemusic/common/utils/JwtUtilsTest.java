@@ -19,11 +19,12 @@ class JwtUtilsTest {
 
     private JwtUtils jwtUtils;
     private static final String SECRET = "test-secret-key-for-unit-testing-only-must-be-long-enough";
-    private static final long EXPIRATION = 3600000L; // 1 小时
+    private static final long ACCESS_EXPIRATION = 3600000L;   // 1 小时
+    private static final long REFRESH_EXPIRATION = 7200000L;  // 2 小时
 
     @BeforeEach
     void setUp() {
-        jwtUtils = new JwtUtils(SECRET, EXPIRATION);
+        jwtUtils = new JwtUtils(SECRET, ACCESS_EXPIRATION, REFRESH_EXPIRATION);
     }
 
     @Nested
@@ -110,7 +111,7 @@ class JwtUtilsTest {
         @DisplayName("用不同密钥签名的 Token 应返回 false")
         void shouldReturnFalseForWrongSecretToken() {
             // 用另一个密钥生成 Token
-            JwtUtils otherJwtUtils = new JwtUtils("another-secret-key-that-is-different-from-test", EXPIRATION);
+            JwtUtils otherJwtUtils = new JwtUtils("another-secret-key-that-is-different-from-test", ACCESS_EXPIRATION, REFRESH_EXPIRATION);
             String token = otherJwtUtils.generateToken("123");
             assertFalse(jwtUtils.validateToken(token));
         }
@@ -125,7 +126,7 @@ class JwtUtilsTest {
         @DisplayName("过期的 Token 应返回 false")
         void shouldReturnFalseForExpiredToken() {
             // expiration 为负数，生成的 Token 立即过期
-            JwtUtils expiredJwtUtils = new JwtUtils(SECRET, -1000L);
+            JwtUtils expiredJwtUtils = new JwtUtils(SECRET, -1000L, -1000L);
             String token = expiredJwtUtils.generateToken("123");
             assertFalse(jwtUtils.validateToken(token));
         }
