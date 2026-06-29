@@ -34,6 +34,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Duration USER_CACHE_TTL = Duration.ofMinutes(5);
     private static final String USER_CACHE_PREFIX = "user:auth:";
+    private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
     @Override
     protected void doFilterInternal(
@@ -44,10 +45,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = extractToken(request);
 
         if (StringUtils.hasText(token) && jwtUtils.validateToken(token)) {
+            // 检查 token 黑名单（已登出的 token 不可用）
+            if (isBlacklisted(token)) {
+                log.debug("JWT 已被加入黑名单，跳过认证");
+                filterChain.doFilter(request, response);
+                return;
+            }
+            // 拒绝 refresh token 访问普通接口
+            if (jwtUtils.isRefreshToken(token)) {
+                log.debug("拒绝 refresh token 访问业务接口");
+                filterChain.doFilter(request, response);
+                return;
+            }
             String userIdStr = jwtUtils.getUserIdFromToken(token);
             try {
                 Long userId = Long.parseLong(userIdStr);
-                // Redis 缓存用户，避免每个请求都查 DB（TTL 5min）
                 User user = getUserWithCache(userId);
                 if (user != null) {
                     CustomUserDetails userDetails = new CustomUserDetails(user);
@@ -62,6 +74,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /** 检查 token 是否在黑名单中 */
+    private boolean isBlacklisted(String token) {
+        try {
+            String key = TOKEN_BLACKLIST_PREFIX + token.hashCode();
+            return Boolean.TRUE.equals(stringRedisTemplate.hasKey(key));
+        } catch (Exception e) {
+            return false; // Redis 不可用时放行，不阻塞正常请求
+        }
     }
 
     /**

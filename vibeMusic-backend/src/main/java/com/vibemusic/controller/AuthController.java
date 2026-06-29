@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -23,6 +24,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
@@ -35,6 +37,9 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
     private final JwtUtils jwtUtils;
+    private final StringRedisTemplate stringRedisTemplate;
+
+    private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
     private static final String UPLOAD_DIR = System.getProperty("user.dir") + File.separator + "uploads" + File.separator + "avatars";
     private static final Set<String> ALLOWED_IMAGE_TYPES = Set.of(
@@ -60,12 +65,14 @@ public class AuthController {
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
-        String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
+        String userId = String.valueOf(details.getUserId());
+        String accessToken = jwtUtils.generateAccessToken(userId);
+        String refreshToken = jwtUtils.generateRefreshToken(userId);
 
-        setTokenCookie(request, response, token);
+        setTokenCookies(request, response, accessToken, refreshToken);
 
         Map<String, Object> data = buildUserData(details);
-        data.put("token", token);
+        data.put("token", accessToken);
         return Result.ok(data);
     }
 
@@ -94,12 +101,14 @@ public class AuthController {
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
-        String token = jwtUtils.generateToken(String.valueOf(details.getUserId()));
+        String userId = String.valueOf(details.getUserId());
+        String accessToken = jwtUtils.generateAccessToken(userId);
+        String refreshToken = jwtUtils.generateRefreshToken(userId);
 
-        setTokenCookie(request, response, token);
+        setTokenCookies(request, response, accessToken, refreshToken);
 
         Map<String, Object> data = buildUserData(details);
-        data.put("token", token);
+        data.put("token", accessToken);
         log.info("[/api/auth/login] 登录成功: userId={}, username={}", details.getUserId(), username);
         return Result.ok(data);
     }
@@ -246,25 +255,111 @@ public class AuthController {
 
     @PostMapping("/logout")
     @Operation(summary = "退出登录")
-    public Result<String> logout(HttpServletResponse response) {
-        Cookie cookie = new Cookie("VIBE_TOKEN", "");
-        cookie.setHttpOnly(true);
-        cookie.setPath("/");
-        cookie.setMaxAge(0);
-        response.addCookie(cookie);
+    public Result<String> logout(HttpServletRequest request, HttpServletResponse response) {
+        // 加入黑名单
+        String accessToken = extractTokenFromRequest(request);
+        String refreshToken = extractRefreshTokenFromRequest(request);
+        if (accessToken != null) blacklistToken(accessToken);
+        if (refreshToken != null) blacklistToken(refreshToken);
+
+        // 清除 Cookie
+        clearCookie(response, "VIBE_TOKEN");
+        clearCookie(response, "VIBE_REFRESH");
         return Result.ok("已退出");
+    }
+
+    @PostMapping("/refresh")
+    @Operation(summary = "刷新 access token（使用 refresh token）")
+    public Result<Map<String, Object>> refresh(HttpServletRequest request, HttpServletResponse response) {
+        String refreshToken = extractRefreshTokenFromRequest(request);
+        if (refreshToken == null) return Result.error(401, "缺少 refresh token");
+
+        if (!jwtUtils.validateToken(refreshToken)) return Result.error(401, "refresh token 无效或已过期");
+        if (!jwtUtils.isRefreshToken(refreshToken)) return Result.error(401, "非法的 token 类型");
+
+        // 检查黑名单
+        try {
+            String key = TOKEN_BLACKLIST_PREFIX + refreshToken.hashCode();
+            if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) {
+                return Result.error(401, "refresh token 已注销");
+            }
+        } catch (Exception ignored) { /* Redis 不可用时放行 */ }
+
+        // 生成新 token 对
+        String userId = jwtUtils.getUserIdFromToken(refreshToken);
+        String newAccessToken = jwtUtils.generateAccessToken(userId);
+        String newRefreshToken = jwtUtils.generateRefreshToken(userId);
+
+        // 旧的 refresh token 加入黑名单（防止重复使用）
+        blacklistToken(refreshToken);
+
+        setTokenCookies(request, response, newAccessToken, newRefreshToken);
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("token", newAccessToken);
+        return Result.ok(data);
+    }
+
+    // ===== token 黑名单 =====
+
+    private void blacklistToken(String token) {
+        try {
+            long remainMs = jwtUtils.getExpirationFromToken(token) - System.currentTimeMillis();
+            if (remainMs > 0) {
+                String key = TOKEN_BLACKLIST_PREFIX + token.hashCode();
+                stringRedisTemplate.opsForValue().set(key, "1", Duration.ofMillis(remainMs));
+            }
+        } catch (Exception e) {
+            log.warn("token 黑名单写入失败: {}", e.getMessage());
+        }
     }
 
     // ===== 辅助方法 =====
 
-    private void setTokenCookie(HttpServletRequest request, HttpServletResponse response, String token) {
-        // 使用 ResponseCookie 确保 SameSite 在所有 Servlet 容器有效
-        String cookieValue = String.format(
-                "VIBE_TOKEN=%s; Path=/; Max-Age=86400; HttpOnly; SameSite=Lax%s",
-                token,
-                ("https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")) || request.isSecure())
-                        ? "; Secure" : "");
-        response.addHeader("Set-Cookie", cookieValue);
+    private void setTokenCookies(HttpServletRequest request, HttpServletResponse response,
+                                  String accessToken, String refreshToken) {
+        String secure = (request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")))
+                ? "; Secure" : "";
+        // Access token: 15min, 全局路径
+        response.addHeader("Set-Cookie",
+                String.format("VIBE_TOKEN=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                        accessToken, jwtUtils.getAccessExpiration() / 1000, secure));
+        // Refresh token: 7d, 仅 /api/auth/refresh 路径可读取
+        response.addHeader("Set-Cookie",
+                String.format("VIBE_REFRESH=%s; Path=/api/auth/refresh; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                        refreshToken, jwtUtils.getRefreshExpiration() / 1000, secure));
+    }
+
+    private void clearCookie(HttpServletResponse response, String name) {
+        Cookie cookie = new Cookie(name, "");
+        cookie.setHttpOnly(true);
+        cookie.setPath("/");
+        cookie.setMaxAge(0);
+        response.addCookie(cookie);
+    }
+
+    private String extractTokenFromRequest(HttpServletRequest request) {
+        // 优先从 Authorization header 读取
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) return header.substring(7);
+        // 降级从 cookie 读取
+        if (request.getCookies() != null) {
+            for (Cookie c : request.getCookies()) {
+                if ("VIBE_TOKEN".equals(c.getName())) return c.getValue();
+            }
+        }
+        return null;
+    }
+
+    private String extractRefreshTokenFromRequest(HttpServletRequest request) {
+        // 优先从 body 读取（refresh 端点）
+        // 降级从 cookie 读取
+        if (request.getCookies() != null) {
+            for (Cookie c : request.getCookies()) {
+                if ("VIBE_REFRESH".equals(c.getName())) return c.getValue();
+            }
+        }
+        return null;
     }
 
     private Map<String, Object> buildUserData(CustomUserDetails details) {

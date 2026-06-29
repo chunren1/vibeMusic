@@ -1,5 +1,6 @@
 package com.vibemusic.controller;
 
+import com.vibemusic.common.utils.StreamUtils;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -77,11 +78,7 @@ public class ProxyController {
 
                 try (InputStream in = conn.getInputStream();
                      OutputStream out = response.getOutputStream()) {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = in.read(buf)) != -1) {
-                        out.write(buf, 0, n);
-                    }
+                    StreamUtils.copy(in, out);
                 }
             } finally {
                 if (conn != null) conn.disconnect();
