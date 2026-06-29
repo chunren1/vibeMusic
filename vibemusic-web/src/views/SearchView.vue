@@ -21,6 +21,16 @@ const totalPageSize = 40
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
 
+// 输入自动搜索（300ms 防抖）
+let debounceTimer = null
+watch(keyword, () => {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => {
+    if (!keyword.value.trim()) { results.value = []; return }
+    onSearch()
+  }, 300)
+})
+
 function fmtSec(s) {
   if (!s) return ''
   const m = Math.floor(s / 60)
@@ -64,7 +74,9 @@ function openPlaylistPopup(song) {
 
 favStore.fetchFavIds()
 
+const routeKeyword = route.query.keyword
 watch(() => route.query.keyword, (val) => {
+  if (val === routeKeyword) return // 忽略首次立即执行
   keyword.value = val || ''
   if (val) onSearch()
 }, { immediate: true })

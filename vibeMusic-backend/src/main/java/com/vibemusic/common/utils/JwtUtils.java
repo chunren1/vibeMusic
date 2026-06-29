@@ -11,51 +11,68 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 /**
- * JWT 工具类
- *
- * 职责：生成 Token、解析 Token、校验 Token
+ * JWT 工具类（双 Token：access 15min + refresh 7d）
  */
 @Slf4j
 @Component
 public class JwtUtils {
 
     private final SecretKey secretKey;
-    private final long expiration;
+    private final long accessExpiration;
+    private final long refreshExpiration;
 
     public JwtUtils(@Value("${jwt.secret}") String secret,
-                    @Value("${jwt.expiration}") long expiration) {
+                    @Value("${jwt.access-expiration}") long accessExpiration,
+                    @Value("${jwt.refresh-expiration}") long refreshExpiration) {
         this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.expiration = expiration;
+        this.accessExpiration = accessExpiration;
+        this.refreshExpiration = refreshExpiration;
     }
 
-    /**
-     * 生成 JWT Token
-     *
-     * @param userId 用户 ID
-     * @return JWT 字符串
-     */
-    public String generateToken(String userId) {
-        Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + expiration);
+    // ==================== 双 Token 生成 ====================
 
+    public String generateAccessToken(String userId) {
+        return buildToken(userId, accessExpiration, "access");
+    }
+
+    public String generateRefreshToken(String userId) {
+        return buildToken(userId, refreshExpiration, "refresh");
+    }
+
+    /** 兼容旧调用：生成 access token */
+    public String generateToken(String userId) {
+        return generateAccessToken(userId);
+    }
+
+    private String buildToken(String userId, long expiration, String type) {
+        Date now = new Date();
         return Jwts.builder()
                 .subject(userId)
+                .claim("type", type)
                 .issuedAt(now)
-                .expiration(expiryDate)
+                .expiration(new Date(now.getTime() + expiration))
                 .signWith(secretKey)
                 .compact();
     }
 
-    /**
-     * 从 Token 中提取用户 ID
-     */
+    // ==================== 解析 & 校验 ====================
+
     public String getUserIdFromToken(String token) {
         return parseClaims(token).getSubject();
     }
 
-    /**
-     * 校验 Token 是否有效
-     */
+    public long getExpirationFromToken(String token) {
+        return parseClaims(token).getExpiration().getTime();
+    }
+
+    public boolean isRefreshToken(String token) {
+        try {
+            return "refresh".equals(parseClaims(token).get("type"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     public boolean validateToken(String token) {
         if (token == null || token.isBlank()) return false;
         try {
@@ -67,9 +84,6 @@ public class JwtUtils {
         }
     }
 
-    /**
-     * 解析 JWT Claims
-     */
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
@@ -77,4 +91,9 @@ public class JwtUtils {
                 .parseSignedClaims(token)
                 .getPayload();
     }
+
+    // ==================== Getter ====================
+
+    public long getAccessExpiration() { return accessExpiration; }
+    public long getRefreshExpiration() { return refreshExpiration; }
 }

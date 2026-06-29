@@ -1,6 +1,7 @@
 package com.vibemusic.service;
 
 import com.vibemusic.common.exception.BusinessException;
+import com.vibemusic.common.utils.StreamUtils;
 import com.vibemusic.config.NeteaseApiConfig;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -108,9 +109,7 @@ public class NeteaseApiService {
                     .exchange((req, resp) -> {
                         try (java.io.InputStream in = resp.getBody();
                              java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile)) {
-                            byte[] buf = new byte[8192];
-                            int n;
-                            while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+                            StreamUtils.copy(in, out);
                         }
                         return null;
                     });
