@@ -7,6 +7,8 @@
     "dev": "concurrently -n musicapi,web -c cyan,green \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "cd musicapi && node server.js",
     "dev:web": "cd vibemusic-web && npm run dev",
+    "dev:backend": "cd vibeMusic-backend && mvnw spring-boot:run",
+    "dev:full": "concurrently -n backend,api,web -c yellow,cyan,green \"npm run dev:backend\" \"npm run dev:api\" \"npm run dev:web\"",
     "build": "cd vibemusic-web && npm run build",
     "deploy:web": "npm run build && npm run nginx:reload",
     "ops": "node scripts/ops.cjs",
