@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-06 线程池安全加固与缓存修复
+
+### 修复隐患（教学审阅中发现）
+
+1. **SEARCH_EXECUTOR 有界队列**：`Executors.newFixedThreadPool(50)` → 显式 `ThreadPoolExecutor(50/100, Queue=200, CallerRunsPolicy)`，防止高并发下无界队列堆积 OOM
+2. **WARM_EXECUTOR 有界队列**：`Executors.newSingleThreadExecutor()` → 显式 `ThreadPoolExecutor(1/1, Queue=20, DiscardOldestPolicy)`，统一规范
+3. **专用异步线程池**：`CompletableFuture.runAsync()` 默认 `ForkJoinPool.commonPool()` → 专用 `ASYNC_CACHE_EXECUTOR(2/4, Queue=20, DiscardPolicy)`，播放后缓存清理不污染 JVM 共享池
+4. **缓存污染自动清除**：`isCachePoisoned()` 仅 warn → 自动 `delete key` + `return null` 触发重算，故障恢复 30min→秒级
+
+### 修改文件
+- `SongSearchService.java` — SEARCH_EXECUTOR + WARM_EXECUTOR 改造
+- `SongController.java` — 新增 ASYNC_CACHE_EXECUTOR
+- `RecommendService.java` — readCache 自动清除污染缓存
+
+---
+
 ## 2026-06-27 第六轮优化（性能压测全面达标）
 
 ### 🚀 K6 压测结果（50 VU × 60s）

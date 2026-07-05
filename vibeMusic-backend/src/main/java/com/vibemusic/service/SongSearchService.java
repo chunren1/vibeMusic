@@ -93,24 +93,45 @@ public class SongSearchService {
     private static final Pattern NON_ALPHANUM = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
     /**
-     * 共享搜索线程池
-     * 注意：池大小需 >= 预期最大并发 API 穿透数。
+     * 共享搜索线程池（有界队列 + 回压策略）
+     * <p>
      * 50 VU 同时穿透时，每个搜索需 2 个线程（netease + qq），
-     * 池大小 4 会导致严重排队延迟（P95 飙升），现扩大至 50。
+     * 核心线程 50 保证常态并发不排队；最大 100 应对突发流量；
+     * 有界队列 200 防止任务无限堆积 OOM；
+     * CallerRunsPolicy：线程池满载时由调用方 Tomcat 线程直接执行，形成回压。
      */
-    private static final int SEARCH_POOL_SIZE = 50;
-    private static final ExecutorService SEARCH_EXECUTOR = Executors.newFixedThreadPool(SEARCH_POOL_SIZE, r -> {
-        Thread t = new Thread(r, "search-worker");
-        t.setDaemon(true);
-        return t;
-    });
+    private static final int SEARCH_CORE = 50;
+    private static final int SEARCH_MAX = 100;
+    private static final ExecutorService SEARCH_EXECUTOR = new ThreadPoolExecutor(
+            SEARCH_CORE, SEARCH_MAX,
+            60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(200),
+            r -> {
+                Thread t = new Thread(r, "search-worker");
+                t.setDaemon(true);
+                return t;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy()
+    );
 
-    /** 预热线程池（独立于搜索线程池，预热不会阻塞正式请求） */
-    private static final ExecutorService WARM_EXECUTOR = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "prewarm-worker");
-        t.setDaemon(true);
-        return t;
-    });
+    /** 预热线程池（有界队列，独立于搜索线程池，预热不会阻塞正式请求） */
+    private static final ExecutorService WARM_EXECUTOR = new ThreadPoolExecutor(
+            1, 1,
+            60L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(20),
+            r -> {
+                Thread t = new Thread(r, "prewarm-worker");
+                t.setDaemon(true);
+                return t;
+            },
+            new ThreadPoolExecutor.DiscardOldestPolicy() {
+                @Override
+                public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+                    super.rejectedExecution(r, e);
+                    log.warn("预热任务被丢弃（队列已满），跳过预加载");
+                }
+            }
+    );
 
     @jakarta.annotation.PreDestroy
     public void shutdown() {

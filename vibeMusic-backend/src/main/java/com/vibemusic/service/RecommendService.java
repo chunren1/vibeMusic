@@ -335,9 +335,11 @@ public class RecommendService {
             if (json == null) return null;
             RecommendResult result = objectMapper.readValue(json, RecommendResult.class);
             if (isCachePoisoned(result)) {
-                log.warn("推荐缓存单一平台(不清空): {} ({}首全来自{})",
+                log.warn("推荐缓存已污染，自动清除: {} ({}首全来自{})",
                         key, result.getSongs().size(),
                         result.getSongs().get(0).getPlatform());
+                stringRedisTemplate.delete(key);
+                return null; // 触发重算
             }
             return result;
         } catch (Exception e) {

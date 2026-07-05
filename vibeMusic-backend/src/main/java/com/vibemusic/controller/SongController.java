@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.*;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 import org.springframework.http.HttpStatusCode;
@@ -48,6 +48,27 @@ public class SongController {
     @PostConstruct
     void initRestClient() {
         this.restClient = restClientBuilder.build();
+    }
+
+    /**
+     * 专用异步线程池：播放后异步清理推荐缓存，避免污染 ForkJoinPool.commonPool()
+     * 核心 2 / 最大 4 / 队列 20 / DiscardPolicy（缓存清理非关键，满了直接丢弃）
+     */
+    private static final ExecutorService ASYNC_CACHE_EXECUTOR = new ThreadPoolExecutor(
+            2, 4,
+            30L, TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(20),
+            r -> {
+                Thread t = new Thread(r, "async-cache-cleaner");
+                t.setDaemon(true);
+                return t;
+            },
+            new ThreadPoolExecutor.DiscardPolicy()
+    );
+
+    @jakarta.annotation.PreDestroy
+    public void shutdownAsyncCacheExecutor() {
+        ASYNC_CACHE_EXECUTOR.shutdown();
     }
 
     private static final String BANNER_CACHE_KEY = "banner:v2:home";
@@ -141,7 +162,7 @@ public class SongController {
             playHistoryService.record(userId, sourceId, name, artist, coverUrl);
             CompletableFuture.runAsync(() -> {
                 try { recommendService.evictUserCache(userId); } catch (Exception ignored) {}
-            });
+            }, ASYNC_CACHE_EXECUTOR);
         }
 
         // 2. 返回元信息（URL解析留给stream端点，避免重复请求）
