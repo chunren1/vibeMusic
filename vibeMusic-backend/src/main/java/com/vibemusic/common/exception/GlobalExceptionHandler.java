@@ -9,6 +9,8 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -85,6 +87,39 @@ public class GlobalExceptionHandler {
     public Result<Void> handleBusinessException(BusinessException ex, HttpServletResponse response) {
         response.setStatus(ex.getCode());
         return Result.error(ex.getCode(), ex.getMessage());
+    }
+
+    // ==================== 基础设施异常 ====================
+
+    @ExceptionHandler(DataAccessException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public Result<Void> handleDataAccessException(DataAccessException ex) {
+        String traceId = MDC.get("traceId");
+        log.error("[traceId={}] 数据库异常", traceId, ex);
+        return Result.error(503, "数据存储暂时不可用 (traceId=" + traceId + ")");
+    }
+
+    @ExceptionHandler(RedisConnectionFailureException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public Result<Void> handleRedisConnectionFailure(RedisConnectionFailureException ex) {
+        log.warn("Redis 连接失败: {}", ex.getMessage());
+        return Result.error(503, "缓存服务暂时不可用，请稍后重试");
+    }
+
+    // ==================== 代码逻辑异常 ====================
+
+    @ExceptionHandler(NullPointerException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Result<Void> handleNullPointer(NullPointerException ex) {
+        String traceId = MDC.get("traceId");
+        log.error("[traceId={}] 空指针异常", traceId, ex);
+        return Result.error(500, "服务器内部错误 (traceId=" + traceId + ")");
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleIllegalArgument(IllegalArgumentException ex) {
+        return Result.error(400, "请求参数错误: " + ex.getMessage());
     }
 
     // ==================== 兜底异常 ====================

@@ -15,18 +15,27 @@ route:
   receiver: 'default'
 
 receivers:
-  # 默认接收器：Webhook（可对接钉钉/飞书/企业微信）
+  # 默认接收器：仅日志输出
   - name: 'default'
-    webhook_configs:
-      - url: 'http://127.0.0.1:5001/alert'
-        send_resolved: true
 
-  # 严重告警接收器（按需启用邮件通知）
-  # - name: 'critical-email'
+  # 钉钉机器人 Webhook（填入你的 access_token 后取消注释）
+  # - name: 'dingtalk'
+  #   webhook_configs:
+  #     - url: 'https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN'
+  #       send_resolved: true
+
+  # 企业微信 Webhook
+  # - name: 'wecom'
+  #   webhook_configs:
+  #     - url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY'
+  #       send_resolved: true
+
+  # 邮件通知
+  # - name: 'email'
   #   email_configs:
   #     - to: 'admin@vibemusic.com'
   #       headers:
-  #         Subject: '【vibeMusic 严重告警】{{ .GroupLabels.alertname }}'
+  #         Subject: '【vibeMusic 告警】{{ .GroupLabels.alertname }}'
 
 # 告警抑制规则
 inhibit_rules:

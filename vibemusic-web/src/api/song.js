@@ -49,7 +49,7 @@ export function playSong(sourceId, name, artist, coverUrl, platform = '') {
   return request.get('/songs/play', { params: { sourceId, name, artist, coverUrl, platform } })
 }
 
-/** 下载歌曲到 RustFS */
+/** 下载歌曲到 MinIO */
 export function downloadSong(sourceId, song) {
   return request.post(`/download/${sourceId}`, {
     name: song.name, artist: song.artist, album: song.album,

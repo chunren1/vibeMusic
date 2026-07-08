@@ -5,6 +5,51 @@
 
 ---
 
+## 2026-07-08 生产级全栈加固与三阶段优化
+
+### 🔒 生产安全加固（16 项）
+- 移除所有硬编码密钥（Sentry DSN、JWT、MySQL/Redis/ES/MinIO 密码）→ 全部环境变量注入
+- 关闭数据库端口对外暴露（MySQL 3306 / Redis 6379 / ES 9201 / MinIO 9000-9001）
+- Nginx 安全加固：CSP 头、Actuator 外部拦截、SSRF 域名白名单
+- CORS 从 `*` → 环境变量注入白名单
+- musicapi Express：body limit 1MB、路由白名单收窄、上游 API 10s 超时
+- 容器安全：Dockerfile 非 root 运行、JVM MaxRAMPercentage 75%、ES xpack 安全
+- Redis 密码认证 + timeout 300s + maxmemory 512MB
+- 音乐平台 Cookie 从源码迁移到环境变量
+
+### ⚡ Sprint 1：性能优化（8 项）
+- HikariCP max-pool 20→50 + leak-detection 10s
+- Redis 连接池 max-wait -1→3000ms
+- Caffeine 本地缓存（200 条 / 5min）+ COUNT(*) 全表扫描缓存
+- SongService INSERT 冗余查询消除（useGeneratedKeys）
+- play_history 索引加 DESC
+- Redis + MySQL Prometheus Exporter
+
+### 🧹 Sprint 2：代码质量（6 项）
+- SongController 449 行拆分为 Song / Stream / PlayHistory 三个 Controller
+- JsonCacheService 统一缓存层（替代 Controller 直注 StringRedisTemplate）
+- JwtUtils.extractTokenFromRequest 去重
+- RecommendService 双次 Stream 合并为单次 for-loop
+- 死代码清理（checkCached）+ logic-delete-field 无效配置移除
+- 4 处 @Transactional 统一 rollbackFor=Exception.class
+
+### 🚀 Sprint 3：部署流水线（5 项）
+- GitHub Actions CI/CD（backend Maven + frontend npm build）
+- docker-compose 12 个服务资源限制（3 档 deploy.resources）
+- Dockerfile 基础镜像版本固定（temurin:17.0.15 / node:20.19）
+- 前后端密码校验 8 位对齐
+- Alertmanager 钉钉/企微/邮件通知配置
+
+### 🔧 其他
+- Prometheus 配置两套 target（本地开发 host.docker.internal / Docker 部署容器名）
+- musicapi 集成 dotenv 自动加载项目根 .env
+- HomeView.vue 861→731 行（BannerSection 独立组件 + formatDuration 工具函数）
+- 新增 npm run docker:middleware 一键启动全部中间件
+- SSL 证书升级 4096-bit RSA
+- 新增验收脚本 scripts/verify.js（28 项自动检查）
+
+---
+
 ## 2026-07-06 线程池安全加固与缓存修复
 
 ### 修复隐患（教学审阅中发现）
@@ -153,7 +198,7 @@
 | Flyway 脚本清理 | V1__init.sql 移除 CREATE DATABASE/USE |
 | Security 补全 | /api/image-proxy + /api/download 加入 permitAll |
 | musicapi Dockerfile | wget → node 内建 http 健康检查 |
-| 日志轮转全覆盖 | mysql/redis/rustfs 添加 logging max-size/max-file |
+| 日志轮转全覆盖 | mysql/redis/minio 添加 logging max-size/max-file |
 | SQL 迁移 | Flyway 脚本移除 CREATE DATABASE / USE |
 
 ---
@@ -206,7 +251,7 @@
 |--------|------|
 | DownloadService 事务拆分 | HTTP/文件 I/O 移出事务外（30s+），DB 持久化在短事务内（<50ms） |
 | RecommendService statObject → DB | `markOfflineStatus()` 从 N 次 MinIO statObject 改为 1 次 DB 批量查询 |
-| 播放 RustFS 缓存 | `SongPlayService.isCachedInRustFS()` Redis 缓存 exists 结果 (TTL 10min) |
+| 播放 MinIO 缓存 | `SongPlayService.isCachedInMinio()` Redis 缓存 exists 结果 (TTL 10min) |
 | AI 助手 SSE 流式 | 新增 `POST /api/assistant/stream`，逐 token 推送减少线程阻塞 |
 | Stream buffer 升级 | `StreamUtils` 8KB → 64KB 提升吞吐量 |
 | Redis pool 优化 | lettuce max-active 8→20, min-idle 0→2 |

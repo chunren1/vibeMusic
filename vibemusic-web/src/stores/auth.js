@@ -9,8 +9,9 @@ export const useAuthStore = defineStore('auth', () => {
   const showLoginModal = ref(false)
   const redirectPath = ref(null)
   const sessionChecked = ref(false)
+  const sessionRestored = ref(false) // 标记 session 已从 cookie 恢复，不依赖假 token值
 
-  const isLoggedIn = computed(() => !!token.value)
+  const isLoggedIn = computed(() => sessionRestored.value && !!user.value)
 
   // 头像完整 URL
   const avatarSrc = computed(() => {
@@ -36,6 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = newToken
     user.value = newUser
     sessionChecked.value = true
+    sessionRestored.value = true
     setToken(newToken)
     return true
   }
@@ -46,6 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
     redirectPath.value = null
     showLoginModal.value = false
     sessionChecked.value = true
+    sessionRestored.value = false
     setToken(null)
   }
 
@@ -70,11 +73,11 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** 从 httpOnly cookie 恢复会话（浏览器自动发送 Cookie，前端无需手动传 Token） */
   async function tryRestoreSession() {
-    if (token.value || sessionChecked.value) return
+    if (sessionRestored.value || sessionChecked.value) return
     try {
       const res = await getMe()
       if (res.code === 200 && res.data) {
-        token.value = 'ok'  // 标记已登录，但不设置 fake Bearer token
+        sessionRestored.value = true  // 标记已恢复，不依赖假 token
         user.value = {
           userId: res.data.userId,
           username: res.data.username,
@@ -91,7 +94,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** 从后端刷新用户信息 */
   async function refreshUser() {
-    if (!token.value) return null
+    if (!sessionRestored.value) return null
     try {
       const res = await getMe()
       if (res.code === 200 && res.data) {
@@ -140,7 +143,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    token, user, isLoggedIn, avatarSrc, bgImageSrc, sessionChecked,
+    token, user, isLoggedIn, avatarSrc, bgImageSrc, sessionChecked, sessionRestored,
     login, logout, tryRestoreSession,
     showLoginModal, openLogin, closeLogin,
     redirectPath, openLoginWithRedirect, consumeRedirect,

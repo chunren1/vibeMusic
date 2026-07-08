@@ -20,11 +20,11 @@ class SongServiceTest extends TransactionalServiceTest {
     void shouldInsertNewSong() {
         Song song = songService.saveDownloadedSong(
                 "newsong001", "新歌", "歌手A", "专辑A",
-                "http://img.test/cover.jpg", 240, "http://rustfs/songs/newsong001.mp3");
+                "http://img.test/cover.jpg", 240, "http://minio/songs/newsong001.mp3");
         assertThat(song).isNotNull();
         assertThat(song.getId()).isNotNull();
         assertThat(song.getSourceId()).isEqualTo("newsong001");
-        assertThat(song.getUrl()).isEqualTo("http://rustfs/songs/newsong001.mp3");
+        assertThat(song.getUrl()).isEqualTo("http://minio/songs/newsong001.mp3");
     }
 
     @Test

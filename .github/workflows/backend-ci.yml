@@ -1,0 +1,39 @@
+# vibeMusic Backend CI
+# 自动构建 & 测试 Spring Boot 后端
+
+name: Backend CI
+
+on:
+  push:
+    paths: ['vibeMusic-backend/**', '.github/workflows/backend-ci.yml']
+  pull_request:
+    paths: ['vibeMusic-backend/**']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vibeMusic-backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build & Test
+        run: mvn -B verify -DskipTests=false
+        env:
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: vibeMusic-backend/target/surefire-reports/

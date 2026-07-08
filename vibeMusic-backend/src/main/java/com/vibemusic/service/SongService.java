@@ -20,15 +20,15 @@ public class SongService {
     private final SongMapper songMapper;
 
     public Song saveDownloadedSong(String sourceId, String name, String artist,
-                                    String album, String coverUrl, Integer duration, String rustfsUrl) {
+                                    String album, String coverUrl, Integer duration, String minioUrl) {
         // 一次 SQL 完成：INSERT ... ON DUPLICATE KEY UPDATE（避免 1 次 SELECT + 1 次 INSERT/UPDATE）
         Song song = Song.builder()
                 .sourceId(sourceId).name(name).artist(artist)
-                .album(album).coverUrl(coverUrl).duration(duration).url(rustfsUrl)
+                .album(album).coverUrl(coverUrl).duration(duration).url(minioUrl)
                 .build();
         songMapper.insertOrUpdateUrl(song);
-        // 入库后查回完整对象（含自增 id、时间戳等）
-        return songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
+        // useGeneratedKeys 已自动回填 id，直接返回（省 1 次 SELECT）
+        return song;
     }
 
     public Song getById(Long id) { return songMapper.selectById(id); }

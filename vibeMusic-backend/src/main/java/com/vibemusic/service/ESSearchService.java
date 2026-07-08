@@ -86,7 +86,9 @@ public class ESSearchService {
                     .timeout(HEALTH_TIMEOUT).block();
             if (resp != null && resp.getStatusCode().is2xxSuccessful())
                 available.set(true);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.debug("ES 健康检查失败: {}", e.getMessage());
+        }
         return available.get();
     }
 

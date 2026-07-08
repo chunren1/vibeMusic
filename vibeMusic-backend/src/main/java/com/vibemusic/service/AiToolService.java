@@ -4,6 +4,7 @@ import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.PlayHistory;
 import com.vibemusic.mapper.PlayHistoryMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -124,11 +125,11 @@ public class AiToolService {
             return "{\"error\":\"未登录，无法获取播放历史\"}";
         }
 
-        List<PlayHistory> history = playHistoryMapper.selectList(
+        List<PlayHistory> history = playHistoryMapper.selectPage(
+                new Page<>(1, Math.max(1, Math.min(limit, 50))),
                 new LambdaQueryWrapper<PlayHistory>()
                         .eq(PlayHistory::getUserId, userId)
-                        .orderByDesc(PlayHistory::getPlayedAt)
-                        .last("LIMIT " + Math.max(1, Math.min(limit, 50))));
+                        .orderByDesc(PlayHistory::getPlayedAt)).getRecords();
 
         List<Map<String, Object>> simplified = history.stream().map(h -> {
             Map<String, Object> m = new LinkedHashMap<>();

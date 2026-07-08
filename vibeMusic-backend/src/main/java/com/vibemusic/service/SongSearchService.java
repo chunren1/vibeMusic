@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -293,7 +294,7 @@ public class SongSearchService {
         Collections.shuffle(songs);
         if (songs.size() > count) return songs.subList(0, count);
         if (songs.size() < count) {
-            long total = songMapper.selectCount(null);
+            long total = getTotalSongCount();
             int need = count - songs.size();
             long offset = total > need ? ThreadLocalRandom.current().nextLong(total - need + 1) : 0;
             List<Song> dbSongs = songMapper.findRandomSongs(need, offset);
@@ -304,6 +305,11 @@ public class SongSearchService {
             songs.addAll(dbDtos);
         }
         return songs;
+    }
+
+    @Cacheable(value = "songTotalCount", sync = true)
+    public long getTotalSongCount() {
+        return songMapper.selectCount(null);
     }
 
     // ==================== 私有辅助方法 ====================

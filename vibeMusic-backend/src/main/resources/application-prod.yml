@@ -2,6 +2,10 @@
 # 激活方式: SPRING_PROFILES_ACTIVE=prod
 # 命令行: mvn spring-boot:run -Dspring-boot.run.profiles=prod
 
+# ── 强制覆盖安全兜底 ──
+jwt:
+  secret: ${JWT_SECRET}  # prod 必须提供，缺失启动时报错
+
 logging:
   level:
     com.vibemusic: info
@@ -14,3 +18,13 @@ mybatis-plus:
 
 knife4j:
   enable: false  # 生产环境关闭 API 文档
+
+# ── Actuator：只暴露必要端点 ──
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus  # 只保留监控必要端点
+  endpoint:
+    health:
+      show-details: never  # 不暴露健康详情

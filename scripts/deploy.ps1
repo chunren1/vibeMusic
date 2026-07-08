@@ -50,4 +50,4 @@ Start-Sleep 20
 docker-compose ps
 
 Write-Host "`n部署完成！http://localhost" -ForegroundColor Green
-Write-Host "MinIO 控制台: http://localhost:9001 (rustfsadmin/rustfsadmin)" -ForegroundColor Green
+Write-Host "MinIO 控制台: http://localhost:9001 (见 .env 文件配置)" -ForegroundColor Green

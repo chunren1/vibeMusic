@@ -5,25 +5,25 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 对象存储配置 (RustFS)
+ * 对象存储配置 (MinIO)
  */
 @Data
 @Configuration
-@ConfigurationProperties(prefix = "storage.rustfs")
+@ConfigurationProperties(prefix = "storage.minio")
 public class StorageConfig {
 
     /** 服务地址 */
     private String endpoint = "http://127.0.0.1:9000";
 
     /** Access Key */
-    private String accessKey = "rustfsadmin";
+    private String accessKey = "minioadmin";
 
     /** Secret Key */
-    private String secretKey = "rustfsadmin";
+    private String secretKey = "minioadmin";
 
     /** 存储桶名称 */
     private String bucketName = "vibemusic";
 
     /** 数据存储根路径 */
-    private String dataPath = "D:\\Rustfsdata";
+    private String dataPath = "D:\\Mindata";
 }

@@ -88,7 +88,7 @@ WebClient.builder()
 **涉及文件：** `SongController.java` (`/api/songs/stream`)
 
 **当前状态：** ✅ 良好
-- RustFS 路径：直接 Range 读取，CPU/内存开销低
+- MinIO 路径：直接 Range 读取，CPU/内存开销低
 - 远程代理路径：`RestClient.exchange()` 流式透传，使用 `StreamUtils.copy()` 8KB buffer
 - 失败重试：CDN URL 过期自动重获 URL 再试一次
 
@@ -97,7 +97,7 @@ WebClient.builder()
 | 问题 | 位置 | 严重度 |
 |------|------|--------|
 | 🟡 **远程代理阻塞 servlet 线程** | `streamFromRemote()` 使用了 `RestClient.exchange()`，虽然是回调形式但内部仍阻塞 | 中 |
-| 🟡 **RustFS 存在检查后可能变化** | `storageService.exists()` + 后续读取之间存在 TOCTOU 竞态 | 低 |
+| 🟡 **MinIO 存在检查后可能变化** | `storageService.exists()` + 后续读取之间存在 TOCTOU 竞态 | 低 |
 
 **优化建议：**
 
@@ -106,7 +106,7 @@ WebClient.builder()
 // 使用 WebClient 的 DataBuffer Flux + ServerResponse 流式写回
 // 但当前 RestClient + HttpServletResponse 方案足够（servlet 容器有线程池）
 
-// 2. RustFS 读取合并 statObject + getObject 为一次调用
+// 2. MinIO 读取合并 statObject + getObject 为一次调用
 // 使用 getObject() 的异常处理判断是否存在，消除一次额外 HTTP
 ```
 
@@ -203,7 +203,7 @@ private String doDownload(...) {
 // 步骤 1-3 在事务外完成（幂等性由下载锁保证）
 // 步骤 4-5 在独立事务内完成
 @Transactional(rollbackFor = Exception.class)
-private void persistSongResult(String sourceId, String rustfsUrl, ...) {
+private void persistSongResult(String sourceId, String minioUrl, ...) {
     songService.saveDownloadedSong(sourceId, ...);
     // 仅 DB 操作，事务 < 50ms
 }
@@ -235,7 +235,7 @@ private void persistSongResult(String sourceId, String rustfsUrl, ...) {
 
 **当前状态：** ✅ 良好
 - 8KB buffer 流式拷贝
-- RustFS 直读：支持 Range seek
+- MinIO 直读：支持 Range seek
 - 远程代理：`RestClient.exchange()` 流式透传
 
 **优化建议：**
@@ -263,7 +263,7 @@ public byte[] downloadSong(String downloadUrl) {
 
 ---
 
-## 四、Object Storage I/O — MinIO/RustFS
+## 四、Object Storage I/O — MinIO
 
 ### 4.1 当前调用模式
 
@@ -280,9 +280,9 @@ public byte[] downloadSong(String downloadUrl) {
 
 | 问题 | 位置 | 严重度 | 优化方案 |
 |------|------|--------|----------|
-| 🔴 **每次播放检查 RustFS 存在性** | `SongPlayService.getPlayInfo()` + `SongPlayService.getPlayUrl()` | 中 | 首次播放结果缓存到 Redis |
-| 🔴 **推荐结果逐首检查 RustFS** | `RecommendService.markOfflineStatus()` — N 次 `statObject` | 高 | 批量检查或本地缓存 |
-| 🟡 **RustFS URL 每次拼接** | `getDirectUrl()` 返回字符串（无副作用） | 低 | 可接受 |
+| 🔴 **每次播放检查 MinIO 存在性** | `SongPlayService.getPlayInfo()` + `SongPlayService.getPlayUrl()` | 中 | 首次播放结果缓存到 Redis |
+| 🔴 **推荐结果逐首检查 MinIO** | `RecommendService.markOfflineStatus()` — N 次 `statObject` | 高 | 批量检查或本地缓存 |
+| 🟡 **MinIO URL 每次拼接** | `getDirectUrl()` 返回字符串（无副作用） | 低 | 可接受 |
 | 🟡 **初始化时同步建桶** | `@PostConstruct init()` — 启动时阻塞 | 低 | 异步化 |
 
 **推荐批量检查严重性高：**
@@ -300,12 +300,12 @@ private void markOfflineStatus(List<SongDTO> songs) {
 **优化方案：**
 
 ```java
-// 方案 A: Redis 缓存 RustFS 文件列表（推荐）
+// 方案 A: Redis 缓存 MinIO 文件列表（推荐）
 // 维护一个 Set<String> cachedSongIds，TTL 5分钟
 // markOfflineStatus 先查 Redis，不存在才查 MinIO
 
 // 方案 B: 直接检查 DB song 表（下载时会更新 url 字段）
-// song.getUrl() != null → 存在 RustFS
+// song.getUrl() != null → 存在 MinIO
 // 只需一次 MySQL 查询，消除 MinIO HTTP 调用
 ```
 
@@ -383,9 +383,9 @@ spring.data.redis.lettuce.pool:
 | 优先级 | 模块 | 问题 | 影响 | 工作量 |
 |--------|------|------|------|--------|
 | 🔴 P0 | DB 事务 | 事务内包含 HTTP I/O 导致长事务 | 连接池耗尽、死锁风险 | 30min |
-| 🔴 P0 | RustFS | 推荐结果逐首 `statObject`（8 次 HTTP/次推荐） | 推荐接口延迟 50-200ms | 20min |
+| 🔴 P0 | MinIO | 推荐结果逐首 `statObject`（8 次 HTTP/次推荐） | 推荐接口延迟 50-200ms | 20min |
 | 🟡 P1 | AI 助手 | 同步阻塞调用导致 servlet 线程长时间占用 | 用户等待、线程池压力 | 30min |
-| 🟡 P1 | RustFS | 每次播放检查 `exists()` 可缓存 | 重复 HTTP 调用 | 15min |
+| 🟡 P1 | MinIO | 每次播放检查 `exists()` 可缓存 | 重复 HTTP 调用 | 15min |
 | 🟡 P1 | Redis | 搜索结果缓存粒度粗（全量 vs 分页） | 缓存命中率 | 20min |
 | 🟢 P2 | Redis | min-idle=0 冷启动延迟 | 首次请求 < 50ms | 1min（改配置） |
 | 🟢 P2 | Stream | 8KB buffer → 64KB | 吞吐量提升 | 1min |
@@ -401,9 +401,9 @@ spring.data.redis.lettuce.pool:
 // 1. DownloadService — 事务拆分（P0）
 private String doDownload(...) {
     // 步骤 1-3: 事务外 → 幂等锁保护
-    String rustfsUrl = downloadAndUpload(...);  // HTTP I/O
+    String minioUrl = downloadAndUpload(...);  // HTTP I/O
     // 步骤 4: 独立事务 → 仅 DB
-    persistSongResult(sourceId, rustfsUrl, ...);
+    persistSongResult(sourceId, minioUrl, ...);
 }
 
 // 2. RecommendService — 缓存检查替代 MinIO statObject（P0）

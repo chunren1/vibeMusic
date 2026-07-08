@@ -78,7 +78,7 @@ public class UserService implements UserDetailsService {
         return user;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User updateAvatar(Long userId, String avatarUrl) {
         User user = userMapper.selectById(userId);
         if (user == null) throw new BusinessException(404, "用户不存在");
@@ -89,7 +89,7 @@ public class UserService implements UserDetailsService {
         return user;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public User updateBgImage(Long userId, String bgImageUrl) {
         User user = userMapper.selectById(userId);
         if (user == null) throw new BusinessException(404, "用户不存在");

@@ -1,0 +1,41 @@
+# ==========================
+# musicapi Docker Build Ignore
+# ==========================
+
+# Git
+.git
+.gitignore
+
+# Dependencies (installed during build)
+node_modules/
+
+# Environment & secrets
+.env
+.env.*
+config.local.js
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docs
+*.md
+LICENSE
+
+# Test
+test/
+__tests__/
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore

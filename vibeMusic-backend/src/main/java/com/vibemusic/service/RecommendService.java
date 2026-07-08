@@ -1,6 +1,7 @@
 package com.vibemusic.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.dto.RecommendResult;
 import com.vibemusic.dto.SongDTO;
@@ -105,18 +106,21 @@ public class RecommendService {
     private RecommendResult buildPersonalized(Long userId) {
         // 获取近30天播放记录
         LocalDateTime since = LocalDateTime.now().minusDays(HISTORY_DAYS);
-        List<PlayHistory> history = playHistoryMapper.selectList(
+        List<PlayHistory> history = playHistoryMapper.selectPage(new Page<>(1, HISTORY_SAMPLE),
                 new LambdaQueryWrapper<PlayHistory>()
                         .eq(PlayHistory::getUserId, userId)
                         .ge(PlayHistory::getPlayedAt, since)
-                        .orderByDesc(PlayHistory::getPlayedAt)
-                        .last("LIMIT " + HISTORY_SAMPLE));
+                        .orderByDesc(PlayHistory::getPlayedAt)).getRecords();
 
-        // 已听过的 sourceId 集合（用于去重）
-        Set<String> playedIds = history.stream()
-                .map(PlayHistory::getSourceId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        // 一次遍历：收集已听 sourceId + 歌手权重
+        Set<String> playedIds = new HashSet<>();
+        Map<String, Long> artistWeight = new HashMap<>();
+        for (PlayHistory h : history) {
+            if (h.getSourceId() != null) playedIds.add(h.getSourceId());
+            if (h.getArtist() != null && !h.getArtist().isEmpty()) {
+                artistWeight.merge(h.getArtist(), 1L, Long::sum);
+            }
+        }
         Set<String> seenSourceIds = new HashSet<>(playedIds);
 
         List<SongDTO> result = new ArrayList<>();
@@ -135,12 +139,9 @@ public class RecommendService {
 
         // ② 兴趣扩展：基于常听歌手搜歌
         if (result.size() < RECOMMEND_COUNT && !history.isEmpty()) {
-            Map<String, Long> artistWeight = history.stream()
-                    .filter(h -> h.getArtist() != null && !h.getArtist().isEmpty())
-                    .collect(Collectors.groupingBy(PlayHistory::getArtist, Collectors.counting()));
             List<String> topArtists = artistWeight.entrySet().stream()
                     .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                    .limit(3) // 只取前3，搜索引擎会返回多样性结果
+                    .limit(3)
                     .map(Map.Entry::getKey)
                     .collect(Collectors.toList());
 
@@ -278,7 +279,7 @@ public class RecommendService {
     /**
      * 标记歌曲离线缓存状态 — 通过 DB song 表批量查询（消除 N 次 MinIO statObject HTTP 调用）
      * <p>
-     * 逻辑：song.url != null → 歌曲已下载到 RustFS
+     * 逻辑：song.url != null → 歌曲已下载到 MinIO
      */
     private void markOfflineStatus(List<SongDTO> songs) {
         if (songs.isEmpty()) return;
@@ -307,22 +308,6 @@ public class RecommendService {
                     catch (Exception ex) { s.setCached(false); }
                 }
             }
-        }
-    }
-
-    /**
-     * 检查某首歌是否已缓存到 RustFS（排序使用，通过 DB 查询）
-     */
-    private boolean checkCached(String sourceId) {
-        if (sourceId == null) return false;
-        try {
-            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
-                    .eq(Song::getSourceId, sourceId)
-                    .isNotNull(Song::getUrl)
-                    .select(Song::getId));
-            return song != null;
-        } catch (Exception e) {
-            return false;
         }
     }
 

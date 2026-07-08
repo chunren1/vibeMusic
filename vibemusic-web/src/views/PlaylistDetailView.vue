@@ -61,7 +61,7 @@ function playSong(song, idx) {
 function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0') }
 function fmtCount(n) { if (!n) return ''; if (n > 100000000) return (n / 100000000).toFixed(1) + '亿'; if (n > 10000) return Math.floor(n / 10000) + '万'; return n }
 
-onMounted(() => { load(); favStore.fetchFavIds() })
+onMounted(() => { load(); if (authStore.isLoggedIn) favStore.fetchFavIds() })
 
 // ===== 收藏歌单 =====
 const importing = ref(false)

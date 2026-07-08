@@ -1,6 +1,7 @@
 package com.vibemusic.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.vibemusic.entity.UserFavorite;
 import com.vibemusic.mapper.UserFavoriteMapper;
 import lombok.RequiredArgsConstructor;
@@ -67,10 +68,10 @@ public class FavoriteService {
 
     public List<Map<String, Object>> list(Long userId, int count) {
         count = Math.max(1, Math.min(count, MAX_LIST));
-        List<UserFavorite> list = mapper.selectList(new LambdaQueryWrapper<UserFavorite>()
+        List<UserFavorite> list = mapper.selectPage(new Page<>(1, count),
+                new LambdaQueryWrapper<UserFavorite>()
                 .eq(UserFavorite::getUserId, userId)
-                .orderByDesc(UserFavorite::getCreatedAt)
-                .last("LIMIT " + count));
+                .orderByDesc(UserFavorite::getCreatedAt)).getRecords();
         return list.stream().map(f -> {
             Map<String, Object> m = new HashMap<>();
             m.put("sourceId", f.getSourceId());
@@ -84,10 +85,10 @@ public class FavoriteService {
     }
 
     public Set<String> favoritesSet(Long userId) {
-        return mapper.selectList(new LambdaQueryWrapper<UserFavorite>()
+        return mapper.selectPage(new Page<>(1, MAX_FAVORITES),
+                new LambdaQueryWrapper<UserFavorite>()
                 .eq(UserFavorite::getUserId, userId)
-                .select(UserFavorite::getSourceId)
-                .last("LIMIT " + MAX_FAVORITES)).stream()
+                .select(UserFavorite::getSourceId)).getRecords().stream()
                 .map(UserFavorite::getSourceId)
                 .collect(Collectors.toSet());
     }

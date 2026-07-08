@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS play_history (
     cover_url   VARCHAR(500)  COMMENT '封面图URL(冗余)',
     played_at   DATETIME      DEFAULT CURRENT_TIMESTAMP COMMENT '播放时间',
     INDEX idx_user_id (user_id),
-    INDEX idx_user_played (user_id, played_at),
+    INDEX idx_user_played (user_id, played_at DESC),
     INDEX idx_played_at (played_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='播放历史表';
 

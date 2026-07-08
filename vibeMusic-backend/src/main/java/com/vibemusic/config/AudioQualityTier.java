@@ -3,13 +3,13 @@ package com.vibemusic.config;
 /**
  * 音频服务质量分级（SLA Tiers）
  * 非用户权限，而是系统资源的自适应调度策略：
- *   RustFS缓存命中 → 直出（跳过API调用）
+ *   MinIO 缓存命中 → 直出（跳过API调用）
  *   在线获取时按 HIRES → EXHIGH → HIGHER → STANDARD 逐级降级
  *   所有在线源不可用时 → 返回最后可用结果或降级标记
  */
 public enum AudioQualityTier {
 
-    /** RustFS 本地缓存直出（最高优先级，零API调用） */
+    /** MinIO 本地缓存直出（最高优先级，零API调用） */
     LOCAL("本地缓存", 0),
 
     /** 超高音质 hires 96kHz/24bit */

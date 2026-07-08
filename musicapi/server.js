@@ -1,3 +1,6 @@
+// 加载项目根目录 .env（Cookie/密钥等）
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+
 const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
@@ -102,8 +105,8 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // 访问日志中间件
 app.use((req, res, next) => {
@@ -273,6 +276,18 @@ setInterval(() => { checkCookies().catch(e => writeLog('cookie', 'ERROR', `Cooki
 app.get('/cookie-status', (req, res) => {
   res.json({ code: 200, data: cookieStatus, timestamp: new Date().toISOString() });
 });
+
+// ==================== 上游 API 超时控制 ====================
+const UPSTREAM_TIMEOUT = 10000; // 10s
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`Upstream timeout: ${label} (${ms}ms)`)), ms)
+    ),
+  ]);
+}
 
 // ==================== 搜索算法配置 (Scoring & Dedup) ====================
 
@@ -653,7 +668,10 @@ async function searchNetease(keyword, limit) {
     const fn = NeteaseCloudMusicApi[fnName]
     if (!fn) continue
     try {
-      const result = await call(fn, makeParam(withCookie), fnName + (withCookie ? '+cookie' : '-cookie'))
+      const result = await withTimeout(
+        call(fn, makeParam(withCookie), fnName + (withCookie ? '+cookie' : '-cookie')),
+        UPSTREAM_TIMEOUT, 'netease/' + fnName
+      )
       if (result.length > 0) return result
     } catch (e) {
       // 继续下一种策略（仅所有策略失败时打印一次）
@@ -666,7 +684,10 @@ async function searchNetease(keyword, limit) {
 
 async function searchQQ(keyword, limit) {
   try {
-    const result = await qqMusic.api('search', { key: keyword, limit, t: 0 }); // t=0: 单曲搜索
+    const result = await withTimeout(
+      qqMusic.api('search', { key: keyword, limit, t: 0 }), // t=0: 单曲搜索
+      UPSTREAM_TIMEOUT, 'qq/search'
+    );
     // QQ API 正常时无 code 字段，仅在有 code 且非0时告警
     if (result && result.code != null && result.code !== 0) {
       console.warn(`[QQ] API 返回异常: code=${result.code}`);
@@ -858,12 +879,22 @@ app.get('/song/url/qq', async (req, res) => {
   }
 });
 
-// ==================== 通用代理路由 ====================
+// ==================== 通用代理路由（限制已知方法） ====================
+
+// 允许的网易云 API 方法白名单
+const ALLOWED_NETEASE_APIS = new Set([
+  'cloudsearch', 'search', 'song_url_v1', 'song_detail', 'lyric',
+  'personalized', 'toplist', 'toplist_detail', 'playlist_detail',
+  'artist_songs', 'album', 'banner', 'login_status', 'user_detail',
+]);
 
 app.all('/netease/*', async (req, res) => {
   try {
     const apiPath = req.path.replace('/netease/', '');
     const apiName = apiPath.replace(/\//g, '_');
+    if (!ALLOWED_NETEASE_APIS.has(apiName)) {
+      return res.status(403).json({ code: 403, message: `API ${apiName} not allowed` });
+    }
     const params = withNeteaseCookie({ ...req.query, ...req.body });
     if (typeof NeteaseCloudMusicApi[apiName] === 'function') {
       const result = await NeteaseCloudMusicApi[apiName](params);
@@ -914,17 +945,8 @@ app.get('/qq/playlist', async (req, res) => {
   }
 });
 
-app.all('/qq/*', async (req, res) => {
-  try {
-    const path = req.path.replace('/qq/', '');
-    const query = { ...req.query, ...req.body };
-    const result = await qqMusic.api(path, query);
-    res.json({ code: 200, message: 'success', data: result });
-  } catch (error) {
-    res.status(500).json({ code: 500, message: error.message, data: null });
-  }
-});
 
+// ==================== QQ 音乐 API 代理已收窄为具体路由（/qq/search、/qq/playlist、/song/url/qq），不再提供通用 /qq/* 代理
 
 // ==================== 全局错误处理 ====================
 

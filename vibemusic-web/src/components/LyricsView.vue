@@ -53,13 +53,12 @@ function initSpectrum() {
   specStartTime = performance.now()
 }
 
-let _dbgOnce = false
+
 function initCanvasSize() {
   if (canvasReady || !spectrumCanvas.value) return
   const cvs = spectrumCanvas.value
   const w = cvs.clientWidth
   const h = cvs.clientHeight
-  if (!_dbgOnce) { console.log('[Spectrum] Canvas:', w, 'x', h, 'DPR:', devicePixelRatio); _dbgOnce = true }
   if (w === 0 || h === 0) return
   cvs.width = w * devicePixelRatio
   cvs.height = h * devicePixelRatio
@@ -251,13 +250,13 @@ async function handleDownload() {
   if (!props.currentSong.id || downloading.value) return
   downloading.value = true
   try {
-    // 走后端 API 下载到 RustFS + 浏览器下载
+    // 走后端 API 下载到 MinIO + 浏览器下载
     await apiDownload(props.currentSong.id, {
       name: props.currentSong.title,
       artist: props.currentSong.artist,
       coverUrl: props.currentSong.coverUrl || '',
     })
-    // 后端已存 RustFS，触发浏览器下载
+    // 后端已存 MinIO，触发浏览器下载
     const a = document.createElement('a')
     a.href = `${API_HOST}/api/download/file/${props.currentSong.id}`
     a.download = `${props.currentSong.title || props.currentSong.id}.mp3`
@@ -291,7 +290,6 @@ watch(() => props.visible, (val) => {
     if (props.currentSong.id) fetchLyric(props.currentSong.id)
     // 启动频谱可视化
     canvasReady = false
-    _dbgOnce = false
     initSpectrum()
     if (!spectrumRafId) drawSpectrum()
   } else {

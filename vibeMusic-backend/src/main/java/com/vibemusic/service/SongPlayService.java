@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * 歌曲播放服务
  * <p>
- * 音质降级链：RustFS 缓存 → 原平台 API（多级音质）→ 跨平台降级 → DB 历史 URL 兜底
+ * 音质降级链：MinIO 缓存 → 原平台 API（多级音质）→ 跨平台降级 → DB 历史 URL 兜底
  */
 @Slf4j
 @Service
@@ -31,8 +31,8 @@ public class SongPlayService {
     private final StorageService storageService;
     private final StringRedisTemplate stringRedisTemplate;
 
-    private static final String RUSTFS_CACHE_PREFIX = "rustfs:exists:v1:";
-    private static final Duration RUSTFS_CACHE_TTL = Duration.ofMinutes(10);
+    private static final String MINIO_CACHE_PREFIX = "minio:exists:v1:";
+    private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
     private final AtomicInteger degradationCount = new AtomicInteger(0);
 
     public int getDegradationCount() { return degradationCount.get(); }
@@ -50,16 +50,16 @@ public class SongPlayService {
         info.put("isTrial", false);
         info.put("platform", sourceId.matches("\\d+") ? "netease" : "qq");
 
-        // 1. 优先 RustFS 本地缓存（Redis 缓存 exists 结果，TTL 10min，减少 MinIO statObject 调用）
-        String rustfsObjectName = "songs/" + sourceId + ".mp3";
-        if (isCachedInRustFS(sourceId)) {
-            String directUrl = storageService.getDirectUrl(rustfsObjectName);
+        // 1. 优先 MinIO 本地缓存（Redis 缓存 exists 结果，TTL 10min，减少 MinIO statObject 调用）
+        String minioObjectName = "songs/" + sourceId + ".mp3";
+        if (isCachedInMinio(sourceId)) {
+            String directUrl = storageService.getDirectUrl(minioObjectName);
             info.put("url", directUrl);
             info.put("fromCache", true);
             info.put("quality", AudioQualityTier.LOCAL.name());
             info.put("qualityLabel", AudioQualityTier.LOCAL.getLabel());
             info.put("degraded", false);
-            log.info("音质[LOCAL] 歌曲 {} 命中RustFS缓存", sourceId);
+            log.info("音质[LOCAL] 歌曲 {} 命中 MinIO 缓存", sourceId);
             return info;
         }
 
@@ -180,7 +180,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("API获取播放链接失败, sourceId={}, 尝试RustFS兜底: {}", sourceId, e.getMessage());
+            log.warn("API获取播放链接失败, sourceId={}, 尝试 MinIO 兜底: {}", sourceId, e.getMessage());
         }
 
         // 3. API 失败 → 从 DB 历史URL兜底（只查 url 列，避免读取 TEXT 歌词列）
@@ -221,11 +221,11 @@ public class SongPlayService {
 
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform) {
-        // 1. 优先检查 RustFS 缓存（Redis 缓存 exists 结果，TTL 10min）
-        String rustfsObjectName = "songs/" + sourceId + ".mp3";
-        if (isCachedInRustFS(sourceId)) {
-            String directUrl = storageService.getDirectUrl(rustfsObjectName);
-            log.info("getPlayUrl: {} 命中RustFS缓存", sourceId);
+        // 1. 优先检查 MinIO 缓存（Redis 缓存 exists 结果，TTL 10min）
+        String minioObjectName = "songs/" + sourceId + ".mp3";
+        if (isCachedInMinio(sourceId)) {
+            String directUrl = storageService.getDirectUrl(minioObjectName);
+            log.info("getPlayUrl: {} 命中 MinIO 缓存", sourceId);
             return directUrl;
         }
 
@@ -329,13 +329,13 @@ public class SongPlayService {
     }
 
     /**
-     * 检查歌曲是否缓存于 RustFS，Redis 缓存结果减少 MinIO HTTP 调用
+     * 检查歌曲是否缓存于 MinIO，Redis 缓存结果减少 MinIO HTTP 调用
      * 任何异常（Redis/MinIO 不可用）均返回 false，调用方继续走 API/DB 降级
      */
-    private boolean isCachedInRustFS(String sourceId) {
+    private boolean isCachedInMinio(String sourceId) {
         if (sourceId == null) return false;
         try {
-            String cacheKey = RUSTFS_CACHE_PREFIX + sourceId;
+            String cacheKey = MINIO_CACHE_PREFIX + sourceId;
             // 先查 Redis
             String cached = stringRedisTemplate.opsForValue().get(cacheKey);
             if ("1".equals(cached)) return true;
@@ -344,11 +344,11 @@ public class SongPlayService {
             // Redis 未命中 → 查 MinIO
             boolean exists = storageService.exists("songs/" + sourceId + ".mp3");
             // 写入 Redis 缓存（存在 10min，不存在 30s）
-            Duration ttl = exists ? RUSTFS_CACHE_TTL : Duration.ofSeconds(30);
+            Duration ttl = exists ? MINIO_CACHE_TTL : Duration.ofSeconds(30);
             stringRedisTemplate.opsForValue().set(cacheKey, exists ? "1" : "0", ttl);
             return exists;
         } catch (Exception e) {
-            log.debug("isCachedInRustFS failed for {} (Redis/MinIO unavailable): {}", sourceId, e.getMessage());
+            log.debug("isCachedInMinio failed for {} (Redis/MinIO unavailable): {}", sourceId, e.getMessage());
             return false;
         }
     }

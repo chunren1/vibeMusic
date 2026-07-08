@@ -2,16 +2,26 @@
 # 激活方式: spring.profiles.active=dev (默认)
 # 命令行: mvn spring-boot:run -Dspring-boot.run.profiles=dev
 
+# ── 开发环境专用密钥（仅本地调试） ──
+jwt:
+  secret: ${JWT_SECRET:vibeMusic-dev-only-change-in-production}
+
+spring:
+  datasource:
+    password: ${DB_PASSWORD}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
 logging:
   level:
     com.vibemusic: debug
     org.springframework.security: debug
     org.springframework.web: debug
 
-spring:
-  flyway:
-    enabled: true
-    baseline-on-migrate: true
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 knife4j:
   enable: true

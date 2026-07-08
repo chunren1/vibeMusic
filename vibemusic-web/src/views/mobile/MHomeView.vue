@@ -59,9 +59,9 @@ function toggleFullscreen() {
     document.exitFullscreen().then(() => isFullscreen.value = false)
   }
 }
-document.addEventListener('fullscreenchange', () => {
+const onFullscreenChange = () => {
   isFullscreen.value = !!document.fullscreenElement
-})
+}
 
 // ===== Banners =====
 const slides = ref([{ name: '发现好音乐', desc: '从这里开始', coverUrl: '' }])
@@ -99,16 +99,21 @@ function resetBannerTimer() {
   bannerTimer = setInterval(nextBanner, 4000)
 }
 
+const onVisibilityChange = () => {
+  document.hidden ? clearInterval(bannerTimer) : resetBannerTimer()
+}
+
 onMounted(() => {
   loadBanners()
   resetBannerTimer()
   recommendStore.fetchRecommend()
-  document.addEventListener('visibilitychange', () => {
-    document.hidden ? clearInterval(bannerTimer) : resetBannerTimer()
-  })
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
 })
 onUnmounted(() => {
   clearInterval(bannerTimer)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
 })
 
 function shuffleSongs() {

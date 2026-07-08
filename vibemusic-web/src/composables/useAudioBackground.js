@@ -129,7 +129,6 @@ export function useAudioBackground(audioRef) {
     // 2秒阈值确保在后台 timeupdate 降频到 1Hz 时也能命中至少一帧
     if (audio.duration > 2 && audio.currentTime >= audio.duration - 2.0) {
       _switchingNext = true
-      console.log('[AudioBG] Preemptive switch at', audio.currentTime.toFixed(1), '/', audio.duration.toFixed(1))
       if (window.vibeNext) window.vibeNext()
       setTimeout(() => { _switchingNext = false }, 4000)
     }
@@ -142,7 +141,6 @@ export function useAudioBackground(audioRef) {
     // audio.ended 由浏览器引擎在播完时自动设为 true，不依赖 JS 事件触发
     if (audio.ended && audio.duration > 0) {
       _switchingNext = true
-      console.log('[AudioBG] Pause+ended fallback, switching next')
       if (window.vibeNext) window.vibeNext()
       setTimeout(() => { _switchingNext = false }, 4000)
     }
@@ -162,7 +160,6 @@ export function useAudioBackground(audioRef) {
       if (_switchingNext || !audio || audio.loop) return
       if (audio.ended && audio.duration > 0) {
         _switchingNext = true
-        console.log('[AudioBG] Worker heartbeat detected ended, switching next')
         if (window.vibeNext) window.vibeNext()
         setTimeout(() => { _switchingNext = false }, 4000)
       }
@@ -369,6 +366,7 @@ export function useAudioBackground(audioRef) {
     document.addEventListener('visibilitychange', onHidden)
 
     // 检测后台强制暂停 — 自动恢复（多级重试）
+    // 最小化后延迟 500ms 再试，给浏览器足够时间完成最小化，避免立即 play 导致窗口弹回
     const onAutoPause = () => {
       const audio = window.vibeAudio
       if (!document.hidden) return
@@ -383,7 +381,11 @@ export function useAudioBackground(audioRef) {
           audio.play().catch(() => retry(delay * 1.5, maxRetries))
         }, delay)
       }
-      audio.play().catch(() => retry(300, 5))
+      // 首次重试延迟 500ms，避免与浏览器最小化动画竞争
+      setTimeout(() => {
+        if (!document.hidden || !audio.paused || !audio.src) return
+        audio.play().catch(() => retry(300, 5))
+      }, 500)
     }
     window.addEventListener('pause', onAutoPause)
     unsubscribes.push(

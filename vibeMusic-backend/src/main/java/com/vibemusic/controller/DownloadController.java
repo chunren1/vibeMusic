@@ -20,7 +20,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/download")
 @RequiredArgsConstructor
-@Tag(name = "下载", description = "下载歌曲到 RustFS 及浏览器下载")
+@Tag(name = "下载", description = "下载歌曲到 MinIO 及浏览器下载")
 public class DownloadController {
 
     private final DownloadService downloadService;
@@ -28,11 +28,11 @@ public class DownloadController {
     private final SongService songService;
 
     /**
-     * 下载歌曲到 RustFS（已缓存直接返回成功 + 文件下载链接）
+     * 下载歌曲到 MinIO（已缓存直接返回成功 + 文件下载链接）
      * POST /api/download/{sourceId}
      */
     @PostMapping("/{sourceId}")
-    @Operation(summary = "下载歌曲到 RustFS（已缓存则直接返回文件链接）")
+    @Operation(summary = "下载歌曲到 MinIO（已缓存则直接返回文件链接）")
     public Result<Map<String, Object>> download(
             @PathVariable @Parameter(description = "歌曲ID") String sourceId,
             @RequestBody @Parameter(description = "歌曲信息") Map<String, Object> params) {
@@ -62,11 +62,11 @@ public class DownloadController {
     }
 
     /**
-     * 从 RustFS 读取文件流式返回浏览器（触发浏览器下载）
+     * 从 MinIO 读取文件流式返回浏览器（触发浏览器下载）
      * GET /api/download/file/{sourceId}
      */
     @GetMapping("/file/{sourceId}")
-    @Operation(summary = "从 RustFS 下载文件到浏览器")
+    @Operation(summary = "从 MinIO 下载文件到浏览器")
     public void fileDownload(@PathVariable String sourceId, HttpServletResponse response) {
         String objectName = "songs/" + sourceId + ".mp3";
         // 查询歌曲名用于下载文件名
@@ -99,7 +99,7 @@ public class DownloadController {
     }
 
     /**
-     * 检查歌曲是否已在 RustFS 缓存
+     * 检查歌曲是否已在 MinIO 缓存
      */
     @GetMapping("/check/{sourceId}")
     @Operation(summary = "检查歌曲是否已缓存")

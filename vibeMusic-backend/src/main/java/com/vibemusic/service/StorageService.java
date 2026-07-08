@@ -15,7 +15,7 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * RustFS 对象存储服务（通过 MinIO S3 协议）
+ * MinIO 对象存储服务
  */
 @Slf4j
 @Service
@@ -47,7 +47,7 @@ public class StorageService {
     }
 
     /**
-     * 上传文件到 RustFS
+     * 上传文件到 MinIO
      *
      * @param objectName 对象名（路径+文件名，如 songs/186016.mp3）
      * @param data       文件字节数据
@@ -56,7 +56,7 @@ public class StorageService {
      */
     public String upload(String objectName, byte[] data, String contentType) {
         try {
-            // RustFS 单次 PUT 限制 10MB，设置 partSize=5MB 强制分块上传
+            // MinIO 单次 PUT 限制 10MB，设置 partSize=5MB 强制分块上传
             client.putObject(
                     PutObjectArgs.builder()
                             .bucket(config.getBucketName())
@@ -92,7 +92,7 @@ public class StorageService {
     }
 
     /**
-     * 获取直接访问URL（不过期，依赖RustFS公开访问策略）
+     * 获取直接访问URL（不过期，依赖 MinIO 公开访问策略）
      */
     public String getDirectUrl(String objectName) {
         return config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
@@ -158,7 +158,7 @@ public class StorageService {
     }
 
     /**
-     * 从 RustFS 读取完整文件流
+     * 从 MinIO 读取完整文件流
      */
     public java.io.InputStream getObject(String objectName) {
         try {
@@ -174,7 +174,7 @@ public class StorageService {
     }
 
     /**
-     * 从 RustFS 读取文件的部分内容（支持 Range：seek 加速）
+     * 从 MinIO 读取文件的部分内容（支持 Range：seek 加速）
      * @param objectName 对象名
      * @param offset     起始偏移（字节）
      * @param length     读取长度（-1 表示到末尾）

@@ -263,22 +263,43 @@ public class PlaylistService {
                     .description("从推荐歌单导入").build();
             playlistMapper.insert(pl);
         }
-        // 2. 批量添加歌曲（跳过重复）
+        // 2. 批量添加歌曲（先批量查询存在的 sourceId，再分批插入）
         int added = 0;
-        for (Map<String, Object> s : songs) {
-            try {
-                PlaylistSong ps = PlaylistSong.builder()
+        if (songs.isEmpty()) return added;
+
+        // 2.1 批量查询已存在的 sourceId（1 次 SQL 替代 N 次 DuplicateKeyException）
+        List<String> sourceIds = songs.stream()
+                .map(s -> String.valueOf(s.get("id")))
+                .distinct().collect(Collectors.toList());
+        Set<String> existingIds = new HashSet<>(songMapper.selectList(
+                new LambdaQueryWrapper<PlaylistSong>()
+                        .eq(PlaylistSong::getPlaylistId, pl.getId())
+                        .in(PlaylistSong::getSourceId, sourceIds))
+                .stream().map(PlaylistSong::getSourceId).collect(Collectors.toSet()));
+
+        // 2.2 过滤出新歌，分批插入（每批 50，防止大事务锁表）
+        List<PlaylistSong> toInsert = songs.stream()
+                .filter(s -> !existingIds.contains(String.valueOf(s.get("id"))))
+                .map(s -> PlaylistSong.builder()
                         .playlistId(pl.getId())
                         .sourceId(String.valueOf(s.get("id")))
                         .songName(String.valueOf(s.getOrDefault("name", "")))
                         .artist(String.valueOf(s.getOrDefault("artist", "")))
                         .coverUrl(String.valueOf(s.getOrDefault("coverUrl", "")))
                         .duration(s.get("duration") instanceof Number n ? n.intValue() : 0)
-                        .build();
-                songMapper.insert(ps);
-                added++;
-            } catch (DuplicateKeyException ignored) {
-                // 唯一索引兜底，跳过重复歌曲
+                        .build())
+                .collect(Collectors.toList());
+
+        int batchSize = 50;
+        for (int i = 0; i < toInsert.size(); i += batchSize) {
+            List<PlaylistSong> batch = toInsert.subList(i, Math.min(i + batchSize, toInsert.size()));
+            for (PlaylistSong ps : batch) {
+                try {
+                    songMapper.insert(ps);
+                    added++;
+                } catch (DuplicateKeyException ignored) {
+                    // 并发场景下唯一索引兜底
+                }
             }
         }
         log.info("用户 {} 导入歌单 [{}] ({} 首歌曲)", userId, name, added);

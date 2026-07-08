@@ -35,7 +35,7 @@ const request = axios.create({
 })
 
 request.interceptors.request.use((config) => {
-  if (_tokenCache) {
+  if (_tokenCache && _tokenCache !== 'ok') {
     config.headers.Authorization = `Bearer ${_tokenCache}`
   }
   // 幂等防护：每次写请求带唯一 Request-Id
@@ -66,11 +66,15 @@ request.interceptors.response.use(
 )
 
 function handleUnauthorized() {
-  // Bug5修复: 只通过 store.logout() 统一清理，避免双重删除
+  // 仅在用户确实处于登录状态时才触发退出+弹窗；
+  // 未登录用户访问公开页面时可能触发收藏等需要认证的接口，
+  // 这些 401 不应强制弹出登录框。
   import('@/stores/auth').then(({ useAuthStore }) => {
     const store = useAuthStore()
-    store.logout()
-    store.openLogin()
+    if (store.isLoggedIn) {
+      store.logout()
+      store.openLogin()
+    }
   })
 }
 

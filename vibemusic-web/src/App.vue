@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePlayerStore } from '@/stores/player'
@@ -29,20 +29,33 @@ if (isMobile.value) {
   document.body.style.color = '#e0e0e0'
 }
 
+let resizeDebounceTimer = null
 function onResize() {
-  isMobile.value = checkDevice()
-  if (isMobile.value) {
-    document.body.style.background = '#0a0a0a'
-    document.body.style.color = '#e0e0e0'
-  } else {
-    document.body.style.background = '#ffffff'
-    document.body.style.color = '#1a1a1a'
-  }
+  // 窗口最小化时 innerWidth 为 0，不切换布局，避免销毁重建全部组件
+  if (window.innerWidth === 0) return
+
+  // 去抖 300ms，防止快速拖拽窗口边缘时反复切换
+  clearTimeout(resizeDebounceTimer)
+  resizeDebounceTimer = setTimeout(() => {
+    isMobile.value = checkDevice()
+    if (isMobile.value) {
+      document.body.style.background = '#0a0a0a'
+      document.body.style.color = '#e0e0e0'
+    } else {
+      document.body.style.background = '#ffffff'
+      document.body.style.color = '#1a1a1a'
+    }
+  }, 300)
 }
 
 onMounted(() => {
   window.addEventListener('resize', onResize)
   authStore.tryRestoreSession()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
+  clearTimeout(resizeDebounceTimer)
 })
 </script>
 

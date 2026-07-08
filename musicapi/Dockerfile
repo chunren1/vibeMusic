@@ -1,7 +1,7 @@
 # ==========================
 # musicapi — 网易云 + QQ 音乐统一 API 代理
 # ==========================
-FROM node:20-alpine
+FROM node:20.19-alpine
 
 WORKDIR /app
 
@@ -19,5 +19,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health',r=>{process.exit(r.statusCode===200?0:1)})"
 
 EXPOSE 3000
+
+# 切换到内置 node 用户（非 root）
+USER node
 
 CMD ["node", "server.js"]

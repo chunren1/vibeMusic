@@ -20,8 +20,10 @@ public class CorsConfig {
     public CorsFilter corsFilter() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // 允许所有来源（JWT 通过 Authorization Header 传递，不依赖跨域 Cookie）
-        config.setAllowedOriginPatterns(Arrays.asList("*"));
+        // 生产环境通过环境变量 CORS_ORIGINS 注入允许的域名列表（逗号分隔）
+        // 默认仅允许同源访问 + 本地开发 localhost
+        String corsOrigins = System.getenv().getOrDefault("CORS_ORIGINS", "http://localhost:5173,http://localhost:4173");
+        config.setAllowedOriginPatterns(Arrays.asList(corsOrigins.split(",")));
         config.setAllowCredentials(false);
 
         // 允许的 HTTP 方法

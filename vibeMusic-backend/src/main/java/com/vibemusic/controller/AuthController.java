@@ -12,7 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import com.vibemusic.service.JsonCacheService;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -37,7 +37,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
     private final JwtUtils jwtUtils;
-    private final StringRedisTemplate stringRedisTemplate;
+    private final JsonCacheService cache;
 
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
@@ -139,7 +139,7 @@ public class AuthController {
         String oldPwd = body.get("oldPassword");
         String newPwd = body.get("newPassword");
         if (oldPwd == null || newPwd == null) return Result.error("参数不能为空");
-        if (newPwd.length() < 4) return Result.error("新密码至少4位");
+        if (newPwd.length() < 8) return Result.error("新密码至少8位");
 
         userService.changePassword(userId, oldPwd, newPwd);
         return Result.ok("密码修改成功");
@@ -280,7 +280,7 @@ public class AuthController {
         // 检查黑名单
         try {
             String key = TOKEN_BLACKLIST_PREFIX + refreshToken.hashCode();
-            if (Boolean.TRUE.equals(stringRedisTemplate.hasKey(key))) {
+            if (cache.exists(key)) {
                 return Result.error(401, "refresh token 已注销");
             }
         } catch (Exception ignored) { /* Redis 不可用时放行 */ }
@@ -307,7 +307,7 @@ public class AuthController {
             long remainMs = jwtUtils.getExpirationFromToken(token) - System.currentTimeMillis();
             if (remainMs > 0) {
                 String key = TOKEN_BLACKLIST_PREFIX + token.hashCode();
-                stringRedisTemplate.opsForValue().set(key, "1", Duration.ofMillis(remainMs));
+                cache.setString(key, "1", Duration.ofMillis(remainMs));
             }
         } catch (Exception e) {
             log.warn("token 黑名单写入失败: {}", e.getMessage());
@@ -339,16 +339,7 @@ public class AuthController {
     }
 
     private String extractTokenFromRequest(HttpServletRequest request) {
-        // 优先从 Authorization header 读取
-        String header = request.getHeader("Authorization");
-        if (header != null && header.startsWith("Bearer ")) return header.substring(7);
-        // 降级从 cookie 读取
-        if (request.getCookies() != null) {
-            for (Cookie c : request.getCookies()) {
-                if ("VIBE_TOKEN".equals(c.getName())) return c.getValue();
-            }
-        }
-        return null;
+        return JwtUtils.extractTokenFromRequest(request, "VIBE_TOKEN");
     }
 
     private String extractRefreshTokenFromRequest(HttpServletRequest request) {

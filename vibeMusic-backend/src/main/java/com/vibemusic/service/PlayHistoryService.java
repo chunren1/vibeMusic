@@ -3,6 +3,7 @@ package com.vibemusic.service;
 import com.vibemusic.entity.PlayHistory;
 import com.vibemusic.mapper.PlayHistoryMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,10 +29,11 @@ public class PlayHistoryService {
     public void record(Long userId, String sourceId, String songName, String artist, String coverUrl) {
         log.info("记录播放: userId={}, sourceId={}, name={}", userId, sourceId, songName);
         // 去重：检查最近一条记录是否同 sourceId，是则只更新时间
-        PlayHistory last = mapper.selectOne(new LambdaQueryWrapper<PlayHistory>()
+        PlayHistory last = mapper.selectPage(new Page<>(1, 1),
+                new LambdaQueryWrapper<PlayHistory>()
                 .eq(PlayHistory::getUserId, userId)
-                .orderByDesc(PlayHistory::getPlayedAt)
-                .last("LIMIT 1"));
+                .orderByDesc(PlayHistory::getPlayedAt)).getRecords()
+                .stream().findFirst().orElse(null);
         if (last != null && last.getSourceId().equals(sourceId)) {
             last.setPlayedAt(LocalDateTime.now());
             mapper.updateById(last);
@@ -57,10 +59,10 @@ public class PlayHistoryService {
 
     public List<Map<String, Object>> recent(Long userId, int count) {
         count = Math.max(1, Math.min(count, MAX_HISTORY));
-        List<PlayHistory> list = mapper.selectList(new LambdaQueryWrapper<PlayHistory>()
+        List<PlayHistory> list = mapper.selectPage(new Page<>(1, count),
+                new LambdaQueryWrapper<PlayHistory>()
                 .eq(PlayHistory::getUserId, userId)
-                .orderByDesc(PlayHistory::getPlayedAt)
-                .last("LIMIT " + count));
+                .orderByDesc(PlayHistory::getPlayedAt)).getRecords();
         Set<String> seen = new HashSet<>();
         return list.stream()
                 .filter(h -> seen.add(h.getSourceId()))

@@ -58,13 +58,14 @@ public class SecurityConfig {
                     "/api/recommend/**"
                 ).permitAll()
 
-                // 歌单歌曲查看公开
+                // 歌单详情 & 歌曲查看公开
                 .requestMatchers(HttpMethod.GET,
-                    "/api/playlists/songs"
+                    "/api/playlists/songs",
+                    "/api/playlists/detail"
                 ).permitAll()
 
-                // AI 助手公开
-                .requestMatchers("/api/assistant/**").permitAll()
+                // AI 助手需登录（消耗 API 额度，必须认证）
+                .requestMatchers("/api/assistant/**").authenticated()
 
                 // 图片代理公开（封面图无 JWT）
                 .requestMatchers(HttpMethod.GET,

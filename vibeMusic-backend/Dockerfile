@@ -1,7 +1,10 @@
 # ==========================
 # vibeMusic 后端 Dockerfile
 # ==========================
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17.0.15_7-jre-alpine
+
+# 创建非 root 用户
+RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 
@@ -17,4 +20,7 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# 切换到非 root 用户
+USER app
+
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+UseG1GC", "-jar", "app.jar"]

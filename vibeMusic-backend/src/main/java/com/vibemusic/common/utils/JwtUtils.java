@@ -2,6 +2,8 @@ package com.vibemusic.common.utils;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -90,6 +92,20 @@ public class JwtUtils {
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    // ==================== Token 提取 ====================
+
+    /** 从请求中提取 token：Authorization: Bearer xxx → Cookie VIBE_TOKEN */
+    public static String extractTokenFromRequest(HttpServletRequest request, String cookieName) {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) return header.substring(7);
+        if (request.getCookies() != null) {
+            for (Cookie c : request.getCookies()) {
+                if (cookieName.equals(c.getName())) return c.getValue();
+            }
+        }
+        return null;
     }
 
     // ==================== Getter ====================

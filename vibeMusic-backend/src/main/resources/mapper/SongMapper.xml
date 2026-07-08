@@ -14,7 +14,7 @@
         ON DUPLICATE KEY UPDATE 入库：避免先 SELECT 再 INSERT/UPDATE
         命中的唯一键: uk_source_id (source_id)
     -->
-    <insert id="insertOrUpdateUrl">
+    <insert id="insertOrUpdateUrl" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO song(source_id, name, artist, album, cover_url, duration, url)
         VALUES(#{sourceId}, #{name}, #{artist}, #{album}, #{coverUrl}, #{duration}, #{url})
         ON DUPLICATE KEY UPDATE

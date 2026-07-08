@@ -1,50 +1,295 @@
-# vibeMusic 部署指南
+# vibeMusic 部署指南 v2.0
 
-## 开发环境
+## 前置条件
 
-```bash
-# 1. 启动基础设施（MySQL + Redis + MinIO）
-npm run docker:dev
+| 依赖 | 版本要求 | 用途 |
+|------|---------|------|
+| Docker | ≥ 24.x | 容器运行时 |
+| Docker Compose | ≥ v2.x | 多容器编排 |
+| Java | 17 | 本地开发编译 |
+| Node.js | ≥ 20 | 前端构建 + BFF 网关 |
+| 域名 | 可选 | 公网访问（推荐 Cloudflare Tunnel） |
 
-# 2. 启动后端（IntelliJ 运行 Spring Boot）
-# 或命令行: cd vibeMusic-backend && mvn spring-boot:run
+---
 
-# 3. 启动前端 + BFF 网关
-npm run dev
+## 架构
+
+```
+浏览器 → Nginx(:80/443) → Backend(:8080) → musicapi(:3000) → 网易云/QQ
+                            ↓    ↓    ↓
+                        MySQL Redis MinIO  ES
+                            ↓    ↓
+                        Prometheus → Grafana → Alertmanager
 ```
 
-## Docker 全栈部署
+---
+
+## 一、快速部署（本地开发）
 
 ```bash
-# 1. 配置环境变量
+# 1. 复制环境变量
 cp .env.example .env
-# 编辑 .env 修改密码和密钥
+# 生成强密码: node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
 
-# 2. 构建前端
+# 2. 启动中间件
+npm run docker:middleware
+
+# 3. 启动应用
+npm run dev:api        # musicapi (localhost:3000)
+npm run dev:web        # 前端 (localhost:5173)
+# IDEA 里启动后端 (localhost:8080)
+
+# 4. 监控面板
+# Grafana:  http://localhost:3001 (admin / 见 .env)
+# Prometheus: http://localhost:9090
+```
+
+### 验证
+
+```bash
+node scripts/verify.js    # 28 项自动检查
+curl http://localhost:3000/health  # musicapi 健康
+```
+
+---
+
+## 二、生产部署（Docker 全栈）
+
+### 1. 准备
+
+```bash
+# 构建前端
+cd vibemusic-web && npm run build
+
+# 构建后端
+cd vibeMusic-backend && mvn clean package -DskipTests
+```
+
+### 2. 切换 Prometheus 配置
+
+编辑 `docker-data/prometheus/prometheus.yml`：
+```yaml
+# 注释掉本地开发 target:
+# - 'host.docker.internal:8080'
+# 取消注释生产 target:
+- 'backend:8080'
+- 'musicapi:3000'
+```
+
+### 3. 启动
+
+```bash
+docker compose up -d --build
+```
+
+### 4. 验证
+
+```bash
+docker compose ps                  # 全部 healthy
+curl -k https://localhost/health   # Nginx 转发正常
+```
+
+---
+
+## 三、环境变量清单
+
+| 变量 | 必填 | 说明 |
+|------|------|------|
+| `MYSQL_ROOT_PASSWORD` | ✅ | MySQL root 密码 |
+| `DB_PASSWORD` | ✅ | 应用数据库密码 |
+| `REDIS_PASSWORD` | ✅ | Redis 认证密码 |
+| `ES_PASSWORD` | ✅ | Elasticsearch 密码 |
+| `JWT_SECRET` | ✅ | JWT 签名密钥（≥32字节） |
+| `MINIO_ROOT_PASSWORD` | ✅ | MinIO 管理密码 |
+| `MUSIC_NETEASE_COOKIE` | ✅ | 网易云 VIP Cookie |
+| `MUSIC_QQ_COOKIE` | ✅ | QQ 音乐 Cookie (JSON) |
+| `GRAFANA_ADMIN_PASSWORD` | ✅ | Grafana 登录密码 |
+| `AI_API_KEY` | ❌ | AI 助手 API Key |
+| `CORS_ORIGINS` | ❌ | 跨域白名单 |
+
+---
+
+## 四、npm 脚本速查
+
+| 命令 | 功能 |
+|------|------|
+| `npm run docker:middleware` | 启动全部中间件（含 ES + 监控 + Nginx） |
+| `npm run docker:monitor` | 仅 Prometheus + Grafana + Alertmanager |
+| `npm run docker:status` | 查看容器状态 |
+| `npm run dev:full` | 一键启动前后端 + musicapi |
+| `npm run ops` | 运维工具菜单 |
+
+### 2. 构建
+
+```bash
+# 前端构建
 npm run build
 
-# 3. 构建后端 JAR
-cd vibeMusic-backend && mvn package -DskipTests && cd ..
+# 后端构建 JAR
+cd vibeMusic-backend && mvn package -DskipTests -B && cd ..
 
-# 4. 全栈启动（10 容器）
-npm run docker:up
-
-# 5. 查看状态
-npm run docker:status
+# 生成 TLS 证书（如有 Git Bash/WSL）
+bash scripts/generate-certs.sh
 ```
 
-## 服务访问
-
-| 服务 | 地址 | 说明 |
-|------|------|------|
-| Web | http://localhost | Nginx 入口 |
-| Grafana | http://localhost:3001 | admin/admin |
-| Prometheus | http://localhost:9090 | - |
-| MinIO | http://localhost:9001 | rustfsadmin/ChangeMe456! |
-
-## 监控启动
+### 3. 启动全栈
 
 ```bash
-# 单独启动监控栈（MySQL/Redis 已运行的情况下）
-npm run docker:monitor
+docker compose up -d
 ```
+
+### 4. 验证
+
+```bash
+docker compose ps                    # 所有容器应显示 healthy
+curl -k https://localhost/api/songs/search?keyword=test  # API 正常
+```
+
+---
+
+## 二、服务清单
+
+| 服务 | 端口 | 说明 |
+|------|------|------|
+| Nginx (HTTPS) | 80, 443 | 统一入口，自动 HTTP→HTTPS 跳转 |
+| Spring Boot | 8080 | 后端 API |
+| MySQL | 3306 | 关系数据库 |
+| Redis | 6379 | 缓存 |
+| MinIO | 9000, 9001 | 对象存储（API + 控制台） |
+| Elasticsearch | 9201 | 搜索缓存 |
+| musicapi | 3000 | 网易云 + QQ 音乐 API 代理 |
+| Prometheus | 9090 | 指标采集 |
+| Grafana | 3001 | 可视化仪表盘 |
+| Alertmanager | 9093 | 告警管理 |
+
+**自动备份**：MySQL 每天凌晨 2 点备份到 `docker-data/backups/mysql/`，保留 30 天。
+
+---
+
+## 三、公网访问
+
+### 方案 A：Cloudflare Tunnel（推荐，免费）
+
+已有配置：域名 `www.vibemusic.abrdns.com`，启动脚本 `scripts/start-cloudflare-tunnel.bat`
+
+Tunnel 自带 HTTPS 终止，无需额外证书配置。
+
+### 方案 B：直连 + Let's Encrypt
+
+```bash
+# 安装 certbot
+apt install certbot python3-certbot-nginx
+# 获取证书
+certbot --nginx -d your-domain.com
+# 证书路径替换 nginx/certs/ 下的自签证书
+# 配置自动续期（certbot 默认已添加 crontab）
+```
+
+### 方案 C：Cloudflare Origin CA
+
+Cloudflare 控制台 → SSL/TLS → Origin Server → 创建证书 → 替换 `nginx/certs/` 下的文件。
+
+---
+
+## 四、监控与告警
+
+### Grafana 仪表盘
+
+- 地址：`http://<server>:3001`
+- 默认账号：`admin / admin`
+- 预置仪表盘：JVM 指标、搜索延迟、缓存命中率、HTTP 请求统计
+
+### Prometheus 告警规则
+
+内建规则（`docker-data/prometheus/alert-rules.yml`）：
+- 服务宕机（连续 1 分钟）
+- 搜索 P95 > 1s
+- JVM 堆内存 > 85%
+- 缓存穿透率 > 70%
+
+### 接入告警通知（微信/钉钉）
+
+编辑 `docker-data/alertmanager/alertmanager.yml`：
+
+```yaml
+receivers:
+  - name: 'wechat'
+    webhook_configs:
+      - url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY'
+```
+
+---
+
+## 五、生产安全检查清单
+
+| 项 | 状态 | 说明 |
+|----|------|------|
+| HTTPS | ✅ | HTTP 自动跳转 HTTPS |
+| HSTS | ✅ | max-age=63072000 |
+| 安全头 | ✅ | X-Frame-Options, X-Content-Type, XSS-Protection |
+| API 限流 | ✅ | 通用 10r/s，登录 3r/s |
+| 数据库备份 | ✅ | 每天凌晨 2 点，保留 30 天 |
+| 健康检查 | ✅ | 所有容器 healthcheck |
+| 自动重启 | ✅ | `restart: unless-stopped` |
+| .env 排除 Git | ✅ | `.gitignore` 已配置 |
+| 证书排除 Git | ✅ | `nginx/certs/.gitignore` 已配置 |
+
+---
+
+## 六、日常运维
+
+### 查看日志
+
+```bash
+docker compose logs -f --tail=100 backend   # 后端实时日志
+docker compose logs mysql-backup             # 备份日志
+```
+
+### 手动备份
+
+```bash
+docker compose exec mysql mysqldump -u root -p vibemusic | gzip > backup-$(date +%Y%m%d).sql.gz
+```
+
+### 恢复备份
+
+```bash
+gunzip < backup-20260707.sql.gz | docker compose exec -T mysql mysql -u root -p vibemusic
+```
+
+### 更新部署
+
+```bash
+git pull
+npm run build
+cd vibeMusic-backend && mvn package -DskipTests && cd ..
+docker compose up -d --build backend nginx
+```
+
+### 扩容（多实例）
+
+```bash
+docker compose up -d --scale backend=3
+# 3 个后端实例，Nginx 自动负载均衡
+```
+
+---
+
+## 七、故障排查
+
+| 症状 | 检查点 |
+|------|--------|
+| 502 Bad Gateway | `docker compose ps backend` 看健康状态 |
+| 搜索超时 | `docker compose ps musicapi` 确认运行中 |
+| 播放失败 | musicapi 网易云 Cookie 是否过期 |
+| MinIO 登录失败 | `.env` 中 `MINIO_ROOT_PASSWORD` 是否正确 |
+| 端口占用 | `netstat -ano \| findstr :8080` 找僵尸进程 |
+
+---
+
+## 八、CI/CD（GitHub Actions）
+
+- `.github/workflows/test.yml`：每次 push/PR 自动跑后端 + 前端测试
+- `.github/workflows/deploy.yml`：手动触发或推送 tag 时构建镜像
+
+需补充：自动推送到服务器（SSH + docker compose pull + up）

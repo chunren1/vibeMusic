@@ -10,14 +10,15 @@ spring:
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:3306/vibemusic?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:123456}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 20
+      maximum-pool-size: 50
       minimum-idle: 5
       connection-timeout: 5000
       max-lifetime: 600000
       idle-timeout: 300000
+      leak-detection-threshold: 10000
 
   flyway:
     enabled: true
@@ -30,6 +31,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
       database: 0
       timeout: 3000ms
       lettuce:
@@ -37,7 +39,7 @@ spring:
           max-active: 20
           max-idle: 10
           min-idle: 2
-          max-wait: -1ms
+          max-wait: 3000ms
 
   servlet:
     multipart:
@@ -54,16 +56,13 @@ mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   global-config:
     db-config:
       id-type: auto
-      logic-delete-field: deleted
-      logic-delete-value: 1
-      logic-not-delete-value: 0
 
 jwt:
-  secret: ${JWT_SECRET:vibeMusic-dev-only-change-in-production}
+  secret: ${JWT_SECRET}
   access-expiration: 900000        # 15 分钟
   refresh-expiration: 604800000    # 7 天
 
@@ -76,12 +75,12 @@ netease:
     timeout: 10000
 
 storage:
-  rustfs:
-    endpoint: ${RUSTFS_ENDPOINT:http://127.0.0.1:9000}
-    access-key: ${RUSTFS_ACCESS_KEY:rustfsadmin}
-    secret-key: ${RUSTFS_SECRET_KEY:rustfsadmin}
-    bucket-name: ${RUSTFS_BUCKET:vibemusic}
-    data-path: ${RUSTFS_DATA_PATH:D:\\Rustfsdata}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket-name: ${MINIO_BUCKET:vibemusic}
+    data-path: ${MINIO_DATA_PATH:D:\\Mindata}
 
 springdoc:
   swagger-ui:

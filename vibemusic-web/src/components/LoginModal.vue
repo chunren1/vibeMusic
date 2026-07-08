@@ -67,8 +67,8 @@ async function handleRegister() {
     errorMsg.value = '请输入用户名和密码'
     return
   }
-  if (password.value.length < 4) {
-    errorMsg.value = '密码至少4位'
+  if (password.value.length < 8) {
+    errorMsg.value = '密码至少8位'
     return
   }
   loading.value = true

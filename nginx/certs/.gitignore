@@ -1,0 +1,5 @@
+# TLS 证书 — 不提交到 Git
+*.pem
+*.key
+*.pfx
+!README.md

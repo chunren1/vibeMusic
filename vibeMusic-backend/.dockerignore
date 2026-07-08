@@ -1,0 +1,47 @@
+# ==========================
+# vibeMusic Backend Docker Build Ignore
+# ==========================
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# Build artifacts (only keep target/ for COPY)
+# target/ is explicitly COPY in Dockerfile, so keep it
+
+# Docs & meta
+*.md
+!DEPLOY.md
+LICENSE
+NOTICE
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment files (should be injected at runtime)
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Test
+src/test/
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+.dockerignore

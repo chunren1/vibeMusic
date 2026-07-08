@@ -35,12 +35,13 @@ jwt:
   secret: test-secret-key-for-unit-testing-only
   expiration: 3600000
 
-# MinIO / RustFS 测试配置
-rustfs:
-  endpoint: http://localhost:9000
-  access-key: test
-  secret-key: test
-  bucket: vibemusic
+# MinIO 测试配置
+storage:
+  minio:
+    endpoint: http://localhost:9000
+    access-key: test
+    secret-key: test
+    bucket-name: vibemusic
 
 # musicapi 测试用
 musicapi:

@@ -103,7 +103,7 @@
             <artifactId>commons-pool2</artifactId>
         </dependency>
 
-        <!-- MinIO (S3兼容，连接RustFS) -->
+        <!-- MinIO (S3兼容对象存储) -->
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
@@ -146,6 +146,16 @@
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!-- Spring Cache + Caffeine 本地缓存（搜索热key/计数） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
         </dependency>
 
         <!-- Test -->
