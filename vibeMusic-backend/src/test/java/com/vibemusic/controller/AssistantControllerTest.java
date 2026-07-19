@@ -75,7 +75,7 @@ class AssistantControllerTest {
                             .content("{\"message\":\"你好\"}"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.reply").isString())
-                    .andExpect(jsonPath("$.data.model").value("deepseek-ai/DeepSeek-V4-Flash"));
+                    .andExpect(jsonPath("$.data.model").value("deepseek-v4-flash"));
         }
 
         @Test @DisplayName("消息超过 2000 字应返回错误")

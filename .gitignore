@@ -59,6 +59,7 @@ Thumbs.db
 
 # 大文件 / 二进制工具
 .cloudflared/
+*.tar
 
 # Android 构建产物
 vibemusic-web/android/app/build/
