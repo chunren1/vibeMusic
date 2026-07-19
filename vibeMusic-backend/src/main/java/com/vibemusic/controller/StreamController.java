@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClient;
 
@@ -52,12 +51,27 @@ public class StreamController {
     @jakarta.annotation.PreDestroy
     public void shutdown() { ASYNC_CACHE_EXECUTOR.shutdown(); }
 
-    /** 音频 CDN 域名白名单（防 SSRF） */
-    private static final Set<String> AUDIO_CDN_WHITELIST = Set.of(
-            "music.126.net", "m10.music.126.net", "m7.music.126.net",
-            "y.gtimg.cn", "isure.stream.qqmusic.qq.com",
-            "ws.stream.qqmusic.qq.com", "dl.stream.qqmusic.qq.com"
+    /** 音频 CDN 域名通配符白名单（防 SSRF），支持 *.music.126.net 风格 */
+    private static final List<String> AUDIO_CDN_WILDCARDS = List.of(
+            "*.music.126.net",
+            "*.gtimg.cn",
+            "*.stream.qqmusic.qq.com",
+            "*.tc.qq.com",
+            "*.tencentmusic.com"
     );
+
+    private boolean isCdnWhitelisted(String host) {
+        if (host == null) return false;
+        for (String pattern : AUDIO_CDN_WILDCARDS) {
+            if (pattern.startsWith("*.")) {
+                String suffix = pattern.substring(1); // .music.126.net
+                if (host.equals(pattern.substring(2)) || host.endsWith(suffix)) return true;
+            } else if (host.equals(pattern)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** 播放（记录历史 + 返回元信息） */
     @GetMapping("/play")
@@ -132,12 +146,15 @@ public class StreamController {
     private void streamFromRemote(String sourceId, String name, String artist,
                                   String platform, HttpServletRequest request,
                                   HttpServletResponse response) {
-        for (int attempt = 1; attempt <= 2; attempt++) {
+        for (int attempt = 1; attempt <= 5; attempt++) {
             try {
                 String audioUrl = songPlayService.getPlayUrl(sourceId, name, artist, platform);
-                if (audioUrl == null) { response.setStatus(404); return; }
+                if (audioUrl == null) {
+                    if (attempt < 5) { log.info("streamFromRemote: playUrl=null, retry {}/5: sourceId={}", attempt, sourceId); continue; }
+                    response.setStatus(404); return;
+                }
                 String host = URI.create(audioUrl).getHost();
-                if (host == null || AUDIO_CDN_WHITELIST.stream().noneMatch(h -> host.equals(h) || host.endsWith("." + h))) {
+                if (!isCdnWhitelisted(host)) {
                     log.warn("SSRF blocked: {} (sourceId={})", host, sourceId);
                     response.setStatus(403); return;
                 }
@@ -146,16 +163,20 @@ public class StreamController {
                     h.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
                     if (rangeHeader != null) h.set("Range", rangeHeader);
                 }).exchange((clientReq, clientResp) -> {
-                    HttpStatusCode sc = clientResp.getStatusCode();
+                    int cdnStatus = clientResp.getStatusCode().value();
+                    // CDN URL 过期 (403) 或资源不存在 (404) → 抛异常触发重试获取新 URL
+                    if (cdnStatus == 403 || cdnStatus == 404) {
+                        throw new RuntimeException("CDN returned " + cdnStatus + ", will retry with fresh URL");
+                    }
                     String ct = clientResp.getHeaders().getFirst("Content-Type");
                     response.setContentType(ct != null && ct.startsWith("audio/") ? ct : "audio/mpeg");
                     long cl = clientResp.getHeaders().getContentLength();
                     if (cl > 0) response.setContentLength((int) cl);
                     response.setHeader("Accept-Ranges", "bytes");
                     response.setHeader("Cache-Control", "public, max-age=3600");
-                    if (sc.is2xxSuccessful()) {
-                        response.setStatus(sc.value());
-                        if (sc.value() == 206) {
+                    if (clientResp.getStatusCode().is2xxSuccessful()) {
+                        response.setStatus(cdnStatus);
+                        if (cdnStatus == 206) {
                             String cr = clientResp.getHeaders().getFirst("Content-Range");
                             if (cr != null) response.setHeader("Content-Range", cr);
                         }
@@ -166,10 +187,10 @@ public class StreamController {
                 });
                 return;
             } catch (Exception e) {
-                if (attempt == 1 && !response.isCommitted()) {
-                    log.warn("音频流首次代理失败 (1/2) sourceId={}: {}", sourceId, e.getMessage());
+                if (attempt < 3 && !response.isCommitted()) {
+                    log.warn("音频流代理重试 ({}/{}) sourceId={}: {}", attempt, 3, sourceId, e.getMessage());
                 } else {
-                    log.error("音频流代理失败 sourceId={}: {}", sourceId, e.getMessage());
+                    log.error("音频流代理最终失败 sourceId={}: {}", sourceId, e.getMessage());
                     if (!response.isCommitted()) response.setStatus(500);
                 }
             }

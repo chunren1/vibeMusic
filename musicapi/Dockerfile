@@ -21,6 +21,7 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 EXPOSE 3000
 
 # 切换到内置 node 用户（非 root）
+RUN mkdir -p /app/logs && chown -R node:node /app/logs
 USER node
 
 CMD ["node", "server.js"]

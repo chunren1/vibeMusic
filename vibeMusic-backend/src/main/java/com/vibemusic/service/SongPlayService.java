@@ -11,9 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -33,6 +31,10 @@ public class SongPlayService {
 
     private static final String MINIO_CACHE_PREFIX = "minio:exists:v1:";
     private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
+    /** 音质并行探测线程池，3级同时调用避免串行等待 */
+    private static final ExecutorService GET_URL_EXECUTOR = Executors.newFixedThreadPool(3, r -> {
+        Thread t = new Thread(r, "get-url-"); t.setDaemon(true); return t;
+    });
     private final AtomicInteger degradationCount = new AtomicInteger(0);
 
     public int getDegradationCount() { return degradationCount.get(); }
@@ -252,10 +254,25 @@ public class SongPlayService {
                 String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
+                // 并行探测 3 级音质（exhigh/higher/standard），取最高可用非试听版本
                 String[] levels = {"exhigh", "higher", "standard"};
+                List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
                 for (String level : levels) {
+                    futures.add(CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return neteaseApiService.getSongUrl(sourceId, level);
+                        } catch (Exception e) {
+                            log.debug("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
+                            return null;
+                        }
+                    }, GET_URL_EXECUTOR));
+                }
+                String neUrl = null;
+                boolean neAllFailed = true;
+                for (int i = 0; i < levels.length && neUrl == null; i++) {
                     try {
-                        Map<String, Object> result = neteaseApiService.getSongUrl(sourceId, level);
+                        Map<String, Object> result = futures.get(i).get(5, TimeUnit.SECONDS);
+                        neAllFailed = false;
                         if (result == null) continue;
                         List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
                         if (data == null || data.isEmpty()) continue;
@@ -264,17 +281,20 @@ public class SongPlayService {
                         Object trial = data.get(0).get("freeTrialInfo");
                         Object time = data.get(0).get("time");
                         if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
-                            log.info("歌曲 {} 音质 {} 为试听, 尝试降级", sourceId, level);
+                            log.info("歌曲 {} 音质 {} 为试听, 尝试降级", sourceId, levels[i]);
                             continue;
                         }
-                        return url;
+                        neUrl = url;
                     } catch (Exception e) {
-                        log.warn("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
+                        log.debug("getPlayUrl: level={} timeout/error: {}", levels[i], e.getMessage());
                     }
                 }
-                log.info("getPlayUrl: 歌曲 {} 网易云全失败，尝试QQ降级", sourceId);
-                String qqUrl = tryQQFallback(songName, artist, sourceId);
-                if (qqUrl != null) return qqUrl;
+                if (neUrl != null) return neUrl;
+                if (neAllFailed) {
+                    log.info("getPlayUrl: 歌曲 {} 网易云全失败，尝试QQ降级", sourceId);
+                    String qqUrl = tryQQFallback(songName, artist, sourceId);
+                    if (qqUrl != null) return qqUrl;
+                }
                 log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
             }
         } catch (Exception e) {
@@ -290,6 +310,40 @@ public class SongPlayService {
 
     // ==================== 跨平台降级 ====================
 
+    /**
+     * 从搜索结果中找最优匹配，基于词重叠率 + 歌名首字匹配
+     */
+    private Map<String, Object> findBestMatch(List<Map<String, Object>> results, String expectedName, String expectedArtist) {
+        Map<String, Object> best = null;
+        double bestScore = 0;
+        String target = (expectedName + " " + (expectedArtist != null ? expectedArtist : "")).toLowerCase().trim();
+        for (Map<String, Object> item : results) {
+            String candName = item.get("name") != null ? String.valueOf(item.get("name")) : "";
+            String candArtist = item.get("artists") != null ? String.valueOf(item.get("artists")) : "";
+            String candidate = (candName + " " + candArtist).toLowerCase().trim();
+            double score = similarity(target, candidate);
+            // 歌名首字相同加分
+            if (!candName.isEmpty() && !expectedName.isEmpty() && candName.charAt(0) == expectedName.charAt(0)) score += 0.2;
+            if (score > bestScore) { bestScore = score; best = item; }
+        }
+        return bestScore > 0.15 ? best : (results.get(0)); // 分数太低降级取第一条
+    }
+
+    /** 简单 token 重叠率 */
+    private double similarity(String a, String b) {
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        Set<String> setA = new HashSet<>(Arrays.asList(a.split("\\s+")));
+        Set<String> setB = new HashSet<>(Arrays.asList(b.split("\\s+")));
+        int overlap = 0;
+        for (String s : setA) { if (setB.contains(s)) overlap++; }
+        double jaccard = (double) overlap / Math.max(setA.size(), setB.size());
+        // 包含关系 bonus
+        if (a.contains(b) || b.contains(a)) return Math.max(jaccard, 0.6);
+        return jaccard;
+    }
+
+    // ==================== 跨平台降级（续） ====================
+
     @SuppressWarnings("unchecked")
     private String tryQQFallback(String songName, String artist, String neteaseId) {
         if (songName == null || songName.isBlank()) {
@@ -304,11 +358,16 @@ public class SongPlayService {
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null || data.isEmpty()) return null;
-            String qqSourceId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
+            // 歌名/歌手相似度匹配，避免取到错误歌曲
+            Map<String, Object> best = findBestMatch(data, songName, artist);
+            if (best == null) { log.info("QQ降级: '{}' 无匹配歌曲", keyword); return null; }
+            String qqSourceId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
+            String matchName = best.get("name") != null ? String.valueOf(best.get("name")) : "";
+            String matchArtists = best.get("artists") != null ? String.valueOf(best.get("artists")) : "";
             if (qqSourceId == null) return null;
-            Object durObj = data.get(0).get("duration");
+            Object durObj = best.get("duration");
             if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
-                log.info("QQ降级: {} 也只有试听版，跳过", keyword);
+                log.info("QQ降级: '{}' 也只有试听版，跳过", matchName);
                 return null;
             }
             Map<String, Object> urlResult = neteaseApiService.getQQSongUrl(qqSourceId);
@@ -317,7 +376,7 @@ public class SongPlayService {
                 if (urlData != null && !urlData.isEmpty()) {
                     String url = (String) urlData.get(0).get("url");
                     if (url != null && !url.isEmpty()) {
-                        log.info("QQ降级成功: {} → QQ sourceId={}", keyword, qqSourceId);
+                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", keyword, matchName, similarity(keyword, matchName + matchArtists));
                         return url;
                     }
                 }

@@ -80,7 +80,7 @@ public class JwtUtils {
         try {
             parseClaims(token);
             return true;
-        } catch (JwtException e) {
+        } catch (Exception e) {
             log.warn("JWT 校验失败: {}", e.getMessage());
             return false;
         }

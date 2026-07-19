@@ -64,8 +64,8 @@ public class SecurityConfig {
                     "/api/playlists/detail"
                 ).permitAll()
 
-                // AI 助手需登录（消耗 API 额度，必须认证）
-                .requestMatchers("/api/assistant/**").authenticated()
+                // AI 助手公开访问（Controller 层有速率限制保护）
+                .requestMatchers("/api/assistant/**").permitAll()
 
                 // 图片代理公开（封面图无 JWT）
                 .requestMatchers(HttpMethod.GET,

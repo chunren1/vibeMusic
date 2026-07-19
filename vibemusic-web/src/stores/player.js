@@ -81,6 +81,33 @@ export const usePlayerStore = defineStore('player', () => {
   audio.addEventListener('play', () => { isPlaying.value = true })
   audio.addEventListener('pause', () => { isPlaying.value = false })
   audio.addEventListener('ended', () => onEnded())
+  // 音频流断流/错误时自动重试
+  let _retryCount = 0
+  let _errorLocked = false  // 防止无限重试死循环
+  audio.addEventListener('error', () => {
+    const err = audio.error
+    if (_errorLocked) return  // 已确认无法播放，不再重试
+    if (err && _retryCount < 2 && audio.src) {
+      _retryCount++
+      const savedTime = audio.currentTime
+      const src = audio.src
+      console.warn(`[Player] 音频错误 code=${err.code}, 重试 (${_retryCount}/2)`)
+      audio.src = ''
+      setTimeout(() => {
+        audio.src = src
+        audio.load()
+        if (savedTime > 0) audio.currentTime = savedTime
+        audio.play().catch(() => {})
+      }, 300)
+    } else {
+      // 重试耗尽，跳过当前歌曲，避免死循环
+      _errorLocked = true
+      isPlaying.value = false
+      audio.src = ''
+      console.warn('[Player] 重试耗尽，自动切歌')
+      setTimeout(() => { _errorLocked = false; _retryCount = 0; next() }, 500)
+    }
+  })
   audio.volume = volume.value / 100
   audio.loop = playMode.value === 'single'
 
@@ -89,6 +116,8 @@ export const usePlayerStore = defineStore('player', () => {
   /** 通过 sourceId 直接播放（使用 stream 代理 URL） */
   function playBySourceId(sourceId, name, artist, coverUrl, duration = 0, platform = '') {
     if (!sourceId) return
+    _retryCount = 0  // 切歌时重置重试计数
+    _errorLocked = false  // 切歌时解锁
     addToQueue({ sourceId, name, artist, coverUrl, duration, platform })
     const idx = queue.value.findIndex(s => s.sourceId === sourceId)
     if (idx >= 0) currentIdx.value = idx
@@ -308,7 +337,8 @@ export const usePlayerStore = defineStore('player', () => {
 
     const name = song.songName || song.name || song.title || ''
     const artist = song.artist || ''
-    const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}&artist=${encodeURIComponent(artist)}`
+    const platform = song.platform || song._raw?.platform || ''
+    const expectedSrc = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}&artist=${encodeURIComponent(artist)}${platform ? '&platform=' + platform : ''}`
     if (audio.src !== expectedSrc && (!audio.src || audio.src === window.location.href)) {
       const cachedTime = parseFloat(localStorage.getItem(TIME_KEY) || '0')
       audio.src = expectedSrc

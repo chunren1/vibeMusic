@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const qqMusic = require('qq-music-api');
+const axios = require('axios');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const promClient = require('prom-client');
 
@@ -247,7 +248,7 @@ async function checkCookies() {
   // 检查QQ
   try {
     const qqRes = await qqMusic.api('search', { key: '周杰伦', limit: 1 });
-    if (qqRes && qqRes.list) {
+    if (qqRes && qqRes.list && qqRes.list.length > 0) {
       cookieStatus.qq = true;
       cookieStatusGauge.set({ platform: 'qq' }, 1);
       writeLog('cookie', 'INFO', '✅ QQ音乐 Cookie 正常');
@@ -274,19 +275,19 @@ setInterval(() => { checkCookies().catch(e => writeLog('cookie', 'ERROR', `Cooki
 
 // Cookie 状态查询端点
 app.get('/cookie-status', (req, res) => {
-  res.json({ code: 200, data: cookieStatus, timestamp: new Date().toISOString() });
+  const qqKeys = Object.keys(config.qq).length;
+  res.json({ code: 200, data: { ...cookieStatus, qqCookieKeys: qqKeys }, timestamp: new Date().toISOString() });
 });
 
 // ==================== 上游 API 超时控制 ====================
 const UPSTREAM_TIMEOUT = 10000; // 10s
 
 function withTimeout(promise, ms, label) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Upstream timeout: ${label} (${ms}ms)`)), ms)
-    ),
-  ]);
+  let timer
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Upstream timeout: ${label} (${ms}ms)`)), ms)
+  })
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer))
 }
 
 // ==================== 搜索算法配置 (Scoring & Dedup) ====================
@@ -557,13 +558,12 @@ app.get('/search', async (req, res) => {
     // ---- 质量过滤 ----
     const refined = refineResults(deduped, kw);
 
-    // ---- 缓存结果 ----
+    // ---- 清理内部字段后再缓存 ----
+    toStandardFormat(refined);
     searchCache.set(cacheKey, refined);
 
     // ---- 分页 ----
     const pageData = paginate(refined, page, size);
-
-    toStandardFormat(refined); // 清理内部字段
 
     res.json({ code: 200, message: 'success', data: pageData });
   } catch (error) {
@@ -683,38 +683,36 @@ async function searchNetease(keyword, limit) {
 }
 
 async function searchQQ(keyword, limit) {
+  // 使用经典 c.y.qq.com 搜索接口（无需 Cookie），u.y.qq.com 新版接口需登录已弃用
+  const searchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?w=${encodeURIComponent(keyword)}&format=json&p=1&n=${limit}&cr=1&aggr=1`;
   try {
-    const result = await withTimeout(
-      qqMusic.api('search', { key: keyword, limit, t: 0 }), // t=0: 单曲搜索
-      UPSTREAM_TIMEOUT, 'qq/search'
-    );
-    // QQ API 正常时无 code 字段，仅在有 code 且非0时告警
-    if (result && result.code != null && result.code !== 0) {
-      console.warn(`[QQ] API 返回异常: code=${result.code}`);
+    const resp = await axios.get(searchUrl, {
+      headers: { Referer: 'https://y.qq.com', 'User-Agent': 'Mozilla/5.0' },
+      timeout: UPSTREAM_TIMEOUT,
+    });
+    const data = resp.data;
+    if (data.code !== 0 || !data.data?.song?.list) {
+      writeLog('degradation', 'WARN', `QQ搜索异常: code=${data.code}, keyword=${keyword}`);
+      return [];
     }
-    if (result && result.list && Array.isArray(result.list)) {
-      return result.list.map(s => {
-        let cover = '';
-        if (s.albumcover) {
-          cover = s.albumcover;
-        } else if (s.albummid) {
-          cover = `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid}.jpg`;
-        }
-        return {
-          id: s.songmid,
-          name: s.songname,
-          artists: s.singer ? s.singer.map(a => a.name).join(' / ') : '',
-          album: s.albumname || '',
-          cover: cover,
-          duration: s.interval ? s.interval * 1000 : 0,
-          vip: !!(s.pay && s.pay.pay_play), // QQ pay_play=1 表示VIP歌曲
-          _raw: { listenCount: s.listennum || 0 },
-        };
-      });
-    }
-    return [];
+    return data.data.song.list.map(s => {
+      let cover = '';
+      if (s.albummid) {
+        cover = `https://y.gtimg.cn/music/photo_new/T002R300x300M000${s.albummid}.jpg`;
+      }
+      return {
+        id: s.songmid,
+        name: s.songname,
+        artists: s.singer ? s.singer.map(a => a.name).join(' / ') : '',
+        album: s.albumname || '',
+        cover: cover,
+        duration: s.interval ? s.interval * 1000 : 0,
+        vip: !!(s.pay && s.pay.pay_play),
+        _raw: { listenCount: s.listennum || 0 },
+      };
+    });
   } catch (error) {
-    console.error('[QQ] Search error:', error.message);
+    writeLog('degradation', 'ERROR', `QQ搜索失败: keyword=${keyword}, ${error.message}`);
     return [];
   }
 }
@@ -799,6 +797,7 @@ app.get('/lyric', async (req, res) => {
 app.get('/cloudsearch', async (req, res) => {
   try {
     const { keywords, limit = 20, type = 1 } = req.query;
+    if (!keywords) return res.status(400).json({ code: 400, message: '缺少 keywords 参数' });
     const result = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords, limit, type }));
     res.json(result.body);
   } catch (error) {
@@ -809,6 +808,7 @@ app.get('/cloudsearch', async (req, res) => {
 app.get('/song/url/v1', async (req, res) => {
   try {
     const { id, level = 'exhigh' } = req.query;
+    if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
     const result = await NeteaseCloudMusicApi.song_url_v1(withNeteaseCookie({ id, level }));
     res.json(result.body);
   } catch (error) {
@@ -819,6 +819,7 @@ app.get('/song/url/v1', async (req, res) => {
 app.get('/song/detail', async (req, res) => {
   try {
     const { ids } = req.query;
+    if (!ids) return res.status(400).json({ code: 400, message: '缺少 ids 参数' });
     const result = await NeteaseCloudMusicApi.song_detail(withNeteaseCookie({ ids }));
     res.json(result.body);
   } catch (error) {
@@ -865,13 +866,38 @@ app.get('/qq/search', async (req, res) => {
 app.get('/song/url/qq', async (req, res) => {
   try {
     const { id } = req.query;
+    if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
     const cacheKey = `qq_url:${id}`;
     const cached = urlCache.get(cacheKey);
     if (cached) return res.json({ code: 200, data: cached });
 
-    const result = await qqMusic.api('/song/urls', { id });
-    const url = result && result[id] ? result[id] : null;
-    const data = [{ id: id, url: url }];
+    // 直接调 QQ API，带上 qqmusic_key 做 authst（qq-music-api 的 /urls 路由缺少 authst）
+    const uin = config.qq.uin || '0';
+    const qqmusicKey = config.qq.qqmusic_key || '';
+    const reqData = JSON.stringify({
+      req_0: {
+        module: 'vkey.GetVkeyServer', method: 'CgiGetVkey',
+        param: {
+          filename: [`M800${id}.mp3`, `M500${id}.mp3`, `C400${id}.m4a`],
+          guid: '126548448', songmid: [id], songtype: [0],
+          uin, loginflag: 1, platform: '20', authst: qqmusicKey,
+        },
+      },
+      comm: { uin, format: 'json', ct: 19, cv: 0 },
+    });
+    const qqResp = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+      params: { format: 'json', data: reqData },
+      headers: { Referer: 'https://y.qq.com' },
+      timeout: UPSTREAM_TIMEOUT,
+    });
+    const mi = qqResp.data?.req_0?.data?.midurlinfo;
+    const sip = qqResp.data?.req_0?.data?.sip?.[0] || 'https://aqqmusic.tc.qq.com';
+    let url = null;
+    if (mi && mi[0] && mi[0].purl) {
+      // 如果有 purl，拼完整 CDN URL
+      url = mi[0].purl.includes('://') ? mi[0].purl : sip + '/' + mi[0].purl;
+    }
+    const data = [{ id, url }];
     urlCache.set(cacheKey, data);
     res.json({ code: 200, data });
   } catch (error) {
@@ -941,7 +967,7 @@ app.get('/qq/playlist', async (req, res) => {
     });
   } catch (e) {
     writeLog('api', 'ERROR', `[/qq/playlist] ${e.message}`);
-    res.json({ code: 500, message: e.message });
+    res.status(500).json({ code: 500, message: e.message });
   }
 });
 
