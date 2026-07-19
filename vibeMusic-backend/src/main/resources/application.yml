@@ -68,11 +68,18 @@ jwt:
 
 ai:
   api-key: ${AI_API_KEY:}
+  api-url: ${AI_API_URL:https://api.deepseek.com/chat/completions}
+  model: ${AI_MODEL:deepseek-v4-flash}
+  thinking-mode: ${AI_THINKING_MODE:disabled}
 
 netease:
   api:
     base-url: ${MUSICAPI_URL:http://localhost:3000}
     timeout: 10000
+
+# 音频流代理 CDN 域名白名单（逗号分隔，支持 *.xxx.com 通配符）
+stream:
+  cdn-whitelist: ${STREAM_CDN_WHITELIST:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com}
 
 storage:
   minio:

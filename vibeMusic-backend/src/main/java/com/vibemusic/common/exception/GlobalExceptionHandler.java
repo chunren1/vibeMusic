@@ -3,15 +3,18 @@ package com.vibemusic.common.exception;
 import com.vibemusic.common.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -79,6 +82,37 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleMissingParam(MissingServletRequestParameterException ex) {
         return Result.error(400, "缺少必填参数: " + ex.getParameterName());
+    }
+
+    /**
+     * 请求体 JSON 格式错误 / 反序列化失败
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+        return Result.error(400, "请求体格式错误，请检查 JSON 格式");
+    }
+
+    /**
+     * HTTP 方法不支持
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    @ResponseStatus(HttpStatus.METHOD_NOT_ALLOWED)
+    public Result<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex) {
+        return Result.error(405, "不支持的请求方法: " + ex.getMethod());
+    }
+
+    /**
+     * 方法参数校验失败（@Validated on class level）
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleConstraintViolation(ConstraintViolationException ex) {
+        String msg = ex.getConstraintViolations().stream()
+                .map(v -> v.getPropertyPath() + ": " + v.getMessage())
+                .reduce((a, b) -> a + ", " + b)
+                .orElse("参数校验失败");
+        return Result.error(400, msg);
     }
 
     // ==================== 业务异常 ====================

@@ -105,3 +105,15 @@
 2. 生成强密码：MYSQL_ROOT_PASSWORD / ES_PASSWORD / JWT_SECRET / MINIO_ROOT_PASSWORD
 3. 确认 `nginx/certs/` 下有 valid TLS 证书（fullchain.pem + privkey.pem）
 4. 如有需要，配置 Alertmanager 实际通知通道
+
+## 全链路审计报告 (2026-07-19)
+- 文件: `PROJECT-AUDIT.md`（项目根目录）
+- 覆盖: 前端 37.vue+24.js / 后端 85.java / BFF 998行 server.js / 基础设施 13容器
+- 共发现 **31 个问题**: 5 Critical + 9 High + 11 Medium + 6 Low
+- **状态: ✅ 全部修复完成** (2026-07-19)
+  - 前端: ErrorBoundary + safeCapture + drop_console 调整 + index.html 清理
+  - 后端: 线程池策略修复 + RestTemplate 连接池增大 + 全局异常细化
+  - BFF: 速率限制 + 参数校验 + Cookie 15min检查 + 异步日志 + 黑名单扩展
+  - 基础设施: 端口全关 + 凭据安全 + CSP 加固 + MinIO 备份 + JVM 优化
+  - 测试: 前端 4/4 通过, 后端 12/12 通过
+- **需重启服务**: musicapi (速率限制/参数校验新逻辑生效)、Spring Boot (线程池/连接池生效)

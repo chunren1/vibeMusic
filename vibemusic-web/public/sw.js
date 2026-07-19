@@ -1,7 +1,9 @@
 // vibeMusic Service Worker — 离线缓存 + 秒开
 const CACHE_NAME = 'vibemusic-v2'
+// 预缓存的离线核心资源（首次安装后即可离线访问）
 const ASSETS_TO_CACHE = [
-  '/m',
+  '/',              // 主页 (SPA entry)
+  '/m',             // 移动版主页
   '/manifest.json',
 ]
 

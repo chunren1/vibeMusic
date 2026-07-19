@@ -31,12 +31,13 @@ public class RestTemplateConfig {
 
         var cm = PoolingHttpClientConnectionManagerBuilder.create()
                 .setDefaultConnectionConfig(connectionConfig)
-                .setMaxConnTotal(100)
-                .setMaxConnPerRoute(20)
+                .setMaxConnTotal(200)
+                .setMaxConnPerRoute(50)
                 .build();
 
         var requestConfig = RequestConfig.custom()
                 .setResponseTimeout(Timeout.ofSeconds(45))
+                .setConnectionRequestTimeout(Timeout.ofSeconds(3))  // 从连接池取连接的超时
                 .build();
 
         return HttpClients.custom()

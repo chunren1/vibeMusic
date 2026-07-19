@@ -8,6 +8,7 @@ import App from './App.vue'
 import router from './router'
 import vLazyImg from './directives/vLazyImg'
 import SvgIcon from './components/SvgIcon.vue'
+import { safeCapture } from './utils/safeCapture'
 
 // Sentry 前端错误监控
 // 注册 https://sentry.io → 创建 Vue 项目 → DSN 填入 .env.production 的 VITE_SENTRY_DSN
@@ -32,13 +33,21 @@ if (Sentry && SENTRY_DSN) {
     replaysSessionSampleRate: 0.1,
     replaysOnErrorSampleRate: 1.0,
   })
+  // 暴露 Sentry 给 safeCapture 使用
+  window.__SENTRY__ = Sentry
 }
 
 // 全局错误处理
 app.config.errorHandler = (err, vm, info) => {
   console.error('[Vue Error]', err, 'info:', info)
+  safeCapture(err, `Vue ErrorHandler [${info}]`)
   if (Sentry) Sentry.captureException(err, { data: { info } })
 }
+
+// 全局未捕获 Promise 错误
+window.addEventListener('unhandledrejection', (event) => {
+  safeCapture(event.reason, 'Unhandled Promise Rejection')
+})
 
 // 性能标记
 app.config.performance = import.meta.env.DEV

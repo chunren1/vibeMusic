@@ -38,5 +38,10 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

@@ -17,25 +17,21 @@ alerting:
 # 抓取目标
 scrape_configs:
   # ── Spring Boot 后端 ──
-  # 🔄 部署时切换：本地开发用 host.docker.internal，Docker 部署用 backend
   - job_name: 'vibemusic-backend'
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets:
-          - 'host.docker.internal:8080'   # [本地开发] 宿主机运行的 backend
-        # - 'backend:8080'                # [Docker生产] 取消注释这行，注释掉上面那行
+          - 'backend:8080'                # [Docker 部署] 通过容器名访问
         labels:
           service: 'spring-boot'
           application: 'vibemusic-backend'
 
   # ── musicapi Express 网关 ──
-  # 🔄 部署时切换：本地开发用 host.docker.internal，Docker 部署用 musicapi
   - job_name: 'musicapi'
     metrics_path: '/metrics'
     static_configs:
       - targets:
-          - 'host.docker.internal:3000'   # [本地开发] 宿主机运行的 musicapi
-        # - 'musicapi:3000'               # [Docker生产] 取消注释这行，注释掉上面那行
+          - 'musicapi:3000'               # [Docker 部署] 通过容器名访问
         labels:
           service: 'express-bff'
 

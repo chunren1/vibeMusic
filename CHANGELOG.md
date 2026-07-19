@@ -5,6 +5,55 @@
 
 ---
 
+## 2026-07-19 全链路审计修复（41 个问题）
+
+### 🔴 安全漏洞修复
+- **ES 查询注入**：keyword 拼接 URL param → JSON body POST + 转义
+- **RateLimit 竞态**：INCR+EXPIRE 非原子 → Lua 脚本原子操作
+- **凭据泄露**：.env.docker / my.cnf 明文密码 → 环境变量占位符
+- **端口暴露**：MySQL/Redis/Prometheus/Grafana/Alertmanager → 全部关闭对外端口
+- **CSP 加固**：移除 unsafe-inline，增加 object-src/base-uri/form-action
+- **SSRF 防护**：CDN 白名单从硬编码 → application.yml 可配置
+- **登录限流**：Nginx auth_limit 3r/s
+
+### 🟠 后端核心优化
+- **搜索线程池**：CallerRunsPolicy（阻塞 Tomcat）→ DiscardOldestPolicy + 过载日志
+- **HTTP 连接池**：maxTotal 100→200 / perRoute 20→50 + connectionRequestTimeout=3s
+- **播放历史**：MAX_HISTORY 300→500 / playedAt FieldStrategy.NEVER 移除
+- **AI 模型配置化**：model/thinking/api-url 全部 @Value 注入
+- **HttpHeaders 线程安全**：static final → 每次新建实例
+- **全局异常**：新增 HttpMessageNotReadable / MethodNotSupported / ConstraintViolation 处理器
+- **Flyway**：V3 版本号冲突 → V5 幂等迁移覆盖
+- **SongMapper**：insertOrUpdateUrl 增补 lyric 列
+
+### 🟡 BFF 网关加固
+- **速率限制**：express-rate-limit（全局100/min、搜索30/min、URL60/min）
+- **参数校验**：keyword≤100字符、size≤100上限、prefer白名单、id正则
+- **Cookie 监控**：60min→15min 检查间隔
+- **Cookie 刷新**：GET /refresh-qq-cookie + POST /cookie/reload；Playwright 提取脚本
+- **LRU 缓存**：手写 Map → lru-cache 库
+- **搜索黑名单**：7项→15项
+- **异步日志**：stream.write → fs.appendFile
+
+### 🟢 前端改进
+- **ErrorBoundary**：组件崩溃降级 UI + 重试
+- **safeCapture**：统一错误日志替代静默吞错
+- **vite 构建**：drop_console→['log','info','debug']
+- **LyricsView**：fullscreenchange 监听器泄漏修复
+- **SearchView**：routeKeyword 初始搜索修复
+
+### 🛠 运维增强
+- **MinIO 备份容器**：每日 mc mirror
+- **JVM 优化**：MaxRAMPercentage=75% + G1GC
+- **ES 健康检查**：补认证
+- **Nginx 限流**：X-Forwarded-For 替代 binary_remote_addr
+
+### 🧪 测试
+- 前端：ErrorBoundary 4用例 / 后端：GlobalExceptionHandler 12用例 + RateLimitService 7用例
+- musicapi 集成测试：6组用例
+
+---
+
 ## 2026-07-08 生产级全栈加固与三阶段优化
 
 ### 🔒 生产安全加固（16 项）

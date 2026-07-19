@@ -10,9 +10,9 @@ datasources:
     isDefault: true
     editable: true
 
-  # Loki 日志数据源（如启用 Loki 日志聚合）
-  - name: Loki
-    type: loki
-    access: proxy
-    url: http://loki:3100
-    editable: true
+  # Loki 日志数据源（需先部署 Loki 容器后取消注释）
+  # - name: Loki
+  #   type: loki
+  #   access: proxy
+  #   url: http://loki:3100
+  #   editable: true

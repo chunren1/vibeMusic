@@ -1,6 +1,7 @@
 # Alertmanager 告警通知配置
+# 通知通道通过环境变量 ALERT_WEBHOOK_URL 注入（支持钉钉/企业微信/自定义 Webhook）
 global:
-  # 默认 SMTP 配置（按需启用，环境变量注入）
+  # 默认 SMTP 配置（按需启用）
   # smtp_smarthost: 'smtp.qq.com:465'
   # smtp_from: 'alert@vibemusic.com'
   # smtp_auth_username: '${SMTP_USER}'
@@ -9,37 +10,43 @@ global:
 # 告警路由
 route:
   group_by: ['alertname', 'severity']
-  group_wait: 30s          # 同组告警等待 30s 合并发送
-  group_interval: 5m       # 同组告警间隔 5 分钟
-  repeat_interval: 4h      # 重复告警间隔 4 小时
-  receiver: 'default'
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'webhook-fallback'
 
 receivers:
-  # 默认接收器：仅日志输出
-  - name: 'default'
+  # 默认：仅日志输出
+  - name: 'webhook-fallback'
 
-  # 钉钉机器人 Webhook（填入你的 access_token 后取消注释）
+  # Webhook 通知（通过 ALERT_WEBHOOK_URL 环境变量注入，支持钉钉/企业微信等）
+  # docker-compose 中设置: ALERT_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=xxx
+  # 配置后取消下面注释，并将 route.receiver 改为 'webhook'
+  # - name: 'webhook'
+  #   webhook_configs:
+  #     - url: '${ALERT_WEBHOOK_URL}'
+  #       send_resolved: true
+
+  # 钉钉机器人
   # - name: 'dingtalk'
   #   webhook_configs:
   #     - url: 'https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN'
   #       send_resolved: true
 
-  # 企业微信 Webhook
+  # 企业微信
   # - name: 'wecom'
   #   webhook_configs:
   #     - url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY'
   #       send_resolved: true
 
-  # 邮件通知
+  # 邮件
   # - name: 'email'
   #   email_configs:
   #     - to: 'admin@vibemusic.com'
   #       headers:
   #         Subject: '【vibeMusic 告警】{{ .GroupLabels.alertname }}'
 
-# 告警抑制规则
 inhibit_rules:
-  # 服务宕机时抑制该服务的其他告警
   - source_match:
       severity: 'critical'
     target_match:
