@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClient;
 
@@ -52,24 +53,28 @@ public class StreamController {
     public void shutdown() { ASYNC_CACHE_EXECUTOR.shutdown(); }
 
     /** 音频 CDN 域名通配符白名单（防 SSRF），支持 *.music.126.net 风格 */
-    private static final List<String> AUDIO_CDN_WILDCARDS = List.of(
-            "*.music.126.net",
-            "*.gtimg.cn",
-            "*.stream.qqmusic.qq.com",
-            "*.tc.qq.com",
-            "*.tencentmusic.com"
-    );
+    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com}")
+    private String cdnWhitelistConfig;
+
+    private List<String> loadCdnWhitelist() {
+        return Arrays.stream(cdnWhitelistConfig.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
 
     private boolean isCdnWhitelisted(String host) {
         if (host == null) return false;
-        for (String pattern : AUDIO_CDN_WILDCARDS) {
+        List<String> whitelist = loadCdnWhitelist();
+        for (String pattern : whitelist) {
             if (pattern.startsWith("*.")) {
-                String suffix = pattern.substring(1); // .music.126.net
+                String suffix = pattern.substring(1);
                 if (host.equals(pattern.substring(2)) || host.endsWith(suffix)) return true;
             } else if (host.equals(pattern)) {
                 return true;
             }
         }
+        log.warn("SSRF blocked: host={} not in cdn-whitelist", host);
         return false;
     }
 

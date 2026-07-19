@@ -15,15 +15,16 @@
         命中的唯一键: uk_source_id (source_id)
     -->
     <insert id="insertOrUpdateUrl" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO song(source_id, name, artist, album, cover_url, duration, url)
-        VALUES(#{sourceId}, #{name}, #{artist}, #{album}, #{coverUrl}, #{duration}, #{url})
+        INSERT INTO song(source_id, name, artist, album, cover_url, duration, url, lyric)
+        VALUES(#{sourceId}, #{name}, #{artist}, #{album}, #{coverUrl}, #{duration}, #{url}, #{lyric})
         ON DUPLICATE KEY UPDATE
             url = VALUES(url),
             name = VALUES(name),
             artist = VALUES(artist),
             album = VALUES(album),
             cover_url = VALUES(cover_url),
-            duration = VALUES(duration)
+            duration = VALUES(duration),
+            lyric = COALESCE(VALUES(lyric), lyric)
     </insert>
 
 </mapper>

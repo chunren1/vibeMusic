@@ -26,14 +26,23 @@ public class RateLimitService {
      * @param window  时间窗口
      * @return true=放行, false=限流
      */
+    // Lua 脚本: 原子 INCR + 首次时设 TTL（修复非原子操作的竞态条件）
+    private static final String ATOMIC_INCR_SCRIPT = """
+            local count = redis.call('INCR', KEYS[1])
+            if count == 1 then
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+            return count
+            """;
+
     public boolean tryAcquire(String key, int max, Duration window) {
         String redisKey = PREFIX + key;
-        Long count = stringRedisTemplate.opsForValue().increment(redisKey);
+        Long count = stringRedisTemplate.execute(
+                new org.springframework.data.redis.core.script.DefaultRedisScript<>(ATOMIC_INCR_SCRIPT, Long.class),
+                java.util.List.of(redisKey),
+                String.valueOf(window.getSeconds())
+        );
         if (count == null) return true;
-        if (count == 1) {
-            // 首次请求，设置窗口过期时间
-            stringRedisTemplate.expire(redisKey, window);
-        }
         if (count > max) {
             log.warn("[RateLimit] {} 超出限制: {}/{} (窗口:{})", key, count - 1, max, window);
             return false;

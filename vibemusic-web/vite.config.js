@@ -16,9 +16,8 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
+        drop_console: ['log', 'info', 'debug'],  // 仅保留 warn/error，生产环境防信息泄漏
         drop_debugger: true,
-        pure_funcs: ['console.debug'],
         passes: 2,
       },
       mangle: { safari10: true },

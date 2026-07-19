@@ -21,7 +21,8 @@ import java.util.stream.Collectors;
 public class PlayHistoryService {
 
     private final PlayHistoryMapper mapper;
-    private static final int MAX_HISTORY = 300;
+    // 每用户播放历史上限（超出部分概率性清理最旧记录）
+    private static final int MAX_HISTORY = 500;
     private static final int CLEANUP_INTERVAL = 10; // 每 10 次播放触发 1 次清理
     private final AtomicInteger recordCounter = new AtomicInteger(0);
 

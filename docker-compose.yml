@@ -35,9 +35,8 @@ services:
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
       TZ: Asia/Shanghai
-    # MySQL 暴露端口以便宿主机本地后端连接（生产环境注释掉）
-    ports:
-      - "3306:3306"
+    # MySQL 仅内部网络访问（生产环境已关闭端口暴露）
+    # 本地调试需直连时取消注释: ports: - "3306:3306"
     volumes:
       # 数据持久化
       - ./docker-data/mysql/data:/var/lib/mysql
@@ -71,9 +70,8 @@ services:
     container_name: vibemusic-redis
     restart: unless-stopped
     logging: *default-logging
-    # Redis 暴露到宿主机，供本地开发连接
-    ports:
-      - "6379:6379"
+    # Redis 仅内部网络访问（生产环境已关闭端口暴露）
+    # 本地调试需直连时取消注释: ports: - "6379:6379"
     volumes:
       # 数据持久化
       - ./docker-data/redis/data:/data
@@ -121,7 +119,7 @@ services:
     networks:
       - vibemusic-net
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f -u elastic:${ES_PASSWORD:-ChangeMeES123!} http://localhost:9200/_cluster/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 8
@@ -223,6 +221,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost,http://localhost:5173}
       # Profile
       SPRING_PROFILES_ACTIVE: docker
+      # JVM 自适应内存 (MaxRAMPercentage 自动按容器限制分配)
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication"
     ports:
       - "8080:8080"
     mem_limit: 512M
@@ -306,8 +306,8 @@ services:
     container_name: vibemusic-prometheus
     restart: unless-stopped
     logging: *default-logging
-    ports:
-      - "9090:9090"
+    # Prometheus 仅内部网络访问（通过 Nginx 反向代理 + auth 访问）
+    # 本地调试需直接访问时取消注释: ports: - "9090:9090"
     volumes:
       - ./docker-data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./docker-data/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
@@ -339,9 +339,10 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
       TZ: Asia/Shanghai
-    ports:
-      - "3001:3000"
+    # Grafana 仅内部网络访问（通过 Nginx 反向代理 + auth 访问）
+    # 本地调试需直接访问时取消注释: ports: - "3001:3000"
     mem_limit: 256M
     cpus: 0.5
     volumes:
@@ -366,8 +367,8 @@ services:
     container_name: vibemusic-alertmanager
     restart: unless-stopped
     logging: *default-logging
-    ports:
-      - "9093:9093"
+    # Alertmanager 仅内部网络访问
+    # 本地调试需直接访问时取消注释: ports: - "9093:9093"
     volumes:
       - ./docker-data/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./docker-data/alertmanager/data:/alertmanager
@@ -413,11 +414,29 @@ services:
     restart: unless-stopped
     environment:
       REDIS_ADDR: redis://redis:6379
-      REDIS_PASSWORD: 
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     networks:
       - vibemusic-net
     depends_on:
       redis:
+        condition: service_healthy
+
+  # ==========================
+  # MinIO 每日备份（将对象存储同步到本地备份目录）
+  # ==========================
+  minio-backup:
+    image: minio/mc:latest
+    container_name: vibemusic-minio-backup
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /backup; while true; do /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-ChangeMe456!}; /usr/bin/mc mirror --overwrite minio/vibemusic /backup/vibemusic 2>&1 | head -5; echo \"[MINIO-BACKUP] $(date +%Y%m%d-%H%M%S) backup done\"; sleep 86400; done"]
+    volumes:
+      - ./docker-data/backups/minio:/backup
+    networks:
+      - vibemusic-net
+    depends_on:
+      minio:
         condition: service_healthy
 
 # ==========================

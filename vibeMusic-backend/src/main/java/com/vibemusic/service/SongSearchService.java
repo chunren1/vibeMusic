@@ -94,25 +94,33 @@ public class SongSearchService {
     private static final Pattern NON_ALPHANUM = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
     /**
-     * 共享搜索线程池（有界队列 + 回压策略）
+     * 共享搜索线程池（有界队列 + 超时丢弃策略）
      * <p>
      * 50 VU 同时穿透时，每个搜索需 2 个线程（netease + qq），
      * 核心线程 50 保证常态并发不排队；最大 100 应对突发流量；
-     * 有界队列 200 防止任务无限堆积 OOM；
-     * CallerRunsPolicy：线程池满载时由调用方 Tomcat 线程直接执行，形成回压。
+     * 有界队列 300 缓冲峰值请求；
+     * DiscardOldestPolicy：线程池满载时丢弃最旧任务并记录日志，
+     * 避免 CallerRunsPolicy 阻塞 Tomcat 线程导致连锁超时。
      */
     private static final int SEARCH_CORE = 50;
     private static final int SEARCH_MAX = 100;
     private static final ExecutorService SEARCH_EXECUTOR = new ThreadPoolExecutor(
             SEARCH_CORE, SEARCH_MAX,
             60L, TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(200),
+            new LinkedBlockingQueue<>(300),
             r -> {
                 Thread t = new Thread(r, "search-worker");
                 t.setDaemon(true);
                 return t;
             },
-            new ThreadPoolExecutor.CallerRunsPolicy()
+            new ThreadPoolExecutor.DiscardOldestPolicy() {
+                @Override
+                public void rejectedExecution(Runnable r, ThreadPoolExecutor e) {
+                    log.warn("[SEARCH-POOL] 搜索线程池过载，丢弃最旧任务（队列: {}/{}, 活跃线程: {}/{})",
+                            e.getQueue().size(), 300, e.getActiveCount(), e.getMaximumPoolSize());
+                    super.rejectedExecution(r, e);
+                }
+            }
     );
 
     /** 预热线程池（有界队列，独立于搜索线程池，预热不会阻塞正式请求） */

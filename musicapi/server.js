@@ -10,9 +10,37 @@ const qqMusic = require('qq-music-api');
 const axios = require('axios');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const promClient = require('prom-client');
+const { LRUCache } = require('lru-cache');
 
 const app = express();
 const PORT = 3000;
+
+// ==================== 速率限制（防滥用/爬取） ====================
+const rateLimit = require('express-rate-limit');
+
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: 429, message: '请求过于频繁，请稍后再试', data: null },
+});
+
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: 429, message: '搜索请求过于频繁，请稍后再试', data: null },
+});
+
+const urlLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { code: 429, message: '请求过于频繁，请稍后再试', data: null },
+});
 
 // ==================== 日志系统（按天轮转 + 30天自动清理） ====================
 const LOG_DIR = path.join(__dirname, 'logs');
@@ -89,7 +117,8 @@ class LogManager {
     if (stream) {
       const timestamp = new Date().toISOString();
       const line = `[${timestamp}] [${level}] ${message}\n`;
-      stream.write(line);
+      // 使用异步写入避免阻塞事件循环
+      fs.appendFile(path.join(LOG_DIR, `${category}.${this.currentDate}.log`), line, () => {});
     }
   }
 }
@@ -108,6 +137,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(globalLimiter);  // 全局限流
 
 // 访问日志中间件
 app.use((req, res, next) => {
@@ -245,22 +275,101 @@ async function checkCookies() {
     writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 检查失败: ${e.message}`);
   }
 
-  // 检查QQ
+  // 检查QQ（含自动恢复）
+  await checkQQCookie();
+}
+
+// ==================== QQ Cookie 检查 + 手动恢复引导 ====================
+
+async function checkQQCookie() {
   try {
     const qqRes = await qqMusic.api('search', { key: '周杰伦', limit: 1 });
     if (qqRes && qqRes.list && qqRes.list.length > 0) {
       cookieStatus.qq = true;
       cookieStatusGauge.set({ platform: 'qq' }, 1);
       writeLog('cookie', 'INFO', '✅ QQ音乐 Cookie 正常');
-    } else {
-      cookieStatus.qq = false;
-      cookieStatusGauge.set({ platform: 'qq' }, 0);
-      writeLog('cookie', 'ERROR', '❌ QQ音乐 Cookie 异常: 无搜索结果');
+      return;
     }
+    failQQCookie('无搜索结果');
   } catch (e) {
-    cookieStatus.qq = false;
-    cookieStatusGauge.set({ platform: 'qq' }, 0);
-    writeLog('cookie', 'ERROR', `❌ QQ音乐 Cookie 检查失败: ${e.message}`);
+    failQQCookie(e.message);
+  }
+}
+
+function failQQCookie(reason) {
+  cookieStatus.qq = false;
+  cookieStatusGauge.set({ platform: 'qq' }, 0);
+  writeLog('cookie', 'ERROR', `❌ QQ音乐 Cookie 异常: ${reason}`);
+  writeLog('cookie', 'WARN', '💡 请在终端运行: node scripts/get_qq_cookie.mjs  或调用 GET /refresh-qq-cookie');
+}
+
+// GET /refresh-qq-cookie — 手动触发浏览器提取 Cookie（需有桌面环境）
+app.get('/refresh-qq-cookie', async (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  const { spawn } = require('child_process');
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'get_qq_cookie.mjs');
+
+  res.write('⏳ 正在打开浏览器提取 QQ Cookie...\n');
+
+  const child = spawn('node', [scriptPath], {
+    cwd: path.resolve(__dirname, '..'),
+    timeout: 120000,
+    env: process.env,
+    // 关键：继承父进程 stdio，让 Playwright 有终端上下文可以打开浏览器
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  child.stdout.on('data', (d) => { stdout += d.toString(); res.write(d); });
+  child.stderr.on('data', (d) => { stdout += d.toString(); });
+
+  child.on('close', async (code) => {
+    if (code === 0 && reloadQQCookie()) {
+      cookieStatus.qq = true;
+      cookieStatusGauge.set({ platform: 'qq' }, 1);
+      res.write('\n✅ Cookie 提取成功! 已自动加载，无需重启。\n');
+    } else {
+      res.write(`\n❌ 脚本退出码: ${code}\n`);
+      res.write('请在终端手动运行: node scripts/get_qq_cookie.mjs\n');
+    }
+    res.end();
+  });
+
+  child.on('error', (err) => {
+    res.write(`\n❌ 无法启动浏览器: ${err.message}\n`);
+    res.write('请在终端手动运行: node scripts/get_qq_cookie.mjs\n');
+    res.end();
+  });
+});
+
+// POST /cookie/reload — 手动重载 .env 中的 Cookie（无需重启 musicapi）
+app.post('/cookie/reload', (req, res) => {
+  if (reloadQQCookie()) {
+    res.json({ code: 200, message: 'Cookie 已从 .env 重新加载', data: { qqCookieKeys: Object.keys(config.qq).length } });
+  } else {
+    res.status(500).json({ code: 500, message: '重载失败，请检查 .env 文件' });
+  }
+});
+
+function reloadQQCookie() {
+  try {
+    const fs = require('fs');
+    const envPath = path.resolve(__dirname, '..', '.env');
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    const match = envContent.match(/MUSIC_QQ_COOKIE=(.+)/);
+    if (!match) {
+      writeLog('cookie', 'ERROR', '.env 中未找到 MUSIC_QQ_COOKIE');
+      return false;
+    }
+    const cookieRaw = match[1].trim();
+    const cookieJson = JSON.parse(cookieRaw);
+    config.qq = cookieJson;
+    qqMusic.setCookie(cookieJson);  // ← 关键：重新注入到 qq-music-api
+    writeLog('cookie', 'INFO', `重载 QQ Cookie: ${Object.keys(cookieJson).length} 个字段`);
+    return true;
+  } catch (e) {
+    writeLog('cookie', 'ERROR', `重载 Cookie 失败: ${e.message}`);
+    return false;
   }
 }
 
@@ -269,14 +378,19 @@ process.on('unhandledRejection', (reason) => {
   writeLog('api', 'ERROR', `[unhandledRejection] ${reason?.message || reason}`);
 });
 
-// 启动时检查一次（容错：即使崩溃也不影响启动），之后每小时检查
+// 启动时检查一次（容错：即使崩溃也不影响启动），之后每 15 分钟检查
 (async () => { try { await checkCookies(); } catch (e) { writeLog('cookie', 'ERROR', `Cookie check crashed: ${e.message}`); } })();
-setInterval(() => { checkCookies().catch(e => writeLog('cookie', 'ERROR', `Cookie timer failed: ${e.message}`)); }, 60 * 60 * 1000);
+setInterval(() => { checkCookies().catch(e => writeLog('cookie', 'ERROR', `Cookie timer failed: ${e.message}`)); }, 15 * 60 * 1000);
 
 // Cookie 状态查询端点
 app.get('/cookie-status', (req, res) => {
   const qqKeys = Object.keys(config.qq).length;
-  res.json({ code: 200, data: { ...cookieStatus, qqCookieKeys: qqKeys }, timestamp: new Date().toISOString() });
+  res.json({
+    code: 200,
+    data: { ...cookieStatus, qqCookieKeys: qqKeys },
+    tip: cookieStatus.qq ? null : 'Cookie 过期，请运行: node scripts/get_qq_cookie.mjs',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // ==================== 上游 API 超时控制 ====================
@@ -315,44 +429,19 @@ const PUNCTUATION_RE = /[、，。！？；：""''（）《》【】\s\u00A0]+/g
 
 const CACHE_TTL = 5 * 60 * 1000; // 5分钟
 
-// ==================== LRU 缓存 ====================
+// ==================== LRU 缓存（使用 lru-cache 库） ====================
 
-class LRUCache {
-  constructor(max = 200, ttl = CACHE_TTL) {
-    this.max = max;
-    this.ttl = ttl;
-    this.map = new Map();
-  }
+const searchCache = new LRUCache({
+  max: 200,
+  ttl: CACHE_TTL,
+  updateAgeOnGet: true,
+});
 
-  get(key) {
-    if (!this.map.has(key)) return null;
-    const entry = this.map.get(key);
-    if (Date.now() - entry.ts > this.ttl) {
-      this.map.delete(key);
-      return null;
-    }
-    // 移至队尾 (最近使用)
-    this.map.delete(key);
-    this.map.set(key, entry);
-    return entry.value;
-  }
-
-  set(key, value) {
-    if (this.map.has(key)) this.map.delete(key);
-    else if (this.map.size >= this.max) {
-      // 淘汰最久未使用 (队首)
-      const oldest = this.map.keys().next().value;
-      this.map.delete(oldest);
-    }
-    this.map.set(key, { value, ts: Date.now() });
-  }
-
-  clear() { this.map.clear(); }
-  get size() { return this.map.size; }
-}
-
-const searchCache = new LRUCache(200);
-const urlCache = new LRUCache(200, 10 * 60 * 1000); // URL 缓存 10min，不污染搜索缓存
+const urlCache = new LRUCache({
+  max: 200,
+  ttl: 10 * 60 * 1000,
+  updateAgeOnGet: true,
+});
 
 // ==================== 数据清洗工具 ====================
 
@@ -427,7 +516,7 @@ function calcPopularity(song) {
     const pc = song._raw?.playCount || 0;
     return normalizeLog(pc, 1000000);
   } else if (song.platform === 'qq') {
-    const pop = song._raw?.listenCount || song._raw?.popularity || song._raw?.pay?.pay_play || 0;
+    const pop = song._raw?.listenCount || song._raw?.popularity || 0;
     return normalizeLog(pop, 1000000);
   }
   return 0.5; // 默认中等热度
@@ -482,7 +571,7 @@ function isSameSong(a, b) {
 /**
  * GET /search?keyword=xxx&page=1&size=20&prefer=netease
  */
-app.get('/search', async (req, res) => {
+app.get('/search', searchLimiter, async (req, res) => {
   try {
     const { keyword, page = 1, size = 20, prefer } = req.query;
     const maxRank = 30; // 各平台获取的最大条数
@@ -490,6 +579,14 @@ app.get('/search', async (req, res) => {
     if (!keyword) {
       return res.status(400).json({ code: 400, message: 'keyword is required', data: null });
     }
+    if (keyword.length > 100) {
+      return res.status(400).json({ code: 400, message: 'keyword too long (max 100 chars)', data: null });
+    }
+    // size 上限 100，防内存溢出
+    const safeSize = Math.min(Math.max(1, parseInt(size) || 20), 100);
+    // prefer 枚举白名单
+    const validPrefers = ['netease', 'qq'];
+    const safePrefer = validPrefers.includes(prefer) ? prefer : undefined;
 
     const kw = keyword.trim();
 
@@ -499,7 +596,7 @@ app.get('/search', async (req, res) => {
     if (cached) {
       cacheHitTotal.inc({ cache_type: 'search' });
       writeLog('access', 'INFO', `[Cache] HIT for "${kw}"`);
-      const pageData = paginate(cached, page, size);
+      const pageData = paginate(cached, page, safeSize);
       return res.json({ code: 200, message: 'success (cached)', data: pageData });
     }
 
@@ -514,13 +611,13 @@ app.get('/search', async (req, res) => {
 
     neteaseSongs.forEach((song, idx) => {
       const s = { ...song, platform: 'netease', _raw: song._raw };
-      s.score = calculateScore(s, kw, idx, neteaseSongs.length, prefer);
+      s.score = calculateScore(s, kw, idx, neteaseSongs.length, safePrefer);
       scored.push(s);
     });
 
     qqSongs.forEach((song, idx) => {
       const s = { ...song, platform: 'qq', _raw: song._raw };
-      s.score = calculateScore(s, kw, idx, qqSongs.length, prefer);
+      s.score = calculateScore(s, kw, idx, qqSongs.length, safePrefer);
       scored.push(s);
     });
 
@@ -563,7 +660,7 @@ app.get('/search', async (req, res) => {
     searchCache.set(cacheKey, refined);
 
     // ---- 分页 ----
-    const pageData = paginate(refined, page, size);
+    const pageData = paginate(refined, page, safeSize);
 
     res.json({ code: 200, message: 'success', data: pageData });
   } catch (error) {
@@ -721,7 +818,7 @@ async function searchQQ(keyword, limit) {
 
 const SEARCH_FILTER = {
   minDuration: 50,
-  blacklist: ['伴奏', '纯音乐', '有声书', '朗诵', '翻唱', 'dj版', 'remix'],
+  blacklist: ['伴奏', '纯音乐', '有声书', '朗诵', '翻唱', 'dj版', 'remix', '铃声', '口水版', '抖音版', '现场版', 'demo', '教学', 'ktv版'],
   penalty: 0.8,
   nameMatchBonus: 0.4,
   artistMatchBonus: 0.2,
@@ -787,6 +884,7 @@ app.get('/lyric', async (req, res) => {
   try {
     const { id } = req.query;
     if (!id) return res.status(400).json({ code: 400, message: 'id is required' });
+    if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
     const result = await NeteaseCloudMusicApi.lyric(withNeteaseCookie({ id }));
     res.json(result.body);
   } catch (error) {
@@ -809,6 +907,7 @@ app.get('/song/url/v1', async (req, res) => {
   try {
     const { id, level = 'exhigh' } = req.query;
     if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
+    if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
     const result = await NeteaseCloudMusicApi.song_url_v1(withNeteaseCookie({ id, level }));
     res.json(result.body);
   } catch (error) {
@@ -863,10 +962,11 @@ app.get('/qq/search', async (req, res) => {
 
 // ==================== QQ音乐URL (缓存) ====================
 
-app.get('/song/url/qq', async (req, res) => {
+app.get('/song/url/qq', urlLimiter, async (req, res) => {
   try {
     const { id } = req.query;
     if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
+    if (!/^[a-zA-Z0-9]{10,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
     const cacheKey = `qq_url:${id}`;
     const cached = urlCache.get(cacheKey);
     if (cached) return res.json({ code: 200, data: cached });
@@ -907,12 +1007,8 @@ app.get('/song/url/qq', async (req, res) => {
 
 // ==================== 通用代理路由（限制已知方法） ====================
 
-// 允许的网易云 API 方法白名单
-const ALLOWED_NETEASE_APIS = new Set([
-  'cloudsearch', 'search', 'song_url_v1', 'song_detail', 'lyric',
-  'personalized', 'toplist', 'toplist_detail', 'playlist_detail',
-  'artist_songs', 'album', 'banner', 'login_status', 'user_detail',
-]);
+// 允许的网易云 API 方法白名单（从 config.js 读取）
+const ALLOWED_NETEASE_APIS = new Set(config.neteaseApis);
 
 app.all('/netease/*', async (req, res) => {
   try {
@@ -940,6 +1036,7 @@ app.get('/qq/playlist', async (req, res) => {
   try {
     const { id } = req.query;
     if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
+    if (!/^\d{3,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
     const result = await qqMusic.api('/songlist', { disstid: id });
     // qq-music-api 返回格式: { code, data: { cdlist: [...] } }
     const pl = result?.data?.cdlist?.[0] || result?.cdlist?.[0];

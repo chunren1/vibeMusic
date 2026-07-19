@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { getLyric, downloadSong as apiDownload } from '@/api/song'
 import { API_HOST } from '@/api/request'
 import { useClickOutside } from '@/composables/useClickOutside'
@@ -304,7 +304,13 @@ watch(() => props.currentSong.id, (newId) => {
   if (props.visible && newId) fetchLyric(newId)
 })
 
-onUnmounted(() => { stopTimeSync(); stopSpectrum(); exitFullscreen() })
+onMounted(() => {
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+onUnmounted(() => {
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  stopTimeSync(); stopSpectrum(); exitFullscreen()
+})
 
 const currentLyricIndex = ref(0)
 watch(() => currentTime.value, () => {
@@ -336,7 +342,7 @@ function exitFullscreen() {
   if (document.fullscreenElement) { document.exitFullscreen().catch(() => {}) }
   isFullscreen.value = false
 }
-document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) isFullscreen.value = false })
+function onFullscreenChange() { if (!document.fullscreenElement) isFullscreen.value = false }
 
 function formatTime(s) {
   if (!s || isNaN(s)) return '00:00'

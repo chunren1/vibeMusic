@@ -15,6 +15,6 @@ public class PlayHistory {
     private String songName;
     private String coverUrl;
     private String artist;
-    @TableField(fill = FieldFill.INSERT_UPDATE, insertStrategy = FieldStrategy.NEVER)
+    @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime playedAt;
 }

@@ -154,8 +154,12 @@ public class ESSearchService {
         }
         long start = System.currentTimeMillis();
         try {
-            String resp = client.get().uri(uri -> uri.path("/" + INDEX + "/_search")
-                            .queryParam("q", "keyword:" + keyword).queryParam("size", 80).build())
+            // 使用 JSON body 防止查询注入（keyword 中的 " 或 } 不会破坏结构）
+            String escapedKeyword = keyword.replace("\"", "\\\"");
+            String payload = "{\"query\":{\"match\":{\"keyword\":\"" + escapedKeyword + "\"}},\"size\":80}";
+            String resp = client.post().uri(uri -> uri.path("/" + INDEX + "/_search").build())
+                    .header("Content-Type", "application/json")
+                    .bodyValue(payload)
                     .retrieve().bodyToMono(String.class).timeout(TIMEOUT).block();
             if (resp == null) return List.of();
             JsonNode hits = mapper.readTree(resp).path("hits").path("hits");

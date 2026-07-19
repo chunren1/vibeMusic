@@ -46,8 +46,9 @@ public class AssistantController {
     private final RateLimitService rateLimitService;
     private final ObjectMapper objectMapper;
     private final String apiKey;
-    private static final String API_URL = "https://api.deepseek.com/chat/completions";
-    private static final String MODEL = "deepseek-v4-flash";
+    private final String aiModel;
+    private final String thinkingMode;
+    private final String apiUrl;
     private static final int AI_RATE_LIMIT = 10;
 
     public AssistantController(RestTemplate restTemplate,
@@ -56,14 +57,20 @@ public class AssistantController {
                                ChatMemoryService chatMemoryService,
                                RateLimitService rateLimitService,
                                ObjectMapper objectMapper,
-                               @Value("${ai.api-key:}") String apiKey) {
+                               @Value("${ai.api-key:}") String apiKey,
+                               @Value("${ai.model:deepseek-v4-flash}") String aiModel,
+                               @Value("${ai.thinking-mode:disabled}") String thinkingMode,
+                               @Value("${ai.api-url:https://api.deepseek.com/chat/completions}") String apiUrl) {
         this.restTemplate = restTemplate;
-        this.webClient = webClientBuilder.baseUrl(API_URL).build();
+        this.webClient = webClientBuilder.baseUrl(apiUrl).build();
         this.aiToolService = aiToolService;
         this.chatMemoryService = chatMemoryService;
         this.rateLimitService = rateLimitService;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
+        this.aiModel = aiModel;
+        this.thinkingMode = thinkingMode;
+        this.apiUrl = apiUrl;
     }
 
     // ========================== /chat 同步对话 ==========================
@@ -78,7 +85,7 @@ public class AssistantController {
             return Result.error("消息过长，请限制在 2000 字以内");
 
         if (apiKey == null || apiKey.isBlank())
-            return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY", "model", MODEL));
+            return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY", "model", aiModel));
 
         Long userId = UserService.getCurrentUserId();
         String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anonymous");
@@ -136,13 +143,13 @@ public class AssistantController {
 
             Map<String, Object> result = new HashMap<>();
             result.put("reply", reply);
-            result.put("model", MODEL);
+            result.put("model", aiModel);
             result.put("songs", songs);
             result.put("toolCalls", toolResults.size());
             return Result.ok(result);
         } catch (Exception e) {
             log.error("AI 对话失败", e);
-            return Result.ok(Map.of("reply", "让我想想...请稍后再试", "model", MODEL, "songs", List.of()));
+            return Result.ok(Map.of("reply", "让我想想...请稍后再试", "model", aiModel, "songs", List.of()));
         }
     }
 
@@ -194,7 +201,7 @@ public class AssistantController {
                         // 流结束
                         chatMemoryService.appendMessage(userId, "user", userMessage);
                         chatMemoryService.appendMessage(userId, "assistant", fullReply.toString());
-                        sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", MODEL));
+                        sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", aiModel));
                         emitter.complete();
                         return;
                     }
@@ -229,7 +236,7 @@ public class AssistantController {
                         chatMemoryService.appendMessage(userId, "user", userMessage);
                         chatMemoryService.appendMessage(userId, "assistant", fullReply.toString());
                     }
-                    sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", MODEL));
+                    sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", aiModel));
                     emitter.complete();
                 }
             );
@@ -276,13 +283,13 @@ public class AssistantController {
     @SuppressWarnings("unchecked")
     private Map<String, Object> callLLMWithTools(List<Map<String, Object>> messages) {
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", MODEL);
+        requestBody.put("model", aiModel);
         requestBody.put("messages", messages);
         requestBody.put("max_tokens", 800);
         requestBody.put("temperature", 0.7);
         requestBody.put("tools", aiToolService.getToolDefinitions());
         requestBody.put("tool_choice", "auto");
-        requestBody.put("thinking", Map.of("type", "disabled"));
+        requestBody.put("thinking", Map.of("type", thinkingMode));
 
         try {
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
@@ -290,7 +297,7 @@ public class AssistantController {
             headers.setBearerAuth(apiKey);
 
             org.springframework.http.ResponseEntity<Map> response = restTemplate.postForEntity(
-                API_URL, new org.springframework.http.HttpEntity<>(requestBody, headers), Map.class);
+                apiUrl, new org.springframework.http.HttpEntity<>(requestBody, headers), Map.class);
 
             Map<String, Object> body = response.getBody();
             if (body == null) return Map.of();
@@ -310,12 +317,12 @@ public class AssistantController {
      */
     private Map<String, Object> buildStreamRequestBody(List<Map<String, Object>> messages) {
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", MODEL);
+        requestBody.put("model", aiModel);
         requestBody.put("messages", messages);
         requestBody.put("max_tokens", 800);
         requestBody.put("temperature", 0.7);
         requestBody.put("stream", true);
-        requestBody.put("thinking", Map.of("type", "disabled"));
+        requestBody.put("thinking", Map.of("type", thinkingMode));
         return requestBody;
     }
 

@@ -74,11 +74,10 @@ function openPlaylistPopup(song) {
 
 favStore.fetchFavIds()
 
-const routeKeyword = route.query.keyword
-watch(() => route.query.keyword, (val) => {
-  if (val === routeKeyword) return // 忽略首次立即执行
+watch(() => route.query.keyword, (val, oldVal) => {
+  // 首次挂载时带关键词直接搜索，后续变化时重新搜索
   keyword.value = val || ''
-  if (val) onSearch()
+  if (val && val !== oldVal) onSearch()
 }, { immediate: true })
 </script>
 
