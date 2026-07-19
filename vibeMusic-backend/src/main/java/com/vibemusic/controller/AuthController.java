@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.*;
 
@@ -187,6 +189,11 @@ public class AuthController {
             return Result.error("头像文件不能超过 2MB");
         }
 
+        // 魔数校验：防止 Content-Type 伪造
+        if (!isValidImage(file)) {
+            return Result.error("文件内容不是有效图片");
+        }
+
         try {
             // 确保上传目录存在
             Path uploadPath = Paths.get(UPLOAD_DIR);
@@ -231,6 +238,11 @@ public class AuthController {
             return Result.error("背景图文件不能超过 2MB");
         }
 
+        // 魔数校验
+        if (!isValidImage(file)) {
+            return Result.error("文件内容不是有效图片");
+        }
+
         try {
             Path uploadPath = Paths.get(UPLOAD_DIR);
             if (!Files.exists(uploadPath)) {
@@ -250,6 +262,30 @@ public class AuthController {
             return Result.ok(data);
         } catch (IOException e) {
             return Result.error("背景图上传失败: " + e.getMessage());
+        }
+    }
+
+    /** 通过文件头部魔数校验是否为真实图片 */
+    private boolean isValidImage(MultipartFile file) {
+        try {
+            byte[] header = new byte[8];
+            try (var in = file.getInputStream()) {
+                int read = in.read(header);
+                if (read < 4) return false;
+            }
+            // JPEG: FF D8 FF
+            if ((header[0] & 0xFF) == 0xFF && (header[1] & 0xFF) == 0xD8 && (header[2] & 0xFF) == 0xFF) return true;
+            // PNG: 89 50 4E 47
+            if (header[0] == (byte)0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G') return true;
+            // GIF: 47 49 46 38
+            if (header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8') return true;
+            // WebP: 52 49 46 46 ... 57 45 42 50
+            if (header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
+                    && header.length >= 12 && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P') return true;
+            return false;
+        } catch (IOException e) {
+            log.warn("魔数校验失败: {}", e.getMessage());
+            return false;
         }
     }
 
@@ -279,14 +315,17 @@ public class AuthController {
 
         // 检查黑名单
         try {
-            String key = TOKEN_BLACKLIST_PREFIX + refreshToken.hashCode();
+            String key = TOKEN_BLACKLIST_PREFIX + hashToken(refreshToken);
             if (cache.exists(key)) {
                 return Result.error(401, "refresh token 已注销");
             }
-        } catch (Exception ignored) { /* Redis 不可用时放行 */ }
+        } catch (Exception e) {
+            log.warn("Redis 不可用，跳过 refresh token 黑名单检查");
+        }
 
         // 生成新 token 对
         String userId = jwtUtils.getUserIdFromToken(refreshToken);
+        if (userId == null) return Result.error(401, "无效的 token");
         String newAccessToken = jwtUtils.generateAccessToken(userId);
         String newRefreshToken = jwtUtils.generateRefreshToken(userId);
 
@@ -302,11 +341,24 @@ public class AuthController {
 
     // ===== token 黑名单 =====
 
+    /** SHA-256 摘要防 hashCode 碰撞 */
+    private String hashToken(String token) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(token.getBytes());
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString().substring(0, 16); // 16 hex = 64 bit，足够防碰撞
+        } catch (NoSuchAlgorithmException e) {
+            return Integer.toHexString(token.hashCode()); // 降级
+        }
+    }
+
     private void blacklistToken(String token) {
         try {
             long remainMs = jwtUtils.getExpirationFromToken(token) - System.currentTimeMillis();
             if (remainMs > 0) {
-                String key = TOKEN_BLACKLIST_PREFIX + token.hashCode();
+                String key = TOKEN_BLACKLIST_PREFIX + hashToken(token);
                 cache.setString(key, "1", Duration.ofMillis(remainMs));
             }
         } catch (Exception e) {

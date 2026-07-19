@@ -79,7 +79,7 @@
       "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
       "targets": [
         {
-          "expr": "up",
+          "expr": "up{job!~\"mysql\"}",
           "legendFormat": "{{job}}",
           "refId": "A"
         }

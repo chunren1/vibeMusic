@@ -35,11 +35,14 @@ const request = axios.create({
 })
 
 request.interceptors.request.use((config) => {
-  if (_tokenCache && _tokenCache !== 'ok') {
+  // 记录请求发起时的 token，用于响应阶段判断 401 是否来自"旧 token"
+  config._sentToken = _tokenCache
+  if (_tokenCache) {
     config.headers.Authorization = `Bearer ${_tokenCache}`
   }
   // 幂等防护：每次写请求带唯一 Request-Id
-  if (['post', 'put', 'delete'].includes(config.method)) {
+  const method = (config.method || '').toLowerCase()
+  if (['post', 'put', 'delete', 'patch'].includes(method)) {
     config.headers['X-Request-Id'] = generateUUID()
   }
   return config
@@ -50,7 +53,7 @@ request.interceptors.response.use(
     const res = response.data
     if (res.code !== 200) {
       if ((res.code === 401 || res.code === 403) && !response.config.url.includes('/auth/')) {
-        handleUnauthorized()
+        handleUnauthorized(response.config)
       }
       return Promise.reject(new Error(res.message || '请求失败'))
     }
@@ -59,13 +62,18 @@ request.interceptors.response.use(
   (error) => {
     const status = error.response?.status
     if ((status === 401 || status === 403) && !error.config?.url?.includes('/auth/')) {
-      handleUnauthorized()
+      handleUnauthorized(error.config)
     }
     return Promise.reject(error)
   }
 )
 
-function handleUnauthorized() {
+function handleUnauthorized(config) {
+  // 防止旧请求（登录前发起的）的 401 误触发退出
+  // 如果请求时的 token 与当前 token 不同，说明是旧请求，忽略
+  if (config && config._sentToken !== _tokenCache) {
+    return
+  }
   // 仅在用户确实处于登录状态时才触发退出+弹窗；
   // 未登录用户访问公开页面时可能触发收藏等需要认证的接口，
   // 这些 401 不应强制弹出登录框。
@@ -75,6 +83,8 @@ function handleUnauthorized() {
       store.logout()
       store.openLogin()
     }
+  }).catch((e) => {
+    console.warn('[request] store import failed:', e.message)
   })
 }
 

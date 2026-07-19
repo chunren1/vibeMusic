@@ -1,6 +1,9 @@
 # ===== vibeMusic 开发环境配置 =====
 # 激活方式: spring.profiles.active=dev (默认)
 # 命令行: mvn spring-boot:run -Dspring-boot.run.profiles=dev
+#
+# 注意：DB_PASSWORD / REDIS_PASSWORD 默认值取自 docker-compose 启动的中间件密码
+# 如果 .env 改了密码，需同步修改下面默认值，或通过系统环境变量覆盖
 
 # ── 开发环境专用密钥（仅本地调试） ──
 jwt:
@@ -8,7 +11,13 @@ jwt:
 
 spring:
   datasource:
-    password: ${DB_PASSWORD}
+    # 本地开发默认连接 Docker MySQL
+    # 注意：MySQL 密码以首次初始化时为准，Docker 数据卷存在后不会随 .env 变化
+    password: ${DB_PASSWORD:123456}
+  data:
+    redis:
+      # 本地开发默认连接 Docker Redis，密码来自 .env 的 REDIS_PASSWORD
+      password: ${REDIS_PASSWORD:REVOKED_redis_password}
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -22,6 +31,17 @@ logging:
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# ── MinIO 本地开发 ──
+storage:
+  minio:
+    # MinIO 凭证以首次初始化时为准，Docker 数据卷存在后不会随 .env 变化
+    access-key: ${MINIO_ACCESS_KEY:rustfsadmin}
+    secret-key: ${MINIO_SECRET_KEY:REVOKED_minio_secret}
+
+# ── AI 助手（DeepSeek 官方 API） ──
+ai:
+  api-key: ${AI_API_KEY:REVOKED_deepseek_key}
 
 knife4j:
   enable: true

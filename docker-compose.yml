@@ -7,17 +7,18 @@ x-logging: &default-logging
     max-size: "50m"
     max-file: "3"
 
-x-resources-small: &resources-small
-  limits: { cpus: "0.5", memory: "256M" }
-  reservations: { cpus: "0.25", memory: "128M" }
+# 资源限制（Docker Compose 原生语法，非 Swarm）
+x-resources-small:
+  mem_limit: 256M
+  cpus: 0.5
 
-x-resources-medium: &resources-medium
-  limits: { cpus: "1.0", memory: "512M" }
-  reservations: { cpus: "0.5", memory: "256M" }
+x-resources-medium:
+  mem_limit: 512M
+  cpus: 1.0
 
-x-resources-large: &resources-large
-  limits: { cpus: "2.0", memory: "2G" }
-  reservations: { cpus: "1.0", memory: "1G" }
+x-resources-large:
+  mem_limit: 2G
+  cpus: 2.0
 
 services:
   # ==========================
@@ -52,8 +53,8 @@ services:
       - --long_query_time=1
       - --log_queries_not_using_indexes=ON
       - --log_slow_admin_statements=ON
-    deploy:
-      <<: *resources-large
+    mem_limit: 2G
+    cpus: 2.0
     networks:
       - vibemusic-net
     healthcheck:
@@ -70,21 +71,21 @@ services:
     container_name: vibemusic-redis
     restart: unless-stopped
     logging: *default-logging
-    # Redis 仅内部网络访问，不暴露到宿主机（本地调试时可取消注释）
-    # ports:
-    #   - "6379:6379"
+    # Redis 暴露到宿主机，供本地开发连接
+    ports:
+      - "6379:6379"
     volumes:
       # 数据持久化
       - ./docker-data/redis/data:/data
       # 自定义配置
       - ./docker-data/redis/redis.conf:/usr/local/etc/redis/redis.conf
-    command: redis-server /usr/local/etc/redis/redis.conf --requirepass 
-    deploy:
-      <<: *resources-small
+    command: redis-server /usr/local/etc/redis/redis.conf
+    mem_limit: 256M
+    cpus: 0.5
     networks:
       - vibemusic-net
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -115,8 +116,8 @@ services:
       # 启动脚本（含 IK 自动安装）
       - ./docker-data/elasticsearch/es-start.sh:/es-start.sh:ro
     command: ["/bin/bash", "/es-start.sh"]
-    deploy:
-      <<: *resources-large
+    mem_limit: 2G
+    cpus: 2.0
     networks:
       - vibemusic-net
     healthcheck:
@@ -144,8 +145,8 @@ services:
       MUSIC_NETEASE_COOKIE: ${MUSIC_NETEASE_COOKIE:-}
     ports:
       - "3000:3000"
-    deploy:
-      <<: *resources-small
+    mem_limit: 256M
+    cpus: 0.5
     networks:
       - vibemusic-net
     healthcheck:
@@ -166,18 +167,18 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rustfsadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ChangeMe456!}
       TZ: Asia/Shanghai
-    # MinIO 仅内部网络访问，不暴露到宿主机（本地调试时可取消注释）
-    # ports:
-    #   # API 端口（S3 兼容）
-    #   - "9000:9000"
-    #   # Web 控制台
-    #   - "9001:9001"
+    # MinIO 暴露到宿主机，供本地开发连接
+    ports:
+      # API 端口（S3 兼容）
+      - "9000:9000"
+      # Web 控制台
+      - "9001:9001"
     volumes:
       # 对象数据持久化
       - ./docker-data/minio/data:/data
     command: server /data --console-address ":9001"
-    deploy:
-      <<: *resources-medium
+    mem_limit: 512M
+    cpus: 1.0
     networks:
       - vibemusic-net
     healthcheck:
@@ -224,8 +225,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
     ports:
       - "8080:8080"
-    deploy:
-      <<: *resources-medium
+    mem_limit: 512M
+    cpus: 1.0
     networks:
       - vibemusic-net
     depends_on:
@@ -271,8 +272,8 @@ services:
       - ./nginx/docker-entrypoint.sh:/usr/local/bin/vibe-nginx-entrypoint.sh:ro
     command: ["nginx", "-g", "daemon off;"]
     entrypoint: ["/usr/local/bin/vibe-nginx-entrypoint.sh"]
-    deploy:
-      <<: *resources-small
+    mem_limit: 256M
+    cpus: 0.5
     networks:
       - vibemusic-net
     healthcheck:
@@ -316,8 +317,8 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
-    deploy:
-      <<: *resources-small
+    mem_limit: 256M
+    cpus: 0.5
     networks:
       - vibemusic-net
     healthcheck:
@@ -341,8 +342,8 @@ services:
       TZ: Asia/Shanghai
     ports:
       - "3001:3000"
-    deploy:
-      <<: *resources-small
+    mem_limit: 256M
+    cpus: 0.5
     volumes:
       - ./docker-data/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./docker-data/grafana/data:/var/lib/grafana
@@ -373,8 +374,8 @@ services:
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
-    deploy:
-      <<: *resources-small
+    mem_limit: 256M
+    cpus: 0.5
     networks:
       - vibemusic-net
     healthcheck:
@@ -394,20 +395,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       TZ: Asia/Shanghai
-    entrypoint: >
-      /bin/bash -c "
-      mkdir -p /backup;
-      while true; do
-        timestamp=$$(date +%Y%m%d-%H%M%S);
-        mysqldump -h mysql -u root -p${MYSQL_ROOT_PASSWORD:-123456} --single-transaction --routines --triggers vibemusic
-        | gzip > /backup/vibemusic-$$timestamp.sql.gz;
-        echo \"[BACKUP] vibemusic-$$timestamp.sql.gz created\";
-        # 删除 30 天前的备份
-        find /backup -name 'vibemusic-*.sql.gz' -mtime +30 -delete;
-        # 等待到凌晨 2 点
-        sleep $$(( ($$(date -d 'tomorrow 02:00' +%s) - $$(date +%s)) ));
-      done
-      "
+    entrypoint: ["/bin/bash", "-c", "mkdir -p /backup; while true; do ts=$$(date +%Y%m%d-%H%M%S); mysqldump -h mysql -u root -p$$MYSQL_ROOT_PASSWORD --single-transaction --routines --triggers vibemusic | gzip > /backup/vibemusic-$$ts.sql.gz; echo \"[BACKUP] vibemusic-$$ts.sql.gz\"; find /backup -name 'vibemusic-*.sql.gz' -mtime +30 -delete; sleep 86400; done"]
     volumes:
       - ./docker-data/backups/mysql:/backup
     networks:
@@ -430,21 +418,6 @@ services:
       - vibemusic-net
     depends_on:
       redis:
-        condition: service_healthy
-
-  # ==========================
-  # MySQL Exporter — 将 MySQL 指标暴露为 Prometheus 格式
-  # ==========================
-  mysql-exporter:
-    image: prom/mysqld-exporter:latest
-    container_name: vibemusic-mysql-exporter
-    restart: unless-stopped
-    environment:
-      DATA_SOURCE_NAME: root:${MYSQL_ROOT_PASSWORD:-123456}@(mysql:3306)/
-    networks:
-      - vibemusic-net
-    depends_on:
-      mysql:
         condition: service_healthy
 
 # ==========================

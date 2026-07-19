@@ -1,5 +1,5 @@
 // vibeMusic Service Worker — 离线缓存 + 秒开
-const CACHE_NAME = 'vibemusic-v1'
+const CACHE_NAME = 'vibemusic-v2'
 const ASSETS_TO_CACHE = [
   '/m',
   '/manifest.json',
@@ -36,6 +36,9 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url)
   if (url.protocol === 'chrome-extension:') return
   if (url.pathname.startsWith('/api/')) return
+  // 跳过音频/视频流（Range 请求返回 206，Cache API 不支持）
+  const dest = event.request.destination
+  if (dest === 'audio' || dest === 'video') return
 
   event.respondWith(
     caches.match(event.request).then(cached => {

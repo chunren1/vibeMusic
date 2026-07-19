@@ -20,7 +20,7 @@ const playlistTargetSong = ref(null)
 // ===== Play =====
 function playSong(song) {
   if (!song.sourceId) return
-  player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '')
+  player.playSongFromApi(song.sourceId, song.name, song.artist, song.coverUrl || '', song.platform)
   router.push('/m/player')
 }
 

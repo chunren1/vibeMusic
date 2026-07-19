@@ -50,6 +50,10 @@ async function doSend() {
   } catch (e) {
     if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED') {
       aiMsg.content = '（已停止生成）'
+    } else if (e.response?.status === 401 || e.response?.data?.code === 401) {
+      aiMsg.content = '请先登录后再使用 AI 助手~'
+    } else if (e.response?.status === 429) {
+      aiMsg.content = '聊得太快了，稍等几秒再问我吧 ~'
     } else {
       aiMsg.content = '抱歉，网络不太稳定，再试一次？'
     }

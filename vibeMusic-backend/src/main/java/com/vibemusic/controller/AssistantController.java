@@ -46,8 +46,8 @@ public class AssistantController {
     private final RateLimitService rateLimitService;
     private final ObjectMapper objectMapper;
     private final String apiKey;
-    private static final String API_URL = "https://api.siliconflow.cn/v1/chat/completions";
-    private static final String MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+    private static final String API_URL = "https://api.deepseek.com/chat/completions";
+    private static final String MODEL = "deepseek-v4-flash";
     private static final int AI_RATE_LIMIT = 10;
 
     public AssistantController(RestTemplate restTemplate,
@@ -281,7 +281,8 @@ public class AssistantController {
         requestBody.put("max_tokens", 800);
         requestBody.put("temperature", 0.7);
         requestBody.put("tools", aiToolService.getToolDefinitions());
-        requestBody.put("tool_choice", "required");
+        requestBody.put("tool_choice", "auto");
+        requestBody.put("thinking", Map.of("type", "disabled"));
 
         try {
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
@@ -314,6 +315,7 @@ public class AssistantController {
         requestBody.put("max_tokens", 800);
         requestBody.put("temperature", 0.7);
         requestBody.put("stream", true);
+        requestBody.put("thinking", Map.of("type", "disabled"));
         return requestBody;
     }
 

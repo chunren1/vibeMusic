@@ -55,6 +55,7 @@ public class SongController {
             cache.set(BANNER_CACHE_KEY, banners, BANNER_TTL);
             return Result.ok(banners);
         } catch (Exception e) {
+            log.warn("获取 banner 失败: {}", e.getMessage());
             return Result.ok(List.of());
         }
     }
