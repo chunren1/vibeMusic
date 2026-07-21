@@ -17,7 +17,7 @@ spring:
   data:
     redis:
       # 本地开发默认连接 Docker Redis，密码来自 .env 的 REDIS_PASSWORD
-      password: ${REDIS_PASSWORD:REVOKED_redis_password}
+      password: ${REDIS_PASSWORD}
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -37,11 +37,11 @@ storage:
   minio:
     # MinIO 凭证以首次初始化时为准，Docker 数据卷存在后不会随 .env 变化
     access-key: ${MINIO_ACCESS_KEY:rustfsadmin}
-    secret-key: ${MINIO_SECRET_KEY:REVOKED_minio_secret}
+    secret-key: ${MINIO_SECRET_KEY}
 
 # ── AI 助手（DeepSeek 官方 API） ──
 ai:
-  api-key: ${AI_API_KEY:REVOKED_deepseek_key}
+  api-key: ${AI_API_KEY}
 
 knife4j:
   enable: true

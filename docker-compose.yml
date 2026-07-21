@@ -36,7 +36,9 @@ services:
       MYSQL_COLLATION: utf8mb4_unicode_ci
       TZ: Asia/Shanghai
     # MySQL 仅内部网络访问（生产环境已关闭端口暴露）
-    # 本地调试需直连时取消注释: ports: - "3306:3306"
+    # 本地调试需直连（已开启）
+    ports:
+      - "3306:3306"
     volumes:
       # 数据持久化
       - ./docker-data/mysql/data:/var/lib/mysql
@@ -71,7 +73,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     # Redis 仅内部网络访问（生产环境已关闭端口暴露）
-    # 本地调试需直连时取消注释: ports: - "6379:6379"
+    # 本地调试需直连（已开启）
+    ports:
+      - "6379:6379"
     volumes:
       # 数据持久化
       - ./docker-data/redis/data:/data
