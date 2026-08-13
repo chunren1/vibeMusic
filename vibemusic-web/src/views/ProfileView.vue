@@ -202,10 +202,10 @@ function genderLabel(v) {
 
       <!-- 快捷入口 -->
       <div class="menu-card">
-        <div class="menu-item" @click="router.push('/recent')"><span>最近播放</span><span class="arrow">›</span></div>
-        <div class="menu-item" @click="router.push('/likes')"><span>我的收藏</span><span class="arrow">›</span></div>
-        <div class="menu-item" @click="router.push('/playlists')"><span>我的歌单</span><span class="arrow">›</span></div>
-        <div class="menu-item" @click="showPwdModal = true"><span>修改密码</span><span class="arrow">›</span></div>
+        <div class="menu-item" @click="router.push('/recent')"><span>最近播放</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item" @click="router.push('/likes')"><span>我的收藏</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item" @click="router.push('/playlists')"><span>我的歌单</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item" @click="showPwdModal = true"><span>修改密码</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
         <div class="menu-item logout-item" @click="auth.logout()"><span>退出登录</span></div>
       </div>
     </template>
@@ -309,10 +309,10 @@ function genderLabel(v) {
 
 /* ===== 未登录 ===== */
 .not-login-card { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 32px; gap: 12px; }
-.ghost-avatar { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #ccc, #aaa); display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700; color: #fff; cursor: pointer; transition: transform .2s; }
+.ghost-avatar { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #2a2a2a, #3a3a3a); display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 700; color: var(--text-secondary); cursor: pointer; transition: transform .2s; }
 .ghost-avatar:hover { transform: scale(1.05); }
-.ghost-title { font-size: 20px; color: #555; cursor: pointer; }
-.ghost-sub { font-size: 13px; color: #999; }
+.ghost-title { font-size: 20px; color: var(--text-primary); cursor: pointer; }
+.ghost-sub { font-size: 13px; color: var(--text-tertiary); }
 
 /* ===== 头部背景区 ===== */
 .profile-page { margin: -20px 0 0; }
@@ -328,14 +328,14 @@ function genderLabel(v) {
 .hero-bg-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;  }
 .hero-fade {
   position: absolute; bottom: 0; left: 0; right: 0; height: 60px; z-index: 2;
-  background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 40%, #fff 100%);
+  background: linear-gradient(to bottom, rgba(24,24,24,0) 0%, rgba(24,24,24,0.6) 40%, var(--bg-base) 100%);
   pointer-events: none;
 }
 
 /* ===== 用户信息卡片 ===== */
 .user-info-card {
   margin: -30px 28px 20px; position: relative; z-index: 3;
-  background: #fff; border-radius: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  background: var(--bg-card); border-radius: 14px; box-shadow: var(--shadow-1);
   padding: 20px;
 }
 .user-info-row { display: flex; align-items: center; gap: 14px; }
@@ -352,57 +352,57 @@ function genderLabel(v) {
 }
 .uic-text { flex: 1; min-width: 0; }
 .uic-name {
-  font-size: 18px; font-weight: 700; color: #1a1a1a;
+  font-size: 18px; font-weight: 700; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .uic-id {
-  font-size: 12px; color: #999; margin-top: 3px;
+  font-size: 12px; color: var(--text-tertiary); margin-top: 3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .uic-edit-btn {
   flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
-  padding: 7px 16px; border: 1px solid #ddd; border-radius: 18px;
-  background: transparent; color: #666; font-size: 13px;
-  cursor: pointer; transition: all .2s;
+  padding: 7px 16px; border: 1px solid var(--bg-hover); border-radius: 18px;
+  background: transparent; color: var(--text-secondary); font-size: 13px;
+  cursor: pointer; transition: border-color .2s, color .2s, background .2s;
 }
-.uic-edit-btn:hover { border-color: #bbb; color: #333; background: #f9f9f9; }
+.uic-edit-btn:hover { border-color: var(--text-tertiary); color: var(--text-primary); background: var(--bg-hover); }
 
 /* ===== 快捷入口 ===== */
 .menu-card {
-  margin: 0 28px 32px; background: #fff; border-radius: 14px;
-  overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  margin: 0 28px 32px; background: var(--bg-card); border-radius: 14px;
+  overflow: hidden; box-shadow: var(--shadow-1);
 }
 .menu-item {
   display: flex; justify-content: space-between; align-items: center;
   padding: 16px 24px; cursor: pointer; transition: background .15s;
-  border-bottom: 1px solid #f0f0f0; font-size: 15px; color: #333;
+  border-bottom: 1px solid var(--bg-hover); font-size: 15px; color: var(--text-primary);
 }
 .menu-item:last-child { border-bottom: none; }
-.menu-item:hover { background: #f9f9f9; }
-.arrow { font-size: 20px; color: #ccc; }
+.menu-item:hover { background: var(--bg-hover); }
+.arrow { color: var(--text-tertiary); display: inline-flex; }
 .logout-item { justify-content: center; color: #ec4141; }
 
 /* ===== 编辑弹窗 - 右侧滑入 ===== */
 .edit-overlay {
   position: fixed; inset: 0; z-index: 400;
-  background: rgba(0,0,0,0.35); display: flex; justify-content: flex-end;
+  background: rgba(0,0,0,0.6); display: flex; justify-content: flex-end;
 }
 .edit-panel {
-  width: 400px; max-width: 90vw; height: 100%; background: #fff;
-  box-shadow: -4px 0 30px rgba(0,0,0,0.12);
+  width: 400px; max-width: 90vw; height: 100%; background: var(--bg-card);
+  box-shadow: -4px 0 30px rgba(0,0,0,0.3);
   display: flex; flex-direction: column; overflow: hidden;
 }
 .edit-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 20px 24px; border-bottom: 1px solid #eee;
+  padding: 20px 24px; border-bottom: 1px solid var(--bg-hover);
 }
-.edit-header h3 { font-size: 17px; font-weight: 600; color: #333; }
+.edit-header h3 { font-size: 17px; font-weight: 600; color: var(--text-primary); }
 .close-btn {
   width: 32px; height: 32px; border: none; border-radius: 50%;
-  background: #f0f0f0; font-size: 18px; color: #666; cursor: pointer;
+  background: var(--bg-hover); font-size: 18px; color: var(--text-secondary); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
-.close-btn:hover { background: #e0e0e0; }
+.close-btn:hover { background: var(--bg-elevated); }
 
 .edit-body { flex: 1; overflow-y: auto; padding: 24px; }
 
@@ -430,67 +430,68 @@ function genderLabel(v) {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .avatar-input { display: none; }
-.avatar-hint { font-size: 12px; color: #999; }
+.avatar-hint { font-size: 12px; color: var(--text-tertiary); }
 
 /* 背景图预览 */
 .bg-preview {
   width: 100%; height: 100px; border-radius: 10px; overflow: hidden;
-  border: 2px dashed #ddd; cursor: pointer; position: relative;
+  border: 2px dashed var(--bg-hover); cursor: pointer; position: relative;
   transition: border-color .2s;
 }
-.bg-preview:hover { border-color: #31c27c; }
+.bg-preview:hover { border-color: var(--primary); }
 .bg-preview-img { width: 100%; height: 100%; object-fit: cover; }
 .bg-preview-empty {
   width: 100%; height: 100%; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 6px;
-  color: #bbb; font-size: 13px; background: #f9f9f9;
+  color: var(--text-tertiary); font-size: 13px; background: var(--bg-elevated);
 }
 
 .form-row { margin-bottom: 18px; }
-.form-row label { display: block; font-size: 13px; font-weight: 500; color: #666; margin-bottom: 8px; }
+.form-row label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px; }
 .form-row input[type="text"], .form-row input[type="date"] {
-  width: 100%; padding: 10px 14px; border: 1px solid #e0e0e0;
-  border-radius: 8px; font-size: 14px; color: #333; outline: none; box-sizing: border-box; transition: border .2s;
+  width: 100%; padding: 10px 14px; border: 1px solid var(--bg-hover);
+  border-radius: 8px; font-size: 14px; color: var(--text-primary); outline: none; box-sizing: border-box; transition: border .2s;
+  background: var(--bg-elevated);
 }
-.form-row input:focus { border-color: #31c27c; }
+.form-row input:focus { border-color: var(--primary); }
 
 .gender-group { display: flex; gap: 10px; }
 .gender-opt {
   flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
-  padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px;
-  cursor: pointer; font-size: 14px; color: #666; transition: all .2s;
+  padding: 10px; border: 1px solid var(--bg-hover); border-radius: 8px;
+  cursor: pointer; font-size: 14px; color: var(--text-secondary); transition: border-color .2s, background .2s, color .2s;
 }
 .gender-opt input { display: none; }
-.gender-opt.active { border-color: #31c27c; background: rgba(49,194,124,0.06); color: #31c27c; }
+.gender-opt.active { border-color: var(--primary); background: rgba(49,194,124,0.06); color: var(--primary); }
 
 .form-msg { text-align: center; font-size: 13px; padding: 8px 0; color: #31c27c; }
 .form-msg.error { color: #ec4141; }
 
 .save-btn {
   width: 100%; padding: 13px; border: none; border-radius: 10px;
-  background: #31c27c; color: #fff; font-size: 15px; font-weight: 500;
+  background: var(--primary); color: #fff; font-size: 15px; font-weight: 500;
   cursor: pointer; margin-top: 8px; transition: background .2s;
 }
 .save-btn:hover:not(:disabled) { background: #28a86b; }
 .save-btn:disabled { opacity: .6; cursor: not-allowed; }
 
 /* 滑入动画 */
-.slide-enter-active { transition: all .3s ease; }
-.slide-leave-active { transition: all .25s ease; }
+.slide-enter-active { transition: transform .3s ease, background .3s ease; }
+.slide-leave-active { transition: transform .25s ease, background .25s ease; }
 .slide-enter-from .edit-panel { transform: translateX(100%); }
 .slide-leave-to .edit-panel { transform: translateX(100%); }
 .slide-enter-from, .slide-leave-to { background: transparent; }
 
 /* ===== 密码弹窗 ===== */
-.modal-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
-.modal-box { width: 340px; background: #fff; border-radius: 14px; padding: 28px; box-shadow: 0 12px 40px rgba(0,0,0,0.15); }
-.modal-title { font-size: 17px; font-weight: 600; color: #333; margin-bottom: 16px; text-align: center; }
-.modal-input { width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px; outline: none; box-sizing: border-box; }
-.modal-input:focus { border-color: #31c27c; }
+.modal-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+.modal-box { width: 340px; background: var(--bg-card); border-radius: 14px; padding: 28px; box-shadow: var(--shadow-2); }
+.modal-title { font-size: 17px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; text-align: center; }
+.modal-input { width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--bg-hover); border-radius: 8px; font-size: 14px; outline: none; box-sizing: border-box; background: var(--bg-elevated); color: var(--text-primary); }
+.modal-input:focus { border-color: var(--primary); }
 .modal-error { color: #ec4141; font-size: 12px; margin-bottom: 8px; }
-.modal-success { color: #31c27c; font-size: 13px; margin-bottom: 8px; text-align: center; }
+.modal-success { color: var(--primary); font-size: 13px; margin-bottom: 8px; text-align: center; }
 .modal-btns { display: flex; gap: 10px; }
-.btn-cancel { flex: 1; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; background: transparent; color: #666; cursor: pointer; }
-.btn-confirm { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #31c27c; color: #fff; cursor: pointer; }
+.btn-cancel { flex: 1; padding: 10px; border: 1px solid var(--bg-hover); border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.btn-confirm { flex: 1; padding: 10px; border: none; border-radius: 8px; background: var(--primary); color: #fff; cursor: pointer; }
 .btn-confirm:disabled { opacity: .5; }
 </style>

@@ -10,12 +10,20 @@ const player = usePlayerStore()
 const auth = useAuthStore()
 
 const messages = ref([])
+// 消息历史上限：超出丢弃最旧消息，防止长会话内存膨胀（E4）
+const MAX_CHAT_MESSAGES = 200
+function pushMessage(msg) {
+  messages.value.push(msg)
+  if (messages.value.length > MAX_CHAT_MESSAGES) {
+    messages.value.splice(0, messages.value.length - MAX_CHAT_MESSAGES)
+  }
+}
 const inputText = ref('')
 const loading = ref(false)
 const chatBox = ref(null)
 const abortCtrl = ref(null)
 
-const greeting = '嗨！我是 vibe 音乐精灵 🎵 想听什么歌？过什么心情？告诉我，我来帮你找～'
+const greeting = '嗨！我是 vibe 音乐精灵 想听什么歌？过什么心情？告诉我，我来帮你找～'
 
 function scrollBottom() {
   nextTick(() => { if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight })
@@ -31,10 +39,10 @@ async function doSend() {
   inputText.value = ''
 
   // 添加用户消息
-  messages.value.push({ role: 'user', content: text })
+  pushMessage({ role: 'user', content: text })
   // 添加 AI 占位消息，显示思考动画
   const aiMsg = { role: 'ai', content: '', thinking: true, songs: [] }
-  messages.value.push(aiMsg)
+  pushMessage(aiMsg)
   scrollBottom()
   loading.value = true
 
@@ -85,7 +93,7 @@ function addToQueue(song) {
 function fmtSec(s) { if (!s) return ''; const m = Math.floor(s / 60); return m + ':' + String(s % 60).padStart(2, '0') }
 
 onMounted(() => {
-  messages.value.push({ role: 'ai', content: greeting })
+  pushMessage({ role: 'ai', content: greeting, greeting: true })
   scrollBottom()
 })
 </script>
@@ -105,18 +113,18 @@ onMounted(() => {
           <div class="msg-bubble ai">
             <!-- 思考过程 -->
             <div v-if="msg.thinking" class="thinking-box">
-              <span class="thinking-text">🎵 正在思考...</span>
+              <span class="thinking-text"><SvgIcon name="music" size="13" /> 正在思考...</span>
               <span class="thinking-dots">
                 <span class="dot-bounce" v-for="i in 3" :key="i" :style="{ animationDelay: (i - 1) * 0.2 + 's' }">●</span>
               </span>
             </div>
 
             <!-- 回复文本 -->
-            <p v-if="msg.content" class="ai-text">{{ msg.content }}</p>
+            <p v-if="msg.content" class="ai-text"><SvgIcon v-if="msg.greeting" name="music" size="14" class="ai-text-icon" />{{ msg.content }}</p>
 
             <!-- 音乐推荐卡片 -->
             <div v-if="msg.songs && msg.songs.length" class="song-cards">
-              <div class="song-cards-label">🎶 为你找到这些歌曲：</div>
+              <div class="song-cards-label"><SvgIcon name="music" size="12" /> 为你找到这些歌曲：</div>
               <div
                 v-for="song in msg.songs" :key="song.sourceId"
                 class="song-card"
@@ -124,7 +132,7 @@ onMounted(() => {
               >
                 <div class="sc-cover" @click="playSong(song)">
                   <img v-if="song.coverUrl" :src="song.coverUrl + '?param=120y120'" loading="lazy" />
-                  <span v-else>♪</span>
+                  <SvgIcon v-else name="music" />
                   <div class="sc-play"><svg width="18" height="18" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
                 </div>
                 <div class="sc-info" @click="playSong(song)">
@@ -179,17 +187,20 @@ onMounted(() => {
 <style scoped>
 .chat-page {
   display: flex; flex-direction: column;
+  /* 移动端地址栏收起/展开不抖动：100vh 兜底 + 100dvh 优先 */
   height: calc(100vh - 180px);
+  height: calc(100dvh - 180px);
   margin: 0 auto; padding: 0 32px;
-  max-width: 1200px;
+  max-width: 960px; /* 对话视图居中（类似微信对话），不像主页通栏，但与前面通栏页协调 */
 }
 
 .chat-messages {
   flex: 1; overflow-y: auto; padding: 24px 0;
-  scroll-behavior: smooth;
+  /* 长消息流滚动防卡顿：smooth 逐帧插值，auto 直接跳转 */
+  scroll-behavior: auto;
 }
 .chat-messages::-webkit-scrollbar { width: 4px; }
-.chat-messages::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+.chat-messages::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 2px; }
 
 .msg-row { display: flex; margin-bottom: 20px; }
 .msg-row.ai { justify-content: flex-start; }
@@ -205,7 +216,7 @@ onMounted(() => {
   flex-shrink: 0; color: #fff;
 }
 .ai-avatar {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, var(--primary), #1aaf6c);
 }
 .user-avatar {
   background: linear-gradient(135deg, #31c27c, #1abc9c);
@@ -219,14 +230,14 @@ onMounted(() => {
   padding: 12px 18px; border-radius: 16px;
   font-size: 15px; line-height: 1.6; word-break: break-word;
 }
-.msg-bubble.ai { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
-.msg-bubble.user { background: #31c27c; color: #fff; border-bottom-right-radius: 4px; }
+.msg-bubble.ai { background: var(--bg-card); color: var(--text-primary); border-bottom-left-radius: 4px; box-shadow: var(--shadow-1); }
+.msg-bubble.user { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
 .msg-bubble p { margin: 0; }
 
 /* 思考过程 */
 .thinking-box {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 0; color: #999; font-size: 13px;
+  padding: 8px 0; color: var(--text-tertiary); font-size: 13px;
   animation: fadeIn .3s ease;
 }
 .thinking-text { flex-shrink: 0; }
@@ -240,29 +251,30 @@ onMounted(() => {
 
 /* 回复文本 */
 .ai-text { margin: 0; }
+.ai-text-icon { margin-right: 4px; }
 
 /* 音乐卡片 */
 .song-cards-label {
-  font-size: 12px; color: #999; margin-bottom: 6px;
+  font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px;
 }
 .song-cards {
   margin-top: 12px; display: flex; flex-direction: column; gap: 6px;
-  border-top: 1px solid #f0f0f0; padding-top: 10px;
+  border-top: 1px solid var(--bg-hover); padding-top: 10px;
 }
 .song-card {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 10px; border-radius: 10px;
-  background: #f8f8f8; transition: .12s; cursor: default;
+  background: var(--bg-elevated); transition: .12s; cursor: default;
 }
-.song-card:hover { background: #f0f0f0; }
+.song-card:hover { background: var(--bg-hover); }
 .song-card.playing { background: rgba(49,194,124,0.08); }
-.song-card.playing .sc-name { color: #31c27c; }
+.song-card.playing .sc-name { color: var(--primary); }
 
 .sc-cover {
   width: 40px; height: 40px; border-radius: 6px; overflow: hidden;
   position: relative; flex-shrink: 0; cursor: pointer;
-  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: #bbb;
+  background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: var(--text-tertiary);
 }
 .sc-cover img { width: 100%; height: 100%; object-fit: cover; }
 .sc-play {
@@ -273,38 +285,40 @@ onMounted(() => {
 .sc-cover:hover .sc-play { opacity: 1; }
 
 .sc-info { flex: 1; min-width: 0; cursor: pointer; }
-.sc-name { font-size: 13px; font-weight: 500; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sc-artist { font-size: 11px; color: #999; margin-top: 2px; }
-.sc-time { font-size: 11px; color: #bbb; flex-shrink: 0; }
+.sc-name { font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-artist { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+.sc-time { font-size: 11px; color: var(--text-tertiary); flex-shrink: 0; }
 .sc-add {
-  width: 26px; height: 26px; border-radius: 50%; border: 1px solid #ddd;
-  background: #fff; color: #888; font-size: 14px; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--bg-hover);
+  background: transparent; color: var(--text-secondary); font-size: 14px; cursor: pointer;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
-.sc-add:hover { border-color: #31c27c; color: #31c27c; }
+.sc-add:hover { border-color: var(--primary); color: var(--primary); }
 
 /* 快捷提示 */
 .quick-hints { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 16px; justify-content: center; }
 .quick-hints button {
-  padding: 8px 16px; border-radius: 18px; border: 1px solid #e0e0e0;
-  background: #fff; color: #666; font-size: 13px; cursor: pointer;
+  padding: 8px 16px; border-radius: 18px; border: 1px solid var(--bg-hover);
+  background: var(--bg-card); color: var(--text-secondary); font-size: 13px; cursor: pointer;
   transition: .15s;
 }
-.quick-hints button:hover { border-color: #31c27c; color: #31c27c; background: rgba(49,194,124,0.04); }
+.quick-hints button:hover { border-color: var(--primary); color: var(--primary); background: rgba(49,194,124,0.04); }
 .quick-hints button:disabled { opacity: .5; cursor: default; }
 
 /* 输入栏 */
 .chat-input {
   display: flex; gap: 10px; padding: 16px 0 24px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--bg-hover);
 }
 .chat-input input {
-  flex: 1; padding: 12px 18px; border: 1px solid #e0e0e0;
-  border-radius: 24px; outline: none; font-size: 15px; color: #333;
+  flex: 1; padding: 12px 18px; border: 1px solid var(--bg-hover);
+  border-radius: 24px; outline: none; font-size: 15px; color: var(--text-primary);
+  background: var(--bg-card);
   transition: .15s;
 }
 .chat-input input:focus { border-color: #31c27c; }
-.chat-input input::placeholder { color: #bbb; }
+/* E4 对比度：占位文字 token 化（--text-secondary 暗底 8.9:1 ≥4.5:1） */
+.chat-input input::placeholder { color: var(--text-secondary); }
 .chat-input button {
   width: 46px; height: 46px; border-radius: 50%; border: none;
   background: #31c27c; color: #fff; cursor: pointer;

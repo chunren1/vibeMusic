@@ -152,8 +152,8 @@ function shuffleSongs() {
         </div>
       </div>
       <!-- 左右箭头 -->
-      <button class="m-banner-arrow left" @click.stop="prevBanner">‹</button>
-      <button class="m-banner-arrow right" @click.stop="nextBanner">›</button>
+      <button class="m-banner-arrow left" @click.stop="prevBanner" aria-label="上一张"><SvgIcon name="chevron-left" :size="20" /></button>
+      <button class="m-banner-arrow right" @click.stop="nextBanner" aria-label="下一张"><SvgIcon name="chevron-right" :size="20" /></button>
       <!-- 指示点 -->
       <div class="m-banner-dots">
         <span v-for="(s, i) in slides" :key="i" class="m-dot" :class="{ on: i === activeSlide }"></span>
@@ -238,13 +238,14 @@ function shuffleSongs() {
 }
 .m-user-avatar {
   width: 36px; height: 36px; border-radius: 50%;
-  background: linear-gradient(135deg, rgba(46,229,154,0.2), rgba(240,185,11,0.15));
+  background: var(--m-bg-card-hover);
   display: flex; align-items: center; justify-content: center;
   font-size: 14px; font-weight: 600; color: var(--m-primary); cursor: pointer;
   border: 1.5px solid rgba(46,229,154,0.2);
 }
+/* WCAG 2.5.8：触控目标 ≥44px（图标视觉尺寸不变，flex 居中） */
 .m-fs-btn {
-  width: 30px; height: 30px; border: none; border-radius: 50%;
+  width: 44px; height: 44px; border: none; border-radius: 50%;
   background: var(--m-bg-card); color: var(--m-text-secondary);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0; transition: background 0.2s;
@@ -264,9 +265,11 @@ function shuffleSongs() {
   background-position: center;
   background-repeat: no-repeat;
   opacity: 0; transition: opacity 0.6s var(--m-ease-out);
-  will-change: opacity; transform: translateZ(0);
+  /* 全部 slide 常驻 will-change 会让每张都占一个合成层（GPU 内存泄漏）。
+     仅 .active 提升合成层；其余 slide 用 content-visibility 让离屏时跳过渲染 */
+  content-visibility: auto;
 }
-.m-banner-slide.active { opacity: 1; }
+.m-banner-slide.active { opacity: 1; will-change: opacity; transform: translateZ(0); }
 .m-banner-mask {
   position: absolute; inset: 0;
   background: linear-gradient(
@@ -278,17 +281,18 @@ function shuffleSongs() {
   display: flex; flex-direction: column; justify-content: flex-end; padding: 16px;
 }
 .m-banner-title { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 0.5px; }
-.m-banner-sub { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 4px; }
+.m-banner-sub { font-size: 12px; color: rgba(255,255,255,0.75); margin-top: 4px; } /* D9: 0.55→0.75 提亮，遮罩 rgba(8,8,10,0.85) 上 ≥4.5:1 */
 .m-banner-dots {
   position: absolute; bottom: 12px; right: 14px; display: flex; gap: 5px;
 }
-.m-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.25); transition: all 0.3s; }
-.m-dot.on { background: var(--m-primary); width: 18px; border-radius: 4px; box-shadow: 0 0 6px var(--m-primary-glow); }
+.m-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.25); transition: width 0.3s, background 0.3s, border-radius 0.3s; }
+.m-dot.on { background: var(--m-primary); width: 18px; border-radius: 4px; }
 .m-banner-arrow {
   position: absolute; top: 50%; transform: translateY(-50%);
   border: none; background: rgba(0,0,0,0.25); backdrop-filter: blur(4px);
   color: #fff; font-size: 26px;
-  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  /* WCAG 2.5.8：触控目标 ≥44px（视觉箭头 26px 不变，flex 居中） */
+  width: 44px; height: 44px; border-radius: 50%; cursor: pointer;
   display: flex; align-items: center; justify-content: center; z-index: 2;
   opacity: 0; transition: opacity 0.25s;
 }
@@ -306,8 +310,9 @@ function shuffleSongs() {
 .m-shuffle-btn {
   border: 1px solid rgba(255,255,255,0.08); border-radius: var(--m-radius-full);
   background: transparent; color: var(--m-text-secondary); font-size: 12px;
-  padding: 5px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px;
-  transition: all 0.2s;
+  /* WCAG 2.5.8：触控目标 ≥44px */
+  min-height: 44px; padding: 5px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 .m-shuffle-btn:active { background: rgba(255,255,255,0.04); border-color: var(--m-primary); color: var(--m-primary); }
 .m-section-greeting {
@@ -352,16 +357,17 @@ function shuffleSongs() {
 .m-song-info { flex: 1; min-width: 0; }
 .m-song-name { font-size: 14px; font-weight: 500; color: var(--m-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .m-song-artist { font-size: 12px; color: var(--m-text-secondary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.m-play-icon { color: var(--m-text-tertiary); flex-shrink: 0; opacity: 0.5; transition: all 0.2s; }
+.m-play-icon { color: var(--m-text-tertiary); flex-shrink: 0; opacity: 0.5; transition: color 0.2s, opacity 0.2s, transform 0.2s; }
 .m-song-item:active .m-play-icon { color: var(--m-primary); opacity: 1; transform: scale(1.1); }
 .m-song-item.playing .m-play-icon { color: var(--m-primary); opacity: 1; }
 
 .m-song-acts { display: flex; gap: 4px; align-items: center; }
+/* WCAG 2.5.8：触控目标 ≥44px（图标视觉尺寸不变，flex 居中） */
 .m-song-acts button {
-  width: 30px; height: 30px; border-radius: var(--m-radius-sm); border: none;
+  width: 44px; height: 44px; border-radius: var(--m-radius-sm); border: none;
   background: rgba(255,255,255,0.04); color: var(--m-text-secondary); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s;
 }
 .m-song-acts button:active { background: rgba(255,255,255,0.1); color: var(--m-text-primary); }
 .m-song-acts button.faved { color: var(--m-gold); }

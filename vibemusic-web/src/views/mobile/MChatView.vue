@@ -15,7 +15,7 @@ const loading = ref(false)
 const chatBox = ref(null)
 const abortCtrl = ref(null)
 
-const greeting = '嗨！我是 vibe 音乐精灵 🎵 想听什么歌？告诉我吧～'
+const greeting = '嗨！我是 vibe 音乐精灵 想听什么歌？告诉我吧～'
 
 function scrollBottom() {
   nextTick(() => { if (chatBox.value) chatBox.value.scrollTop = chatBox.value.scrollHeight })
@@ -72,7 +72,7 @@ function fmtSec(s) {
 }
 
 onMounted(() => {
-  messages.value.push({ role: 'ai', content: greeting })
+  messages.value.push({ role: 'ai', content: greeting, greeting: true })
   scrollBottom()
 })
 </script>
@@ -108,10 +108,10 @@ onMounted(() => {
               <span>思考中</span>
               <span class="dot" v-for="i in 3" :key="i" :style="{ animationDelay: (i-1)*0.2+'s' }" />
             </div>
-            <p v-if="msg.content">{{ msg.content }}</p>
+            <p v-if="msg.content" class="mc-ai-text"><SvgIcon v-if="msg.greeting" name="music" size="13" class="mc-ai-text-icon" />{{ msg.content }}</p>
             <!-- 歌曲卡片 -->
             <div v-if="msg.songs && msg.songs.length" class="mc-songs">
-              <div class="mc-songs-label">🎶 为你找到：</div>
+              <div class="mc-songs-label"><SvgIcon name="music" size="12" /> 为你找到：</div>
               <div
                 v-for="song in msg.songs" :key="song.sourceId"
                 class="mc-song" @click="playSong(song)"
@@ -218,7 +218,7 @@ onMounted(() => {
   flex-shrink: 0;
 }
 .ai-avatar {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, var(--primary), #1aaf6c);
   color: #fff;
 }
 .user-avatar {
@@ -245,6 +245,7 @@ onMounted(() => {
   border-bottom-right-radius: 6px;
 }
 .mc-bubble p { margin: 0; }
+.mc-ai-text-icon { margin-right: 4px; }
 
 /* ===== 思考动画 ===== */
 .mc-thinking {
@@ -252,7 +253,7 @@ onMounted(() => {
   font-size: 12px; color: #777; padding-bottom: 4px;
 }
 .dot {
-  width: 5px; height: 5px; border-radius: 50%; background: #6366f1;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--primary);
   animation: mcbounce 1.2s ease-in-out infinite;
 }
 @keyframes mcbounce {
@@ -300,7 +301,7 @@ onMounted(() => {
   font-size: 12px; cursor: pointer;
   transition: .15s;
 }
-.mc-hints button:active { border-color: #6366f1; color: #a5b4fc; }
+.mc-hints button:active { border-color: var(--primary); color: var(--primary); }
 
 /* ===== 输入栏 ===== */
 .mc-input-bar {
@@ -316,14 +317,14 @@ onMounted(() => {
   font-size: 14px; outline: none;
 }
 .mc-input-bar input::placeholder { color: #555; }
-.mc-input-bar input:focus { border-color: #6366f1; }
+.mc-input-bar input:focus { border-color: var(--primary); }
 .mc-input-bar button {
   width: 40px; height: 40px; border-radius: 50%;
-  border: none; background: #6366f1; color: #fff;
+  border: none; background: var(--primary); color: #fff;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; transition: .15s;
 }
-.mc-input-bar button:active { background: #4f46e5; }
+.mc-input-bar button:active { background: #28a86b; }
 .mc-input-bar button:disabled { background: #2a2a2a; color: #555; }
 .mc-stop-btn { background: #e04040 !important; }
 .mc-stop-btn:active { background: #c53030 !important; }

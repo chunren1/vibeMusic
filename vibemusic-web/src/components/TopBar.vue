@@ -53,7 +53,7 @@ function formatDuration(s) {
           placeholder="搜索歌曲"
           class="search-input"
         />
-        <button v-if="searchKeyword" class="search-clear" @click.stop="clearSearch">✕</button>
+        <button v-if="searchKeyword" class="search-clear" @click.stop="clearSearch"><SvgIcon name="close" /></button>
       </div>
 
       <Transition name="dropdown">
@@ -68,8 +68,8 @@ function formatDuration(s) {
               @mousedown.prevent="playSong(song); router.push('/')"
             >
               <div class="drop-cover" :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=60y60)' } : {}">
-                <span v-if="!song.coverUrl">♪</span>
-                <div class="drop-play-icon">▶</div>
+                <SvgIcon v-if="!song.coverUrl" name="music" />
+                <div class="drop-play-icon"><SvgIcon name="play" /></div>
               </div>
               <div class="drop-info">
                 <span class="drop-name">{{ song.name }}</span>
@@ -84,7 +84,7 @@ function formatDuration(s) {
     <div class="user-info">
       <div class="user-avatar">
         <img v-if="authStore.avatarSrc" :src="authStore.avatarSrc" class="avatar-img" />
-        <span v-else>👤</span>
+        <SvgIcon v-else name="user" size="18" />
       </div>
       <span class="user-name">{{ authStore.user?.nickname || '音乐爱好者' }}</span>
     </div>
@@ -99,39 +99,39 @@ function formatDuration(s) {
 .search-box {
   display: flex; align-items: center;
   width: 100%; padding: 14px 20px;
-  background: #fff; border-radius: 24px; border: 1px solid #e0e0e0;
+  background: var(--bg-card); border-radius: 24px; border: 1px solid var(--bg-hover);
   transition: .2s;
 }
-.search-box:focus-within { border-color: #31c27c; background: #fff; }
+.search-box:focus-within { border-color: var(--primary); background: var(--bg-card); }
 .search-icon { font-size: 16px; margin-right: 10px; opacity: .5; flex-shrink: 0; }
 .search-input {
-  flex: 1; border: none; background: none; color: #333;
+  flex: 1; border: none; background: none; color: var(--text-primary);
   font-size: 15px; outline: none;
 }
-.search-input::placeholder { color: #bbb; }
+.search-input::placeholder { color: var(--text-secondary); }
 .search-clear {
-  background: none; border: none; color: #999; font-size: 14px; cursor: pointer;
+  background: none; border: none; color: var(--text-secondary); font-size: 14px; cursor: pointer;
   padding: 2px 6px; border-radius: 50%; flex-shrink: 0;
 }
-.search-clear:hover { color: #333; background: rgba(0,0,0,.06); }
+.search-clear:hover { color: var(--text-primary); background: rgba(255,255,255,.08); }
 
 .search-dropdown {
   position: absolute; top: 50px; left: 0; right: 0;
-  background: #fff; border: 1px solid #e0e0e0;
+  background: var(--bg-card); border: 1px solid var(--bg-hover);
   border-radius: 12px; overflow: hidden; z-index: 50;
   max-height: 360px; overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0,0,0,.1);
+  box-shadow: var(--shadow-2);
 }
-.drop-loading, .drop-empty { padding: 28px; text-align: center; color: #999; font-size: 14px; }
+.drop-loading, .drop-empty { padding: 28px; text-align: center; color: var(--text-secondary); font-size: 14px; }
 .drop-item {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; cursor: pointer; transition: .12s;
 }
-.drop-item:hover { background: #f5f5f5; }
+.drop-item:hover { background: var(--bg-hover); }
 .drop-cover {
   width: 40px; height: 40px; border-radius: 6px; flex-shrink: 0; position: relative;
-  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: #999;
+  background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--text-secondary);
   background-size: cover; background-position: center;
 }
 .drop-play-icon {
@@ -141,17 +141,17 @@ function formatDuration(s) {
 }
 .drop-item:hover .drop-play-icon { opacity: 1; }
 .drop-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.drop-name { font-size: 14px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.drop-meta { font-size: 12px; color: #999; }
+.drop-name { font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-meta { font-size: 12px; color: var(--text-secondary); }
 
-.dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
+.dropdown-enter-active, .dropdown-leave-active { transition: opacity .2s ease, transform .2s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
 
 .user-info { display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0; }
 .user-avatar {
   width: 40px; height: 40px; border-radius: 50%; overflow: hidden;
-  background: #e8e8e8; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+  background: var(--bg-elevated); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.user-name { font-size: 15px; color: #444; }
+.user-name { font-size: 15px; color: var(--text-secondary); }
 </style>

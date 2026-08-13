@@ -40,8 +40,10 @@ storage:
     secret-key: ${MINIO_SECRET_KEY}
 
 # ── AI 助手（DeepSeek 官方 API） ──
+# 注意：本地 dev 模式不加载 .env（Docker 部署才注入），故留空默认值，
+# 缺环境变量时仅 AI 助手降级，不影响服务启动；要启用 AI 需在启动环境设置 AI_API_KEY
 ai:
-  api-key: ${AI_API_KEY}
+  api-key: ${AI_API_KEY:}
 
 knife4j:
   enable: true

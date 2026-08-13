@@ -23,11 +23,7 @@ function checkDevice() {
     /Android|iPhone|iPad|iPod|webOS|BlackBerry|Windows Phone/i.test(ua)
 }
 
-// 立即设置 body 样式（同步，避免刷新闪白）
-if (isMobile.value) {
-  document.body.style.background = '#0a0a0a'
-  document.body.style.color = '#e0e0e0'
-}
+// body 底色统一由 CSS token 控制（var(--bg-base)），无需 JS 同步赋值
 
 let resizeDebounceTimer = null
 function onResize() {
@@ -38,13 +34,6 @@ function onResize() {
   clearTimeout(resizeDebounceTimer)
   resizeDebounceTimer = setTimeout(() => {
     isMobile.value = checkDevice()
-    if (isMobile.value) {
-      document.body.style.background = '#0a0a0a'
-      document.body.style.color = '#e0e0e0'
-    } else {
-      document.body.style.background = '#ffffff'
-      document.body.style.color = '#1a1a1a'
-    }
   }, 300)
 }
 
@@ -123,12 +112,10 @@ onUnmounted(() => {
 html, body, #app { height: 100%; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: #0a0a0a; color: #e0e0e0;
+  background: var(--bg-base); color: var(--text-primary);
   touch-action: manipulation;  /* 消除移动端 300ms 点击延迟 */
   -webkit-tap-highlight-color: transparent;  /* 去掉点击高亮 */
 }
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-thumb { background: rgba(0,0,0,.15); border-radius: 3px; }
 </style>
 
 <style scoped>
@@ -136,33 +123,37 @@ body {
 .app-layout { display: flex; height: 100%; }
 
 .sidebar {
-  width: 260px; background: #e8e8e8;
-  border-right: 1px solid #ddd;
+  width: 260px; background: var(--bg-elevated);
+  border-right: 1px solid var(--bg-hover);
   display: flex; flex-direction: column; flex-shrink: 0;
 }
 .logo {
   display: flex; align-items: center; justify-content: center;
-  padding: 16px 28px; border-bottom: 1px solid #ddd;
+  padding: 16px 28px; border-bottom: 1px solid var(--bg-hover);
 }
-.logo-img { width: 100%; height: auto; max-height: 180px; object-fit: contain; }
+.logo-img {
+  width: 100%; height: auto; max-height: 180px; object-fit: contain;
+  /* F4：logo.png 为白底资源（无透明版），暗色圆角卡底框住白块，视觉可接受 */
+  background: var(--bg-card); border-radius: var(--radius-md); padding: 8px 12px;
+}
 .logo-text { display: none; }
 .nav { flex: 1; padding: 20px 0; }
 
 .nav-item {
   display: flex; align-items: center; gap: 14px;
-  padding: 18px 28px; color: #555;
-  text-decoration: none; font-size: 18px; transition: all .2s;
+  padding: 18px 28px; color: var(--text-secondary);
+  text-decoration: none; font-size: 18px; transition: color .2s, background .2s, border-left-color .2s;
   border-left: 4px solid transparent;
 }
-.nav-item:hover { color: #1a1a1a; background: rgba(0,0,0,.04); }
+.nav-item:hover { color: var(--text-primary); background: var(--bg-hover); }
 .nav-item.active {
-  color: #31c27c; background: rgba(49, 194, 124, .1);
-  border-left-color: #31c27c;
+  color: var(--primary); background: rgba(49, 194, 124, .1);
+  border-left-color: var(--primary);
 }
 .nav-label { font-size: 18px; margin-left: 4px; }
 
 .main {
   flex: 1; overflow-y: auto; padding-bottom: 88px;
-  background: #f5f5f5;
+  background: var(--bg-base);
 }
 </style>

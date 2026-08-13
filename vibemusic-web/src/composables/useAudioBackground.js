@@ -41,11 +41,21 @@ function tick() {
 
 let workerInstance = null
 let workerRefs = 0
+// 模块级 tick 订阅者集合：所有 useAudioBackground 实例共享同一个 Worker，
+// 每个实例（PlayerBar / MPlayerView / 结束检测）注册自己的回调，由统一 onmessage 分发。
+// 修复前 startWorkerTimer 直接覆盖 worker.onmessage 单槽，多订阅者会互相顶掉。
+const tickHandlers = new Set()
 
 function getWorker() {
   if (!workerInstance) {
     const blob = new Blob([WORKER_CODE], { type: 'application/javascript' })
     workerInstance = new Worker(URL.createObjectURL(blob))
+    // 统一分发：Worker tick 到达主线程时逐个调用订阅者。
+    // Worker 线程的 setTimeout 不受后台标签页定时器节流影响，
+    // 消息投递到主线程同样不被节流 —— 这是第三层结束检测的根基。
+    workerInstance.onmessage = () => {
+      tickHandlers.forEach(fn => { try { fn() } catch {} })
+    }
   }
   workerRefs++
   return workerInstance
@@ -57,6 +67,14 @@ function releaseWorker() {
     workerInstance.postMessage('stop')
     workerInstance.terminate()
     workerInstance = null
+    tickHandlers.clear()
+  }
+}
+
+/** 无订阅者时软停止 Worker 心跳（实例保留，可再次 start） */
+function stopWorkerIfIdle() {
+  if (tickHandlers.size === 0 && workerInstance) {
+    workerInstance.postMessage('stop')
   }
 }
 
@@ -70,7 +88,6 @@ export function useAudioBackground(audioRef) {
   const bgSince = ref(null)
 
   let rafId = null
-  let worker = null
   let unsubscribes = []
 
   /**
@@ -118,7 +135,8 @@ export function useAudioBackground(audioRef) {
    *    方案：
    *    第1层 timeupdate 抢先切 —— 距离结尾 2 秒时提前切歌（避免等到 timeupdate 中断）
    *    第2层 pause 兜底 —— 直接读 audio.ended 属性（浏览器引擎设的，不依赖JS事件）
-   *    第3层 Worker 心跳 —— 每 5 秒检查一次 audio.ended（Worker 线程不受主线程节流影响）
+   *    第3层 Worker 心跳 —— 由 Worker tick 驱动，每 ~4 秒检查一次 audio.ended
+   *    （Worker 线程不受主线程节流影响，消息投递亦不节流）
    */
   let _switchingNext = false
 
@@ -146,35 +164,67 @@ export function useAudioBackground(audioRef) {
     }
   }
 
-  // 第3层：Worker 心跳检查（与进度保存共用同一个 Worker）
-  let _bgEndedWorkerCheck = null
+  // 第3层：Worker 心跳驱动检查（与进度保存共用同一个 Worker）
+  // 修复前：这里误用主线程 setInterval —— 后台标签页定时器被浏览器节流
+  // （Chrome 强化节流可降至 1 次/分钟），导致第三层兜底失效。
+  // 现在改为订阅 Worker tick：Worker 线程的 setTimeout 不受主线程节流影响，
+  // 其 postMessage 投递到主线程也不被节流，检测节奏由 Worker 时钟驱动。
+  let _bgEndedTickHandler = null
+  let _bgEndedFallback = null
+  let _lastEndedCheck = 0
+
+  function checkEnded() {
+    const audio = window.vibeAudio
+    if (!audio || audio.loop || _switchingNext) return
+    if (audio.ended && audio.duration > 0) {
+      _switchingNext = true
+      if (window.vibeNext) window.vibeNext()
+      setTimeout(() => { _switchingNext = false }, 4000)
+    }
+  }
 
   function startBgEndedCheck() {
     const audio = window.vibeAudio
     if (!audio) return
     audio.addEventListener('timeupdate', onBgTimeUpdate)
     audio.addEventListener('pause', onBgPauseForEnd)
-    // Worker 心跳：每 4 秒读一次 audio.ended，兜底以上两层的遗漏
-    _bgEndedWorkerCheck = setInterval(() => {
-      // 用 setTimeout 嵌套避免被当作高频定时器节流
-      if (_switchingNext || !audio || audio.loop) return
-      if (audio.ended && audio.duration > 0) {
-        _switchingNext = true
-        if (window.vibeNext) window.vibeNext()
-        setTimeout(() => { _switchingNext = false }, 4000)
+
+    // Worker tick 驱动：保持 ~4 秒检查节奏（tick 可能 250ms 一次，用时间闸限频）
+    const onWorkerTick = () => {
+      if (Date.now() - _lastEndedCheck < 4000) return
+      _lastEndedCheck = Date.now()
+      checkEnded()
+    }
+    try {
+      const w = getWorker()
+      _bgEndedTickHandler = onWorkerTick
+      tickHandlers.add(onWorkerTick)
+      // 若 Worker 尚未被任何调用方启动，以默认 250ms 节奏启动；
+      // 若已被 startWorkerTimer 启动，则沿用其节奏，不覆盖 interval
+      if (tickHandlers.size === 1) {
+        w.postMessage(250)
+        w.postMessage('start')
       }
-    }, 4000)
+    } catch {
+      // Worker 不可用：退化为低频 setInterval 兜底（前台可用；
+      // 后台仍会被节流 —— 已知限制，Worker 不可用时无解）
+      _bgEndedFallback = setInterval(checkEnded, 4000)
+    }
     unsubscribes.push(
       () => audio.removeEventListener('timeupdate', onBgTimeUpdate),
       () => audio.removeEventListener('pause', onBgPauseForEnd),
-      () => { if (_bgEndedWorkerCheck) clearInterval(_bgEndedWorkerCheck) },
     )
   }
 
   function stopBgEndedCheck() {
-    if (_bgEndedWorkerCheck) {
-      clearInterval(_bgEndedWorkerCheck)
-      _bgEndedWorkerCheck = null
+    if (_bgEndedTickHandler) {
+      tickHandlers.delete(_bgEndedTickHandler)
+      _bgEndedTickHandler = null
+      stopWorkerIfIdle()
+    }
+    if (_bgEndedFallback) {
+      clearInterval(_bgEndedFallback)
+      _bgEndedFallback = null
     }
   }
 
@@ -290,10 +340,11 @@ export function useAudioBackground(audioRef) {
   function startWorkerTimer(callback, ms = 250) {
     onTick = callback
     try {
-      worker = getWorker()
-      worker.postMessage(ms)
-      worker.postMessage('start')
-      worker.onmessage = () => { onTick?.() }
+      const w = getWorker()
+      tickHandlers.add(onTick)
+      w.postMessage(ms)
+      // 'start' 在 Worker 侧幂等（running 标志），重复调用安全
+      w.postMessage('start')
     } catch (e) {
       console.warn('[AudioBG] Worker 不可用，回退到 RAF')
       fallbackRaf()
@@ -301,14 +352,15 @@ export function useAudioBackground(audioRef) {
   }
 
   function stopWorkerTimer() {
-    if (worker) {
-      worker.onmessage = null
-      worker.postMessage('stop')
+    if (onTick) {
+      tickHandlers.delete(onTick)
+      onTick = null
     }
     if (rafId) {
       cancelAnimationFrame(rafId)
       rafId = null
     }
+    stopWorkerIfIdle()
   }
 
   /** RAF 降级方案（在 Worker 不可用时使用，但后台会被节流） */

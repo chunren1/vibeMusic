@@ -168,7 +168,7 @@ onMounted(() => loadPlaylists())
   <div class="playlists-page">
     <div class="page-header">
       <div>
-        <h2 class="page-title">📂 我的歌单</h2>
+        <h2 class="page-title">我的歌单</h2>
         <p class="subtitle">{{ playlists.length }} 个歌单</p>
       </div>
       <div class="header-actions">
@@ -189,13 +189,13 @@ onMounted(() => loadPlaylists())
           <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#999" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
         </div>
         <div v-if="!manageMode" class="card-actions">
-          <button class="ca-btn" title="编辑" @click="openEdit(pl, $event)">✏️</button>
-          <button class="ca-btn" title="置顶" @click="moveToTop(pl, $event)">⬆</button>
-          <button class="ca-btn" title="导出" @click="handleExport(pl, $event)">📥</button>
+          <button class="ca-btn" title="编辑" @click="openEdit(pl, $event)"><SvgIcon name="edit" :size="14" /></button>
+          <button class="ca-btn" title="置顶" @click="moveToTop(pl, $event)"><SvgIcon name="arrow-up" :size="14" /></button>
+          <button class="ca-btn" title="导出" @click="handleExport(pl, $event)"><SvgIcon name="download" :size="14" /></button>
         </div>
         <div class="pl-cover">
           <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-cover-img" alt="" loading="lazy" />
-          <div v-else class="cover-inner" :style="{ background: '#31c27c' }">♪</div>
+          <div v-else class="cover-inner" :style="{ background: '#31c27c' }"><SvgIcon name="music" size="42" /></div>
           <span class="pl-count">{{ pl.songCount }}首</span>
         </div>
         <p class="pl-name">{{ pl.name }}</p>
@@ -250,30 +250,28 @@ onMounted(() => loadPlaylists())
 </template>
 
 <style scoped>
-.playlists-page { padding: 36px 48px; max-width: 1400px; margin: 0 auto; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
-.page-title { font-size: 24px; font-weight: 700; color: #1a1a1a; margin-bottom: 4px; }
-.subtitle { font-size: 13px; color: #999; }
+.playlists-page { padding: 0 32px 80px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; padding-top: 32px; }
+.page-title { font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: var(--text-tertiary); }
 .header-actions { display: flex; gap: 10px; align-items: center; }
 .btn-manage {
-  padding: 10px 20px; border: 1px solid #ccc; border-radius: 20px;
-  background: transparent; color: #666; font-size: 14px; cursor: pointer;
+  padding: 10px 20px; border: 1px solid var(--bg-hover); border-radius: 20px;
+  background: transparent; color: var(--text-secondary); font-size: 14px; cursor: pointer;
 }
-.btn-manage:hover { border-color: #31c27c; color: #31c27c; }
+.btn-manage:hover { border-color: var(--primary); color: var(--primary); }
 .btn-create {
-  padding: 10px 24px; background: #31c27c; color: #fff; border: none;
+  padding: 10px 24px; background: var(--primary); color: #fff; border: none;
   border-radius: 20px; font-size: 14px; cursor: pointer; font-weight: 600;
 }
 .btn-create:hover { background: #28a86b; }
 
 .playlist-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 24px;
   padding-bottom: 80px;
 }
-@media (max-width: 1200px) { .playlist-grid { grid-template-columns: repeat(4, 1fr); } }
-@media (max-width: 800px) { .playlist-grid { grid-template-columns: repeat(2, 1fr); } }
 .playlist-card { cursor: pointer; position: relative; }
 .playlist-card.selected { opacity: .7; }
 .playlist-card.selected::after {
@@ -282,9 +280,9 @@ onMounted(() => loadPlaylists())
 }
 .card-check {
   position: absolute; top: 8px; right: 8px; z-index: 2;
-  background: #fff; border-radius: 50%; width: 28px; height: 28px;
+  background: var(--bg-card); border-radius: 50%; width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,.1);
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
 }
 .card-actions {
   position: absolute; top: 6px; right: 6px; z-index: 2;
@@ -319,42 +317,43 @@ onMounted(() => loadPlaylists())
 .pl-count {
   position: absolute; top: 10px; right: 10px;
   padding: 3px 10px; border-radius: 4px;
-  background: rgba(0,0,0,.55); font-size: 13px; color: #bbb;
+  background: rgba(0,0,0,.55); font-size: 13px; color: var(--text-secondary);
 }
 .pl-name {
-  font-size: 15px; color: #1a1a1a;
+  font-size: 15px; color: var(--text-primary);
   display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
 }
 .pl-desc {
-  font-size: 12px; color: #999; margin-top: 4px;
+  font-size: 12px; color: var(--text-tertiary); margin-top: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.empty { text-align: center; padding: 80px 0; color: #999; }
+.empty { text-align: center; padding: 80px 0; color: var(--text-tertiary); }
 .hint { font-size: 13px; margin-top: 8px; }
 
 .overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.4);
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display: flex; align-items: center; justify-content: center; z-index: 200;
 }
 .dialog {
-  background: #fff; border-radius: 14px; padding: 24px; width: 400px;
-  box-shadow: 0 12px 48px rgba(0,0,0,.15);
+  background: var(--bg-card); border-radius: 14px; padding: 24px; width: 400px;
+  box-shadow: var(--shadow-2);
 }
-.dialog h3 { font-size: 18px; margin-bottom: 16px; color: #333; }
-.dialog label { display: block; font-size: 13px; color: #666; margin: 10px 0 4px; }
+.dialog h3 { font-size: 18px; margin-bottom: 16px; color: var(--text-primary); }
+.dialog label { display: block; font-size: 13px; color: var(--text-secondary); margin: 10px 0 4px; }
 .inp {
-  width: 100%; padding: 10px 14px; border: 1px solid #e0e0e0; border-radius: 8px;
+  width: 100%; padding: 10px 14px; border: 1px solid var(--bg-hover); border-radius: 8px;
   font-size: 14px; outline: none; box-sizing: border-box;
+  background: var(--bg-elevated); color: var(--text-primary);
 }
-.inp:focus { border-color: #31c27c; }
+.inp:focus { border-color: var(--primary); }
 .dialog-acts { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
 .btn-cancel {
-  padding: 8px 20px; border: 1px solid #ccc; border-radius: 16px;
-  background: none; color: #666; font-size: 13px; cursor: pointer;
+  padding: 8px 20px; border: 1px solid var(--bg-hover); border-radius: 16px;
+  background: none; color: var(--text-secondary); font-size: 13px; cursor: pointer;
 }
 .btn-ok {
-  padding: 8px 24px; background: #31c27c; color: #fff; border: none;
+  padding: 8px 24px; background: var(--primary); color: #fff; border: none;
   border-radius: 16px; font-size: 13px; cursor: pointer; font-weight: 600;
 }
 .btn-ok:disabled { opacity: .5; cursor: not-allowed; }
@@ -363,11 +362,11 @@ onMounted(() => loadPlaylists())
 .batch-bar {
   position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;
   display: flex; justify-content: center; padding: 12px;
-  background: #fff; border-top: 1px solid #eee;
+  background: var(--bg-elevated); border-top: 1px solid var(--bg-hover);
 }
 .batch-btn {
   padding: 10px 36px; border-radius: 22px;
-  border: 1px solid #e0e0e0; background: transparent;
+  border: 1px solid var(--bg-hover); background: transparent;
   color: #e04040; font-size: 14px; cursor: pointer;
 }
 .batch-btn:hover { border-color: #e04040; }

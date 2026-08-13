@@ -74,7 +74,7 @@ async function handleAdd(pl) {
     <div class="popup-card">
       <div class="popup-header">
         <span>添加到歌单</span>
-        <button class="popup-close" @click="emit('close')">✕</button>
+        <button class="popup-close" @click="emit('close')"><SvgIcon name="close" /></button>
       </div>
 
       <div class="popup-body">
@@ -95,7 +95,7 @@ async function handleAdd(pl) {
             :class="{ adding: addingId === pl.id }"
             @click="handleAdd(pl)"
           >
-            <div class="pl-icon">📁</div>
+            <div class="pl-icon"><SvgIcon name="playlist" :size="24" /></div>
             <div class="pl-info">
               <span class="pl-name">{{ pl.name }}</span>
               <span class="pl-count">{{ pl.songCount }} 首</span>
@@ -129,27 +129,27 @@ async function handleAdd(pl) {
 
 <style scoped>
 .popup-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.4);
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
   display: flex; align-items: center; justify-content: center; z-index: 200;
 }
 .popup-card {
-  background: #fff; border-radius: 14px; width: 420px; max-height: 70vh;
-  overflow: hidden; box-shadow: 0 12px 48px rgba(0,0,0,.15);
+  background: var(--bg-card); border-radius: 14px; width: 420px; max-height: 70vh;
+  overflow: hidden; box-shadow: var(--shadow-2);
 }
 .popup-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 24px; border-bottom: 1px solid #eee;
-  font-size: 16px; font-weight: 600; color: #333;
+  padding: 18px 24px; border-bottom: 1px solid var(--bg-hover);
+  font-size: 16px; font-weight: 600; color: var(--text-primary);
 }
-.popup-close { background: none; border: none; color: #999; font-size: 16px; cursor: pointer; }
-.popup-close:hover { color: #333; }
+.popup-close { background: none; border: none; color: var(--text-tertiary); font-size: 16px; cursor: pointer; }
+.popup-close:hover { color: var(--text-primary); }
 .popup-body { padding: 16px 24px 24px; overflow-y: auto; max-height: 50vh; }
-.popup-msg { text-align: center; color: #31c27c; font-size: 14px; padding: 16px 0; }
+.popup-msg { text-align: center; color: var(--primary); font-size: 14px; padding: 16px 0; }
 
 .empty-state { text-align: center; padding: 32px 0; }
-.empty-state p { color: #999; font-size: 14px; margin-bottom: 16px; }
+.empty-state p { color: var(--text-tertiary); font-size: 14px; margin-bottom: 16px; }
 .create-btn {
-  padding: 10px 24px; background: #31c27c; color: #fff; border: none;
+  padding: 10px 24px; background: var(--primary); color: #fff; border: none;
   border-radius: 20px; font-size: 14px; cursor: pointer;
 }
 .create-btn:hover { background: #28a86b; }
@@ -158,36 +158,36 @@ async function handleAdd(pl) {
   display: flex; align-items: center; gap: 12px;
   padding: 12px; border-radius: 8px; cursor: pointer; transition: .12s;
 }
-.pl-item:hover { background: #f5f5f5; }
+.pl-item:hover { background: var(--bg-hover); }
 .pl-item.adding { opacity: .6; pointer-events: none; }
 .pl-icon { font-size: 24px; }
 .pl-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.pl-name { font-size: 14px; color: #333; }
-.pl-count { font-size: 12px; color: #999; }
-.pl-add { font-size: 18px; color: #31c27c; opacity: 0; transition: .15s; }
+.pl-name { font-size: 14px; color: var(--text-primary); }
+.pl-count { font-size: 12px; color: var(--text-tertiary); }
+.pl-add { font-size: 18px; color: var(--primary); opacity: 0; transition: .15s; }
 .pl-item:hover .pl-add { opacity: 1; }
 
 .create-entry {
-  text-align: center; padding: 14px 0; color: #31c27c;
-  font-size: 14px; cursor: pointer; border-top: 1px solid #eee; margin-top: 8px;
+  text-align: center; padding: 14px 0; color: var(--primary);
+  font-size: 14px; cursor: pointer; border-top: 1px solid var(--bg-hover); margin-top: 8px;
 }
 .create-entry:hover { color: #28a86b; }
 
 .create-form { display: flex; flex-direction: column; gap: 10px; }
-.create-form label { font-size: 13px; color: #666; }
+.create-form label { font-size: 13px; color: var(--text-secondary); }
 .form-input {
-  padding: 10px 14px; border: 1px solid #e0e0e0; border-radius: 8px;
-  font-size: 14px; outline: none;
+  padding: 10px 14px; border: 1px solid var(--bg-hover); border-radius: 8px;
+  font-size: 14px; outline: none; background: var(--bg-elevated); color: var(--text-primary);
 }
-.form-input:focus { border-color: #31c27c; }
+.form-input:focus { border-color: var(--primary); }
 .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
 .btn-cancel {
-  padding: 8px 20px; border: 1px solid #ccc; border-radius: 16px;
-  background: none; color: #666; font-size: 13px; cursor: pointer;
+  padding: 8px 20px; border: 1px solid var(--bg-hover); border-radius: 16px;
+  background: none; color: var(--text-secondary); font-size: 13px; cursor: pointer;
 }
 .btn-create {
   padding: 8px 20px; border: none; border-radius: 16px;
-  background: #31c27c; color: #fff; font-size: 13px; cursor: pointer;
+  background: var(--primary); color: #fff; font-size: 13px; cursor: pointer;
 }
 .btn-create:disabled { opacity: .5; cursor: not-allowed; }
 .btn-create:not(:disabled):hover { background: #28a86b; }

@@ -164,10 +164,10 @@ function getZodiac(month, day) {
 
       <!-- 快捷入口 -->
       <div class="m-menu">
-        <div class="m-menu-item" @click="router.push('/m/recent')"><span>最近播放</span><span class="m-arrow">›</span></div>
-        <div class="m-menu-item" @click="router.push('/m/likes')"><span>我的收藏</span><span class="m-arrow">›</span></div>
-        <div class="m-menu-item" @click="router.push('/m/playlists')"><span>我的歌单</span><span class="m-arrow">›</span></div>
-        <div class="m-menu-item" @click="showPwdModal = true"><span>修改密码</span><span class="m-arrow">›</span></div>
+        <div class="m-menu-item" @click="router.push('/m/recent')"><span>最近播放</span><SvgIcon name="chevron-right" :size="14" class="m-arrow" /></div>
+        <div class="m-menu-item" @click="router.push('/m/likes')"><span>我的收藏</span><SvgIcon name="chevron-right" :size="14" class="m-arrow" /></div>
+        <div class="m-menu-item" @click="router.push('/m/playlists')"><span>我的歌单</span><SvgIcon name="chevron-right" :size="14" class="m-arrow" /></div>
+        <div class="m-menu-item" @click="showPwdModal = true"><span>修改密码</span><SvgIcon name="chevron-right" :size="14" class="m-arrow" /></div>
         <div class="m-menu-item m-logout-item" @click="auth.logout()">退出登录</div>
       </div>
     </template>
@@ -356,8 +356,8 @@ function getZodiac(month, day) {
 .s-save { width: 100%; padding: 13px; border: none; border-radius: 10px; background: #31c27c; color: #fff; font-size: 15px; font-weight: 500; cursor: pointer; margin-top: 8px; }
 .s-save:disabled { opacity: .5; }
 
-.sheet-enter-active { transition: all .3s ease; }
-.sheet-leave-active { transition: all .25s ease; }
+.sheet-enter-active { transition: transform .3s ease, background .3s ease; }
+.sheet-leave-active { transition: transform .25s ease, background .25s ease; }
 .sheet-enter-from .sheet-panel { transform: translateY(100%); }
 .sheet-leave-to .sheet-panel { transform: translateY(100%); }
 .sheet-enter-from, .sheet-leave-to { background: transparent; }

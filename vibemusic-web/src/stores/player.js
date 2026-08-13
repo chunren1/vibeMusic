@@ -15,6 +15,43 @@ function tryParse(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback } catch { return fallback }
 }
 
+// ===== 全局快捷键（Spotify 范式：Space 播放/暂停，←/→ 切歌）=====
+// 模块级单例：window 监听只绑定一次，避免 store 重建时监听器累积泄漏
+let _shortcutsBound = false
+let _shortcutTarget = null
+
+/** 判断 keydown 目标是否为输入类元素（input/textarea/contenteditable） */
+function isEditableTarget(e) {
+  const t = e.target
+  if (!t || typeof t.tagName !== 'string') return false
+  return t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable === true
+}
+
+/** 全局 keydown 处理：Space 播放/暂停，←/→ 切歌 */
+function onGlobalKeydown(e) {
+  if (!_shortcutTarget) return
+  // 输入框聚焦时不触发，避免干扰打字/IME 选词
+  if (isEditableTarget(e)) return
+  // 带修饰键时不拦截，避免覆盖浏览器快捷键（Alt+← 返回、Ctrl+← 跳词等）
+  if (e.ctrlKey || e.metaKey || e.altKey) return
+  if (e.code === 'Space' || e.key === ' ') {
+    if (e.repeat) return // 长按空格不重复切换
+    e.preventDefault() // 阻止空格滚动页面
+    _shortcutTarget.togglePlay()
+  } else if (e.key === 'ArrowLeft') {
+    _shortcutTarget.prev()
+  } else if (e.key === 'ArrowRight') {
+    _shortcutTarget.next()
+  }
+}
+
+/** 绑定全局快捷键监听（window 级，只绑定一次） */
+function bindGlobalShortcuts() {
+  if (_shortcutsBound || typeof window === 'undefined') return
+  _shortcutsBound = true
+  window.addEventListener('keydown', onGlobalKeydown)
+}
+
 export const usePlayerStore = defineStore('player', () => {
   // ===== 共享 Audio 元素 =====
   const audio = window.vibeAudio || new Audio()
@@ -314,6 +351,11 @@ export const usePlayerStore = defineStore('player', () => {
   if (typeof window !== 'undefined') {
     window.addEventListener('online', onNetworkRecovery)
   }
+
+  // ===== 全局快捷键（Spotify 范式：Space 播放/暂停，←/→ 切歌）=====
+  // 指向最新 store 实例（应用内为单例；测试中每次重建 store 后自动跟随）
+  _shortcutTarget = { togglePlay, prev, next }
+  bindGlobalShortcuts()
 
   /** 页面刷新后恢复播放状态（从 currentSong localStorage 兜底，不依赖队列） */
   function restoreFromCurrentSong() {

@@ -17,8 +17,8 @@ class MockAudio {
   }
   addEventListener(event, fn) { this._listeners[event] = fn }
   removeEventListener(event, fn) { delete this._listeners[event] }
-  play() { this.paused = false; return Promise.resolve() }
-  pause() { this.paused = true; return Promise.resolve() }
+  play() { this.paused = false; this.dispatchEvent({ type: 'play' }); return Promise.resolve() }
+  pause() { this.paused = true; this.dispatchEvent({ type: 'pause' }); return Promise.resolve() }
   load() {}
   dispatchEvent(e) { const fn = this._listeners[e.type]; if (fn) fn(e) }
 }
@@ -210,6 +210,51 @@ describe('PlayerStore', () => {
       store.volume = 50
       await Promise.resolve()
       expect(localStorage.getItem('vibe_volume')).toBe('50')
+    })
+  })
+
+  describe('全局快捷键（Spotify 范式）', () => {
+    it('Space 播放/暂停', () => {
+      const store = usePlayerStore()
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ' }))
+      expect(store.audio.paused).toBe(false)
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ' }))
+      expect(store.audio.paused).toBe(true)
+    })
+
+    it('→ 下一首 / ← 上一首', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: '1', name: 'S1' })
+      store.addToQueue({ sourceId: '2', name: 'S2' })
+      store.currentIdx = 0
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }))
+      expect(store.currentIdx).toBe(1)
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' }))
+      expect(store.currentIdx).toBe(0)
+    })
+
+    it('输入框/可编辑元素聚焦时不触发', () => {
+      const store = usePlayerStore()
+      const input = document.createElement('input')
+      document.body.appendChild(input)
+      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, code: 'Space', key: ' ' }))
+      expect(store.audio.paused).toBe(true)
+      input.remove()
+
+      const editable = document.createElement('div')
+      editable.contentEditable = 'true'
+      document.body.appendChild(editable)
+      editable.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight' }))
+      expect(store.currentIdx).toBe(-1)
+      editable.remove()
+    })
+
+    it('带修饰键（Alt/Ctrl）时不触发', () => {
+      const store = usePlayerStore()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true }))
+      expect(store.currentIdx).toBe(-1)
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', ctrlKey: true }))
+      expect(store.audio.paused).toBe(true)
     })
   })
 })

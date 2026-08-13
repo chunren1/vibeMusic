@@ -19,7 +19,8 @@
 - **每次实质性修改后**自动更新 `CHANGELOG.md` 和 `PROJECT-AUDIT.md`
 - 提交后**同时推送**两个 remote：`origin`（Gitee）和 `github`（GitHub）
 - `origin` 推送: `git push origin HEAD:main`
-- `github` 推送: `git push github HEAD:main`（代理端口 7890 已全局配置 `http.proxy`）
+- `github` 推送: `git push github HEAD:main`
+- **代理端口（2026-08-13 更新）**：全局 `http.proxy` 配置为 7897，但代理软件实际监听 7890；直接 push 会失败，需用 `git -c http.proxy=http://127.0.0.1:7890 push ...` 临时覆盖（未改全局配置）
 - Commit message 规范：中文概要 + 英文分类展开
 - 推送前检查：web/svr/api 三端测试通过（`git status` 确认无遗漏文件）
 

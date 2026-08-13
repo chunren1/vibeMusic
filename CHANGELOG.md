@@ -5,6 +5,40 @@
 
 ---
 
+## 2026-08-14 前端暗色主题重构 + 歌词页逐字高亮 + 布局统一
+
+### 🎨 暗色主题全覆盖
+- **设计 Token 体系**：`main.css` 建立 `--bg-base/--bg-elevated/--bg-card/--bg-hover/--text-*` 变量，全站硬编码色收敛为 `var()`
+- **残留下浅色页面修复**：PlaylistDetailView/PlaylistView/ChatView/LoginView/LoginModal/PlaylistsView/LikesView/RecentView/ProfileView/PlaylistPopup/BannerSection/ErrorBoundary 桌面端浅色样式全部改暗色
+- **移动端**：`--m-primary` 统一桌面绿，移除冗余 glow
+
+### 🎵 歌词页体验升级
+- **逐字高亮 v3**：每字 span + `charAlpha` 线性插值，白色高亮连续滑动（Apple Music 风格）
+- **流畅度修复**：`setInterval(200ms)` → `requestAnimationFrame` 驱动，4s 内 121 次颜色变化（~30次/s）
+- **切歌不闪烁**：保留旧歌词直到新歌词加载完成（`loadedForId` 机制）
+- **频谱全宽化**：`padding: 0 300px` → `max(40px, 8vw)`
+- **背景氛围**：渐变压暗层减弱，封面取色 `bg-tint` 真正透出
+- **当前行焦点**：圆角渐变背景 + inset 绿色竖条
+
+### 🖥️ 布局统一（参考主页）
+- `PlaylistsView`：去 `max-width: 1400px`，网格 `repeat(6,1fr)` → `auto-fit minmax(180px, 1fr)`
+- `LikesView/RecentView`：表格列宽 `1fr 200px 90px` 自适应填充
+- `ChatView`：max-width 1200px → 960px 居中
+- 各页面统一 `padding: 0 32px 80px`
+
+### 🎮 播放器增强
+- **全局快捷键**：Space/←/→（屏蔽输入框/修饰键，player.js 模块级单例）
+- **Worker 多订阅者修复**：`tickHandlers` Set 分发（原 onmessage 单槽互相顶掉）
+- **后台节流失效修复**：结束检测改由 Worker tick 驱动
+- **进度条 Apple VP0 范式**：拖拽预览 + 松手 commit，scaleX 合成器动画
+
+### ⚙️ 其他
+- `musicapi/server.js`：QQ 播放 URL 增加完整 Cookie 头 + UA（修复 2026-08 QQ 服务端忽略 authst 问题）
+- `application-dev.yml`：`ai.api-key: ${AI_API_KEY:}` 加空默认值（修复本地 dev 启动崩溃）
+- `.gitignore`：新增 `.omo/`、`.playwright-mcp/` 忽略规则
+
+---
+
 ## 2026-08-13 歌单导出功能
 
 ### 🎵 歌单导出

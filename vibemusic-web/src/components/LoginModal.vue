@@ -242,9 +242,9 @@ function toggleMode() {
   position: relative;
   width: 400px;
   padding: 40px 48px;
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-2);
 }
 
 .close-btn {
@@ -256,13 +256,13 @@ function toggleMode() {
   border: none;
   background: transparent;
   font-size: 24px;
-  color: #999;
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s;
 }
 
 .close-btn:hover {
@@ -278,13 +278,13 @@ function toggleMode() {
 .title {
   font-size: 24px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .subtitle {
   font-size: 14px;
-  color: #999;
+  color: var(--text-secondary);
   margin: 0;
 }
 
@@ -301,23 +301,22 @@ function toggleMode() {
 .input {
   width: 100%;
   padding: 14px 16px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--bg-hover);
   border-radius: 8px;
   font-size: 14px;
-  color: #333;
-  background: #fff;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
   outline: none;
-  transition: all 0.2s;
+  transition: border-color 0.2s;
   box-sizing: border-box;
 }
 
 .input:focus {
   border-color: #31c27c;
-  box-shadow: 0 0 0 3px rgba(49, 194, 124, 0.1);
 }
 
 .input::placeholder {
-  color: #bbb;
+  color: var(--text-tertiary);
 }
 
 .error-msg {
@@ -338,7 +337,7 @@ function toggleMode() {
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, opacity 0.2s;
 }
 
 .submit-btn:hover {
@@ -367,7 +366,7 @@ function toggleMode() {
   font-size: 14px;
   color: #31c27c;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color 0.2s;
 }
 
 .toggle-text:hover {

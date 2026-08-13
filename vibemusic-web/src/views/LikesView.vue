@@ -67,7 +67,7 @@ onMounted(() => {
   <TopBar />
   <div class="likes-page">
     <div class="page-header">
-      <h2 class="page-title">❤️ 我的收藏</h2>
+      <h2 class="page-title">我的收藏</h2>
       <button class="btn-manage" @click="toggleManage">{{ manageMode ? '完成' : '管理' }}</button>
     </div>
     <p class="subtitle">{{ favorites.length }} 首歌曲</p>
@@ -92,11 +92,11 @@ onMounted(() => {
           <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
         </span>
         <span class="td-index">
-          <span v-if="!manageMode && currentPlayId === fav.sourceId" class="playing-eq">▮▮</span>
+          <span v-if="!manageMode && currentPlayId === fav.sourceId && player.isPlaying" class="playing-eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
           <span v-else>{{ idx + 1 }}</span>
         </span>
         <div class="td-cover">
-          <div class="cover-img" :style="fav.coverUrl ? { backgroundImage: 'url(' + fav.coverUrl + '?param=100y100)' } : {}" @click.stop="play(fav)"><span v-if="!fav.coverUrl">♪</span><div class="cover-hover">▶</div></div>
+          <div class="cover-img" :style="fav.coverUrl ? { backgroundImage: 'url(' + fav.coverUrl + '?param=100y100)' } : {}" @click.stop="play(fav)"><SvgIcon v-if="!fav.coverUrl" name="music" :size="16" /><SvgIcon name="play" class="cover-hover" :size="18" /></div>
         </div>
         <div class="td-info" @click.stop="play(fav)">
           <span class="td-name" :class="{ active: currentPlayId === fav.sourceId }">{{ fav.songName }}</span>
@@ -104,7 +104,7 @@ onMounted(() => {
         </div>
         <span class="td-time">{{ fav.createdAt ? new Date(fav.createdAt).toLocaleDateString() : '' }}</span>
         <div v-if="!manageMode" class="td-actions" @click.stop>
-          <button class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'"><svg viewBox="0 0 24 24" width="16" height="16" :fill="favStore.isFav(fav.sourceId) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></button>
+          <button class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'"><SvgIcon :name="favStore.isFav(fav.sourceId) ? 'star-fill' : 'star'" :size="16" /></button>
           <button class="action-btn add-btn" @click.stop="openPlaylistPopup(fav)" title="加入歌单"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </div>
@@ -126,77 +126,82 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.likes-page { padding: 24px 32px; padding-bottom: 80px; }
-.page-header { display: flex; align-items: center; justify-content: space-between; }
-.page-title { font-size: 22px; font-weight: 700; color: #333; margin-bottom: 4px; }
-.subtitle { font-size: 13px; color: #999; margin-bottom: 20px; }
+.likes-page { padding: 0 32px 80px; }
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; padding-top: 32px; margin-bottom: 28px; }
+.page-title { font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+.subtitle { font-size: 13px; color: var(--text-tertiary); margin-bottom: 20px; }
 .btn-manage {
-  padding: 8px 18px; border: 1px solid #ccc; border-radius: 18px;
-  background: transparent; color: #666; font-size: 13px; cursor: pointer;
+  padding: 10px 20px; border: 1px solid var(--bg-hover); border-radius: 20px;
+  background: transparent; color: var(--text-secondary); font-size: 14px; cursor: pointer;
 }
-.btn-manage:hover { border-color: #31c27c; color: #31c27c; }
+.btn-manage:hover { border-color: var(--primary); color: var(--primary); }
 
 .song-table { display: flex; flex-direction: column; }
 .table-header {
-  display: grid; grid-template-columns: 36px 56px 2fr 100px 60px;
-  padding: 8px 0 12px; border-bottom: 1px solid #ddd;
-  color: #999; font-size: 12px;
+  display: grid; grid-template-columns: 36px 56px 1fr 200px 90px;
+  padding: 8px 0 12px; border-bottom: 1px solid var(--bg-hover);
+  color: var(--text-tertiary); font-size: 12px;
 }
 .th-check { text-align: center; }
 .th-index { text-align: center; }
 .th-actions { text-align: center; }
 
 .table-row {
-  display: grid; grid-template-columns: 36px 56px 2fr 100px 60px;
+  display: grid; grid-template-columns: 36px 56px 1fr 200px 90px;
   align-items: center; padding: 8px 0; border-radius: 8px; transition: .12s;
 }
-.table-row:hover { background: #f0f0f0; }
-.table-row:nth-child(odd) { background: #f9f9f9; }
+.table-row:hover { background: var(--bg-hover); }
+.table-row:nth-child(odd) { background: var(--bg-elevated); }
 .table-row.playing { background: rgba(49,194,124,.08); }
 .table-row.selected { background: rgba(49,194,124,.06); }
 .td-check { text-align: center; }
 
-.td-index { text-align: center; font-size: 14px; color: #999; }
-.playing-eq { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
+.td-index { text-align: center; font-size: 14px; color: var(--text-tertiary); }
+.playing-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; color: var(--primary); }
+.playing-eq .eq-bar { background: var(--primary); border-radius: 1px; }
+.playing-eq .eq-bar:nth-child(1) { height: 7px; }
+.playing-eq .eq-bar:nth-child(2) { height: 12px; }
+.playing-eq .eq-bar:nth-child(3) { height: 5px; }
 .td-cover { display: flex; align-items: center; justify-content: center; }
 .cover-img {
   width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
-  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: #999; flex-shrink: 0;
+  background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: var(--text-tertiary); flex-shrink: 0;
   background-size: cover; background-position: center;
 }
 .cover-hover {
   position: absolute; inset: 0; border-radius: 6px;
   background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center;
-  font-size: 18px; color: #31c27c; opacity: 0; transition: .15s;
+  font-size: 18px; color: var(--primary); opacity: 0; transition: .15s;
 }
 .cover-img:hover .cover-hover { opacity: 1; }
 .td-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; }
-.td-name { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.td-name.active { color: #31c27c; }
-.td-artist { font-size: 12px; color: #777; }
-.td-time { font-size: 13px; color: #888; }
+.td-name { font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-name.active { color: var(--primary); }
+.td-artist { font-size: 12px; color: var(--text-secondary); }
+.td-album { font-size: 13px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.td-time { font-size: 13px; color: var(--text-tertiary); }
 .td-actions { display: flex; justify-content: center; gap: 2px; }
 .action-btn {
-  background: none; border: none; color: #555; font-size: 15px;
+  background: none; border: none; color: var(--text-secondary); font-size: 15px;
   cursor: pointer; padding: 4px 6px; border-radius: 4px; opacity: 0; transition: .15s;
 }
 .table-row:hover .action-btn { opacity: 1; }
 .fav-btn.faved { color: #f0c040; opacity: 1; }
 .fav-btn:hover { color: #f0c040; background: rgba(240,192,64,.08); }
-.add-btn:hover { color: #31c27c; background: rgba(49,194,124,.08); }
+.add-btn:hover { color: var(--primary); background: rgba(49,194,124,.08); }
 
-.empty { text-align: center; padding: 80px 0; color: #999; }
+.empty { text-align: center; padding: 80px 0; color: var(--text-tertiary); }
 .hint { font-size: 13px; margin-top: 8px; }
 
 .batch-bar {
   position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;
   display: flex; justify-content: center; padding: 12px;
-  background: #fff; border-top: 1px solid #eee;
+  background: var(--bg-elevated); border-top: 1px solid var(--bg-hover);
 }
 .batch-btn {
   padding: 10px 36px; border-radius: 22px;
-  border: 1px solid #e0e0e0; background: transparent;
+  border: 1px solid var(--bg-hover); background: transparent;
   color: #e04040; font-size: 14px; cursor: pointer;
 }
 .batch-btn:hover { border-color: #e04040; }

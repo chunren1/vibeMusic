@@ -35,12 +35,13 @@ describe('AuthStore', () => {
       expect(auth.sessionChecked).toBe(false)
     })
 
-    it('已有 token 时 isLoggedIn 应为 true', () => {
+    it('已有 token 但未恢复会话时 isLoggedIn 应为 false（session 由 cookie 恢复）', () => {
       getToken.mockReturnValue('existing-token')
       // 需要重新创建 store 实例以读取 mock 后的 token
       setActivePinia(createPinia())
       const auth = useAuthStore()
-      expect(auth.isLoggedIn).toBe(true)
+      // 仅 token 存在 ≠ 已登录：需 tryRestoreSession 成功后 sessionRestored 才为 true
+      expect(auth.isLoggedIn).toBe(false)
     })
   })
 
@@ -160,10 +161,10 @@ describe('AuthStore', () => {
       expect(getMe).not.toHaveBeenCalled()
     })
 
-    it('sessionChecked 为 true 时应跳过恢复', async () => {
+    it('sessionRestored 为 true 时应跳过恢复', async () => {
       getToken.mockReturnValue(null)
       const auth = useAuthStore()
-      auth.sessionChecked = true
+      auth.sessionRestored = true
 
       await auth.tryRestoreSession()
 

@@ -86,7 +86,8 @@ function shuffleSongs() {
 onMounted(() => recommendStore.fetchRecommend())
 
 // ===== 推荐歌单（网易云真实推荐 + 默认卡片兜底） =====
-const playlistColors = ['#e84c3d', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c']
+// 品牌色派生：主绿 + 去饱和深蓝 2 色循环（替代原彩虹六色）
+const playlistColors = ['#31c27c', '#2a6f97', '#1f4e5f']
 const playlists = ref([])
 const loadingRecommend = ref(false)
 async function fetchPlaylists() {
@@ -104,13 +105,13 @@ async function fetchPlaylists() {
   } catch (e) { /* fallback */ }
   // 兜底默认卡片（无真实数据时，点击刷新）
   playlists.value = [
-    { name: '华语热门精选', count: 0, color: '#e84c3d', _fallback: true },
-    { name: '治愈系纯音乐', count: 0, color: '#3498db', _fallback: true },
-    { name: '说唱新世代', count: 0, color: '#2ecc71', _fallback: true },
-    { name: '怀旧金曲', count: 0, color: '#f39c12', _fallback: true },
-    { name: '民谣在路上', count: 0, color: '#9b59b6', _fallback: true },
-    { name: '电竞燃曲BGM', count: 0, color: '#1abc9c', _fallback: true },
-  ]
+    { name: '华语热门精选', count: 0, _fallback: true },
+    { name: '治愈系纯音乐', count: 0, _fallback: true },
+    { name: '说唱新世代', count: 0, _fallback: true },
+    { name: '怀旧金曲', count: 0, _fallback: true },
+    { name: '民谣在路上', count: 0, _fallback: true },
+    { name: '电竞燃曲BGM', count: 0, _fallback: true },
+  ].map((p, i) => ({ ...p, color: playlistColors[i % playlistColors.length] }))
 }
 async function refreshRecommend() {
   if (loadingRecommend.value) return
@@ -140,6 +141,7 @@ async function doSearch(reset = true) {
   searchLoading.value = true
   showDropdown.value = false
   showResultPage.value = true
+  activeIndex.value = -1
   if (reset) { searchPage.value = 1 }
 
   try {
@@ -175,6 +177,7 @@ function onInput() {
   }
   showDropdown.value = true
   showResultPage.value = false
+  activeIndex.value = -1
   doSearchSuggest()
 }
 
@@ -194,11 +197,13 @@ async function doSearchSuggest() {
 
 function onBlur() {
   searchFocused.value = false
+  activeIndex.value = -1
   setTimeout(() => { showDropdown.value = false }, 200)
 }
 
 function onFocus() {
   searchFocused.value = true
+  activeIndex.value = -1
   if (searchKeyword.value.trim() && !showResultPage.value) {
     showDropdown.value = true
   }
@@ -209,11 +214,49 @@ function clearSearch() {
   searchResults.value = []
   showDropdown.value = false
   showResultPage.value = false
+  activeIndex.value = -1
 }
 
 function goResultPage() {
   showDropdown.value = false
   showResultPage.value = true
+}
+
+// ===== 搜索下拉键盘导航（WAI-ARIA Combobox 模式） =====
+const activeIndex = ref(-1)
+function onSearchKeydown(e) {
+  const list = searchResults.value.slice(0, 5)
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    if (!showDropdown.value) {
+      // 下拉未开时先打开（需有关键词）
+      if (searchKeyword.value.trim()) showDropdown.value = true
+      return
+    }
+    if (list.length === 0) return
+    activeIndex.value = activeIndex.value >= list.length - 1 ? 0 : activeIndex.value + 1
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (!showDropdown.value || list.length === 0) return
+    activeIndex.value = activeIndex.value <= 0 ? list.length - 1 : activeIndex.value - 1
+  } else if (e.key === 'Enter') {
+    // 有高亮项 → 选中该歌曲；否则走默认搜索
+    if (showDropdown.value && activeIndex.value >= 0 && list[activeIndex.value]) {
+      e.preventDefault()
+      const song = list[activeIndex.value]
+      playSong(song)
+      goResultPage()
+    } else if (showDropdown.value) {
+      e.preventDefault()
+      doSearch()
+    }
+  } else if (e.key === 'Escape') {
+    if (showDropdown.value) {
+      e.preventDefault()
+      showDropdown.value = false
+      activeIndex.value = -1
+    }
+  }
 }
 
 function addToQueueDesktop(song) {
@@ -234,46 +277,59 @@ function addToQueueDesktop(song) {
             v-model="searchKeyword"
             @focus="onFocus"
             @blur="onBlur"
-            @keyup.enter="doSearch"
+            @keydown="onSearchKeydown"
             @input="onInput"
             placeholder="搜索歌曲"
             class="search-input"
+            role="combobox"
+            aria-label="搜索歌曲"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            :aria-expanded="showDropdown"
+            aria-controls="search-dropdown"
+            :aria-activedescendant="activeIndex >= 0 ? 'drop-item-' + activeIndex : undefined"
           />
-          <button v-if="searchKeyword" class="search-clear" @click.stop="clearSearch">✕</button>
+          <button v-if="searchKeyword" class="search-clear" @click.stop="clearSearch"><SvgIcon name="close" size="14" /></button>
         </div>
 
         <Transition name="dropdown">
-          <div v-if="showDropdown" class="search-dropdown">
+          <div v-if="showDropdown" id="search-dropdown" class="search-dropdown">
             <div v-if="searchLoading" class="drop-loading">搜索中...</div>
             <div v-else-if="searchResults.length === 0" class="drop-empty">未找到相关歌曲</div>
-            <div v-else class="drop-list">
-              <div
-                v-for="(song, idx) in searchResults.slice(0, 5)"
-                :key="song.sourceId"
-                class="drop-item"
-                :class="{ active: currentPlaySong?.sourceId === song.sourceId }"
-                @mousedown.prevent="playSong(song); goResultPage()"
-              >
+            <template v-else>
+              <div class="drop-list" role="listbox" aria-label="搜索建议">
                 <div
-                  class="drop-cover"
-                  :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=60y60)' } : {}"
+                  v-for="(song, idx) in searchResults.slice(0, 5)"
+                  :key="song.sourceId"
+                  class="drop-item"
+                  :class="{ active: currentPlaySong?.sourceId === song.sourceId, 'kb-active': activeIndex === idx }"
+                  role="option"
+                  :id="'drop-item-' + idx"
+                  :aria-selected="activeIndex === idx"
+                  @mousedown.prevent="playSong(song); goResultPage()"
+                  @mouseenter="activeIndex = idx"
                 >
-                  <span v-if="!song.coverUrl">♪</span>
-                  <div class="drop-play-icon">▶</div>
+                  <div
+                    class="drop-cover"
+                    :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=60y60)' } : {}"
+                  >
+                    <SvgIcon v-if="!song.coverUrl" name="equalizer" size="14" />
+                    <div class="drop-play-icon"><SvgIcon name="play" size="14" /></div>
+                  </div>
+                  <div class="drop-info">
+                    <span class="drop-name" :class="{ hl: currentPlaySong?.sourceId === song.sourceId }">
+                      {{ song.name }}
+                      <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
+                    </span>
+                    <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
+                  </div>
+                  <button class="drop-queue-btn" @mousedown.stop="addToQueueDesktop(song)" title="加入队列">+</button>
                 </div>
-                <div class="drop-info">
-                  <span class="drop-name" :class="{ hl: currentPlaySong?.sourceId === song.sourceId }">
-                    {{ song.name }}
-                    <span v-if="song.platform" class="tag-platform" :class="song.platform">{{ song.platform === 'qq' ? 'QQ' : '网易云' }}</span>
-                  </span>
-                  <span class="drop-meta">{{ song.artist }}{{ song.album ? ' · ' + song.album : '' }} | {{ formatDuration(song.duration) }}</span>
-                </div>
-                <button class="drop-queue-btn" @mousedown.stop="addToQueueDesktop(song)" title="加入队列">+</button>
               </div>
               <div class="drop-footer" @mousedown.prevent="goResultPage">
                 查看全部结果 →
               </div>
-            </div>
+            </template>
           </div>
         </Transition>
       </div>
@@ -285,7 +341,7 @@ function addToQueueDesktop(song) {
         <template v-if="authStore.isLoggedIn">
           <div class="user-avatar">
             <img v-if="authStore.avatarSrc" :src="authStore.avatarSrc" class="avatar-img" />
-            <span v-else>👤</span>
+            <SvgIcon v-else name="user" size="18" />
           </div>
           <span class="user-name">{{ username }}</span>
           <button class="logout-btn" @click="authStore.logout(); router.push('/')">退出</button>
@@ -300,10 +356,19 @@ function addToQueueDesktop(song) {
     <section class="section">
       <div class="section-header">
         <h3>推荐歌曲</h3>
-        <span class="refresh-btn" @click="shuffleSongs">🔄 换一批</span>
+        <span class="refresh-btn" @click="shuffleSongs"><SvgIcon name="refresh" size="14" /> 换一批</span>
       </div>
       <div v-if="recommendStore.greeting" class="recommend-greeting">{{ recommendStore.greeting }}</div>
-      <div v-if="recommendStore.loading" class="recommend-loading">推荐加载中...</div>
+      <!-- 骨架屏（首次加载 / 换一批时；与移动端同款 shimmer 动画） -->
+      <div v-if="recommendStore.loading || (!recommendStore.hasData && !recommendStore.error)" class="song-scroll">
+        <span class="sr-only" role="status">推荐加载中...</span>
+        <div v-for="i in 8" :key="i" class="sk-song-card">
+          <div class="sk-cover sk-box"></div>
+          <div class="sk-line sk-box"></div>
+          <div class="sk-line sk-box"></div>
+        </div>
+      </div>
+      <div v-else-if="recommendStore.error && !recommendStore.hasData" class="recommend-loading">{{ recommendStore.error }}</div>
       <div v-else class="song-scroll">
         <div
           v-for="song in recommendStore.songs"
@@ -316,9 +381,9 @@ function addToQueueDesktop(song) {
               class="cover-grad"
               :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=200y200)', backgroundSize: 'cover' } : { background: song.coverColor }"
             >
-              <span v-if="!song.coverUrl">♪</span>
+              <SvgIcon v-if="!song.coverUrl" name="equalizer" size="42" />
             </div>
-            <div class="play-overlay">▶</div>
+            <div class="play-overlay"><SvgIcon name="play" size="14" /></div>
           </div>
           <p class="card-title">{{ song.name }}</p>
           <p class="card-artist">{{ song.artist }}</p>
@@ -329,9 +394,17 @@ function addToQueueDesktop(song) {
     <section class="section">
       <div class="section-header">
         <h3>推荐歌单</h3>
-        <span class="more" @click="refreshRecommend">{{ loadingRecommend ? '加载中...' : '更多 ›' }}</span>
+        <span class="more" @click="refreshRecommend">{{ loadingRecommend ? '加载中...' : '更多' }}<SvgIcon v-if="!loadingRecommend" name="chevron-right" size="12" /></span>
       </div>
-      <div class="playlist-grid">
+      <!-- 骨架屏（首次加载歌单时） -->
+      <div v-if="playlists.length === 0" class="playlist-grid">
+        <span class="sr-only" role="status">歌单加载中...</span>
+        <div v-for="i in 6" :key="i" class="sk-playlist-card">
+          <div class="sk-cover sk-box"></div>
+          <div class="sk-line sk-box"></div>
+        </div>
+      </div>
+      <div v-else class="playlist-grid">
         <div
           v-for="(pl, idx) in playlists"
           :key="pl.id || idx"
@@ -340,7 +413,7 @@ function addToQueueDesktop(song) {
         >
           <div class="pl-cover">
             <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-img" />
-            <div v-else class="cover-inner" :style="{ background: pl.color }">♪</div>
+            <div v-else class="cover-inner" :style="{ background: pl.color }"><SvgIcon name="equalizer" size="42" /></div>
             <span class="pl-count" v-if="pl.count">{{ pl.count > 10000 ? Math.floor(pl.count/10000)+'万' : pl.count }}</span>
           </div>
           <p class="pl-name">{{ pl.name }}</p>
@@ -381,7 +454,7 @@ function addToQueueDesktop(song) {
           :class="{ playing: currentPlaySong?.sourceId === song.sourceId }"
         >
           <span class="rp-index">
-            <span v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="equalizer">▮▮</span>
+            <SvgIcon v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="equalizer" name="equalizer" size="12" />
             <span v-else>{{ idx + 1 }}</span>
           </span>
           <div class="rp-cover-wrap">
@@ -390,8 +463,8 @@ function addToQueueDesktop(song) {
               :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=100y100)' } : {}"
               @click="playSong(song)"
             >
-              <span v-if="!song.coverUrl">♪</span>
-              <div class="cover-play-btn">▶</div>
+              <SvgIcon v-if="!song.coverUrl" name="equalizer" size="16" />
+              <div class="cover-play-btn"><SvgIcon name="play" size="18" /></div>
             </div>
           </div>
           <div class="rp-text" @click="playSong(song)">
@@ -456,46 +529,48 @@ function addToQueueDesktop(song) {
 .search-box {
   display: flex; align-items: center;
   width: 100%; padding: 14px 20px;
-  background: #fff; border-radius: 24px; border: 1px solid #e0e0e0;
+  background: var(--bg-card); border-radius: 24px; border: 1px solid var(--bg-hover);
   transition: .2s;
 }
-.search-box:focus-within { border-color: #31c27c; background: #fff; }
-.search-icon { margin-right: 10px; opacity: .9; flex-shrink: 0; color: #999; }
+.search-box:focus-within { border-color: var(--primary); background: var(--bg-card); }
+.search-icon { margin-right: 10px; opacity: .9; flex-shrink: 0; color: var(--text-secondary); }
 .search-input {
-  flex: 1; border: none; background: none; color: #333;
+  flex: 1; border: none; background: none; color: var(--text-primary);
   font-size: 15px; outline: none;
 }
-.search-input::placeholder { color: #bbb; }
+.search-input::placeholder { color: var(--text-secondary); }
 .search-clear {
-  background: none; border: none; color: #999; font-size: 14px; cursor: pointer;
+  background: none; border: none; color: var(--text-secondary); font-size: 14px; cursor: pointer;
   padding: 2px 6px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
 }
-.search-clear:hover { color: #333; background: rgba(0,0,0,.06); }
+.search-clear:hover { color: var(--text-primary); background: rgba(255,255,255,.08); }
 
-.search-box.focused { border-color: #31c27c; background: #fff; }
+.search-box.focused { border-color: var(--primary); background: var(--bg-card); }
 
 .search-dropdown {
   position: absolute; top: 62px; left: 0; right: 0;
-  background: #fff; border: 1px solid #e0e0e0;
+  background: var(--bg-card); border: 1px solid var(--bg-hover);
   border-radius: 12px; overflow: hidden; z-index: 50;
   max-height: 420px; overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0,0,0,.1);
+  box-shadow: var(--shadow-2);
 }
 .drop-loading, .drop-empty {
-  padding: 32px; text-align: center; color: #999; font-size: 14px;
+  padding: 32px; text-align: center; color: var(--text-secondary); font-size: 14px;
 }
 .drop-item {
   display: flex; align-items: center; gap: 12px;
   padding: 10px 16px; cursor: pointer; transition: .12s;
 }
-.drop-item:hover { background: #f0f0f0; }
+.drop-item:hover { background: var(--bg-hover); }
 .drop-item.active { background: rgba(49,194,124,.1); }
+.drop-item.kb-active { background: rgba(49,194,124,.15); }
 
 .drop-cover {
   width: 42px; height: 42px; border-radius: 6px; flex-shrink: 0; position: relative;
-  background: #e0e0e0;
+  background: var(--bg-elevated);
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: #999;
+  font-size: 14px; color: var(--text-secondary);
   background-size: cover; background-position: center;
 }
 .drop-play-icon {
@@ -510,16 +585,16 @@ function addToQueueDesktop(song) {
   flex: 1; min-width: 0;
   display: flex; flex-direction: column; gap: 2px;
 }
-.drop-name { font-size: 14px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-name { font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drop-name.hl { color: #31c27c; }
-.drop-meta { font-size: 12px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drop-meta { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.dropdown-enter-active, .dropdown-leave-active { transition: all .2s ease; }
+.dropdown-enter-active, .dropdown-leave-active { transition: opacity .2s ease, transform .2s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-8px); }
 
 .drop-footer {
   padding: 12px 16px; text-align: center; color: #31c27c;
-  font-size: 13px; cursor: pointer; border-top: 1px solid #eee;
+  font-size: 13px; cursor: pointer; border-top: 1px solid var(--bg-hover);
 }
 .drop-footer:hover { background: rgba(49,194,124,.06); }
 
@@ -528,18 +603,18 @@ function addToQueueDesktop(song) {
 }
 .search-page-header {
   display: flex; align-items: center; margin-bottom: 20px; padding-bottom: 14px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--bg-hover);
 }
-.search-title { font-size: 20px; font-weight: 700; color: #1a1a1a; }
-.search-stats { font-size: 13px; color: #777; flex: 1; margin-left: 14px; }
+.search-title { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.search-stats { font-size: 13px; color: var(--text-secondary); flex: 1; margin-left: 14px; }
 .source-select {
-  padding: 5px 10px; border: 1px solid #d9d9d9; border-radius: 6px;
-  font-size: 13px; color: #555; background: #fff; cursor: pointer; outline: none;
+  padding: 5px 10px; border: 1px solid var(--bg-hover); border-radius: 6px;
+  font-size: 13px; color: var(--text-primary); background: var(--bg-card); cursor: pointer; outline: none;
 }
 .source-select:hover { border-color: #31c27c; }
 .back-btn {
-  padding: 6px 16px; border: 1px solid #ccc; border-radius: 16px;
-  background: transparent; color: #777; font-size: 12px; cursor: pointer;
+  padding: 6px 16px; border: 1px solid var(--bg-hover); border-radius: 16px;
+  background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer;
 }
 .back-btn:hover { border-color: #31c27c; color: #31c27c; }
 
@@ -554,8 +629,8 @@ function addToQueueDesktop(song) {
 .result-table-header {
   display: grid;
   grid-template-columns: 36px 56px 2fr 1fr 70px 80px;
-  padding: 8px 0 12px; border-bottom: 1px solid #ddd;
-  color: #999; font-size: 12px;
+  padding: 8px 0 12px; border-bottom: 1px solid var(--bg-hover);
+  color: var(--text-secondary); font-size: 12px;
 }
 .th-index { text-align: center; }
 .th-actions { text-align: center; }
@@ -565,16 +640,16 @@ function addToQueueDesktop(song) {
   grid-template-columns: 36px 56px 2fr 1fr 70px 80px;
   align-items: center; padding: 8px 0; border-radius: 8px; transition: .12s;
 }
-.result-page-item:hover { background: #f0f0f0; }
-.result-page-item:nth-child(odd) { background: #f9f9f9; }
+.result-page-item:hover { background: var(--bg-hover); }
+.result-page-item:nth-child(odd) { background: var(--bg-elevated); }
 .result-page-item.playing { background: rgba(49,194,124,.08); }
-.rp-index { text-align: center; font-size: 14px; color: #999; }
-.equalizer { color: #31c27c; font-size: 12px; letter-spacing: -2px; }
+.rp-index { text-align: center; font-size: 14px; color: var(--text-secondary); }
+.equalizer { color: var(--primary); display: inline-flex; }
 .rp-cover-wrap { display: flex; align-items: center; justify-content: center; }
 .rp-cover {
   width: 44px; height: 44px; border-radius: 6px; cursor: pointer; position: relative;
-  background: #e0e0e0; display: flex; align-items: center; justify-content: center;
-  font-size: 16px; color: #999;
+  background: var(--bg-elevated); display: flex; align-items: center; justify-content: center;
+  font-size: 16px; color: var(--text-secondary);
   background-size: cover; background-position: center;
 }
 .cover-play-btn {
@@ -584,22 +659,22 @@ function addToQueueDesktop(song) {
 }
 .rp-cover:hover .cover-play-btn { opacity: 1; }
 .rp-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; cursor: pointer; }
-.rp-title { font-size: 14px; color: #1a1a1a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-title { font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-title.active { color: #31c27c; }
-.rp-artist { font-size: 12px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-artist { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* 平台标签 */
+/* 平台标签：暗色描边 + 语义文字色（netease 红 / qq 蓝仅文字色，去 AntD 蓝橙背景） */
 .tag-platform {
-  display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px;
+  display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: var(--radius-sm);
   margin-left: 6px; vertical-align: middle; font-weight: 500;
 }
-.tag-platform.qq { background: #e6f7ff; color: #1890ff; border: 1px solid #91d5ff; }
-.tag-platform.netease { background: #fff7e6; color: #fa541c; border: 1px solid #ffd591; }
-.rp-album { font-size: 13px; color: #777; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rp-time { font-size: 13px; color: #888; cursor: pointer; }
+.tag-platform.qq { color: #1890ff; border: 1px solid rgba(24, 144, 255, .35); }
+.tag-platform.netease { color: #fa541c; border: 1px solid rgba(250, 84, 28, .35); }
+.rp-album { font-size: 13px; color: var(--text-secondary); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-time { font-size: 13px; color: var(--text-tertiary); cursor: pointer; }
 .rp-actions { display: flex; justify-content: center; gap: 2px; }
 .action-btn {
-  background: none; border: none; color: #555; font-size: 15px;
+  background: none; border: none; color: var(--text-secondary); font-size: 15px;
   cursor: pointer; padding: 4px 6px; border-radius: 4px; opacity: 0; transition: .15s;
 }
 .result-page-item:hover .action-btn { opacity: 1; }
@@ -611,28 +686,28 @@ function addToQueueDesktop(song) {
   display: flex; align-items: center; gap: 10px; cursor: pointer; flex-shrink: 0;
 }
 .topbar-fs {
-  width: 32px; height: 32px; border: 1px solid #ddd; border-radius: 50%;
-  background: #fff; color: #999; cursor: pointer;
+  width: 32px; height: 32px; border: 1px solid var(--bg-hover); border-radius: 50%;
+  background: var(--bg-card); color: var(--text-secondary); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: .15s;
 }
 .topbar-fs:hover { color: #31c27c; border-color: #31c27c; }
 .user-avatar {
   width: 40px; height: 40px; border-radius: 50%;
-  background: #e8e8e8; overflow: hidden;
+  background: var(--bg-elevated); overflow: hidden;
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; flex-shrink: 0;
 }
 .avatar-img { width: 100%; height: 100%; object-fit: cover; }
-.user-avatar:hover { background: #ddd; }
-.user-name { font-size: 15px; color: #444; }
+.user-avatar:hover { background: var(--bg-hover); }
+.user-name { font-size: 15px; color: var(--text-secondary); }
 .login-btn, .logout-btn {
   padding: 8px 20px; border-radius: 20px; border: 1px solid #31c27c;
   background: transparent; color: #31c27c; font-size: 14px; cursor: pointer; transition: .2s;
   margin-left: 12px;
 }
 .login-btn:hover { background: #31c27c; color: #fff; }
-.logout-btn { border-color: #e0e0e0; color: #999; margin-left: 8px; }
+.logout-btn { border-color: var(--bg-hover); color: var(--text-secondary); margin-left: 8px; }
 .logout-btn:hover { border-color: #ec4141; color: #ec4141; }
 
 .section { padding: 0 32px; margin-bottom: 40px; }
@@ -640,11 +715,31 @@ function addToQueueDesktop(song) {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px;
 }
-.section-header h3 { font-size: 20px; font-weight: 700; color: #1a1a1a; }
+.section-header h3 { font-size: 20px; font-weight: 700; color: var(--text-primary); }
 .recommend-greeting { font-size: 13px; color: #31c27c; margin-bottom: 12px; }
-.recommend-loading { text-align: center; color: #999; font-size: 14px; padding: 32px 0; }
+.recommend-loading { text-align: center; color: var(--text-secondary); font-size: 14px; padding: 32px 0; }
+
+/* ===== 骨架屏（shimmer 与全局 .skeleton 同款动画，色块用暗色 token） ===== */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.sk-box {
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+.sk-song-card { text-align: center; padding: 12px; }
+.sk-song-card .sk-cover { padding-bottom: 100%; border-radius: 10px; margin-bottom: 10px; }
+.sk-song-card .sk-line { height: 14px; border-radius: 4px; margin: 0 auto 6px; }
+.sk-song-card .sk-line:nth-child(2) { width: 70%; }
+.sk-song-card .sk-line:nth-child(3) { width: 45%; }
+.sk-playlist-card { padding: 12px; }
+.sk-playlist-card .sk-cover { padding-bottom: 100%; border-radius: 10px; margin-bottom: 10px; }
+.sk-playlist-card .sk-line { height: 14px; border-radius: 4px; width: 80%; }
 .refresh-btn, .more {
-  font-size: 14px; color: #666; cursor: pointer; transition: .2s;
+  font-size: 14px; color: var(--text-secondary); cursor: pointer; transition: .2s;
+  display: inline-flex; align-items: center; gap: 4px;
 }
 .refresh-btn:hover, .more:hover { color: #31c27c; }
 
@@ -655,18 +750,23 @@ function addToQueueDesktop(song) {
 }
 .song-card {
   cursor: pointer; text-align: center;
-  border-radius: 16px; padding: 12px;
-  transition: transform .25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow .25s ease;
+  border-radius: var(--radius-lg); padding: 12px;
+  transition: background var(--dur-base) var(--ease-out);
 }
-.song-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0,0,0,.15);
-}
-.song-card:hover .play-overlay { opacity: 1; }
+.song-card:hover { background: var(--bg-hover); }
+.song-card:hover .play-overlay { opacity: 1; transform: scale(1); }
 .card-cover {
   position: relative; padding-bottom: 100%;
   border-radius: 10px; overflow: hidden; margin-bottom: 10px;
 }
+/* Spotify 式 hover 遮罩：封面压暗 + 播放按钮浮现 */
+.card-cover::after {
+  content: ''; position: absolute; inset: 0;
+  border-radius: inherit;
+  background: rgba(0, 0, 0, .4);
+  opacity: 0; transition: opacity var(--dur-base) var(--ease-out);
+}
+.song-card:hover .card-cover::after { opacity: 1; }
 .cover-grad {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -677,14 +777,15 @@ function addToQueueDesktop(song) {
   width: 38px; height: 38px; border-radius: 50%;
   background: rgba(49, 194, 124, .85);
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; color: #fff; opacity: 0; transition: .2s;
+  color: #fff; opacity: 0; transform: scale(.85); z-index: 1;
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
 }
 .card-title {
-  font-size: 15px; color: #1a1a1a; margin-bottom: 4px;
+  font-size: 15px; color: var(--text-primary); margin-bottom: 4px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .card-artist {
-  font-size: 13px; color: #888;
+  font-size: 13px; color: var(--text-tertiary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -694,13 +795,10 @@ function addToQueueDesktop(song) {
   gap: 20px;
 }
 .playlist-card {
-  cursor: pointer; border-radius: 16px; padding: 12px;
-  transition: transform .25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow .25s ease;
+  cursor: pointer; border-radius: var(--radius-lg); padding: 12px;
+  transition: background var(--dur-base) var(--ease-out);
 }
-.playlist-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0,0,0,.15);
-}
+.playlist-card:hover { background: var(--bg-hover); }
 .pl-cover {
   position: relative; padding-bottom: 100%;
   border-radius: 10px; overflow: hidden; margin-bottom: 10px;
@@ -720,10 +818,10 @@ function addToQueueDesktop(song) {
 .pl-count {
   position: absolute; top: 10px; right: 10px;
   padding: 3px 10px; border-radius: 4px;
-  background: rgba(0,0,0,.55); font-size: 13px; color: #bbb;
+  background: rgba(0,0,0,.55); font-size: 13px; color: var(--text-secondary);
 }
 .pl-name {
-  font-size: 15px; color: #1a1a1a;
+  font-size: 15px; color: var(--text-primary);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; line-height: 1.4;
 }

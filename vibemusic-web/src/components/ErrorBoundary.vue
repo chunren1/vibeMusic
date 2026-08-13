@@ -37,12 +37,12 @@ function retry() {
 }
 .error-content {
   text-align: center;
-  color: #999;
+  color: var(--text-tertiary);
 }
 .error-content h2 {
   font-size: 1.2rem;
   margin: 1rem 0 0.5rem;
-  color: #ccc;
+  color: var(--text-secondary);
 }
 .error-icon {
   font-size: 3rem;
@@ -51,12 +51,12 @@ function retry() {
 .error-msg {
   font-size: 0.85rem;
   margin-bottom: 1.5rem;
-  color: #666;
+  color: var(--text-secondary);
   max-width: 400px;
   word-break: break-all;
 }
 .retry-btn {
-  background: #1db954;
+  background: var(--primary);
   color: #fff;
   border: none;
   padding: 0.6rem 2rem;

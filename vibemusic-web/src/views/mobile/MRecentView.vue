@@ -30,7 +30,7 @@ onMounted(() => {
 
 <template>
   <div class="m-page">
-    <h2 class="m-title">🕐 最近播放</h2>
+    <h2 class="m-title"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>最近播放</h2>
     <p class="m-sub">{{ songs.length }} 首</p>
 
     <div class="m-list">

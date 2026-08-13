@@ -41,6 +41,42 @@
 
     // ====== 关闭 ======
     '<symbol id="icon-close" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2"/><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2"/></symbol>',
+
+    // ====== 刷新（换一批） ======
+    '<symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M23 4v6h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M1 20v-6h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>',
+
+    // ====== 用户头像 ======
+    '<symbol id="icon-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7" r="4" fill="none" stroke="currentColor" stroke-width="2"/></symbol>',
+
+    // ====== 收藏星标 ======
+    '<symbol id="icon-star" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>',
+    '<symbol id="icon-star-fill" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" fill="currentColor"/></symbol>',
+
+    // ====== 翻页箭头 ======
+    '<symbol id="icon-chevron-left" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>',
+    '<symbol id="icon-chevron-right" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>',
+
+    // ====== EQ 指示条 ======
+    '<symbol id="icon-equalizer" viewBox="0 0 24 24"><line x1="5" y1="10" x2="5" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="6" x2="12" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="19" y1="9" x2="19" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>',
+
+    // ====== 返回箭头 ======
+    '<symbol id="icon-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>',
+
+    // ====== 圆形播放控制 ======
+    '<symbol id="icon-play-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polygon points="10 8 16 12 10 16" fill="currentColor"/></symbol>',
+    '<symbol id="icon-pause-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><line x1="10" y1="15" x2="10" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="15" x2="14" y2="9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>',
+
+    // ====== 音乐音符 ======
+    '<symbol id="icon-music" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z" fill="currentColor"/></symbol>',
+
+    // ====== 加号（加入歌单/队列） ======
+    '<symbol id="icon-add" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>',
+
+    // ====== 编辑（歌单改名） ======
+    '<symbol id="icon-edit" viewBox="0 0 24 24"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>',
+
+    // ====== 置顶（移到队列顶部） ======
+    '<symbol id="icon-arrow-up" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="5 12 12 5 19 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>',
   ].join('')
   document.body.appendChild(svg)
 })()

@@ -189,7 +189,7 @@ onUnmounted(() => {
   <div class="mp">
     <!-- 顶栏 -->
     <div class="mp-bar">
-      <button class="mp-back" @click="router.push('/m')">‹</button>
+      <button class="mp-back" @click="router.push('/m')" aria-label="返回"><SvgIcon name="arrow-left" :size="20" /></button>
       <div class="mp-bar-center">
         <div class="mp-name">{{ store.currentSong.title || '未在播放' }}<span class="mp-quality">{{ store.qualityLabel }}</span></div>
         <div class="mp-artist">{{ store.currentSong.artist }}</div>
@@ -201,13 +201,13 @@ onUnmounted(() => {
     <div class="mp-blur-bg" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=400y400)` } : {}"></div>
 
     <!-- 封面 -->
-    <div class="mp-cover-section">
+    <div class="mp-cover-section" :class="{ paused: !store.isPlaying && !!store.currentSong.id }">
       <div
         class="mp-cover"
-        :class="{ spinning: store.isPlaying }"
+        :class="{ spinning: !!store.currentSong.id, paused: !store.isPlaying && !!store.currentSong.id }"
         :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=400y400)` } : {}"
       >
-        <div v-if="!store.currentSong.coverUrl" class="mp-cover-empty">♪</div>
+        <div v-if="!store.currentSong.coverUrl" class="mp-cover-empty"><SvgIcon name="music" size="44" /></div>
       </div>
     </div>
 
@@ -286,7 +286,7 @@ onUnmounted(() => {
       <div class="mp-picker">
         <div class="mp-picker-hd">
           <span>加入歌单</span>
-          <button @click="showPlaylistPicker = false">✕</button>
+          <button @click="showPlaylistPicker = false"><SvgIcon name="close" /></button>
         </div>
         <div v-if="!userPlaylists.length" class="mp-picker-empty">还没有歌单，去创建一个吧</div>
         <div v-else class="mp-picker-list">
@@ -335,18 +335,26 @@ onUnmounted(() => {
 .mp-cover-section {
   flex: 0 0 auto; display: flex; justify-content: center; align-items: center; padding: 10px 0 16px;
   position: relative; z-index: 1;
+  /* 暂停"呼吸"：整区 scale(0.92)（Apple Music 范式），transform 走合成器 */
+  transition: transform 400ms var(--m-ease-out);
 }
+.mp-cover-section.paused { transform: scale(0.92); }
 .mp-cover {
   width: 210px; height: 210px; border-radius: 50%;
   background: rgba(255,255,255,0.04) center/cover no-repeat;
-  box-shadow: 0 0 60px var(--m-primary-glow), 0 0 120px rgba(46,229,154,0.1), 0 12px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5);
   border: 1px solid rgba(255,255,255,0.04);
+  /* 阴影随暂停减弱 */
+  transition: box-shadow 400ms var(--m-ease-out);
 }
 .mp-cover-empty {
   display: flex; align-items: center; justify-content: center;
   height: 100%; font-size: 44px; color: var(--m-text-tertiary);
 }
 .mp-cover.spinning { animation: cover-spin 24s linear infinite; will-change: transform; }
+/* 暂停：旋转冻结（animation-play-state），缩放由 .mp-cover-section 承担 —— 避免与旋转动画的 transform 冲突 */
+.mp-cover.paused { animation-play-state: paused; }
+.mp-cover-section.paused .mp-cover { box-shadow: 0 6px 16px rgba(0,0,0,0.3); }
 .mp-lyric-section {
   flex: 1; display: flex; flex-direction: column; justify-content: center;
   padding: 0 28px; min-height: 100px; overflow: hidden;
@@ -360,7 +368,6 @@ onUnmounted(() => {
   text-align: center; font-size: 18px; font-weight: 600; color: var(--m-primary);
   line-height: 1.7; padding: 8px 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  filter: drop-shadow(0 0 8px var(--m-primary-glow));
 }
 .mp-lyric-placeholder { text-align: center; color: var(--m-text-secondary); font-size: 14px; }
 
@@ -373,7 +380,7 @@ onUnmounted(() => {
   flex: 1; display: flex; justify-content: center; transition: color 0.2s, transform 0.2s var(--m-ease-spring);
 }
 .mp-top-btn:active { color: var(--m-primary); transform: scale(0.9); }
-.mp-top-btn.faved { color: var(--m-gold); filter: drop-shadow(0 0 4px var(--m-gold-glow)); }
+.mp-top-btn.faved { color: var(--m-gold); }
 .mp-top-btn:disabled { opacity: .3; }
 
 .mp-progress {
@@ -397,20 +404,18 @@ onUnmounted(() => {
   height: 100%; width: 100%; background: var(--m-gradient-brand); border-radius: 2px;
   position: relative; transform-origin: left;
   will-change: transform; transition: filter .15s;
-  box-shadow: 0 0 6px var(--m-primary-glow);
 }
 .mp-progress.seeking .mp-progress-fill { filter: brightness(1.4); }
 
 .mp-dot {
   position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
   width: 12px; height: 12px; border-radius: 50%;
-  background: var(--m-primary); opacity: 0; transition: all .2s;
-  box-shadow: 0 0 10px var(--m-primary-glow);
+  background: var(--m-primary); opacity: 0;
+  transition: opacity .2s, width .2s, height .2s, right .2s;
 }
 .mp-progress:hover .mp-dot { opacity: 1; }
 .mp-progress.seeking .mp-dot {
   opacity: 1; width: 18px; height: 18px; right: -9px;
-  box-shadow: 0 0 14px var(--m-primary-glow);
 }
 
 .mp-time.seeking { color: var(--m-primary); }
@@ -434,9 +439,7 @@ onUnmounted(() => {
 .mp-ctrl-play {
   color: var(--m-primary); width: 56px; height: 56px;
   background: var(--m-gradient-brand); border-radius: 50%;
-  box-shadow: 0 0 20px var(--m-primary-glow);
 }
-.mp-ctrl-play:active { box-shadow: 0 0 30px var(--m-primary-glow); }
 
 /* 加入歌单弹窗 */
 .mp-overlay {

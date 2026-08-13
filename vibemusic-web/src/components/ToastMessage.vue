@@ -51,7 +51,7 @@ function dismiss() {
 .toast.success { background: #31c27c; color: #fff; }
 .toast.error { background: #e84c3d; color: #fff; }
 
-.toast-enter-active { transition: all .25s ease; }
-.toast-leave-active { transition: all .2s ease; }
+.toast-enter-active { transition: opacity .25s ease, transform .25s ease; }
+.toast-leave-active { transition: opacity .2s ease, transform .2s ease; }
 .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(-50%) translateY(-12px); }
 </style>

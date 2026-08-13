@@ -64,7 +64,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s, color 0.2s, transform 0.2s;
 }
 .gfs-btn:hover {
   background: rgba(0, 0, 0, 0.45);

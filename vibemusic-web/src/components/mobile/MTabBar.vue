@@ -76,7 +76,6 @@ function isActive(path) {
 .mtab-item:active { transform: scale(0.92); }
 .mtab-item.active {
   color: var(--m-primary);
-  filter: drop-shadow(0 0 8px var(--m-primary-glow));
 }
 .mtab-item.active::before {
   content: ''; position: absolute; top: 0; left: 50%;

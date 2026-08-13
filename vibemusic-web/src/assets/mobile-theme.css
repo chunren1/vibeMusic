@@ -10,17 +10,16 @@
 
   /* 主色 — 翡翠绿 */
   --m-primary: #2ee59a;
-  --m-primary-glow: rgba(46,229,154,0.3);
   --m-gradient-brand: linear-gradient(135deg, #2ee59a 0%, #1aaf6c 100%);
 
   /* 辅色 — 琥珀金 */
   --m-gold: #f0b90b;
-  --m-gold-glow: rgba(240,185,11,0.25);
 
-  /* 文字 */
+  /* 文字（暗底 #08080a 上对比度均 ≥4.5:1，D9 对齐 Apple HIG）
+     三级文字 #8a8a8a 与桌面 --text-tertiary 同值，实测 5.8:1 */
   --m-text-primary: #e8e8ec;
   --m-text-secondary: #8a8a92;
-  --m-text-tertiary: #555560;
+  --m-text-tertiary: #8a8a8a;
 
   /* 圆角 */
   --m-radius-sm: 8px;

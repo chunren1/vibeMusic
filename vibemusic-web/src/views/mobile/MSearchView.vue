@@ -252,11 +252,10 @@ onMounted(() => {
   border: 1px solid rgba(255,255,255,0.08);
   background: transparent; color: var(--m-text-secondary);
   font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
-  transition: all 0.2s;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 .m-filter-bar button.active {
   background: var(--m-gradient-brand); border-color: transparent; color: #fff;
-  box-shadow: 0 2px 8px var(--m-primary-glow);
 }
 
 /* 歌曲列表 */
@@ -290,8 +289,11 @@ onMounted(() => {
 .tag.qq { background: rgba(24,144,255,.12); color: #1890ff; }
 .tag.netease { background: rgba(250,84,28,.12); color: #fa541c; }
 .m-song-acts { display: flex; gap: 4px; flex-shrink: 0; }
+/* WCAG 2.5.8：触控目标 ≥44px（图标视觉尺寸不变，flex 居中） */
 .m-song-acts button {
   border: none; background: none; font-size: 16px; cursor: pointer; padding: 5px;
+  min-width: 44px; min-height: 44px;
+  display: flex; align-items: center; justify-content: center;
   color: var(--m-text-secondary); transition: color 0.2s;
 }
 .m-song-acts button:active { color: var(--m-text-primary); }
@@ -301,7 +303,7 @@ onMounted(() => {
 .m-load-more button {
   padding: 8px 36px; border: 1px solid rgba(46,229,154,0.3); border-radius: var(--m-radius-full);
   background: transparent; color: var(--m-primary); font-size: 13px; cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.2s;
 }
 .m-load-more button:active { background: rgba(46,229,154,0.08); }
 .m-load-more button:disabled { opacity: .4; }
@@ -318,7 +320,7 @@ onMounted(() => {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 7px 14px; border-radius: var(--m-radius-full);
   background: var(--m-bg-card); color: var(--m-text-secondary); font-size: 13px;
-  cursor: pointer; transition: all 0.2s;
+  cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s;
   border: 1px solid rgba(255,255,255,0.03);
 }
 .m-history-tag:active { background: rgba(46,229,154,0.1); color: var(--m-primary); border-color: rgba(46,229,154,0.2); }

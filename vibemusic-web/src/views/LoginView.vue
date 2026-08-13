@@ -146,26 +146,26 @@ function toggleMode() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f5f5;
+  background: var(--bg-base);
 }
 .login-card {
   width: 380px;
   padding: 44px 40px;
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 14px;
-  box-shadow: 0 4px 24px rgba(0,0,0,.08);
+  box-shadow: var(--shadow-2);
 }
 .title {
-  font-size: 24px; font-weight: 700; color: #1a1a1a;
+  font-size: 24px; font-weight: 700; color: var(--text-primary);
   text-align: center; margin-bottom: 32px;
 }
 .form { display: flex; flex-direction: column; gap: 16px; }
 .input {
-  padding: 12px 16px; border: 1px solid #e0e0e0; border-radius: 8px;
-  background: #f9f9f9; color: #333; font-size: 14px; outline: none;
+  padding: 12px 16px; border: 1px solid var(--bg-hover); border-radius: 8px;
+  background: var(--bg-elevated); color: var(--text-primary); font-size: 14px; outline: none;
 }
-.input:focus { border-color: #31c27c; background: #fff; }
-.input::placeholder { color: #bbb; }
+.input:focus { border-color: var(--primary); background: var(--bg-hover); }
+.input::placeholder { color: var(--text-tertiary); }
 .error { color: #ec4141; font-size: 13px; text-align: center; margin: 0; }
 .btn {
   padding: 12px; border: none; border-radius: 8px;

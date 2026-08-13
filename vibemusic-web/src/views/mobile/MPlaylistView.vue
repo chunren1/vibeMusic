@@ -91,10 +91,10 @@ onMounted(() => loadSongs())
     <!-- 加载 -->
     <div v-if="loading" class="mp-flex">
       <div class="mp-skel-hero">
-        <div class="mp-skel-cover"></div>
-        <div class="mp-skel-name"></div>
-        <div class="mp-skel-sub"></div>
-        <div class="mp-skel-btn"></div>
+        <div class="mp-skel-cover skeleton"></div>
+        <div class="mp-skel-name skeleton"></div>
+        <div class="mp-skel-sub skeleton"></div>
+        <div class="mp-skel-btn skeleton"></div>
       </div>
     </div>
 
@@ -106,7 +106,7 @@ onMounted(() => loadSongs())
       <div class="mp-hero">
         <div class="mph-cover">
           <img v-if="info.coverUrl" :src="info.coverUrl + '?param=300y300'" alt="" />
-          <svg v-else viewBox="0 0 24 24" width="36" height="36" fill="currentColor" opacity="0.15"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <SvgIcon v-else name="music" :size="36" style="opacity:.15" />
         </div>
         <div class="mph-info">
           <h1 class="mph-name">{{ info.name }}</h1>
@@ -135,12 +135,12 @@ onMounted(() => loadSongs())
           :class="{ playing: player.currentSong?.id === song.sourceId }"
         >
           <span class="mpr-idx">
-            <span v-if="player.currentSong?.id === song.sourceId && player.isPlaying" class="mpr-eq">▮▮</span>
+            <SvgIcon v-if="player.currentSong?.id === song.sourceId && player.isPlaying" name="equalizer" class="mpr-eq" :size="12" />
             <span v-else>{{ idx + 1 }}</span>
           </span>
           <div class="mpr-cover">
             <img v-if="song.coverUrl" :src="song.coverUrl + '?param=60y60'" loading="lazy" />
-            <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="currentColor" opacity="0.2"><path d="M9 18V5l12-2v13"/></svg>
+            <SvgIcon v-else name="music" :size="14" style="opacity:.2" />
           </div>
           <div class="mpr-info">
             <span class="mpr-name" :class="{ active: player.currentSong?.id === song.sourceId }">{{ song.name }}</span>
@@ -178,7 +178,7 @@ onMounted(() => loadSongs())
   cursor: pointer;
 }
 
-/* 加载骨架屏 */
+/* 加载骨架屏（复用全局 .skeleton shimmer） */
 .mp-flex { padding: 0 20px; }
 .mp-skel-hero {
   display: flex; flex-direction: column; align-items: center;
@@ -186,21 +186,16 @@ onMounted(() => loadSongs())
 }
 .mp-skel-cover {
   width: 160px; height: 160px; border-radius: 14px;
-  background: rgba(255,255,255,.04); animation: mp-shim 1s infinite alternate;
 }
 .mp-skel-name {
   width: 60%; height: 22px; border-radius: 6px;
-  background: rgba(255,255,255,.04); animation: mp-shim 1s infinite alternate;
 }
 .mp-skel-sub {
   width: 40%; height: 14px; border-radius: 6px;
-  background: rgba(255,255,255,.03); animation: mp-shim 1s infinite alternate;
 }
 .mp-skel-btn {
   width: 140px; height: 40px; border-radius: 20px;
-  background: rgba(255,255,255,.04); animation: mp-shim 1s infinite alternate;
 }
-@keyframes mp-shim { to { opacity: .2; } }
 
 /* Hero 区 */
 .mp-hero {

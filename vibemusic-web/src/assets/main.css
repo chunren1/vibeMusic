@@ -8,7 +8,7 @@ html {
   text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 body, #app {
@@ -18,20 +18,76 @@ body, #app {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* -- 浅色主题 -- */
+/* -- ===== 暗色设计 Token（Spotify Encore 范式） ===== -- */
 :root {
-  --color-primary: #31c27c;
-  --color-bg: #f5f5f5;
-  --color-bg-card: #ffffff;
-  --color-bg-sidebar: #e8e8e8;
-  --color-text: #333333;
-  --color-text-secondary: #888888;
-  --color-border: #e0e0e0;
+  /* 背景层次 */
+  --bg-base: #121212;
+  --bg-elevated: #181818;
+  --bg-card: #1f1f1f;
+  --bg-hover: #282828;
+
+  /* 品牌主色 — 单一绿（沿用 #31c27c，勿改色相）
+     移动端 --m-primary(#2ee59a) 与桌面统一为 #31c27c（选桌面绿，去翡翠去金）；
+     mobile-theme.css 由 D9 任务对齐，此处仅声明桌面侧 */
+  --primary: #31c27c;
+
+  /* 文字三阶（暗底 #121212 上对比度均 ≥4.5:1） */
+  --text-primary: #ffffff;    /* 19.6:1 */
+  --text-secondary: #b3b3b3;  /* 8.9:1 */
+  --text-tertiary: #8a8a8a;   /* 5.4:1 */
+
+  /* 圆角 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* 阴影（克制，无霓虹 glow） */
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* 动效 */
+  --ease-out: cubic-bezier(.2, 0, 0, 1);
+  --dur-fast: 100ms;
+  --dur-base: 200ms;
+  --dur-slow: 400ms;
+
+  /* 兼容别名（旧 --color-* 体系，B 系列迁移后移除） */
+  --color-primary: var(--primary);
 
   /* Safe area 兼容 */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
 }
+
+/* -- ===== 可访问性：键盘焦点可见环 ===== -- */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* -- ===== 可访问性：减弱动态效果 ===== -- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* -- ===== 主题化细滚动条 ===== -- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-hover) transparent;
+}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 
 /* -- ===== GPU 合成层加速 ===== -- */
 .gpu-layer {
@@ -90,6 +146,6 @@ body, #app {
 
 /* -- ===== 图片通用懒加载 Fallback ===== -- */
 img[loading] {
-  background: #1a1a2e;
+  background: var(--bg-elevated);
   min-height: 40px;
 }

@@ -67,8 +67,8 @@ onMounted(() => { load(); favStore.fetchFavIds() })
 
     <!-- 骨架屏 -->
     <div v-if="loading" class="m-skel">
-      <div class="ms-hero"></div>
-      <div class="ms-row" v-for="i in 6" :key="i"><span></span><span></span></div>
+      <div class="ms-hero skeleton"></div>
+      <div class="ms-row" v-for="i in 6" :key="i"><span class="skeleton"></span><span class="skeleton"></span></div>
     </div>
 
     <div v-else-if="loadError" class="m-err">加载失败，歌单不存在或网络错误</div>
@@ -78,7 +78,7 @@ onMounted(() => { load(); favStore.fetchFavIds() })
       <div class="m-hero">
         <div class="mh-cover">
           <img v-if="info.coverUrl" :src="info.coverUrl + '?param=200y200'" alt="" />
-          <span v-else>♪</span>
+          <SvgIcon v-else name="music" :size="32" />
         </div>
         <div class="mh-info">
           <h2>{{ info.name }}</h2>
@@ -92,7 +92,7 @@ onMounted(() => { load(); favStore.fetchFavIds() })
 
       <!-- 操作栏 -->
       <div class="m-actions">
-        <button class="m-btn-play" @click="playAll">▶ 播放全部</button>
+        <button class="m-btn-play" @click="playAll"><SvgIcon name="play" :size="16" /> 播放全部</button>
       </div>
 
       <!-- 歌曲列表 -->
@@ -115,7 +115,7 @@ onMounted(() => { load(); favStore.fetchFavIds() })
             class="mi-fav"
             :class="{ faved: favStore.isFav(song.id) }"
             @click.stop="favStore.toggleFav(song)"
-          >★</button>
+          ><SvgIcon :name="favStore.isFav(song.id) ? 'star-fill' : 'star'" :size="16" /></button>
           <span class="mi-time">{{ fmtDuration(song.duration) }}</span>
         </div>
       </div>
@@ -188,6 +188,7 @@ onMounted(() => { load(); favStore.fetchFavIds() })
   background: #31c27c; color: #fff;
   border: none; border-radius: 20px;
   font-size: 16px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
 }
 .m-btn-play:active { background: #28a86b; }
 
@@ -228,12 +229,11 @@ onMounted(() => { load(); favStore.fetchFavIds() })
 .mi-fav.faved { color: #ec4141; }
 .mi-time { font-size: 12px; color: #555; flex-shrink: 0; }
 
-/* ======== 骨架 ======== */
+/* ======== 骨架（复用全局 .skeleton shimmer） ======== */
 .m-skel { padding: 16px; }
-.ms-hero { height: 140px; background: #111; border-radius: 10px; margin-bottom: 16px; animation: shim .8s infinite alternate; }
+.ms-hero { height: 140px; border-radius: 10px; margin-bottom: 16px; }
 .ms-row { display: flex; gap: 12px; padding: 10px 0; }
-.ms-row span { height: 14px; background: #111; border-radius: 4px; animation: shim .8s infinite alternate; }
+.ms-row span { height: 14px; border-radius: 4px; }
 .ms-row span:nth-child(1) { width: 24px; } .ms-row span:nth-child(2) { flex: 1; }
-@keyframes shim { to { opacity: .5; } }
 .m-err { text-align: center; padding: 100px 0; color: #555; font-size: 15px; }
 </style>

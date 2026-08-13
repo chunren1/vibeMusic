@@ -97,10 +97,10 @@ async function handleImport() {
     <!-- 骨架屏 -->
     <template v-if="loading">
       <div class="sk-hero">
-        <div class="sk-cover"></div>
-        <div class="sk-info"><span></span><span></span><span></span></div>
+        <div class="sk-cover skeleton"></div>
+        <div class="sk-info"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
       </div>
-      <div v-for="i in 8" :key="i" class="sk-row"><span></span><span></span><span></span><span></span></div>
+      <div v-for="i in 8" :key="i" class="sk-row"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span></div>
     </template>
 
     <!-- 错误 -->
@@ -114,14 +114,14 @@ async function handleImport() {
       <!-- 歌单头部：封面 + 信息 -->
       <div class="hero">
         <div class="hero-cover">
-          <img v-if="info.coverUrl" :src="info.coverUrl + '?param=300y300'" alt="" />
-          <span v-else class="cover-fallback">♪</span>
-          <div class="cover-play-count" v-if="info.playCount">▶ {{ fmtCount(info.playCount) }}</div>
+          <img v-if="info.coverUrl" :src="info.coverUrl + '?param=300y300'" alt="" decoding="async" />
+          <SvgIcon v-else name="music" class="cover-fallback" :size="48" />
+          <div class="cover-play-count" v-if="info.playCount"><SvgIcon name="play" :size="12" /> {{ fmtCount(info.playCount) }}</div>
         </div>
         <div class="hero-info">
           <h1 class="hero-name">{{ info.name }}</h1>
           <div class="hero-creator" v-if="info.creator">
-            <img v-if="info.creator.avatarUrl || info.creator.avatar" :src="(info.creator.avatarUrl || info.creator.avatar) + '?param=40y40'" class="creator-avatar" />
+            <img v-if="info.creator.avatarUrl || info.creator.avatar" :src="(info.creator.avatarUrl || info.creator.avatar) + '?param=40y40'" class="creator-avatar" loading="lazy" decoding="async" />
             <span>{{ info.creator.nickname || info.creator.name }}</span>
             <span class="creator-label">创建</span>
           </div>
@@ -162,13 +162,16 @@ async function handleImport() {
           @dblclick="playSong(song, idx)"
         >
           <span class="c-idx">
-            <span v-if="player.currentSong?.id === song.id && player.isPlaying" class="eq">▮▮</span>
+            <span v-if="player.currentSong?.id === song.id && player.isPlaying" class="eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
             <span v-else>{{ idx + 1 }}</span>
           </span>
           <div class="c-cover" @click="playSong(song, idx)">
-            <img v-if="song.coverUrl" :src="song.coverUrl + '?param=60y60'" class="cover-img" />
-            <span v-else class="cover-icon">♪</span>
-            <span class="play-hover">▶</span>
+            <img v-if="song.coverUrl" :src="song.coverUrl + '?param=60y60'" class="cover-img" loading="lazy" decoding="async" />
+            <SvgIcon v-else name="music" class="cover-icon" :size="14" />
+            <!-- E2：圆形播放按钮（Spotify 范式），行 hover 浮现 -->
+            <button class="play-hover" @click.stop="playSong(song, idx)" title="播放">
+              <SvgIcon name="play" :size="12" />
+            </button>
           </div>
           <div class="c-info" @click="playSong(song, idx)">
             <span class="c-name">{{ song.name }}</span>
@@ -181,7 +184,7 @@ async function handleImport() {
               :class="{ faved: favStore.isFav(song.id) }"
               @click.stop="favStore.toggleFav(song)"
               title="收藏"
-            >★</button>
+            ><SvgIcon :name="favStore.isFav(song.id) ? 'star-fill' : 'star'" :size="14" /></button>
             <button @click.stop="player.addToQueue({
               sourceId: song.id, name: song.name, artist: song.artist || '',
               coverUrl: song.coverUrl || '', duration: song.duration || 0, platform: source.value,
@@ -206,31 +209,31 @@ async function handleImport() {
   padding-bottom: 80px;
 }
 
-/* ======== 导航栏（浅色） ======== */
+/* ======== 导航栏（暗色） ======== */
 .nav-bar {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 16px 32px;
-  background: rgba(255,255,255,0.92);
+  background: rgba(24,24,24,0.92);
   backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
   z-index: 20;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--bg-hover);
 }
 .nav-back {
   width: 32px; height: 32px;
-  border-radius: 8px; border: 1px solid #ddd;
-  background: transparent; color: #777;
+  border-radius: 8px; border: 1px solid var(--bg-hover);
+  background: transparent; color: var(--text-secondary);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; flex-shrink: 0;
-  transition: all .15s;
+  transition: background .15s, color .15s;
 }
-.nav-back:hover { background: #f0f0f0; color: #333; }
+.nav-back:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-title {
   font-size: 16px; font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   flex: 1;
 }
@@ -240,21 +243,23 @@ async function handleImport() {
   font-weight: 500; flex-shrink: 0;
 }
 
-/* ======== 骨架 ======== */
+/* ======== 骨架（复用全局 .skeleton shimmer，暗色渐变覆盖） ======== */
 .sk-hero {
   display: flex; gap: 32px; padding: 40px 32px;
 }
 .sk-cover {
   width: 220px; height: 220px; border-radius: 12px;
-  background: #e0e0e0; flex-shrink: 0;
-  animation: shim 1s infinite alternate;
+  flex-shrink: 0;
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
 }
 .sk-info {
   flex: 1; display: flex; flex-direction: column; gap: 12px; padding-top: 8px;
 }
 .sk-info span {
-  height: 16px; background: #e0e0e0; border-radius: 6px;
-  animation: shim 1s infinite alternate;
+  height: 16px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
 }
 .sk-info span:nth-child(1) { width: 60%; }
 .sk-info span:nth-child(2) { width: 40%; }
@@ -263,22 +268,22 @@ async function handleImport() {
   display: flex; gap: 12px; padding: 10px 40px 10px 48px;
 }
 .sk-row span {
-  height: 14px; background: #eee; border-radius: 4px;
-  animation: shim 1s infinite alternate;
+  height: 14px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-hover) 50%, var(--bg-elevated) 75%);
+  background-size: 200% 100%;
 }
 .sk-row span:nth-child(1) { width: 28px; }
 .sk-row span:nth-child(2) { flex: 1; }
 .sk-row span:nth-child(3) { flex: 1; }
 .sk-row span:nth-child(4) { width: 50px; }
-@keyframes shim { to { opacity: .4; } }
 
-/* ======== Hero 区域（浅色） ======== */
+/* ======== Hero 区域（暗色） ======== */
 .hero {
   display: flex;
   gap: 40px;
   padding: 48px 40px 36px;
-  background: linear-gradient(180deg, rgba(49,194,124,0.04) 0%, transparent 100%);
-  border-bottom: 1px solid #eee;
+  background: linear-gradient(180deg, rgba(49,194,124,0.06) 0%, transparent 100%);
+  border-bottom: 1px solid var(--bg-hover);
 }
 .hero-cover {
   width: 220px; height: 220px;
@@ -286,21 +291,21 @@ async function handleImport() {
   overflow: hidden;
   flex-shrink: 0;
   position: relative;
-  background: #e8e8e8;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-2);
 }
 .hero-cover img {
   width: 100%; height: 100%; object-fit: cover;
 }
 .cover-fallback {
   display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; font-size: 48px; color: #bbb;
+  width: 100%; height: 100%; font-size: 48px; color: var(--text-tertiary);
 }
 .cover-play-count {
   position: absolute; top: 8px; right: 8px;
   padding: 3px 10px; border-radius: 10px;
   background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
-  font-size: 12px; color: #ddd;
+  font-size: 12px; color: var(--text-secondary);
   display: flex; align-items: center; gap: 4px;
 }
 
@@ -313,25 +318,25 @@ async function handleImport() {
 }
 .hero-name {
   font-size: 28px; font-weight: 700;
-  color: #1a1a1a;
+  color: var(--text-primary);
   line-height: 1.3;
   word-break: break-word;
 }
 .hero-creator {
   display: flex; align-items: center; gap: 8px;
-  font-size: 14px; color: #666;
+  font-size: 14px; color: var(--text-secondary);
 }
 .creator-avatar {
   width: 28px; height: 28px; border-radius: 50%; object-fit: cover;
 }
 .creator-label {
-  font-size: 11px; color: #999;
+  font-size: 11px; color: var(--text-tertiary);
 }
 .hero-stats {
-  font-size: 13px; color: #888;
+  font-size: 13px; color: var(--text-tertiary);
 }
 .hero-desc {
-  font-size: 13px; color: #777;
+  font-size: 13px; color: var(--text-secondary);
   line-height: 1.6;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -349,7 +354,7 @@ async function handleImport() {
   border: none; border-radius: 24px;
   font-size: 15px; font-weight: 600;
   cursor: pointer;
-  transition: all .15s;
+  transition: background .15s, transform .15s, opacity .15s;
 }
 .btn-play:hover { background: #28a86b; transform: scale(1.02); }
 .btn-play:disabled { opacity: .4; cursor: not-allowed; transform: none; }
@@ -360,12 +365,12 @@ async function handleImport() {
   border: 1px solid #31c27c; border-radius: 24px;
   font-size: 15px; font-weight: 600;
   cursor: pointer;
-  transition: all .15s;
+  transition: background .15s, color .15s, opacity .15s;
 }
 .btn-import:hover { background: #31c27c; color: #fff; }
 .btn-import:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ======== 歌曲列表（浅色） ======== */
+/* ======== 歌曲列表（暗色） ======== */
 .song-list {
   padding: 0 40px;
 }
@@ -374,10 +379,10 @@ async function handleImport() {
   grid-template-columns: 36px 44px 1fr 1fr 60px 64px;
   gap: 12px; align-items: center;
   padding: 10px 0;
-  border-bottom: 1px solid #eee;
-  color: #999; font-size: 12px;
+  border-bottom: 1px solid var(--bg-hover);
+  color: var(--text-tertiary); font-size: 12px;
   position: sticky; top: 62px; z-index: 10;
-  background: #f5f5f5;
+  background: var(--bg-base);
 }
 .h-idx { text-align: center; }
 .h-time { text-align: right; }
@@ -388,63 +393,77 @@ async function handleImport() {
   grid-template-columns: 36px 44px 1fr 1fr 60px 64px;
   gap: 12px; align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--bg-hover);
   transition: background .12s;
 }
-.song-row:hover { background: #fafafa; }
+.song-row:hover { background: var(--bg-hover); }
 .song-row.playing {
   background: rgba(49,194,124,0.06);
 }
-.song-row.playing .c-name { color: #31c27c; }
+.song-row.playing .c-name { color: var(--primary); }
 
 .c-idx {
   text-align: center;
-  color: #bbb; font-size: 13px; font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary); font-size: 13px; font-variant-numeric: tabular-nums;
 }
 .eq {
-  color: #31c27c; font-weight: bold;
-  animation: pulse .5s infinite alternate;
+  display: inline-flex; align-items: flex-end; gap: 2px; height: 12px;
+  color: var(--primary);
+  transition: opacity .15s; /* E2：hover 时淡出让位播放按钮 */
 }
-@keyframes pulse { to { opacity: .3; } }
+.eq .eq-bar { background: var(--primary); border-radius: 1px; }
+.eq .eq-bar:nth-child(1) { height: 7px; }
+.eq .eq-bar:nth-child(2) { height: 12px; }
+.eq .eq-bar:nth-child(3) { height: 5px; }
 
 .c-cover {
   position: relative; width: 36px; height: 36px;
   cursor: pointer; border-radius: 4px; overflow: hidden;
-  background: #e8e8e8;
+  background: var(--bg-elevated);
 }
 .cover-img { width: 100%; height: 100%; object-fit: cover; }
 .cover-icon {
   display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; color: #ccc; font-size: 14px;
+  width: 100%; height: 100%; color: var(--text-tertiary); font-size: 14px;
 }
+/* E2：圆形播放按钮（Spotify 范式）——行 hover 浮现，品牌绿底白三角 */
 .play-hover {
-  position: absolute; inset: 0;
+  position: absolute; top: 50%; left: 50%;
+  width: 22px; height: 22px; padding: 0;
+  transform: translate(-50%, -50%) scale(0.85);
+  border: none; border-radius: 50%;
+  background: #31c27c; color: #fff;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(0,0,0,0.4); color: #31c27c; font-size: 14px;
-  opacity: 0; transition: .12s;
+  cursor: pointer;
+  opacity: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  transition: opacity .15s, transform .15s, background .15s;
 }
-.c-cover:hover .play-hover { opacity: 1; }
+.song-row:hover .play-hover { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.play-hover:hover { background: #28a86b; }
+/* 当前播放行 hover：eq 淡出、播放按钮浮现，切换自然 */
+.song-row.playing:hover .eq { opacity: 0; }
 
 .c-info {
   cursor: pointer; min-width: 0;
   display: flex; flex-direction: column; gap: 2px;
 }
 .c-name {
-  font-size: 14px; color: #1a1a1a;
+  font-size: 14px; color: var(--text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .c-artist {
-  font-size: 12px; color: #999;
+  font-size: 12px; color: var(--text-tertiary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .c-album {
-  font-size: 12px; color: #aaa;
+  font-size: 12px; color: var(--text-tertiary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 .c-time {
-  font-size: 12px; color: #bbb; text-align: right;
+  font-size: 12px; color: var(--text-tertiary); text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
@@ -454,14 +473,14 @@ async function handleImport() {
 .c-actions button {
   width: 28px; height: 28px; border-radius: 6px;
   border: 1px solid transparent;
-  background: transparent; color: #bbb;
+  background: transparent; color: var(--text-tertiary);
   cursor: pointer; font-size: 14px;
   display: flex; align-items: center; justify-content: center;
-  transition: all .12s;
+  transition: border-color .12s, color .12s;
 }
 .c-actions button:hover {
-  border-color: #ddd;
-  color: #666;
+  border-color: var(--bg-hover);
+  color: var(--text-secondary);
 }
 .c-actions button.faved {
   color: #ec4141; border-color: rgba(236,65,65,0.15);
@@ -469,12 +488,12 @@ async function handleImport() {
 
 /* ======== 空状态 ======== */
 .empty-state {
-  text-align: center; padding: 120px 0; color: #aaa;
+  text-align: center; padding: 120px 0; color: var(--text-tertiary);
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   font-size: 15px;
 }
 .empty-list {
-  text-align: center; padding: 40px 0; color: #aaa; font-size: 14px;
+  text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: 14px;
 }
 
 /* ======== 移动端：深色主题 ======== */

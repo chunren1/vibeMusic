@@ -971,9 +971,13 @@ app.get('/song/url/qq', urlLimiter, async (req, res) => {
     const cached = urlCache.get(cacheKey);
     if (cached) return res.json({ code: 200, data: cached });
 
-    // 直接调 QQ API，带上 qqmusic_key 做 authst（qq-music-api 的 /urls 路由缺少 authst）
+    // 直接调 QQ API，带上完整 Cookie 头（2026-08: 仅 authst 参数已被服务端忽略，必须携带 Cookie 才能拿到 purl）
     const uin = config.qq.uin || '0';
     const qqmusicKey = config.qq.qqmusic_key || '';
+    const qqCookieStr = Object.entries(config.qq)
+      .filter(([, v]) => typeof v === 'string' && v && !String(v).includes(','))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
     const reqData = JSON.stringify({
       req_0: {
         module: 'vkey.GetVkeyServer', method: 'CgiGetVkey',
@@ -987,7 +991,11 @@ app.get('/song/url/qq', urlLimiter, async (req, res) => {
     });
     const qqResp = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
       params: { format: 'json', data: reqData },
-      headers: { Referer: 'https://y.qq.com' },
+      headers: {
+        Referer: 'https://y.qq.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Cookie: qqCookieStr,
+      },
       timeout: UPSTREAM_TIMEOUT,
     });
     const mi = qqResp.data?.req_0?.data?.midurlinfo;

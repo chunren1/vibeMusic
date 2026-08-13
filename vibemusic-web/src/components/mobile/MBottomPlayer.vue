@@ -66,7 +66,7 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 
 <template>
   <div v-if="visible" class="mbp m-glass-gold" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
-    <div class="mbp-progress" :style="{ width: store.progress + '%' }"></div>
+    <div class="mbp-progress" :style="{ '--progress': store.progress / 100 }"></div>
     <div class="mbp-cover" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=80y80)` } : {}"></div>
     <div class="mbp-info" @click="goToPlayer">
       <div class="mbp-title">{{ store.currentSong.title }}</div>
@@ -105,8 +105,10 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 .mbp-progress {
   position: absolute; top: 0; left: 0; height: 2px;
   background: var(--m-gradient-brand); border-radius: 0 4px 4px 0;
-  transition: width 0.3s linear;
-  box-shadow: 0 0 6px var(--m-primary-glow);
+  /* 合成器动画：scaleX 代替 width，避免布局抖动 */
+  transform: scaleX(var(--progress, 0));
+  transform-origin: left;
+  transition: transform var(--m-duration-normal) var(--m-ease-out);
 }
 .mbp-cover {
   width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
@@ -116,8 +118,9 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 .mbp-info { flex: 1; min-width: 0; }
 .mbp-title { font-size: 14px; font-weight: 600; color: var(--m-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mbp-artist { font-size: 12px; color: var(--m-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
-.mbp-btn { flex-shrink: 0; width: 40px; height: 40px; border: none; background: none; color: var(--m-text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s, transform 0.2s var(--m-ease-spring); }
+/* WCAG 2.5.8：触控目标 ≥44px（图标视觉尺寸不变，flex 居中） */
+.mbp-btn { flex-shrink: 0; width: 44px; height: 44px; border: none; background: none; color: var(--m-text-primary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s, transform 0.2s var(--m-ease-spring); }
 .mbp-btn:active { transform: scale(0.85); }
-.mbp-btn.sm { width: 32px; height: 32px; color: var(--m-text-secondary); }
-.mbp-btn.faved { color: var(--m-gold); filter: drop-shadow(0 0 4px var(--m-gold-glow)); }
+.mbp-btn.sm { color: var(--m-text-secondary); }
+.mbp-btn.faved { color: var(--m-gold); }
 </style>
