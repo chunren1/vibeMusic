@@ -15,6 +15,7 @@ vibeMusic-backend/test-output*.txt
 # 私人文档（不公开）
 INTERVIEW.md
 docs/UI-OPTIMIZATION-PLAN.md
+docs/c-drive-analysis-report.md
 
 # 前端构建产物
 vibemusic-web/dist/
