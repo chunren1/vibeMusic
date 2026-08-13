@@ -48,16 +48,16 @@ vibeMusic/
 │       └── router/                # Vue Router 路由配置
 ├── vibeMusic-backend/             # Spring Boot 4 后端 (端口 8080)
 │   └── src/main/java/com/vibemusic/
-│       ├── controller/            # REST Controller（共 7 个）
-│       ├── service/               # 业务 Service（共 14 个）
-│       ├── entity/                # MyBatis-Plus Entity（共 6 个）
+│       ├── controller/            # REST Controller（共 11 个）
+│       ├── service/               # 业务 Service（共 19 个）
+│       ├── entity/                # MyBatis-Plus Entity（共 7 个）
 │       ├── mapper/                # MyBatis-Plus Mapper
 │       ├── config/                # SecurityConfig / MyBatisPlusConfig / ...
 │       └── dto/                   # 请求/响应 DTO
 ├── musicapi/                      # Express BFF 网关 (端口 3000)
 │   ├── server.js                  # 聚合搜索 + 评分去重 + Cookie 管理
 │   └── config.js                  # Cookie 配置
-├── docker-compose.yml             # 7 容器编排
+├── docker-compose.yml             # 14 services 编排
 ├── package.json                   # 工作区根脚本（concurrently 编排）
 └── scripts/                       # 运维脚本（health-check / backup-db / deploy）
 ```
@@ -75,7 +75,7 @@ vibeMusic/
 
 ### Java / Spring Boot
 
-- **时间字段**：所有 Entity 时间字段必须加 `@TableField(insertStrategy = FieldStrategy.NEVER)`，依赖 DB `DEFAULT CURRENT_TIMESTAMP`
+- **时间字段**：Entity 时间字段加 `@TableField(insertStrategy = FieldStrategy.NEVER)`，依赖 DB `DEFAULT CURRENT_TIMESTAMP`（例外：`PlayHistory.playedAt` 由 MetaObjectHandler 填充、无 NEVER —— 勿改回，见 Notes）
 - **Controller 文档**：新增 Controller 必须加 `@Operation(summary = "...")` 注解
 - **search() 联动**：修改 `search()` 返回类型时，必须同步检查 `RecommendService`、`AssistantController`、`getRandomSongs` 三处调用方
 - **MyBatisPlusConfig**：自定义 SqlSessionFactory 时需显式注入 MetaObjectHandler 到 GlobalConfig
@@ -138,7 +138,7 @@ vibeMusic/
 ## Notes
 
 - `UserFavorite.createdAt` — 已修复 FieldStrategy.NEVER（407685e）
-- `PlayHistory.playedAt` — 已修复 FieldStrategy.NEVER + MetaObjectHandler 注入（f927fb9）
+- `PlayHistory.playedAt` — 由 MetaObjectHandler 填充（d27a3f4 移除了 FieldStrategy.NEVER），勿按旧备注"修复"成 NEVER
 - `BaseEntity.createdAt/updatedAt` — 已修复
 - `MyBatisPlusConfig` — 自定义 SqlSessionFactory 需显式注入 MetaObjectHandler 到 GlobalConfig
-- QQ 音乐搜索 — 需要 `t:0` 参数指定单曲类型，否则返回结果不准确
+- QQ 音乐搜索 — 用经典 `client_search_cp` 端点（无需 Cookie）；`t:0` 参数已废弃移除，勿加回

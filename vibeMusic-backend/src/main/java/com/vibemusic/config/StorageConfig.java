@@ -15,11 +15,11 @@ public class StorageConfig {
     /** 服务地址 */
     private String endpoint = "http://127.0.0.1:9000";
 
-    /** Access Key */
-    private String accessKey = "minioadmin";
+    /** Access Key（仅从环境变量/yml 注入，禁止硬编码） */
+    private String accessKey = "";
 
-    /** Secret Key */
-    private String secretKey = "minioadmin";
+    /** Secret Key（仅从环境变量/yml 注入，禁止硬编码） */
+    private String secretKey = "";
 
     /** 存储桶名称 */
     private String bucketName = "vibemusic";
