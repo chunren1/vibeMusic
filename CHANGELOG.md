@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-08-13 歌单导出功能
+
+### 🎵 歌单导出
+- **后端** (`PlaylistService.java`)：歌单导出 JSON 增加 `coverUrl`、`duration` 字段
+- **前端** (`PlaylistView.vue`)：新增"导出 JSON"按钮，浏览器直接下载歌单 JSON 文件
+- **package.json**：修复重复的 `devDependencies` 键（合并 playwright 依赖）
+
+### 🧹 其他
+- `AI-GUIDE.md`：清理误输入的乱码字符
+
+---
+
 ## 2026-07-19 全链路审计修复（41 个问题）
 
 ### 🔴 安全漏洞修复

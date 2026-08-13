@@ -37,11 +37,9 @@
     "health": "powershell -ExecutionPolicy Bypass -File scripts/health-check.ps1"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "playwright": "^1.61.1"
   },
   "dependencies": {
-  },
-  "devDependencies": {
-    "playwright": "^1.61.1"
   }
 }

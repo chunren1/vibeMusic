@@ -10,8 +10,18 @@
 ## 重要规则
 - 修改 Java 后端文件后，必须提醒用户重启后端服务
 - 前端 Vue 文件由 Vite 热更新无需重启
-- `replace_in_file` 和 `write_to_file` 工具对 `.vue` 和 `.java` 文件经常静默失败，需要用 Node.js 脚本或 PowerShell 脚本作为 workaround
+- `replace_in_file` 和 `write_to_file` 工具对 `.vue`、`.java`、`.js`、`.md` 文件经常静默失败（返回 success 但写入 0 字节），需要用 Node.js 脚本作为 workaround
+- **每次文件修改后必须验证**：`replace_in_file` 后立即用 `search_content` 或 `read_file` 检查改动是否真的写入；`write_to_file` 后用 `node -e "require('fs').readFileSync('path','utf8').length"` 验证非空
+- 发现空文件立刻用 `scripts/_wr.js` 模板脚本重写（先 write_to_file 写脚本 → node 执行 → delete_file 清理）
 - 修改 SecurityConfig 后也需要重启后端
+
+## 推送与文档约定
+- **每次实质性修改后**自动更新 `CHANGELOG.md` 和 `PROJECT-AUDIT.md`
+- 提交后**同时推送**两个 remote：`origin`（Gitee）和 `github`（GitHub）
+- `origin` 推送: `git push origin HEAD:main`
+- `github` 推送: `git push github HEAD:main`（代理端口 7890 已全局配置 `http.proxy`）
+- Commit message 规范：中文概要 + 英文分类展开
+- 推送前检查：web/svr/api 三端测试通过（`git status` 确认无遗漏文件）
 
 ## 技术决策
 - 不使用第三方破解，使用自有 VIP 账号 Cookie 获取音乐

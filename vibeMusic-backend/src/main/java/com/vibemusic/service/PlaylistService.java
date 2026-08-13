@@ -178,11 +178,13 @@ public class PlaylistService {
         data.put("description", pl.getDescription());
         data.put("exportTime", java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         data.put("songCount", songs.size());
-        List<Map<String, String>> songList = songs.stream().map(s -> {
-            Map<String, String> m = new LinkedHashMap<>();
+        List<Map<String, Object>> songList = songs.stream().map(s -> {
+            Map<String, Object> m = new LinkedHashMap<>();
             m.put("songName", s.getSongName());
             m.put("artist", s.getArtist());
             m.put("sourceId", s.getSourceId());
+            m.put("coverUrl", s.getCoverUrl());
+            m.put("duration", s.getDuration());
             return m;
         }).collect(Collectors.toList());
         data.put("songs", songList);

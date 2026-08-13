@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
-import { getPlaylists, getPlaylistSongs, removeFromPlaylist } from '@/api/song'
+import { getPlaylists, getPlaylistSongs, removeFromPlaylist, exportPlaylist } from '@/api/song'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
 
@@ -79,6 +79,30 @@ async function removeSong(song) {
   }
 }
 
+const exporting = ref(false)
+
+async function handleExport() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = await exportPlaylist(playlistId.value)
+    // request 拦截器已将 axios response.data 解包，res = { code: 200, data: { name, songs, ... } }
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${info.value?.name || `歌单_${playlistId.value}`}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    window.toast?.('已导出', 'success')
+  } catch (e) {
+    console.error('[export]', e)
+    window.toast?.('导出失败，请重试', 'error')
+  } finally {
+    exporting.value = false
+  }
+}
+
 favStore.fetchFavIds()
 onMounted(() => loadSongs())
 </script>
@@ -123,6 +147,9 @@ onMounted(() => loadSongs())
             <button class="btn-play" @click="playAll" :disabled="!songs.length">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
               播放全部
+            </button>
+            <button class="btn-export" @click="handleExport" :disabled="!songs.length || exporting">
+              {{ exporting ? '导出中...' : '导出 JSON' }}
             </button>
           </div>
         </div>
@@ -233,6 +260,13 @@ onMounted(() => loadSongs())
 }
 .btn-play:hover { background: #28a86b; transform: scale(1.02); }
 .btn-play:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.btn-export {
+  display: flex; align-items: center; gap: 8px; padding: 10px 20px;
+  background: transparent; color: #666; border: 1px solid #ccc; border-radius: 24px;
+  font-size: 14px; cursor: pointer; transition: all .15s;
+}
+.btn-export:hover { border-color: #31c27c; color: #31c27c; }
+.btn-export:disabled { opacity: .4; cursor: not-allowed; }
 
 /* 歌曲列表 */
 .song-list { padding: 0 40px; }
