@@ -23,6 +23,7 @@
     "@capacitor/cli": "^8.4.0",
     "@pinia/testing": "^1.0.3",
     "@vitejs/plugin-vue": "^6.0.6",
+    "@vitest/coverage-v8": "^4.1.10",
     "@vue/test-utils": "^2.4.11",
     "jsdom": "^29.1.1",
     "terser": "^5.48.0",

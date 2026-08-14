@@ -8,9 +8,14 @@ on:
     tags:
       - 'v*'          # 推送 tag 如 v1.0.0 时自动部署
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +39,7 @@ jobs:
   build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -54,8 +60,27 @@ jobs:
       - name: Build Frontend
         run: cd vibemusic-web && npm ci && npm run build
 
-      - name: Docker Compose Build
-        run: docker compose build
+      # 注意：此处不执行 `docker compose build`。
+      # 原因：musicapi/Dockerfile 的 `COPY server.js config.js ./` 依赖 gitignore 的
+      # config.js（Cookie 配置），全新 checkout 下该文件不存在，构建必然失败。
+      # 修复 Dockerfile（改为 COPY config.example.js 或运行时注入）由并行任务负责；
+      # 修复后可在下方恢复 docker compose build 步骤。
+      #
+      # 真实部署需配置目标（SSH 主机 / 镜像仓库 / 云平台），并注入 secrets：
+      #   - 镜像方式：docker build + docker push 到 registry，目标机 docker pull + up
+      #   - 产物方式：将下方 jar + dist artifact 上传到目标机后启动
+      # 当前阶段仅构建并上传产物，供后续部署流程消费。
 
-      - name: Deploy Notification
-        run: echo "Build completed. Manual deployment required or configure auto-deploy target."
+      - name: Upload Backend JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: vibeMusic-backend/target/*.jar
+          retention-days: 7
+
+      - name: Upload Frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: vibemusic-web/dist/
+          retention-days: 7

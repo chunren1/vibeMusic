@@ -9,9 +9,14 @@ on:
   pull_request:
     paths: ['vibeMusic-backend/**']
 
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: vibeMusic-backend

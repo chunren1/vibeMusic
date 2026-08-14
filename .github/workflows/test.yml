@@ -10,6 +10,10 @@ on:
   pull_request:
     branches: [main, master]
 
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-test:
     name: Backend (Maven + JUnit 5)
@@ -75,7 +79,7 @@ jobs:
         working-directory: vibemusic-web
 
       - name: Vitest Run
-        run: npx vitest run --reporter=verbose
+        run: npx vitest run --reporter=verbose --coverage
         working-directory: vibemusic-web
 
       - name: Upload Test Report

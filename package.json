@@ -30,7 +30,7 @@
     "test": "npm run test:backend && npm run test:frontend",
     "test:backend": "cd vibeMusic-backend && mvn test",
     "test:frontend": "cd vibemusic-web && npm test",
-    "test:ci": "cd vibeMusic-backend && mvn test -Pci",
+    "test:ci": "cd vibeMusic-backend && mvn test",
     "k6": "k6 run --vus 50 --duration 60s scripts/k6-test.js",
     "k6:quick": "k6 run --vus 50 --duration 30s scripts/k6-test.js",
     "backup:db": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1",

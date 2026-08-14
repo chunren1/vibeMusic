@@ -7,9 +7,14 @@ on:
   push:
     paths: ['vibemusic-web/**', '.github/workflows/frontend-ci.yml']
 
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: vibemusic-web
@@ -25,6 +30,8 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      - name: Run tests
+        run: npm test
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
