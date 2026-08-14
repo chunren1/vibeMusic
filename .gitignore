@@ -79,8 +79,8 @@ Thumbs.db
 .cloudflared/
 *.tar
 
-# 编辑器/工具私有配置（可能含本机路径/凭据）
-.claude/
+# 编辑器/工具私有配置（可能含本机路径/凭据；settings.json 等项目配置保留跟踪）
+.claude/settings.local.json
 .vscode/
 
 # Android 构建产物
