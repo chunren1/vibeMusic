@@ -1,15 +1,20 @@
 # AGENTS.md — musicapi（Express BFF 网关）
 
-**镜像：** node:20.19-alpine。**结构：** 扁平单文件，无 src/。
+**镜像：** node:20.19-alpine。**结构：** 入口 + `src/` 按职责拆分（CommonJS）。
 
 ## STRUCTURE
-- `server.js` — 全部路由 + 中间件单文件全量。
-  - 路由：`/search`、`/netease/*`、`/qq/search`、`/qq/playlist`、`/song/url/qq`、`/lyric`、`/health`、`/metrics`。
-  - CORS：origin `http://localhost:5173`（可用 `CORS_ORIGIN` env 覆盖）。
-  - 全局 `/search/url` 三级限流；Prometheus metrics；日志写 `logs/`（access / api-errors / cookie-monitor / degradation / cpolar-monitor）。
-- `config.js` — Cookie 配置，**已 gitignore**。
-- `config.example.js` — 提交模板。
-- `test/server.test.js` — 测试。
+- `server.js` — 入口装配：中间件链 + 路由注册 + 启动（不承载业务逻辑）。
+- `src/` — 按职责拆分：
+  - `logger.js` — 按天轮转日志（access / api-errors / cookie-monitor / degradation / cpolar-monitor）。
+  - `rate-limiters.js` — 全局 `/search/url` 三级限流。
+  - `metrics.js` — Prometheus metrics 注册与中间件。
+  - `cookie.js` — Cookie 统一管理（checkCookies / checkQQCookie / reloadQQCookie）。
+  - `scoring.js` — 搜索评分算法（cleanSongName / fingerprint / 相关性 / 热度 / 去重 / 分页 / 标准化）。
+  - `search.js` — 搜索代理（网易云 / QQ / 结果精炼 / 黑名单过滤 / 内存缓存）。
+  - `routes.js` — 全部路由：`/search`、`/netease/*`、`/qq/search`、`/qq/playlist`、`/song/url/qq`、`/lyric`、`/health`、`/metrics`。
+  - `config.js` — 应用配置读取（不敏感）。
+- `config.js`（根）— Cookie 配置，**已 gitignore**；`config.example.js` — 提交模板。
+- `test/server.test.js` — 集成测试（需先启动 server.js）。
 
 ## CONVENTIONS
 - **Cookie 仅从环境变量读取**：`MUSIC_QQ_COOKIE`（JSON 解析）+ `MUSIC_NETEASE_COOKIE`（原始字符串）。禁止硬编码。

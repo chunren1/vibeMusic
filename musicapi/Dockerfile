@@ -11,8 +11,9 @@ COPY package.json package-lock.json ./
 # 安装依赖（生产模式，跳过 devDependencies）
 RUN npm ci --omit=dev
 
-# 复制源码和配置
-COPY server.js config.js ./
+# 复制源码（config.js 为 gitignore 文件，不入库也不进镜像；Cookie 由环境变量注入）
+COPY server.js ./
+COPY src ./src
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
