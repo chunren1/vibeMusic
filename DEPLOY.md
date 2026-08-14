@@ -1,5 +1,49 @@
 # vibeMusic 部署指南 v2.0
 
+## ⚠️ 接收方从零上手（克隆后必读）
+
+本仓库**不包含任何真实凭据**（.env、Cookie、密码均不入库）。克隆后需要自行创建 3 个配置文件才能运行：
+
+```bash
+# 1. 环境变量（必做）
+cp .env.example .env
+# 生成强密码并填入 .env:
+#   node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
+
+# 2. musicapi Cookie 配置（必做，musicapi 依赖它启动）
+cp musicapi/config.example.js musicapi/config.js
+# 填入你自己的 QQ音乐/网易云 Cookie（见 config.example.js 顶部说明）
+
+# 3. Redis 配置（Docker 部署必做；redis.conf 含密码不入库）
+cp docker-data/redis/redis.conf.example docker-data/redis/redis.conf
+# 密码由 .env 的 REDIS_PASSWORD 自动注入，无需手动改文件
+```
+
+> **为什么缺这 3 个文件？** 它们包含真实凭据（QQ/网易云 Cookie、Redis 密码），已被 `.gitignore` 排除，确保仓库可公开分享。
+>
+> **隐私说明**：仓库中所有密码均为占位符（`<your-...>`）或环境变量引用（`${...}`）。请勿把你的真实 Cookie/密钥提交到 git。
+
+### 必须修改的弱默认值（生产环境）
+
+`docker-compose.yml` 中的环境变量带弱默认值（如 MySQL `123456`、JWT `ChangeMeJWTSecretKey123!`），**生产部署务必在 .env 中覆盖**：
+
+| 变量 | 弱默认值 | 建议 |
+|------|---------|------|
+| `MYSQL_ROOT_PASSWORD` / `DB_PASSWORD` | `123456` | 24+ 位随机密码 |
+| `JWT_SECRET` | `ChangeMeJWTSecretKey123!` | 256-bit 随机串 |
+| `ES_PASSWORD` | `ChangeMeES123!` | 24+ 位随机密码 |
+| `MINIO_ROOT_PASSWORD` / `MINIO_SECRET_KEY` | `ChangeMe456!` | 24+ 位随机密码 |
+| `GRAFANA_ADMIN_PASSWORD` | `admin` | 强密码 |
+
+### 检查你的配置未泄露
+
+```bash
+git status                    # 应只看到你修改的文件
+git ls-files | grep -E '(\.env$|config\.js$|redis\.conf$|\.bak)'   # 应为空
+```
+
+---
+
 ## 前置条件
 
 | 依赖 | 版本要求 | 用途 |
@@ -170,7 +214,19 @@ curl -k https://localhost/api/songs/search?keyword=test  # API 正常
 
 ### 方案 A：Cloudflare Tunnel（推荐，免费）
 
-已有配置：域名 `www.vibemusic.abrdns.com`，启动脚本 `scripts/start-cloudflare-tunnel.bat`
+已有配置：域名 `www.vibemusic.abrdns.com`。启动脚本：`scripts/ops/start-cloudflare-tunnel.bat`（Windows）/ `start-cloudflare-tunnel.ps1`。
+
+> 注意：`.cloudflared/` 目录（含 Tunnel 凭据）已被 `.gitignore` 排除。接收方需自行 `cloudflared tunnel login` 创建自己的 Tunnel（见下方步骤）。
+
+创建自己的 Tunnel（替代原 `.cloudflared/` 目录）：
+
+```bash
+# 安装 cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+cloudflared tunnel login
+cloudflared tunnel create vibemusic
+cloudflared tunnel route dns vibemusic your-domain.com
+cloudflared tunnel run vibemusic
+```
 
 Tunnel 自带 HTTPS 终止，无需额外证书配置。
 
@@ -230,7 +286,7 @@ receivers:
 | API 限流 | ✅ | 通用 10r/s，登录 3r/s |
 | 数据库备份 | ✅ | 每天凌晨 2 点，保留 30 天 |
 | 健康检查 | ✅ | 所有容器 healthcheck |
-| 自动重启 | ✅ | `restart: unless-stopped` |
+| 自动重启 | ⚠️ | 当前 compose 为 `restart: "no"`，生产环境建议改为 `unless-stopped` |
 | .env 排除 Git | ✅ | `.gitignore` 已配置 |
 | 证书排除 Git | ✅ | `nginx/certs/.gitignore` 已配置 |
 

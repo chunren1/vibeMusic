@@ -29,6 +29,13 @@
         <logger name="com.vibemusic" level="DEBUG"/>
     </springProfile>
 
+    <springProfile name="docker">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE" />
+        </root>
+        <logger name="com.vibemusic" level="DEBUG"/>
+    </springProfile>
+
     <springProfile name="prod">
         <root level="WARN">
             <appender-ref ref="CONSOLE" />

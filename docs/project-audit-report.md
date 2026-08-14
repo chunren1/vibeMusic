@@ -45,7 +45,7 @@
 #### F2. 关键凭证泄露在版本控制中
 
 - **文件**: `.env:35,49,51,32`、`.env.docker`、`scripts/test_deepseek.py:5`
-- **描述**: DeepSeek API Key (`sk-19700b3bf1b44c6f8ca03f3d88b58e34`)、JWT Secret、QQ 音乐 Cookie、网易云 Cookie、MinIO 凭证均明文存在于 git 追踪的文件中。
+- **描述**: DeepSeek API Key (`sk-<REDACTED>`) 曾明文存在于 git 追踪的文件中（现已从仓库移除）；JWT Secret、QQ 音乐 Cookie、网易云 Cookie、MinIO 凭证需通过 `.env` 环境变量注入，禁止提交 git。
 - **影响**: 任何有仓库权限的人可盗用 API Key 和音乐平台账号
 - **修复**: 
   1. 立即吊销所有凭证

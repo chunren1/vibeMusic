@@ -439,7 +439,9 @@ const searchCache = new LRUCache({
 
 const urlCache = new LRUCache({
   max: 200,
-  ttl: 10 * 60 * 1000,
+  // QQ vkey URL 有效期仅数分钟（实测几分钟内返回 403），缓存 60s 足够覆盖重试/刷新，
+  // 避免缓存过期 URL 导致播放失败；网易云 URL 不走此缓存
+  ttl: 60 * 1000,
   updateAgeOnGet: true,
 });
 
@@ -1000,10 +1002,26 @@ app.get('/song/url/qq', urlLimiter, async (req, res) => {
     });
     const mi = qqResp.data?.req_0?.data?.midurlinfo;
     const sip = qqResp.data?.req_0?.data?.sip?.[0] || 'https://aqqmusic.tc.qq.com';
+
+    // vkey URL 有时效且部分歌曲 CDN 已失效，逐个音质探测 CDN 可用性，取第一个可访问的
     let url = null;
-    if (mi && mi[0] && mi[0].purl) {
-      // 如果有 purl，拼完整 CDN URL
-      url = mi[0].purl.includes('://') ? mi[0].purl : sip + '/' + mi[0].purl;
+    if (mi) {
+      for (const m of mi) {
+        if (!m || !m.purl) continue;
+        const candidate = m.purl.includes('://') ? m.purl : sip + '/' + m.purl;
+        try {
+          const probe = await axios.get(candidate, {
+            headers: { 'User-Agent': 'Mozilla/5.0', Range: 'bytes=0-1023' },
+            timeout: 2500,
+            validateStatus: () => true,
+            maxRedirects: 0,
+          });
+          if (probe.status === 200 || probe.status === 206) { url = candidate; break; }
+          writeLog('api', 'INFO', `[/song/url/qq] ${id} ${m.filename} CDN ${probe.status} 失效, 尝试下一音质`);
+        } catch (e) {
+          writeLog('api', 'INFO', `[/song/url/qq] ${id} ${m.filename} 探测异常: ${e.message}`);
+        }
+      }
     }
     const data = [{ id, url }];
     urlCache.set(cacheKey, data);
@@ -1034,6 +1052,48 @@ app.all('/netease/*', async (req, res) => {
     }
   } catch (error) {
     writeLog('api', 'ERROR', `[/netease/*] ${error.message}`);
+    res.status(500).json({ code: 500, message: error.message });
+  }
+});
+
+// ==================== QQ 歌词 ====================
+
+app.get('/qq/lyric', async (req, res) => {
+  try {
+    const { songmid } = req.query;
+    if (!songmid) return res.status(400).json({ code: 400, message: '缺少 songmid 参数' });
+    if (!/^[a-zA-Z0-9]{10,20}$/.test(songmid)) return res.status(400).json({ code: 400, message: 'invalid songmid format' });
+
+    // 复用 /song/url/qq 的 Cookie 构建方式（2026-08: 必须携带 Cookie 才能拿到歌词）
+    const uin = config.qq.uin || '0';
+    const qqCookieStr = Object.entries(config.qq)
+      .filter(([, v]) => typeof v === 'string' && v && !String(v).includes(','))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+    const reqData = JSON.stringify({
+      req_0: {
+        module: 'music.musichallSong.PlayLyricInfo',
+        method: 'GetPlayLyricInfo',
+        param: { songMID: songmid, songID: 0, songType: 0, needNewOffset: 1 },
+      },
+      comm: { uin, format: 'json', ct: 19, cv: 0 },
+    });
+    const qqResp = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+      params: { format: 'json', data: reqData },
+      headers: {
+        Referer: 'https://y.qq.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Cookie: qqCookieStr,
+      },
+      timeout: UPSTREAM_TIMEOUT,
+    });
+    const ly = qqResp.data?.req_0?.data?.lyric;
+    if (!ly) return res.status(404).json({ code: 404, message: '未找到歌词' });
+    // QQ 返回 base64 编码的 LRC 文本
+    const lrc = Buffer.from(ly, 'base64').toString('utf8');
+    res.json({ code: 200, data: { lyric: lrc } });
+  } catch (error) {
+    writeLog('api', 'ERROR', `[/qq/lyric] ${error.message}`);
     res.status(500).json({ code: 500, message: error.message });
   }
 });

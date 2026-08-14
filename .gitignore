@@ -30,19 +30,36 @@ vibemusic-web/dist/
 .env.docker
 .env.production
 .env.production.local
+# 所有 .env 备份均含真实凭据，一律忽略
+.env.bak*
+.env.*.bak*
+
+# 一键备份 / 临时备份文件（可能含凭据）
+*.bak
+*.bak-*
 
 # Cookie 配置（最高敏感度——包含真实 QQ/网易云 Cookie）
 musicapi/config.js
 
+# 测试脚本中的真实 API Key（如需保留脚本，请改为从环境变量读取）
+scripts/test_deepseek.py
+
 # 后端敏感配置覆盖文件
 vibeMusic-backend/src/main/resources/application-local.yml
 
-# Docker 数据
+# Docker 数据（只保留配置文件，忽略运行时数据与备份）
 docker-data/mysql/data/
 docker-data/redis/data/
 docker-data/elasticsearch/data/
 docker-data/rustfs/data/
 docker-data/backups/
+docker-data/*/data.bak-*/
+docker-data/minio/
+docker-data/mysql/
+# 敏感运行时配置文件（含真实密码）
+docker-data/redis/redis.conf
+docker-data/mysql-exporter/.my.cnf
+docker-data/health-logs/.fail-count.json
 
 # 用户上传文件
 vibeMusic-backend/uploads/
@@ -58,9 +75,13 @@ docker-data/nginx/logs/
 .DS_Store
 Thumbs.db
 
-# 大文件 / 二进制工具
+# 大文件 / 二进制工具 / 隧道凭据
 .cloudflared/
 *.tar
+
+# 编辑器/工具私有配置（可能含本机路径/凭据）
+.claude/
+.vscode/
 
 # Android 构建产物
 vibemusic-web/android/app/build/

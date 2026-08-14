@@ -1,4 +1,5 @@
 # 忽略运行时数据，只保留配置文件
 */data/
-!redis/redis.conf
+*/data.bak-*/
+# redis.conf 含真实密码，不再跟踪（由 .env 的 REDIS_PASSWORD 注入）
 !elasticsearch/es-start.sh
