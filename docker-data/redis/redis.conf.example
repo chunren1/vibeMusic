@@ -2,7 +2,11 @@
 # vibeMusic Redis 配置模板
 # 复制此文件为 redis.conf 并配置密码：
 #   cp docker-data/redis/redis.conf.example docker-data/redis/redis.conf
-# 密码从环境变量 REDIS_PASSWORD 读取（docker-compose.yml 已注入），无需硬编码
+#
+# 注意：Redis 配置文件不支持环境变量展开，requirepass 必须写入明文密码。
+# 请把下方 <YOUR_REDIS_PASSWORD> 替换为你 .env 中 REDIS_PASSWORD 的实际值
+# （docker-compose 的 healthcheck 与后端都会读取 .env 的 REDIS_PASSWORD，
+#   两者必须一致，否则 Redis 认证失败）。
 # ======================
 
 # 绑定地址（Docker 内部通信）
@@ -46,8 +50,8 @@ loglevel notice
 logfile ""
 
 # ===== 安全 =====
-# 密码由 .env 的 REDIS_PASSWORD 注入（保持与 compose/backend 一致）
-requirepass ${REDIS_PASSWORD}
+# 明文密码：替换为与 .env 中 REDIS_PASSWORD 相同的值（Redis 不展开环境变量）
+requirepass <YOUR_REDIS_PASSWORD>
 
 # ===== 网络 =====
 tcp-keepalive 300

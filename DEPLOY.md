@@ -16,7 +16,8 @@ cp musicapi/config.example.js musicapi/config.js
 
 # 3. Redis 配置（Docker 部署必做；redis.conf 含密码不入库）
 cp docker-data/redis/redis.conf.example docker-data/redis/redis.conf
-# 密码由 .env 的 REDIS_PASSWORD 自动注入，无需手动改文件
+# 编辑 redis.conf，把 requirepass <YOUR_REDIS_PASSWORD> 替换为与 .env 相同的 REDIS_PASSWORD
+# （Redis 配置文件不支持环境变量展开，必须写入明文；compose healthcheck/后端读 .env 的 REDIS_PASSWORD，两者需一致）
 ```
 
 > **为什么缺这 3 个文件？** 它们包含真实凭据（QQ/网易云 Cookie、Redis 密码），已被 `.gitignore` 排除，确保仓库可公开分享。
