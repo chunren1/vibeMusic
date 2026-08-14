@@ -7,8 +7,8 @@ vibeMusic 前端应用 — Vue 3 + Vite + Pinia
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | Vue | 3.5 | Composition API 响应式框架 |
-| Vite | 6 | 构建工具 + HMR 热更新 |
-| Pinia | 2 | 全局状态管理（auth / player / favorite） |
+| Vite | 8 | 构建工具 + HMR 热更新 |
+| Pinia | 3 | 全局状态管理（auth / player / favorite） |
 | Vue Router | 4 | 桌面端 `/` + 移动端 `/m` 自动分流路由 |
 | Axios | 1 | HTTP 请求封装 + JWT 拦截器 + 幂等 X-Request-Id |
 

@@ -3,14 +3,14 @@
   vibeMusic
 </h1>
 
-> 独立开发的全栈音乐平台 — 双源聚合搜索、AI Function Calling Agent、Redis + ES 四级缓存降级、Docker 十容器编排、Prometheus 可观测性。
+> 独立开发的全栈音乐平台 — 双源聚合搜索、AI Function Calling Agent、Redis + ES 四级缓存降级、Docker 14 服务编排、Prometheus 可观测性。
 
 <p align="center">
   <a href="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml"><img src="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/chunren1/vibeMusic"><img src="https://img.shields.io/badge/coverage-60%25%2B%20gate-brightgreen" alt="Coverage"></a>
   <a href="https://adoptium.net/"><img src="https://img.shields.io/badge/Java-17-orange" alt="Java"></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.5-4FC08D" alt="Vue"></a>
-  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-10_Containers-2496ED" alt="Docker"></a>
+  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-14_Services-2496ED" alt="Docker"></a>
 </p>
 
 ---
@@ -19,7 +19,7 @@
 
 | 🚀 指标 | 数值 | 🚀 指标 | 数值 |
 |--------|:----:|--------|:----:|
-| 全栈测试 | **164 条** | Docker 容器 | **10 个** |
+| 全栈测试 | **164 条** | Docker 服务 | **14 个** |
 | 代码覆盖率 | **60%+ 门禁** | 搜索 P95 | **< 0.4s** |
 | 音频流 P95 | **< 0.4s** | 缓存命中率 | **92%** |
 | AI 首字延迟 | **< 500ms** | API 端点 | **30+** |
@@ -34,7 +34,7 @@
 - **AI Agent**：基于 LLM Function Calling 实现自然语言操控音乐系统
 - **缓存降级**：Redis → ES → API → 兜底四级链路，保障搜索 SLA
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
-- **全栈 DevOps**：10 容器 Docker 编排 + GitHub Actions CI/CD + 164 条测试
+- **全栈 DevOps**：14 服务 Docker 编排 + GitHub Actions CI/CD + 164 条测试
 
 ---
 
@@ -120,7 +120,7 @@ docker compose up -d
 <table>
   <tr>
     <td width="50%" align="center">
-      <strong>10 容器编排</strong><br/>
+      <strong>14 服务编排</strong><br/>
       <img src="image/docker.png" alt="Docker" width="100%" />
     </td>
     <td width="50%" align="center">
@@ -130,7 +130,7 @@ docker compose up -d
   </tr>
 </table>
 
-**10 容器**：Nginx · Spring Boot 4 · Express BFF · MySQL 8.0 · Redis 7 · ES 8.18 · MinIO · Prometheus · Grafana · Alertmanager
+**14 服务**：Nginx · Spring Boot 4 · Express BFF · MySQL 8.0 · Redis 7 · ES 8.18 · MinIO · Prometheus · Grafana · Alertmanager · MinIO Init · MySQL Backup · Redis Exporter · MinIO Backup
 
 **监控链路**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化 → Alertmanager 告警
 
@@ -178,7 +178,7 @@ docker compose up -d
 | ✅ **v2** | AI 助手 · 双源聚合 · 推荐引擎 · 歌单导入 |
 | ✅ **v3** | 缓存降级 · 幂等守卫 · 限流 · 连接池 |
 | ✅ **v4** | 164 测试 · JaCoCo 60% · GitHub CI |
-| ✅ **v5** | Docker 10 容器 · Prometheus · Grafana · 告警 |
+| ✅ **v5** | Docker 14 服务 · Prometheus · Grafana · 告警 |
 | ✅ **v6** | K6 压测全达标 · 音频并行降级 · 收藏重试 |
 | ⬜ **v7** | Kubernetes 部署 · ArgoCD · OpenTelemetry |
 

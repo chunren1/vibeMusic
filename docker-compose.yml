@@ -94,7 +94,7 @@ services:
 
 
   # ==========================
-  # Elasticsearch 8.11 — 全文搜索引擎
+  # Elasticsearch 8.18.0 — 全文搜索引擎
   # ==========================
   elasticsearch:
     image: elasticsearch:8.18.0
@@ -241,7 +241,7 @@ services:
       minio:
         condition: service_healthy
       musicapi:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 20s

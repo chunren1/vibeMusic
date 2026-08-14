@@ -48,7 +48,7 @@ vibeMusic/
 │       └── router/                # Vue Router 路由配置
 ├── vibeMusic-backend/             # Spring Boot 4 后端 (端口 8080)
 │   └── src/main/java/com/vibemusic/
-│       ├── controller/            # REST Controller（共 11 个）
+│       ├── controller/            # REST Controller（共 12 个）
 │       ├── service/               # 业务 Service（共 19 个）
 │       ├── entity/                # MyBatis-Plus Entity（共 7 个）
 │       ├── mapper/                # MyBatis-Plus Mapper
