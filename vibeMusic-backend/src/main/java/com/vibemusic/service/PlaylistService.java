@@ -295,14 +295,8 @@ public class PlaylistService {
         int batchSize = 50;
         for (int i = 0; i < toInsert.size(); i += batchSize) {
             List<PlaylistSong> batch = toInsert.subList(i, Math.min(i + batchSize, toInsert.size()));
-            for (PlaylistSong ps : batch) {
-                try {
-                    songMapper.insert(ps);
-                    added++;
-                } catch (DuplicateKeyException ignored) {
-                    // 并发场景下唯一索引兜底
-                }
-            }
+            // 一次 SQL 插入整批；INSERT IGNORE 兜底并发唯一索引冲突（跳过重复行）
+            added += songMapper.insertBatch(batch);
         }
         log.info("用户 {} 导入歌单 [{}] ({} 首歌曲)", userId, name, added);
         return added;

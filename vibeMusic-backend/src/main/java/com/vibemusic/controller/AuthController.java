@@ -17,13 +17,7 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
@@ -42,12 +36,6 @@ public class AuthController {
     private final JsonCacheService cache;
 
     private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
-
-    private static final String UPLOAD_DIR = System.getProperty("user.dir") + File.separator + "uploads" + File.separator + "avatars";
-    private static final Set<String> ALLOWED_IMAGE_TYPES = Set.of(
-            "image/jpeg", "image/png", "image/gif", "image/webp"
-    );
-    private static final long MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 
     @PostMapping("/register")
     @Operation(summary = "用户注册")
@@ -170,123 +158,6 @@ public class AuthController {
 
         User user = userService.updateProfile(userId, nickname, gender, birthday);
         return Result.ok(buildUserDataFromEntity(user));
-    }
-
-    @PostMapping("/avatar")
-    @Operation(summary = "上传头像")
-    public Result<Map<String, Object>> uploadAvatar(@RequestParam("file") MultipartFile file) {
-        Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.error(401, "未登录");
-
-        if (file.isEmpty()) return Result.error("请选择文件");
-
-        String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_IMAGE_TYPES.contains(contentType)) {
-            return Result.error("不支持的文件类型，仅支持 JPG/PNG/GIF/WebP");
-        }
-
-        if (file.getSize() > MAX_AVATAR_SIZE) {
-            return Result.error("头像文件不能超过 2MB");
-        }
-
-        // 魔数校验：防止 Content-Type 伪造
-        if (!isValidImage(file)) {
-            return Result.error("文件内容不是有效图片");
-        }
-
-        try {
-            // 确保上传目录存在
-            Path uploadPath = Paths.get(UPLOAD_DIR);
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
-            }
-
-            // 生成唯一文件名
-            String ext = getExtension(Objects.requireNonNull(file.getOriginalFilename()));
-            String fileName = "avatar_" + userId + "_" + System.currentTimeMillis() + "." + ext;
-            Path filePath = uploadPath.resolve(fileName);
-            file.transferTo(filePath.toFile());
-
-            // 构建头像 URL
-            String avatarUrl = "/uploads/avatars/" + fileName;
-
-            // 更新用户头像
-            User user = userService.updateAvatar(userId, avatarUrl);
-
-            Map<String, Object> data = buildUserDataFromEntity(user);
-            data.put("avatarUrl", avatarUrl);
-            return Result.ok(data);
-        } catch (IOException e) {
-            return Result.error("头像上传失败: " + e.getMessage());
-        }
-    }
-
-    @PostMapping("/bg-image")
-    @Operation(summary = "上传个人页背景图")
-    public Result<Map<String, Object>> uploadBgImage(@RequestParam("file") MultipartFile file) {
-        Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.error(401, "未登录");
-
-        if (file.isEmpty()) return Result.error("请选择文件");
-
-        String contentType = file.getContentType();
-        if (contentType == null || !ALLOWED_IMAGE_TYPES.contains(contentType)) {
-            return Result.error("不支持的文件类型，仅支持 JPG/PNG/GIF/WebP");
-        }
-
-        if (file.getSize() > MAX_AVATAR_SIZE) {
-            return Result.error("背景图文件不能超过 2MB");
-        }
-
-        // 魔数校验
-        if (!isValidImage(file)) {
-            return Result.error("文件内容不是有效图片");
-        }
-
-        try {
-            Path uploadPath = Paths.get(UPLOAD_DIR);
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
-            }
-
-            String ext = getExtension(Objects.requireNonNull(file.getOriginalFilename()));
-            String fileName = "bg_" + userId + "_" + System.currentTimeMillis() + "." + ext;
-            Path filePath = uploadPath.resolve(fileName);
-            file.transferTo(filePath.toFile());
-
-            String bgUrl = "/uploads/avatars/" + fileName;
-            User user = userService.updateBgImage(userId, bgUrl);
-
-            Map<String, Object> data = buildUserDataFromEntity(user);
-            data.put("bgImageUrl", bgUrl);
-            return Result.ok(data);
-        } catch (IOException e) {
-            return Result.error("背景图上传失败: " + e.getMessage());
-        }
-    }
-
-    /** 通过文件头部魔数校验是否为真实图片 */
-    private boolean isValidImage(MultipartFile file) {
-        try {
-            byte[] header = new byte[8];
-            try (var in = file.getInputStream()) {
-                int read = in.read(header);
-                if (read < 4) return false;
-            }
-            // JPEG: FF D8 FF
-            if ((header[0] & 0xFF) == 0xFF && (header[1] & 0xFF) == 0xD8 && (header[2] & 0xFF) == 0xFF) return true;
-            // PNG: 89 50 4E 47
-            if (header[0] == (byte)0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G') return true;
-            // GIF: 47 49 46 38
-            if (header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8') return true;
-            // WebP: 52 49 46 46 ... 57 45 42 50
-            if (header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
-                    && header.length >= 12 && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P') return true;
-            return false;
-        } catch (IOException e) {
-            log.warn("魔数校验失败: {}", e.getMessage());
-            return false;
-        }
     }
 
     @PostMapping("/logout")
@@ -428,10 +299,5 @@ public class AuthController {
         data.put("gender", gender);
         data.put("birthday", birthday);
         return data;
-    }
-
-    private String getExtension(String filename) {
-        int dot = filename.lastIndexOf('.');
-        return dot >= 0 ? filename.substring(dot + 1).toLowerCase() : "jpg";
     }
 }

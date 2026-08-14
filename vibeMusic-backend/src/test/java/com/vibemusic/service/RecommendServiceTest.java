@@ -111,8 +111,9 @@ class RecommendServiceTest {
             history.setSongName("晴天");
             history.setArtist("周杰伦");
             history.setPlayedAt(LocalDateTime.now());
-            when(playHistoryMapper.selectList(any(LambdaQueryWrapper.class)))
-                    .thenReturn(List.of(history));
+            when(playHistoryMapper.selectPage(any(), any(LambdaQueryWrapper.class)))
+                    .thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<PlayHistory>()
+                            .setRecords(List.of(history)));
 
             List<SongDTO> randomBase = List.of(createSong("r1", "基础随机", "歌手A", "netease"));
             when(songSearchService.getRandomSongs(4)).thenReturn(randomBase);

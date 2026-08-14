@@ -13,8 +13,8 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 50
-      minimum-idle: 5
+      maximum-pool-size: 10
+      minimum-idle: 2
       connection-timeout: 5000
       max-lifetime: 600000
       idle-timeout: 300000
@@ -87,7 +87,7 @@ storage:
     access-key: ${MINIO_ACCESS_KEY:minioadmin}
     secret-key: ${MINIO_SECRET_KEY:minioadmin}
     bucket-name: ${MINIO_BUCKET:vibemusic}
-    data-path: ${MINIO_DATA_PATH:D:\\Mindata}
+    data-path: ${MINIO_DATA_PATH:minio-data}
 
 springdoc:
   swagger-ui:

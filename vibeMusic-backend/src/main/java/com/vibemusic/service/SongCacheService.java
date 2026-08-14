@@ -32,14 +32,14 @@ public class SongCacheService {
         log.info("[CACHE-LAYER] Redis 搜索缓存就绪, 前缀={}", SEARCH_PREFIX);
     }
 
-    public List<SongDTO> getSearchCache(String keyword, int page) {
+    public List<SongDTO> getSearchCache(String keyword) {
         try {
             String json = stringRedisTemplate.opsForValue().get(SEARCH_PREFIX + keyword);
             if (json == null) return Collections.emptyList();
             if (json.isEmpty() || "\"__EMPTY__\"".equals(json)) {
                 return Collections.emptyList();
             }
-            log.debug("[CACHE-LAYER] Redis 命中搜索: {} page={}", keyword, page);
+            log.debug("[CACHE-LAYER] Redis 命中搜索: {}", keyword);
             List<SongDTO> songs = objectMapper.readValue(json, new TypeReference<List<SongDTO>>() {});
             // 单平台检测：仅告警，不清空缓存。
             // 原因：某些关键词（如"告白气球"）可能只在 QQ 有结果，清空缓存会导致每次请求都穿透 API 等 4 秒。
@@ -59,12 +59,12 @@ public class SongCacheService {
         }
     }
 
-    public void setSearchCache(String keyword, int page, List<SongDTO> songs, boolean hasResults) {
-        setSearchCache(keyword, page, songs, hasResults, false);
+    public void setSearchCache(String keyword, List<SongDTO> songs, boolean hasResults) {
+        setSearchCache(keyword, songs, hasResults, false);
     }
 
     /** @param incomplete 某平台返回空结果 → 用短TTL让恢复后快速生效 */
-    public void setSearchCache(String keyword, int page, List<SongDTO> songs, boolean hasResults, boolean incomplete) {
+    public void setSearchCache(String keyword, List<SongDTO> songs, boolean hasResults, boolean incomplete) {
         try {
             if (hasResults) {
                 Duration ttl = incomplete ? TTL_PARTIAL : TTL_RESULTS;
@@ -79,9 +79,5 @@ public class SongCacheService {
         } catch (Exception e) {
             log.warn("[CACHE-LAYER] 写入失败: {}", e.getMessage());
         }
-    }
-
-    public List<SongDTO> getSearchCache(String keyword) {
-        return getSearchCache(keyword, 1);
     }
 }

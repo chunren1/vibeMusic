@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.vibemusic.mapper.PlaylistSongMapper">
-    <!-- 暂无自定义 SQL，全部使用 MyBatis-Plus BaseMapper -->
+
+    <!--
+        批量插入歌单歌曲：一次 SQL 插入整批，替代 N 次单条 insert。
+        INSERT IGNORE：并发场景下命中唯一索引 uk_pl_song 的行被静默跳过，
+        保留原逐条插入的 DuplicateKeyException 兜底语义（不因单行冲突导致整批失败）。
+        added_at 依赖 DB DEFAULT CURRENT_TIMESTAMP，不显式插入。
+    -->
+    <insert id="insertBatch">
+        INSERT IGNORE INTO playlist_song(playlist_id, source_id, song_name, artist, cover_url, duration)
+        VALUES
+        <foreach collection="list" item="ps" separator=",">
+            (#{ps.playlistId}, #{ps.sourceId}, #{ps.songName}, #{ps.artist}, #{ps.coverUrl}, #{ps.duration})
+        </foreach>
+    </insert>
+
 </mapper>

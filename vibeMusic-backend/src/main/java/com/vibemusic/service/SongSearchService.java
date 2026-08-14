@@ -17,7 +17,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 歌曲搜索服务
@@ -170,7 +169,7 @@ public class SongSearchService {
 
         // ======== 第 1 步：Redis 缓存 ========
         long redisStart = System.currentTimeMillis();
-        List<SongDTO> cached = cacheService.getSearchCache(kw + ":" + cacheExtra, page);
+        List<SongDTO> cached = cacheService.getSearchCache(kw + ":" + cacheExtra);
         if (cached != null && !cached.isEmpty()) {
             redisHitCounter.increment();
             searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
@@ -195,7 +194,7 @@ public class SongSearchService {
                 long esCost = System.currentTimeMillis() - esStart;
                 log.info("[ES-LAYER] 返回ES缓存结果: keyword='{}', count={}, ES-cost={}ms, totalCost={}ms",
                         kw, esCached.size(), esCost, System.currentTimeMillis() - searchStart);
-                cacheService.setSearchCache(kw + ":all", page, esCached, true, false);
+                cacheService.setSearchCache(kw + ":all", esCached, true, false);
                 int from = (page - 1) * size;
                 int to = Math.min(from + size, esCached.size());
                 if (from >= esCached.size()) return SearchResult.of(Collections.emptyList(), esCached.size(), page, size, "es");
@@ -211,7 +210,7 @@ public class SongSearchService {
         if ("netease".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw));
             for (SongDTO s : songs) s.setPlatform("netease");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":netease", 1, songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":netease", songs, true);
             int from = (page - 1) * size;
             int to = Math.min(from + size, songs.size());
             if (from >= songs.size()) return SearchResult.of(Collections.emptyList(), songs.size(), page, size, "api");
@@ -220,7 +219,7 @@ public class SongSearchService {
         if ("qq".equals(cacheExtra)) {
             List<SongDTO> songs = new ArrayList<>(safeSearchQQ(kw));
             for (SongDTO s : songs) s.setPlatform("qq");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", 1, songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", songs, true);
             int from = (page - 1) * size;
             int to = Math.min(from + size, songs.size());
             if (from >= songs.size()) return SearchResult.of(Collections.emptyList(), songs.size(), page, size, "api");
@@ -275,7 +274,7 @@ public class SongSearchService {
                 kw, neteaseSongs.size(), qqSongs.size(), resultList.size(), apiCost, totalCost);
 
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty();
-        cacheService.setSearchCache(kw + ":all", page, resultList, !resultList.isEmpty(), incomplete);
+        cacheService.setSearchCache(kw + ":all", resultList, !resultList.isEmpty(), incomplete);
 
         if (!resultList.isEmpty()) {
             esSearchService.indexSearchResults(kw, resultList);
@@ -302,10 +301,14 @@ public class SongSearchService {
         Collections.shuffle(songs);
         if (songs.size() > count) return songs.subList(0, count);
         if (songs.size() < count) {
-            long total = getTotalSongCount();
             int need = count - songs.size();
-            long offset = total > need ? ThreadLocalRandom.current().nextLong(total - need + 1) : 0;
-            List<Song> dbSongs = songMapper.findRandomSongs(need, offset);
+            List<Song> dbSongs = songMapper.findRandomSongs(need);
+            if (dbSongs.size() < need) {
+                // 随机起点后不足 N 首 → 从头补足
+                List<Song> head = songMapper.findFirstSongs(need - dbSongs.size());
+                dbSongs = new ArrayList<>(dbSongs);
+                dbSongs.addAll(head);
+            }
             List<SongDTO> dbDtos = dbSongs.stream().map(s -> SongDTO.builder()
                     .sourceId(s.getSourceId()).name(s.getName()).artist(s.getArtist())
                     .album(s.getAlbum()).coverUrl(s.getCoverUrl() != null ? s.getCoverUrl().replace("http://", "https://") : null).duration(s.getDuration()).build()

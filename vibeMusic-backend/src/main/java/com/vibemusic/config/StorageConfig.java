@@ -24,6 +24,6 @@ public class StorageConfig {
     /** 存储桶名称 */
     private String bucketName = "vibemusic";
 
-    /** 数据存储根路径 */
-    private String dataPath = "D:\\Mindata";
+    /** 数据存储根路径（默认 Linux 友好相对路径，实际值由 yml/env 注入） */
+    private String dataPath = "minio-data";
 }

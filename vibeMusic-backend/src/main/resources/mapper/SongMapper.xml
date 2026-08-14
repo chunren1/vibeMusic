@@ -3,11 +3,20 @@
 <mapper namespace="com.vibemusic.mapper.SongMapper">
 
     <!--
-        随机获取 N 首已下载歌曲（应用层随机 OFFSET）
-        避免 ORDER BY RAND() 的全表排序开销
+        随机获取 N 首已下载歌曲（基于 MAX(id) 随机起点）
+        避免 ORDER BY RAND() 的全表排序，也避免深 OFFSET 的扫描退化。
+        随机起点后不足 N 首时由调用方用 findFirstSongs 从头补足。
     -->
     <select id="findRandomSongs" resultType="com.vibemusic.entity.Song">
-        SELECT * FROM song LIMIT #{count} OFFSET #{offset}
+        SELECT * FROM song
+        WHERE id >= (SELECT FLOOR(RAND() * (SELECT MAX(id) FROM song)))
+        ORDER BY id
+        LIMIT #{count}
+    </select>
+
+    <!-- 从头获取 N 首歌曲（随机起点不足时补足用） -->
+    <select id="findFirstSongs" resultType="com.vibemusic.entity.Song">
+        SELECT * FROM song ORDER BY id LIMIT #{count}
     </select>
 
     <!--

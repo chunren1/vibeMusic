@@ -59,13 +59,13 @@ class SongSearchServiceTest {
         @Test @DisplayName("Redis 命中应直接返回缓存结果，不查 ES/API")
         void shouldReturnRedisCache() {
             List<SongDTO> cached = List.of(createSong("1", "晴天", "周杰伦"));
-            when(cacheService.getSearchCache(eq("晴天:all"), eq(1))).thenReturn(cached);
+            when(cacheService.getSearchCache(eq("晴天:all"))).thenReturn(cached);
 
             SearchResult result = songSearchService.search("晴天", 1, 20);
 
             assertEquals("redis", result.getSource());
             assertEquals(1, result.getList().size());
-            verify(cacheService, never()).setSearchCache(anyString(), anyInt(), anyList(), anyBoolean());
+            verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
             verify(esSearchService, never()).findByKeyword(anyString());
             verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
         }
@@ -76,7 +76,7 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("Redis 未命中 + ES 命中应返回 ES 结果并回写 Redis")
         void shouldReturnEsCacheAndBackfillRedis() {
-            when(cacheService.getSearchCache(eq("七里香:all"), eq(1))).thenReturn(null);
+            when(cacheService.getSearchCache(eq("七里香:all"))).thenReturn(null);
             List<SongDTO> esResults = List.of(createSong("2", "七里香", "周杰伦"));
             when(esSearchService.findByKeyword("七里香")).thenReturn(esResults);
 
@@ -84,7 +84,7 @@ class SongSearchServiceTest {
 
             assertEquals("es", result.getSource());
             assertEquals(1, result.getList().size());
-            verify(cacheService).setSearchCache(eq("七里香:all"), eq(1), eq(esResults), eq(true), eq(false));
+            verify(cacheService).setSearchCache(eq("七里香:all"), eq(esResults), eq(true), eq(false));
         }
     }
 
@@ -93,7 +93,7 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("Redis/ES 均未命中 + API 返回结果应聚合去重")
         void shouldSearchFromApiAndMerge() {
-            when(cacheService.getSearchCache(anyString(), eq(1))).thenReturn(null);
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
 
             var neSong = Map.of("id", "3", "name", "夜曲", "artists", "周杰伦",
@@ -108,13 +108,13 @@ class SongSearchServiceTest {
             assertEquals("api", result.getSource());
             assertFalse(result.getList().isEmpty());
             assertEquals("netease", result.getList().get(0).getPlatform());
-            verify(cacheService).setSearchCache(anyString(), anyInt(), anyList(), eq(true), anyBoolean());
+            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
             verify(esSearchService).indexSearchResults(anyString(), anyList());
         }
 
         @Test @DisplayName("API 超时应降级返回空列表")
         void shouldReturnEmptyOnApiTimeout() {
-            when(cacheService.getSearchCache(anyString(), eq(1))).thenReturn(null);
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenThrow(new RuntimeException("timeout"));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenThrow(new RuntimeException("timeout"));
@@ -149,7 +149,7 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("platform=netease 只搜网易云")
         void shouldSearchNeteaseOnly() {
-            when(cacheService.getSearchCache(eq("网易云歌:netease"), eq(1))).thenReturn(null);
+            when(cacheService.getSearchCache(eq("网易云歌:netease"))).thenReturn(null);
             when(neteaseApiService.searchNetease("网易云歌", 40))
                     .thenReturn(Map.of("data", List.of(
                             Map.of("id", "4", "name", "网易云歌曲", "artists", "歌手", "duration", 200000))));
@@ -163,7 +163,7 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("platform=qq 只搜 QQ")
         void shouldSearchQQOnly() {
-            when(cacheService.getSearchCache(eq("QQ歌:qq"), eq(1))).thenReturn(null);
+            when(cacheService.getSearchCache(eq("QQ歌:qq"))).thenReturn(null);
             when(neteaseApiService.searchQQ("QQ歌", 40))
                     .thenReturn(Map.of("data", List.of(
                             Map.of("id", "5", "name", "QQ歌曲", "artists", "歌手", "duration", 200000))));
@@ -181,7 +181,7 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("API 歌曲足够时随机打乱返回")
         void shouldShuffleApiResults() {
-            when(cacheService.getSearchCache(eq("热歌:all"), eq(1))).thenReturn(null);
+            when(cacheService.getSearchCache(eq("热歌:all"))).thenReturn(null);
             when(esSearchService.findByKeyword("热歌")).thenReturn(List.of());
 
             var song = Map.of("id", "6", "name", "热歌", "artists", "歌手", "duration", 240000);

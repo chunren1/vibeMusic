@@ -100,7 +100,7 @@ class AssistantControllerTest {
             var noKeyController = new AssistantController(
                     restTemplate, WebClient.builder(), aiToolService,
                     chatMemoryService, rateLimitService, objectMapper, "",
-                    "deepseek-v4-flash", "disabled");
+                    "deepseek-v4-flash", "disabled", "https://api.deepseek.com/chat/completions");
             var noKeyMockMvc = MockMvcBuilders.standaloneSetup(noKeyController).build();
 
             noKeyMockMvc.perform(post("/api/assistant/chat")

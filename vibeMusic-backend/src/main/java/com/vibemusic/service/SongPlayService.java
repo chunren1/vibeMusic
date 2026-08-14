@@ -31,6 +31,8 @@ public class SongPlayService {
 
     private static final String MINIO_CACHE_PREFIX = "minio:exists:v1:";
     private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
+    /** 试听片段判定阈值（毫秒）：时长 ≤ 30 秒视为试听片段 */
+    private static final int TRIAL_DURATION_MS = 30000;
     /** 音质并行探测线程池，3级同时调用避免串行等待 */
     private static final ExecutorService GET_URL_EXECUTOR = Executors.newFixedThreadPool(3, r -> {
         Thread t = new Thread(r, "get-url-"); t.setDaemon(true); return t;
@@ -104,7 +106,7 @@ public class SongPlayService {
                         if (url == null || url.isEmpty()) continue;
                         Object trial = data.get(0).get("freeTrialInfo");
                         Object time = data.get(0).get("time");
-                        if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
+                        if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) {
                             degradationCount.incrementAndGet();
                             degraded = true;
                             log.info("音质降级: {} [{}] 为试听片段 → 尝试下一级", sourceId, tier.getLabel());
@@ -280,7 +282,7 @@ public class SongPlayService {
                         if (url == null || url.isEmpty()) continue;
                         Object trial = data.get(0).get("freeTrialInfo");
                         Object time = data.get(0).get("time");
-                        if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) {
+                        if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) {
                             log.info("歌曲 {} 音质 {} 为试听, 尝试降级", sourceId, levels[i]);
                             continue;
                         }
@@ -366,7 +368,7 @@ public class SongPlayService {
             String matchArtists = best.get("artists") != null ? String.valueOf(best.get("artists")) : "";
             if (qqSourceId == null) return null;
             Object durObj = best.get("duration");
-            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
+            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= TRIAL_DURATION_MS) {
                 log.info("QQ降级: '{}' 也只有试听版，跳过", matchName);
                 return null;
             }
@@ -429,7 +431,7 @@ public class SongPlayService {
             String neteaseId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
             if (neteaseId == null) return null;
             Object durObj = data.get(0).get("duration");
-            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= 30000) {
+            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= TRIAL_DURATION_MS) {
                 log.info("网易云降级: {} 也只有试听版，跳过", keyword);
                 return null;
             }
@@ -443,7 +445,7 @@ public class SongPlayService {
                 if (url == null || url.isEmpty()) continue;
                 Object trial = urlData.get(0).get("freeTrialInfo");
                 Object time = urlData.get(0).get("time");
-                if (trial != null || (time instanceof Number && ((Number) time).intValue() <= 30000)) continue;
+                if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) continue;
                 log.info("网易云降级成功: {} → neteaseId={}, level={}", keyword, neteaseId, level);
                 return url;
             }

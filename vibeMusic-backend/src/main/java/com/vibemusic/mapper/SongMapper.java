@@ -11,10 +11,16 @@ import java.util.List;
 public interface SongMapper extends BaseMapper<Song> {
 
     /**
-     * 随机获取 N 首歌曲（需调用方传入随机 offset）
+     * 随机获取 N 首歌曲（基于 MAX(id) 随机起点，避免深 OFFSET 退化）
      * SQL 定义在: resources/mapper/SongMapper.xml
      */
-    List<Song> findRandomSongs(@Param("count") int count, @Param("offset") long offset);
+    List<Song> findRandomSongs(@Param("count") int count);
+
+    /**
+     * 从头获取 N 首歌曲（随机起点不足 N 首时补足用）
+     * SQL 定义在: resources/mapper/SongMapper.xml
+     */
+    List<Song> findFirstSongs(@Param("count") int count);
 
     /**
      * 入库或更新歌曲 URL — 使用 ON DUPLICATE KEY UPDATE，一次 SQL 完成

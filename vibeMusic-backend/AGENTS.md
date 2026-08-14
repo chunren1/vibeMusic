@@ -8,7 +8,7 @@ Spring Boot 4.0.6 + Java 17 + MyBatis-Plus 3.5.9 + jjwt 0.12.6 + MinIO 8.5.17 + 
 包结构 `com.vibemusic.{controller,service,entity,mapper,config,dto,common,security,task}`。
 
 ## PACKAGE COUNTS（实测，CLAUDE.md 已过时）
-- controller: 11（Auth, Song, Playlist, PlayHistory, Favorite, Recommend, Assistant, Stream, Download, Proxy, CacheMonitor）
+- controller: 12（Auth, Upload, Song, Playlist, PlayHistory, Favorite, Recommend, Assistant, Stream, Download, Proxy, CacheMonitor）
 - service: 19（User, Song, SongSearch, SongPlay, SongCache, NeteaseApi, ESSearch, JsonCache, Recommend, Playlist, PlayHistory, PlayHistoryCleanup, Favorite, Storage, Download, RateLimit, IdempotentGuard, ChatMemory, AiTool）
 - entity: 7（User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory, BaseEntity 抽象）
 - mapper: 6 · config: 12（含 AudioQualityTier 枚举）· dto: 4（SongDTO, SearchResult, SearchResponse, RecommendResult）· common: 6 · security: 2 · task: 1（ESCleanupTask）
