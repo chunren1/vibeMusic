@@ -45,8 +45,56 @@ request.interceptors.request.use((config) => {
   if (['post', 'put', 'delete', 'patch'].includes(method)) {
     config.headers['X-Request-Id'] = generateUUID()
   }
+  // 还原代理 URL，避免收藏/历史/歌单/下载把代理地址写入 DB/MinIO
+  if (config.params) deepRestoreProxiedUrl(config.params)
+  if (config.data) deepRestoreProxiedUrl(config.data)
   return config
 })
+
+// QQ 音乐封面 CDN 在部分网络下浏览器直连会 408/CORS，统一改写为后端 /api/image-proxy
+const QQ_COVER_HOSTS = /^https?:\/\/(?:y|i|music)\.gtimg\.cn\//
+const PROXY_URL_PREFIX = '/api/image-proxy?url='
+
+function rewriteQQCoverUrl(value) {
+  if (typeof value !== 'string' || !QQ_COVER_HOSTS.test(value)) return value
+  // 拼 API_HOST：dev/prod web 为空走相对路径，Capacitor 有绝对地址才可访问
+  return API_HOST + PROXY_URL_PREFIX + encodeURIComponent(value)
+}
+
+// 深递归改写响应中的 QQ 封面 URL（渲染处追加的 ?param= 会落入 url 参数内，后端按原样请求）
+function deepRewriteCoverUrl(node) {
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) node[i] = deepRewriteCoverUrl(node[i])
+  } else if (node && typeof node === 'object') {
+    for (const k of Object.keys(node)) node[k] = deepRewriteCoverUrl(node[k])
+  } else {
+    return rewriteQQCoverUrl(node)
+  }
+  return node
+}
+
+// 回写后端前还原代理 URL，DB/MinIO 只存原始 CDN 地址
+function restoreProxiedUrl(value) {
+  if (typeof value !== 'string') return value
+  const idx = value.indexOf(PROXY_URL_PREFIX)
+  if (idx === -1) return value
+  try {
+    return decodeURIComponent(value.slice(idx + PROXY_URL_PREFIX.length))
+  } catch {
+    return value
+  }
+}
+
+function deepRestoreProxiedUrl(node) {
+  if (Array.isArray(node)) {
+    for (let i = 0; i < node.length; i++) node[i] = deepRestoreProxiedUrl(node[i])
+  } else if (node && typeof node === 'object') {
+    for (const k of Object.keys(node)) node[k] = deepRestoreProxiedUrl(node[k])
+  } else {
+    return restoreProxiedUrl(node)
+  }
+  return node
+}
 
 request.interceptors.response.use(
   (response) => {
@@ -57,6 +105,7 @@ request.interceptors.response.use(
       }
       return Promise.reject(new Error(res.message || '请求失败'))
     }
+    if (res.data) deepRewriteCoverUrl(res.data)
     return res
   },
   (error) => {

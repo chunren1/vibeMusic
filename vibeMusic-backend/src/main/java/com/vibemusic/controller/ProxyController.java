@@ -27,7 +27,9 @@ public class ProxyController {
 
     private static final List<String> ALLOWED_HOSTS = Arrays.asList(
             "music.126.net", "p1.music.126.net", "p2.music.126.net",
-            "p3.music.126.net", "p4.music.126.net"
+            "p3.music.126.net", "p4.music.126.net",
+            // QQ 音乐封面 CDN：浏览器直连在部分网络下会 408/CORS，统一走后端代理
+            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn"
     );
 
     private static final int TIMEOUT_MS = 8000;

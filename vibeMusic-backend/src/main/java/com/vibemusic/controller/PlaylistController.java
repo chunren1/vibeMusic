@@ -238,8 +238,10 @@ public class PlaylistController {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
         String source = (String) body.get("source");
-        String id = (String) body.get("id");
-        if (source == null || id == null) return Result.error("缺少 source 或 id 参数");
+        Object rawId = body.get("id");
+        if (source == null || rawId == null) return Result.error("缺少 source 或 id 参数");
+        // 前端可能传数字 id（JSON number → Long），统一转字符串
+        String id = rawId instanceof Number n ? String.valueOf(n.longValue()) : String.valueOf(rawId);
         log.info("导入歌单请求: userId={}, source={}, id={}", userId, source, id);
 
         // 1. 获取歌单详情
