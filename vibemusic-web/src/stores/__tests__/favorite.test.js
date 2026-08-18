@@ -8,12 +8,21 @@ vi.mock('@/api/song', () => ({
   toggleFavorite: vi.fn(),
 }))
 
+// Mock auth store
+let mockIsLoggedIn = true
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: vi.fn(() => ({
+    get isLoggedIn() { return mockIsLoggedIn },
+  })),
+}))
+
 import { getFavoriteIds, toggleFavorite } from '@/api/song'
 
 describe('FavoriteStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    mockIsLoggedIn = true
     window.vibeFavIds = undefined
   })
 
@@ -151,6 +160,17 @@ describe('FavoriteStore', () => {
       await fav.toggleFav({ id: 'alt-id', name: '测试' })
       expect(fav.favIds.has('alt-id')).toBe(true)
       expect(toggleFavorite).toHaveBeenCalledWith('alt-id', '测试', '', '')
+    })
+  })
+
+  describe('fetchFavIds 登录门控', () => {
+    it('未登录时不应发起请求', async () => {
+      mockIsLoggedIn = false
+      const fav = useFavoriteStore()
+      await fav.fetchFavIds()
+      expect(getFavoriteIds).not.toHaveBeenCalled()
+      expect(fav.favIds.size).toBe(0)
+      expect(fav.loaded).toBe(false)
     })
   })
 })

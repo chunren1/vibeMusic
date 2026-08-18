@@ -71,6 +71,7 @@ export const usePlayerStore = defineStore('player', () => {
   const currentTime = ref(0)
   const duration = ref(0)
   const isMuted = ref(false)
+  const pendingRestore = ref(null)
 
   const modeLabels = { 'list-loop': '顺序播放', 'single': '单曲循环', 'shuffle': '随机播放' }
 
@@ -153,8 +154,9 @@ export const usePlayerStore = defineStore('player', () => {
   /** 通过 sourceId 直接播放（使用 stream 代理 URL） */
   function playBySourceId(sourceId, name, artist, coverUrl, duration = 0, platform = '') {
     if (!sourceId) return
-    _retryCount = 0  // 切歌时重置重试计数
-    _errorLocked = false  // 切歌时解锁
+    _retryCount = 0
+    _errorLocked = false
+    pendingRestore.value = null
     addToQueue({ sourceId, name, artist, coverUrl, duration, platform })
     const idx = queue.value.findIndex(s => s.sourceId === sourceId)
     if (idx >= 0) currentIdx.value = idx
@@ -248,6 +250,17 @@ export const usePlayerStore = defineStore('player', () => {
     if (isPlaying.value) {
       audio.pause()
     } else {
+      if (pendingRestore.value) {
+        const song = pendingRestore.value
+        pendingRestore.value = null
+        restoreAudioFromSong(song)
+        audio.play().catch(err => {
+          console.warn('[Player] 播放失败:', err.message)
+          isPlaying.value = false
+        })
+        isPlaying.value = true
+        return
+      }
       resumeAudioContext()
       if (!audio.src || audio.readyState === 0) audio.load()
       audio.play().catch(err => {
@@ -323,7 +336,15 @@ export const usePlayerStore = defineStore('player', () => {
   function restorePlayback() {
     if (currentIdx.value >= 0 && currentIdx.value < queue.value.length) {
       const song = queue.value[currentIdx.value]
-      restoreAudioFromSong(song)
+      if (!song.sourceId && !song.id) return
+      const id = song.sourceId || song.id
+      if (!currentSong.value.id || currentSong.value.id !== id) {
+        currentSong.value = {
+          id: id, title: song.songName || song.name || song.title || '',
+          artist: song.artist || '', coverUrl: song.coverUrl || '', duration: song.duration || 0,
+        }
+      }
+      pendingRestore.value = song
     }
   }
 
@@ -482,7 +503,7 @@ export const usePlayerStore = defineStore('player', () => {
   return {
     audio, queue, currentIdx, currentSong, isPlaying, isTrialSong,
     quality, qualityLabel,
-    playMode, volume, progress, currentTime, duration, isMuted,
+    playMode, volume, progress, currentTime, duration, isMuted, pendingRestore,
     modeLabels,
     playBySourceId, playSongFromApi, playCurrent, next, prev,
     toggleMode, togglePlay, toggleMute, addToQueue, removeFromQueue,

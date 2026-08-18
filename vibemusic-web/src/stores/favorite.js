@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getFavoriteIds, toggleFavorite } from '@/api/song'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * 全局收藏状态管理
@@ -15,6 +16,8 @@ export const useFavoriteStore = defineStore('favorite', () => {
   /** 从后端加载收藏 ID 集合 */
   async function fetchFavIds() {
     if (loading.value) return
+    const authStore = useAuthStore()
+    if (!authStore.isLoggedIn) return
     loading.value = true
     try {
       const res = await getFavoriteIds()

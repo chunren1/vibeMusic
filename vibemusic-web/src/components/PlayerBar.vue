@@ -116,8 +116,6 @@ function next() { store.next() }
 const favStore = useFavoriteStore()
 const downloadingIds = ref(new Set())
 
-favStore.fetchFavIds()
-
 function toggleFav(song) {
   favStore.toggleFav(song)
 }

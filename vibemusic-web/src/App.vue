@@ -58,7 +58,7 @@ onUnmounted(() => {
   <div v-else class="app-layout">
     <aside class="sidebar">
       <div class="logo">
-        <img src="@/assets/logo.png" alt="vibeMusic" class="logo-img" />
+        <img src="/logo.png" alt="vibeMusic" class="logo-img" />
       </div>
       <nav class="nav">
         <router-link to="/" class="nav-item" active-class="active">

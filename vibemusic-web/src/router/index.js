@@ -51,8 +51,9 @@ function isMobileDevice() {
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
 
-  // 首次加载时，先尝试从 httpOnly Cookie 恢复会话，再判断登录状态
-  if (!authStore.sessionChecked) {
+  // 仅需登录的路由才等待会话恢复，公开路由不阻塞直接放行
+  const needsAuth = to.meta.requiresAuth || to.matched.some(r => r.meta.requiresAuth)
+  if (needsAuth && !authStore.sessionChecked) {
     await authStore.tryRestoreSession()
   }
 

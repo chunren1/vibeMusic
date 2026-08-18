@@ -257,4 +257,35 @@ describe('PlayerStore', () => {
       expect(store.audio.paused).toBe(true)
     })
   })
+
+  describe('restorePlayback 延迟加载', () => {
+    it('restorePlayback 只恢复元数据，不设置 audio.src', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: 'r1', name: '恢复歌', artist: '测试', coverUrl: 'https://img.test/r.jpg', duration: 180 })
+      store.currentIdx = 0
+
+      const loadSpy = vi.spyOn(store.audio, 'load')
+      store.restorePlayback()
+
+      expect(store.currentSong.id).toBe('r1')
+      expect(store.currentSong.title).toBe('恢复歌')
+      expect(store.audio.src).toBe('')
+      expect(loadSpy).not.toHaveBeenCalled()
+      expect(store.pendingRestore).toBeTruthy()
+    })
+
+    it('togglePlay 时才真正加载音频并清除 pendingRestore', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: 'r2', name: '延迟歌', artist: '测试', duration: 200 })
+      store.currentIdx = 0
+      store.restorePlayback()
+      expect(store.pendingRestore).toBeTruthy()
+
+      store.togglePlay()
+
+      expect(store.pendingRestore).toBeNull()
+      expect(store.audio.src).toContain('r2')
+      expect(store.isPlaying).toBe(true)
+    })
+  })
 })

@@ -61,4 +61,21 @@ describe('BannerSection preload 首图', () => {
     await flushPromises()
     expect(getPreloadLink()).toBeNull()
   })
+
+  it('只有激活的 slide 设置 background-image', async () => {
+    getBanners.mockResolvedValue({
+      data: [
+        { coverUrl: 'https://p4.music.126.net/a.jpg', name: 'b1' },
+        { coverUrl: 'https://p4.music.126.net/b.jpg', name: 'b2' },
+        { coverUrl: 'https://p4.music.126.net/c.jpg', name: 'b3' },
+      ]
+    })
+    const wrapper = shallowMount(BannerSection)
+    await flushPromises()
+    const slides = wrapper.findAll('.banner-slide')
+    expect(slides).toHaveLength(3)
+    const activeStyles = slides.map(s => s.attributes('style'))
+    const withBg = activeStyles.filter(s => s && s.includes('background-image'))
+    expect(withBg).toHaveLength(1)
+  })
 })

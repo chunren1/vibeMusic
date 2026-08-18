@@ -384,7 +384,7 @@ function addToQueueDesktop(song) {
           <div class="card-cover" @click="playSong(song)">
             <div
               class="cover-grad"
-              :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=200y200)', backgroundSize: 'cover' } : { background: song.coverColor }"
+              v-lazy-img:bg="song.coverUrl ? song.coverUrl + '?param=200y200' : (song.coverColor || '')"
             >
               <SvgIcon v-if="!song.coverUrl" name="equalizer" size="42" />
             </div>
@@ -417,7 +417,7 @@ function addToQueueDesktop(song) {
           @click="pl._fallback ? refreshRecommend() : router.push({ name: 'playlist-detail', params: { source: pl.source || 'netease', id: String(pl.id) } })"
         >
           <div class="pl-cover">
-            <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-img" />
+            <img v-if="pl.coverUrl" v-lazy-img="pl.coverUrl + '?param=200y200'" class="pl-img" />
             <div v-else class="cover-inner" :style="{ background: pl.color }"><SvgIcon name="equalizer" size="42" /></div>
             <span class="pl-count" v-if="pl.count">{{ pl.count > 10000 ? Math.floor(pl.count/10000)+'万' : pl.count }}</span>
           </div>
@@ -776,6 +776,7 @@ function addToQueueDesktop(song) {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 42px; color: rgba(255,255,255,.35);
+  background-size: cover; background-position: center;
 }
 .play-overlay {
   position: absolute; bottom: 10px; right: 10px;

@@ -196,6 +196,23 @@ describe('AuthStore', () => {
       expect(auth.isLoggedIn).toBe(false)
       expect(auth.sessionChecked).toBe(true)
     })
+
+    it('并发调用 tryRestoreSession 只发一次请求', async () => {
+      getToken.mockReturnValue(null)
+      getMe.mockResolvedValue({
+        code: 200,
+        data: { userId: 1, username: 'testuser', nickname: '测试', avatar: null, bgImage: null }
+      })
+      const auth = useAuthStore()
+
+      await Promise.all([
+        auth.tryRestoreSession(),
+        auth.tryRestoreSession(),
+        auth.tryRestoreSession(),
+      ])
+
+      expect(getMe).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('updateUserProfile 更新资料', () => {

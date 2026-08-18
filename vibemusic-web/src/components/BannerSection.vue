@@ -69,7 +69,7 @@ onUnmounted(() => stopBanner())
   <div class="banner" @mouseenter="onEnter" @mouseleave="onLeave">
     <div v-if="bannerLoading" class="banner-skel skeleton"></div>
     <div v-for="(slide, idx) in slides" :key="idx" class="banner-slide" :class="{ active: idx === activeSlide }"
-      :style="slide.coverUrl ? { backgroundImage: 'url(' + slide.coverUrl + '?param=1600y900)' } : {}">
+      :style="idx === activeSlide && slide.coverUrl ? { backgroundImage: 'url(' + slide.coverUrl + '?param=1600y900)' } : {}">
       <div class="slide-text"><h2>{{ slide.name }}</h2><p>{{ slide.desc }}</p></div>
     </div>
     <button class="banner-arrow left" @click.stop="prevBanner" aria-label="上一张"><SvgIcon name="chevron-left" /></button>

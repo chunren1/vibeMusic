@@ -9,7 +9,8 @@ export const useAuthStore = defineStore('auth', () => {
   const showLoginModal = ref(false)
   const redirectPath = ref(null)
   const sessionChecked = ref(false)
-  const sessionRestored = ref(false) // 标记 session 已从 cookie 恢复，不依赖假 token值
+  const sessionRestored = ref(false)
+  let _restorePending = null
 
   const isLoggedIn = computed(() => sessionRestored.value && !!user.value)
 
@@ -73,38 +74,41 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** 从 httpOnly cookie 恢复会话（浏览器自动发送 Cookie，前端无需手动传 Token） */
   async function tryRestoreSession() {
-    // 已恢复成功则跳过；未成功则允许重试（不再永久锁定）
     if (sessionRestored.value) return
-    try {
-      const res = await getMe()
-      if (res.code === 200 && res.data) {
-        sessionRestored.value = true
-        user.value = {
-          userId: res.data.userId,
-          username: res.data.username,
-          nickname: res.data.nickname,
-          avatar: res.data.avatar,
-          bgImage: res.data.bgImage,
-          gender: res.data.gender,
-          birthday: res.data.birthday,
-        }
-        // 尝试获取 Bearer token（用于跨域/内网穿透场景下 cookie 可能无法发送）
-        try {
-          const refreshRes = await fetch(`${API_HOST}/api/auth/refresh`, {
-            method: 'POST',
-            credentials: 'include',
-          })
-          if (refreshRes.ok) {
-            const data = await refreshRes.json()
-            if (data.code === 200 && data.data?.token) {
-              token.value = data.data.token
-              setToken(data.data.token)
-            }
+    if (_restorePending) return _restorePending
+    _restorePending = (async () => {
+      try {
+        const res = await getMe()
+        if (res.code === 200 && res.data) {
+          sessionRestored.value = true
+          user.value = {
+            userId: res.data.userId,
+            username: res.data.username,
+            nickname: res.data.nickname,
+            avatar: res.data.avatar,
+            bgImage: res.data.bgImage,
+            gender: res.data.gender,
+            birthday: res.data.birthday,
           }
-        } catch (_) { /* cookie-based auth already works without Bearer token */ }
-      }
-    } catch (_) { /* 未登录，下次路由导航时自动重试 */ }
-    sessionChecked.value = true
+          try {
+            const refreshRes = await fetch(`${API_HOST}/api/auth/refresh`, {
+              method: 'POST',
+              credentials: 'include',
+            })
+            if (refreshRes.ok) {
+              const data = await refreshRes.json()
+              if (data.code === 200 && data.data?.token) {
+                token.value = data.data.token
+                setToken(data.data.token)
+              }
+            }
+          } catch (_) { /* cookie-based auth already works without Bearer token */ }
+        }
+      } catch (_) { /* 未登录 */ }
+      sessionChecked.value = true
+      _restorePending = null
+    })()
+    return _restorePending
   }
 
   /** 从后端刷新用户信息 */
