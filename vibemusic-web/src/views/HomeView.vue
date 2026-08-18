@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import request, { API_HOST } from '@/api/request'
 import { useRouter } from 'vue-router'
 import { searchSongs, downloadSong as apiDownload } from '@/api/song'
@@ -76,6 +76,7 @@ function downloadViaBackend(song) {
 const username = computed(() => authStore.user?.nickname || authStore.user?.username || '未登录')
 
 onMounted(() => { favStore.fetchFavIds() })
+onUnmounted(() => { if (suggestTimer) clearTimeout(suggestTimer) })
 
 
 // ===== 推荐歌曲（从 Store 获取） =====
@@ -171,14 +172,18 @@ function onSourceChange() {
   doSearch(true)
 }
 
+let suggestTimer = null
 function onInput() {
   if (searchKeyword.value.trim() === '') {
+    clearTimeout(suggestTimer)
     searchResults.value = []; showDropdown.value = false; showResultPage.value = false; return
   }
   showDropdown.value = true
   showResultPage.value = false
   activeIndex.value = -1
-  doSearchSuggest()
+  // 300ms 防抖：避免逐键触发搜索建议请求（配合 api/song.js 的 AbortController 取消旧请求）
+  clearTimeout(suggestTimer)
+  suggestTimer = setTimeout(doSearchSuggest, 300)
 }
 
 async function doSearchSuggest() {

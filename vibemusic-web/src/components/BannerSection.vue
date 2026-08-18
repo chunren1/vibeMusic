@@ -16,6 +16,15 @@ let bannerTimer = null
 // 改为动态注入 <link rel="preload" as="image" fetchpriority="high"> 提升首图加载优先级
 function preloadFirstBanner(url) {
   if (!url || typeof document === 'undefined') return
+  // 用 URL 构造器校验 + 安全设置 param，避免 coverUrl 已带 query 或含非法字符
+  // 时产生 "invalid href value" 告警（<link rel=preload> 对 href 解析比 CSS url() 严格）
+  let parsed
+  try {
+    parsed = new URL(url, window.location.origin)
+  } catch {
+    return
+  }
+  parsed.searchParams.set('param', '1600y900')
   let link = document.querySelector('link[data-banner-preload]')
   if (!link) {
     link = document.createElement('link')
@@ -24,7 +33,7 @@ function preloadFirstBanner(url) {
     link.setAttribute('data-banner-preload', '')
     document.head.appendChild(link)
   }
-  link.href = url + '?param=1600y900'
+  link.href = parsed.href
   link.setAttribute('fetchpriority', 'high')
 }
 

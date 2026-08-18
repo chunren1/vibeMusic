@@ -1,5 +1,5 @@
 // vibeMusic Service Worker — 离线缓存 + 秒开
-const CACHE_NAME = 'vibemusic-v3'
+const CACHE_NAME = 'vibemusic-v4'
 // 预缓存的离线核心资源（首次安装后即可离线访问）
 const ASSETS_TO_CACHE = [
   '/',              // 主页 (SPA entry)
@@ -38,6 +38,9 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url)
   if (url.protocol === 'chrome-extension:') return
   if (url.pathname.startsWith('/api/')) return
+  // 跳过跨域请求（网易云封面等图片走 CDN 强缓存，Cache API 无法缓存 no-cors opaque 响应，
+  // 拦截后反而绕过浏览器 HTTP 缓存导致每次渲染重复请求）
+  if (url.origin !== self.location.origin) return
   // 跳过音频/视频流（Range 请求返回 206，Cache API 不支持）
   const dest = event.request.destination
   if (dest === 'audio' || dest === 'video') return
