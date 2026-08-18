@@ -1,17 +1,30 @@
 // vibeMusic Service Worker — 离线缓存 + 秒开
-const CACHE_NAME = 'vibemusic-v4'
-// 预缓存的离线核心资源（首次安装后即可离线访问）
+const CACHE_NAME = 'vibemusic-v5'
+// 预缓存的离线核心资源（首次安装后即可离线访问；生产构建时被 workbox 注入的 hash 清单替代）
 const ASSETS_TO_CACHE = [
   '/',              // 主页 (SPA entry)
   '/m',             // 移动版主页
   '/manifest.json',
 ]
 
-// 安装：预缓存核心资源
+// 离线导航回退页：移动端路由前缀 /m 回退移动页，桌面端回退主页
+const offlineFallbackFor = requestUrl => {
+  try {
+    return new URL(requestUrl).pathname.startsWith('/m') ? '/m' : '/'
+  } catch {
+    return '/m'
+  }
+}
+
+// 安装：预缓存核心资源（生产构建时 self.__WB_MANIFEST 已被 workbox 替换为 hash 资源清单；
+// 开发/未处理模式保持手写回退）
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(ASSETS_TO_CACHE).catch(() => {})
+      const assets = (self.__WB_MANIFEST || ASSETS_TO_CACHE).map(entry =>
+        typeof entry === 'string' ? entry : entry.url
+      )
+      return cache.addAll(assets).catch(() => {})
     })
   )
   self.skipWaiting()
@@ -57,7 +70,7 @@ self.addEventListener('fetch', event => {
         return response
       }).catch(() =>
         caches.match(event.request).then(cached =>
-          cached || caches.match('/m')
+          cached || caches.match(offlineFallbackFor(event.request.url))
         )
       )
     )
@@ -86,9 +99,9 @@ self.addEventListener('fetch', event => {
         })
         return response
       }).catch(() => {
-        // 离线且无缓存 → 返回离线页
+        // 离线且无缓存 → 返回离线页（按 /m 前缀区分设备）
         if (event.request.mode === 'navigate') {
-          return caches.match('/m')
+          return caches.match(offlineFallbackFor(event.request.url))
         }
         return new Response('', { status: 408 })
       })
