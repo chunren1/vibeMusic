@@ -19,10 +19,10 @@
 
 | 🚀 指标 | 数值 | 🚀 指标 | 数值 |
 |--------|:----:|--------|:----:|
-| 全栈测试 | **164 条** | Docker 服务 | **14 个** |
+| 全栈测试 | **212 条** | Docker 服务 | **14 个** |
 | 代码覆盖率 | **60%+ 门禁** | 搜索 P95 | **< 0.4s** |
 | 音频流 P95 | **< 0.4s** | 缓存命中率 | **92%** |
-| AI 首字延迟 | **< 500ms** | API 端点 | **30+** |
+| AI 首字延迟 | **< 500ms** | API 端点 | **46 个** |
 
 ---
 
@@ -34,7 +34,7 @@
 - **AI Agent**：基于 LLM Function Calling 实现自然语言操控音乐系统
 - **缓存降级**：Redis → ES → API → 兜底四级链路，保障搜索 SLA
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
-- **全栈 DevOps**：14 服务 Docker 编排 + GitHub Actions CI/CD + 164 条测试
+- **全栈 DevOps**：14 服务 Docker 编排 + GitHub Actions CI/CD + 212 条测试
 
 ---
 
@@ -139,10 +139,10 @@ docker compose up -d
 ## 🧪 测试
 
 ```text
-164 条自动化测试
-├── 后端 87 条 (JUnit 5 + Mockito + H2)
+212 条自动化测试
+├── 后端 122 条 (JUnit 5 + Mockito + H2)
 │   └── Service · Controller · JWT · 幂等守卫 · 限流
-├── 前端 77 条 (Vitest + jsdom)
+├── 前端 90 条 (Vitest + jsdom)
 │   └── PlayerStore · AuthStore · FavoriteStore
 └── CI/CD (GitHub Actions)
     └── push / PR → 全量测试 → JaCoCo 60% 覆盖率门禁
@@ -177,7 +177,7 @@ docker compose up -d
 | ✅ **v1** | 用户认证 · 搜索播放 · 收藏歌单 · 歌词 |
 | ✅ **v2** | AI 助手 · 双源聚合 · 推荐引擎 · 歌单导入 |
 | ✅ **v3** | 缓存降级 · 幂等守卫 · 限流 · 连接池 |
-| ✅ **v4** | 164 测试 · JaCoCo 60% · GitHub CI |
+| ✅ **v4** | 212 测试 · JaCoCo 60% · GitHub CI |
 | ✅ **v5** | Docker 14 服务 · Prometheus · Grafana · 告警 |
 | ✅ **v6** | K6 压测全达标 · 音频并行降级 · 收藏重试 |
 | ⬜ **v7** | Kubernetes 部署 · ArgoCD · OpenTelemetry |
