@@ -62,11 +62,13 @@ function rewriteQQCoverUrl(value) {
 }
 
 // 深递归改写响应中的 QQ 封面 URL（渲染处追加的 ?param= 会落入 url 参数内，后端按原样请求）
-function deepRewriteCoverUrl(node) {
+// maxDepth 限制递归深度，防止病态深嵌套/超大对象导致栈溢出或无谓遍历（默认 20 层）
+export function deepRewriteCoverUrl(node, maxDepth = 20) {
+  if (maxDepth <= 0) return node
   if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) node[i] = deepRewriteCoverUrl(node[i])
+    for (let i = 0; i < node.length; i++) node[i] = deepRewriteCoverUrl(node[i], maxDepth - 1)
   } else if (node && typeof node === 'object') {
-    for (const k of Object.keys(node)) node[k] = deepRewriteCoverUrl(node[k])
+    for (const k of Object.keys(node)) node[k] = deepRewriteCoverUrl(node[k], maxDepth - 1)
   } else {
     return rewriteQQCoverUrl(node)
   }
@@ -78,29 +80,53 @@ function restoreProxiedUrl(value) {
   if (typeof value !== 'string') return value
   const idx = value.indexOf(PROXY_URL_PREFIX)
   if (idx === -1) return value
-  try {
-    return decodeURIComponent(value.slice(idx + PROXY_URL_PREFIX.length))
-  } catch {
-    return value
+  let encoded = value.slice(idx + PROXY_URL_PREFIX.length)
+  // 双层编码兜底：最多解码 2 次；解码结果已是完整 URL 即停止，
+  // 避免把原始 URL 内合法的 %XX 转义二次解码
+  for (let i = 0; i < 2; i++) {
+    if (!encoded.includes('%')) break
+    try {
+      const decoded = decodeURIComponent(encoded)
+      if (decoded.startsWith('http://') || decoded.startsWith('https://') || decoded.startsWith('//')) {
+        return decoded
+      }
+      encoded = decoded
+    } catch {
+      break
+    }
   }
+  return encoded
 }
 
-function deepRestoreProxiedUrl(node) {
+export function deepRestoreProxiedUrl(node, maxDepth = 20) {
+  if (maxDepth <= 0) return node
   if (Array.isArray(node)) {
-    for (let i = 0; i < node.length; i++) node[i] = deepRestoreProxiedUrl(node[i])
+    for (let i = 0; i < node.length; i++) node[i] = deepRestoreProxiedUrl(node[i], maxDepth - 1)
   } else if (node && typeof node === 'object') {
-    for (const k of Object.keys(node)) node[k] = deepRestoreProxiedUrl(node[k])
+    for (const k of Object.keys(node)) node[k] = deepRestoreProxiedUrl(node[k], maxDepth - 1)
   } else {
     return restoreProxiedUrl(node)
   }
   return node
 }
 
+// 精确匹配 /auth/ 路径：相对路径基于 window.location.origin 解析，绝对 URL 直接解析；
+// 避免 includes('/auth/') 子串误伤未来含 "auth" 字样的端点
+export function isAuthUrl(url) {
+  if (!url) return false
+  try {
+    const { pathname } = new URL(url, window.location.origin)
+    return pathname.includes('/auth/')
+  } catch {
+    return false
+  }
+}
+
 request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code !== 200) {
-      if ((res.code === 401 || res.code === 403) && !response.config.url.includes('/auth/')) {
+      if ((res.code === 401 || res.code === 403) && !isAuthUrl(response.config.url)) {
         handleUnauthorized(response.config)
       }
       return Promise.reject(new Error(res.message || '请求失败'))
@@ -110,7 +136,7 @@ request.interceptors.response.use(
   },
   (error) => {
     const status = error.response?.status
-    if ((status === 401 || status === 403) && !error.config?.url?.includes('/auth/')) {
+    if ((status === 401 || status === 403) && !isAuthUrl(error.config?.url)) {
       handleUnauthorized(error.config)
     }
     return Promise.reject(error)
