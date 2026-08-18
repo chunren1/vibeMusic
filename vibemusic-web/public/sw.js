@@ -29,7 +29,8 @@ self.addEventListener('activate', event => {
   self.clients.claim()
 })
 
-// 请求拦截：缓存优先 + 网络回退
+// 请求拦截：导航请求 network-first（避免陈旧 HTML + 已删除 hash 资源 404），
+// 静态资源 cache-first + 后台更新
 self.addEventListener('fetch', event => {
   // 只处理 GET 请求
   if (event.request.method !== 'GET') return
@@ -44,6 +45,24 @@ self.addEventListener('fetch', event => {
   // 跳过音频/视频流（Range 请求返回 206，Cache API 不支持）
   const dest = event.request.destination
   if (dest === 'audio' || dest === 'video') return
+
+  if (event.request.mode === 'navigate') {
+    // 导航（HTML）：network-first，失败才回退缓存/离线页
+    event.respondWith(
+      fetch(event.request).then(response => {
+        if (response.ok) {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
+        }
+        return response
+      }).catch(() =>
+        caches.match(event.request).then(cached =>
+          cached || caches.match('/m')
+        )
+      )
+    )
+    return
+  }
 
   event.respondWith(
     caches.match(event.request).then(cached => {
