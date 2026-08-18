@@ -12,7 +12,7 @@
   - `scoring.js` — 搜索评分算法（cleanSongName / fingerprint / 相关性 / 热度 / 去重 / 分页 / 标准化）。
   - `search.js` — 搜索代理（网易云 / QQ / 结果精炼 / 黑名单过滤 / 内存缓存）。
   - `routes.js` — 全部路由：`/search`、`/netease/*`、`/qq/search`、`/qq/playlist`、`/song/url/qq`、`/lyric`、`/health`、`/metrics`。
-  - `config.js` — 应用配置读取（不敏感）。
+  - `config-loader.js` — 应用配置加载（优先根 config.js，回退环境变量）。
 - `config.js`（根）— Cookie 配置，**已 gitignore**；`config.example.js` — 提交模板。
 - `test/server.test.js` — 集成测试（需先启动 server.js）。
 
@@ -23,5 +23,5 @@
 - 测试：`console.assert` + `node --test`，需先启动 server.js（端口 3000 直连），未接入根 npm test。
 
 ## ANTI-PATTERNS
-- 把真实 Cookie/密钥写进 config.js 提交 —— config.js 必须保持 gitignore。
+- 把真实 Cookie/密钥写进 config.js 提交 —— 根 config.js 必须保持 gitignore（src/config-loader.js 是加载器，可入库）。
 - 后端（vibeMusic-backend）不经过本网关直连网易云 —— backend 的 NeteaseApiService 只调本服务。

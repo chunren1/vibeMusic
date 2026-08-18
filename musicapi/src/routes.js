@@ -5,7 +5,7 @@ const axios = require('axios');
 const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 
-const config = require('./config');
+const config = require('./config-loader');
 const cookie = require('./cookie');
 const { writeLog } = require('./logger');
 const { cacheHitTotal, cookieStatusGauge } = require('./metrics');

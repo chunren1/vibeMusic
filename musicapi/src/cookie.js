@@ -2,7 +2,7 @@
 const path = require('path');
 const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
-const config = require('./config');
+const config = require('./config-loader');
 const { writeLog } = require('./logger');
 const { cookieStatusGauge } = require('./metrics');
 
