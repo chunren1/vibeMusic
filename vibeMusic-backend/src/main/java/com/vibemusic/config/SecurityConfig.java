@@ -58,10 +58,11 @@ public class SecurityConfig {
                     "/api/recommend/**"
                 ).permitAll()
 
-                // 歌单详情 & 歌曲查看公开
+                // 歌单详情 & 歌曲查看 & 推荐歌单公开（未登录首页可展示封面）
                 .requestMatchers(HttpMethod.GET,
                     "/api/playlists/songs",
-                    "/api/playlists/detail"
+                    "/api/playlists/detail",
+                    "/api/playlists/recommend"
                 ).permitAll()
 
                 // AI 助手公开访问（Controller 层有速率限制保护）

@@ -53,8 +53,17 @@ describe('deepRewriteCoverUrl', () => {
     expect(out.plain).toBe('hello')
   })
 
-  it('非 QQ 域名 URL 与普通字符串保持不变', () => {
-    expect(deepRewriteCoverUrl('https://p1.music.126.net/a.jpg')).toBe('https://p1.music.126.net/a.jpg')
+  it('改写网易云 126.net 封面为代理地址（p1-p4 子域 + 根域）', () => {
+    const NET = 'https://p3.music.126.net/oumncltDKJBr1rEV4NZaQA==/109951171286223937.jpg'
+    expect(deepRewriteCoverUrl(NET)).toBe('/api/image-proxy?url=' + encodeURIComponent(NET))
+    const NET4 = 'https://p4.music.126.net/6ZqVrSqmchLIeWONaJg0_w==/109951164351480463.jpg'
+    expect(deepRewriteCoverUrl(NET4)).toBe('/api/image-proxy?url=' + encodeURIComponent(NET4))
+    const NET_ROOT = 'https://music.126.net/a.jpg'
+    expect(deepRewriteCoverUrl(NET_ROOT)).toBe('/api/image-proxy?url=' + encodeURIComponent(NET_ROOT))
+  })
+
+  it('非 QQ/网易云域名 URL 与普通字符串保持不变', () => {
+    expect(deepRewriteCoverUrl('https://other.com/a.jpg')).toBe('https://other.com/a.jpg')
     expect(deepRewriteCoverUrl(123)).toBe(123)
     expect(deepRewriteCoverUrl(null)).toBe(null)
   })
@@ -125,6 +134,13 @@ describe('响应拦截器', () => {
     const res = await request.get('/songs/search')
     expect(res.code).toBe(200)
     expect(res.data.songs[0].coverUrl).toBe(PROXIED)
+  })
+
+  it('code=200 时改写响应中的网易云 banner 封面', async () => {
+    const NET = 'https://p3.music.126.net/oumncltDKJBr1rEV4NZaQA==/109951171286223937.jpg'
+    respond = () => ({ code: 200, data: [{ coverUrl: NET }] })
+    const res = await request.get('/songs/banner')
+    expect(res.data[0].coverUrl).toBe('/api/image-proxy?url=' + encodeURIComponent(NET))
   })
 
   it('code=401 且非认证接口时触发登出+登录弹窗', async () => {

@@ -51,17 +51,18 @@ request.interceptors.request.use((config) => {
   return config
 })
 
-// QQ 音乐封面 CDN 在部分网络下浏览器直连会 408/CORS，统一改写为后端 /api/image-proxy
-const QQ_COVER_HOSTS = /^https?:\/\/(?:y|i|music)\.gtimg\.cn\//
+// 音乐平台封面 CDN 直连在部分网络/浏览器下会被 408/CORS/广告拦截（如网易云 126.net 被客户端拦截），
+// 统一改写为后端 /api/image-proxy（白名单见 ProxyController.ALLOWED_HOSTS，含 gtimg.cn 与 p1-p4.music.126.net）
+const COVER_CDN_HOSTS = /^https?:\/\/(?:(?:y|i|music)\.gtimg\.cn|(?:p[1-4]\.)?music\.126\.net)\//
 const PROXY_URL_PREFIX = '/api/image-proxy?url='
 
-function rewriteQQCoverUrl(value) {
-  if (typeof value !== 'string' || !QQ_COVER_HOSTS.test(value)) return value
+function rewriteCoverUrl(value) {
+  if (typeof value !== 'string' || !COVER_CDN_HOSTS.test(value)) return value
   // 拼 API_HOST：dev/prod web 为空走相对路径，Capacitor 有绝对地址才可访问
   return API_HOST + PROXY_URL_PREFIX + encodeURIComponent(value)
 }
 
-// 深递归改写响应中的 QQ 封面 URL（渲染处追加的 ?param= 会落入 url 参数内，后端按原样请求）
+// 深递归改写响应中的封面 URL（渲染处追加的 ?param= 会落入 url 参数内，后端按原样请求）
 // maxDepth 限制递归深度，防止病态深嵌套/超大对象导致栈溢出或无谓遍历（默认 20 层）
 export function deepRewriteCoverUrl(node, maxDepth = 20) {
   if (maxDepth <= 0) return node
@@ -70,7 +71,7 @@ export function deepRewriteCoverUrl(node, maxDepth = 20) {
   } else if (node && typeof node === 'object') {
     for (const k of Object.keys(node)) node[k] = deepRewriteCoverUrl(node[k], maxDepth - 1)
   } else {
-    return rewriteQQCoverUrl(node)
+    return rewriteCoverUrl(node)
   }
   return node
 }

@@ -15,7 +15,7 @@ function applyImage(el) {
   if (!url) return
 
   if (el._lazyMode === 'bg') {
-    if (url.startsWith('http') || url.startsWith('//')) {
+    if (url.startsWith('http') || url.startsWith('//') || url.startsWith('/')) {
       // !important 确保覆盖 CSS background 简写的 background-image: none
       el.style.setProperty('background-image', `url(${url})`, 'important')
     } else {
