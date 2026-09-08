@@ -9,57 +9,54 @@ vi.mock('@/api/song', () => ({
 
 import { getBanners } from '@/api/song'
 
-function getPreloadLink() {
-  return document.head.querySelector('link[data-banner-preload]')
-}
-
 describe('BannerSection preload 首图', () => {
+  let createdImages = []
   beforeEach(() => {
-    document.head.querySelectorAll('link[data-banner-preload]').forEach(l => l.remove())
     vi.clearAllMocks()
+    createdImages = []
+    vi.stubGlobal('Image', vi.fn(function ImageMock() { createdImages.push(this) }))
   })
 
-  it('正常 coverUrl 时注入 href 并带 param', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('正常 coverUrl 时用 Image 预取并带 param', async () => {
     getBanners.mockResolvedValue({ data: [{ coverUrl: 'https://p4.music.126.net/abc.jpg', name: 'b1' }] })
     shallowMount(BannerSection)
     await flushPromises()
-    const link = getPreloadLink()
-    expect(link).toBeTruthy()
-    expect(link.href).toBe('https://p4.music.126.net/abc.jpg?param=1600y900')
+    expect(createdImages).toHaveLength(1)
+    expect(createdImages[0].src).toBe('https://p4.music.126.net/abc.jpg?param=1600y900')
   })
 
-  it('coverUrl 已带 query 时不产生双 ? 拼接', async () => {
+  it('coverUrl 已带 query 时用 & 追加 param（不产生双 ?）', async () => {
     getBanners.mockResolvedValue({ data: [{ coverUrl: 'https://p4.music.126.net/abc.jpg?param=200y200', name: 'b1' }] })
     shallowMount(BannerSection)
     await flushPromises()
-    const link = getPreloadLink()
-    expect(link).toBeTruthy()
-    // 不允许出现非法双 ?（valid href 的 query 中只允许一个 ? 分隔符）
-    expect(link.href).not.toContain('?param=200y200?')
-    expect(link.href).toBe('https://p4.music.126.net/abc.jpg?param=1600y900')
+    expect(createdImages).toHaveLength(1)
+    expect(createdImages[0].src).toBe('https://p4.music.126.net/abc.jpg?param=200y200&param=1600y900')
   })
 
-  it('coverUrl 含空格时被安全编码（不再产生 invalid href value）', async () => {
+  it('coverUrl 含空格时被安全编码', async () => {
     getBanners.mockResolvedValue({ data: [{ coverUrl: 'https://p4.music.126.net/ab c.jpg', name: 'b1' }] })
     shallowMount(BannerSection)
     await flushPromises()
-    const link = getPreloadLink()
-    expect(link).toBeTruthy()
-    expect(link.href).toBe('https://p4.music.126.net/ab%20c.jpg?param=1600y900')
+    expect(createdImages).toHaveLength(1)
+    expect(createdImages[0].src).toBe('https://p4.music.126.net/ab%20c.jpg?param=1600y900')
   })
 
-  it('完全无法解析的 URL（host 含空格）不注入 preload', async () => {
+  it('完全无法解析的 URL（host 含空格）不做 Image 预取', async () => {
     getBanners.mockResolvedValue({ data: [{ coverUrl: 'https://exa mple.com/x.jpg', name: 'b1' }] })
     shallowMount(BannerSection)
     await flushPromises()
-    expect(getPreloadLink()).toBeNull()
+    expect(createdImages).toHaveLength(0)
   })
 
-  it('空 coverUrl 时不注入 preload', async () => {
+  it('空 coverUrl 时不做 Image 预取', async () => {
     getBanners.mockResolvedValue({ data: [{ coverUrl: '', name: 'b1' }] })
     shallowMount(BannerSection)
     await flushPromises()
-    expect(getPreloadLink()).toBeNull()
+    expect(createdImages).toHaveLength(0)
   })
 
   it('只有激活的 slide 设置 background-image', async () => {

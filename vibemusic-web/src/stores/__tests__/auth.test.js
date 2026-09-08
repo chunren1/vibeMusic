@@ -48,11 +48,11 @@ describe('AuthStore', () => {
   describe('login 登录', () => {
     it('有效 token 应登录成功并设置用户', () => {
       const auth = useAuthStore()
-      const result = auth.login('test-token', { username: 'testuser' })
+      const result = auth.login('test-token', { userId: 1, username: 'testuser' })
 
       expect(result).toBe(true)
       expect(auth.token).toBe('test-token')
-      expect(auth.user).toEqual({ username: 'testuser' })
+      expect(auth.user).toEqual({ userId: 1, username: 'testuser' })
       expect(auth.isLoggedIn).toBe(true)
       expect(auth.sessionChecked).toBe(true)
       expect(setToken).toHaveBeenCalledWith('test-token')
@@ -177,6 +177,10 @@ describe('AuthStore', () => {
         code: 200,
         data: { userId: 1, username: 'testuser', nickname: '测试', avatar: '/a.jpg', bgImage: null }
       })
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: 200, data: { token: 'refreshed-token' } }),
+      })))
       const auth = useAuthStore()
 
       await auth.tryRestoreSession()
@@ -184,6 +188,7 @@ describe('AuthStore', () => {
       expect(auth.isLoggedIn).toBe(true)
       expect(auth.user.username).toBe('testuser')
       expect(auth.sessionChecked).toBe(true)
+      vi.unstubAllGlobals()
     })
 
     it('未登录时应静默失败并标记 sessionChecked', async () => {
@@ -203,6 +208,10 @@ describe('AuthStore', () => {
         code: 200,
         data: { userId: 1, username: 'testuser', nickname: '测试', avatar: null, bgImage: null }
       })
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: 200, data: { token: 'refreshed-token' } }),
+      })))
       const auth = useAuthStore()
 
       await Promise.all([
@@ -212,6 +221,7 @@ describe('AuthStore', () => {
       ])
 
       expect(getMe).toHaveBeenCalledTimes(1)
+      vi.unstubAllGlobals()
     })
   })
 
