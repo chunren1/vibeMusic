@@ -3,6 +3,7 @@ package com.vibemusic.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vibemusic.common.utils.AnonymousIdentityUtils;
 import com.vibemusic.dto.RecommendResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.PlayHistory;
@@ -12,11 +13,16 @@ import com.vibemusic.mapper.SongMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -30,6 +36,8 @@ public class RecommendService {
     private final StorageService storageService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    /** 复用搜索线程池做 Top 歌手 fan-out（与 SongSearchService 同一 searchExecutor Bean，按名注入）。 */
+    private final ThreadPoolTaskExecutor searchExecutor;
 
     private static final int RECOMMEND_COUNT = 8;
     private static final int RANDOM_BASE = 4; // 基础随机歌曲数，保证多样性
@@ -38,6 +46,7 @@ public class RecommendService {
     private static final String CACHE_PREFIX = "recommend:v3:"; // v3: 新算法
     private static final Duration USER_CACHE_TTL = Duration.ofMinutes(30); // 30min，推荐更及时
     private static final Duration GUEST_CACHE_TTL = Duration.ofMinutes(10);
+    private static final long ARTIST_FANOUT_DEADLINE_MS = 5000; // Top歌手并行搜索总deadline
 
     /**
      * 个性化推荐入口
@@ -48,7 +57,7 @@ public class RecommendService {
     public RecommendResult getPersonalized(Long userId, String deviceId, boolean refresh) {
         String cacheKey = userId != null
                 ? CACHE_PREFIX + "user:" + userId
-                : CACHE_PREFIX + "guest:" + (deviceId != null ? deviceId : "anon");
+                : CACHE_PREFIX + "guest:" + AnonymousIdentityUtils.sanitize(deviceId);
 
         // 非刷新模式：尝试读缓存
         if (!refresh) {
@@ -137,7 +146,7 @@ public class RecommendService {
             }
         } catch (Exception e) { log.warn("随机推荐获取失败", e); }
 
-        // ② 兴趣扩展：基于常听歌手搜歌
+        // ② 兴趣扩展：基于常听歌手搜歌（并行 fan-out + 总 deadline，凑满即取消余下）
         if (result.size() < RECOMMEND_COUNT && !history.isEmpty()) {
             List<String> topArtists = artistWeight.entrySet().stream()
                     .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
@@ -145,19 +154,7 @@ public class RecommendService {
                     .map(Map.Entry::getKey)
                     .collect(Collectors.toList());
 
-            for (String artist : topArtists) {
-                if (result.size() >= RECOMMEND_COUNT) break;
-                try {
-                    List<SongDTO> songs = songSearchService.search(artist, 1, 10, null).getList();
-                    for (SongDTO s : songs) {
-                        if (result.size() >= RECOMMEND_COUNT) break;
-                        if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
-                            if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                            result.add(s);
-                        }
-                    }
-                } catch (Exception e) { log.warn("搜索歌手 {} 失败", artist, e); }
-            }
+            searchTopArtistsParallel(topArtists, result, seenSourceIds);
         }
 
         // ③ 仍有空缺 → 补随机
@@ -204,6 +201,62 @@ public class RecommendService {
                 .reason(buildReason(history))
                 .type("personalized")
                 .build();
+    }
+
+    /**
+     * Top 歌手并行搜索：复用 searchExecutor fan-out，按提交顺序在总 deadline 内取结果；
+     * 凑满配额或超时即取消余下分支。单分支异常/超时/线程池过载只跳过该分支，
+     * 后续随机补足兜底保证数量。
+     */
+    private void searchTopArtistsParallel(List<String> topArtists, List<SongDTO> result,
+                                          Set<String> seenSourceIds) {
+        List<Future<List<SongDTO>>> futures = new ArrayList<>(topArtists.size());
+        try {
+            for (String artist : topArtists) {
+                futures.add(searchExecutor.submit(() -> {
+                    try {
+                        return songSearchService.search(artist, 1, 10, null).getList();
+                    } catch (Exception e) {
+                        log.warn("搜索歌手 {} 失败", artist, e);
+                        return Collections.emptyList();
+                    }
+                }));
+            }
+        } catch (RejectedExecutionException rex) {
+            log.warn("推荐搜索线程池过载，跳过兴趣扩展", rex);
+            for (Future<List<SongDTO>> f : futures) f.cancel(true);
+            return;
+        }
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(ARTIST_FANOUT_DEADLINE_MS);
+        for (Future<List<SongDTO>> f : futures) {
+            if (result.size() >= RECOMMEND_COUNT) break;
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0) {
+                log.warn("推荐歌手搜索触及总 deadline({}ms)，停止等待余下分支", ARTIST_FANOUT_DEADLINE_MS);
+                break;
+            }
+            List<SongDTO> songs;
+            try {
+                songs = f.get(remainingNanos, TimeUnit.NANOSECONDS);
+            } catch (TimeoutException te) {
+                log.warn("推荐歌手搜索触及总 deadline({}ms)，停止等待余下分支", ARTIST_FANOUT_DEADLINE_MS);
+                break;
+            } catch (Exception e) {
+                log.warn("推荐歌手搜索分支异常，跳过", e);
+                continue;
+            }
+            if (songs == null) continue;
+            for (SongDTO s : songs) {
+                if (result.size() >= RECOMMEND_COUNT) break;
+                if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
+                    if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                    result.add(s);
+                }
+            }
+        }
+        for (Future<List<SongDTO>> f : futures) {
+            if (!f.isDone()) f.cancel(true);
+        }
     }
 
     /**
@@ -312,7 +365,8 @@ public class RecommendService {
     }
 
     /**
-     * 读 Redis 缓存 + 校验：单平台全覆盖 = 缓存污染，自动清理
+     * 读 Redis 缓存 + 校验：疑似污染且平台健康时删除重算；
+     * 平台故障/熔断期不删（stale-while-revalidate：直接 serving 旧缓存），避免 TTL 形同虚设。
      */
     private RecommendResult readCache(String key) {
         try {
@@ -320,6 +374,10 @@ public class RecommendService {
             if (json == null) return null;
             RecommendResult result = objectMapper.readValue(json, RecommendResult.class);
             if (isCachePoisoned(result)) {
+                if (isPlatformOutage()) {
+                    log.warn("推荐缓存疑似污染但处于平台故障期，降级 serving 旧缓存: {}", key);
+                    return result;
+                }
                 log.warn("推荐缓存已污染，自动清除: {} ({}首全来自{})",
                         key, result.getSongs().size(),
                         result.getSongs().get(0).getPlatform());
@@ -334,6 +392,19 @@ public class RecommendService {
     }
 
     /**
+     * 平台故障期判定：复用搜索链路已有的 QQ 熔断器状态，不另起健康体系。
+     * QQ 开路期间单平台结果是预期现象而非污染，此时删缓存只会放大上游。
+     */
+    private boolean isPlatformOutage() {
+        try {
+            return songSearchService.shouldSkipQq();
+        } catch (Exception e) {
+            log.debug("读取 QQ 熔断状态失败，按非故障期处理", e);
+            return false;
+        }
+    }
+
+    /**
      * 检测缓存是否被污染：随机推荐 8 首全来自同一平台 → 另一个平台当时挂了
      */
     private boolean isCachePoisoned(RecommendResult result) {
@@ -341,8 +412,9 @@ public class RecommendService {
         if (songs == null || songs.size() < 4) return false;
         long neteaseCount = songs.stream().filter(s -> "netease".equals(s.getPlatform())).count();
         long qqCount = songs.stream().filter(s -> "qq".equals(s.getPlatform())).count();
-        // 全部来自一个平台且数量≥4 → 大概率另一个平台当时异常
-        return (neteaseCount == songs.size() || qqCount == songs.size());
+        long miguCount = songs.stream().filter(s -> "migu".equals(s.getPlatform())).count();
+        // 全部来自一个平台且数量≥4 → 大概率另两个平台当时异常
+        return (neteaseCount == songs.size() || qqCount == songs.size() || miguCount == songs.size());
     }
 
     /**

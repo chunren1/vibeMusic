@@ -10,7 +10,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -75,6 +79,29 @@ class SongControllerTest extends BaseTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.code").value(200));
         }
+
+        @Test
+        @DisplayName("随机推荐 count=10000 → 钳制到 50 以内，仍 HTTP 200 信封不变")
+        void shouldClampHugeCount() throws Exception {
+            mockMvc.perform(get("/api/songs/random")
+                            .param("count", "10000"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data", hasSize(lessThanOrEqualTo(50))));
+        }
+
+        @Test
+        @DisplayName("随机推荐 count=0/负数 → 钳制到至少 1，仍 HTTP 200")
+        void shouldClampNonPositiveCount() throws Exception {
+            mockMvc.perform(get("/api/songs/random")
+                            .param("count", "0"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200));
+            mockMvc.perform(get("/api/songs/random")
+                            .param("count", "-5"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200));
+        }
     }
 
     @Nested
@@ -114,6 +141,58 @@ class SongControllerTest extends BaseTest {
                             .param("sourceId", "000rh0dE2TyUic"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isArray());
+        }
+    }
+
+    @Nested
+    @DisplayName("歌词时间解析 parseLrc")
+    class LyricParser {
+        private double timeOf(String lrcLine) {
+            List<Map<String, Object>> lines = SongController.parseLrc(lrcLine);
+            assertEquals(1, lines.size());
+            return ((Number) lines.get(0).get("time")).doubleValue();
+        }
+
+        @Test
+        @DisplayName("一位小数按十分秒换算：[00:01.5] = 1.5s")
+        void shouldParseTenthsAsDeciseconds() {
+            assertEquals(1.5, timeOf("[00:01.5]歌词"), 1e-9);
+        }
+
+        @Test
+        @DisplayName("两位小数按百分秒换算（回归旧偏斜）：[00:01.50] = 1.5s 而非 1.05s")
+        void shouldParseHundredthsAsCentiseconds() {
+            assertEquals(1.5, timeOf("[00:01.50]歌词"), 1e-9);
+            assertEquals(65.25, timeOf("[01:05.25]歌词"), 1e-9);
+        }
+
+        @Test
+        @DisplayName("三位小数按毫秒原值：[00:01.500] = 1.5s")
+        void shouldParseMillisAsIs() {
+            assertEquals(1.5, timeOf("[00:01.500]歌词"), 1e-9);
+        }
+
+        @Test
+        @DisplayName("超过三位截断到毫秒：[00:01.5009] = 1.5s")
+        void shouldTruncateBeyondMillis() {
+            assertEquals(1.5, timeOf("[00:01.5009]歌词"), 1e-9);
+        }
+
+        @Test
+        @DisplayName("无小数部分为整秒：[01:05] = 65s")
+        void shouldParseWholeSeconds() {
+            assertEquals(65.0, timeOf("[01:05]歌词"), 1e-9);
+        }
+
+        @Test
+        @DisplayName("多行混合精度各自归一")
+        void shouldNormalizeMixedPrecisionLines() {
+            List<Map<String, Object>> lines = SongController.parseLrc(
+                    "[00:01.5]a\n[00:02.25]b\n[00:03.125]c\n");
+            assertEquals(3, lines.size());
+            assertEquals(1.5, ((Number) lines.get(0).get("time")).doubleValue(), 1e-9);
+            assertEquals(2.25, ((Number) lines.get(1).get("time")).doubleValue(), 1e-9);
+            assertEquals(3.125, ((Number) lines.get(2).get("time")).doubleValue(), 1e-9);
         }
     }
 

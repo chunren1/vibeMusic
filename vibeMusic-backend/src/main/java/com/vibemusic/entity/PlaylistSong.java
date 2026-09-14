@@ -25,6 +25,8 @@ public class PlaylistSong {
 
     private Integer duration;
 
+    private String platform;
+
     @TableField(insertStrategy = FieldStrategy.NEVER)
     private LocalDateTime addedAt;
 }

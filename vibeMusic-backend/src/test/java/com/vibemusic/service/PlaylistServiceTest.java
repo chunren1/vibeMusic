@@ -2,6 +2,9 @@ package com.vibemusic.service;
 
 import com.vibemusic.TransactionalServiceTest;
 import com.vibemusic.common.exception.BusinessException;
+import com.vibemusic.entity.Playlist;
+import com.vibemusic.mapper.PlaylistMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -23,6 +26,9 @@ class PlaylistServiceTest extends TransactionalServiceTest {
 
     @Autowired
     private PlaylistService playlistService;
+
+    @Autowired
+    private PlaylistMapper playlistMapper;
 
     private static final Long USER_ID = 1L;
     private static final String SONG_SOURCE_ID = "000rh0dE2TyUic";
@@ -76,7 +82,7 @@ class PlaylistServiceTest extends TransactionalServiceTest {
                     SONG_NAME, ARTIST, COVER_URL, 240);
 
             assertTrue(added);
-            List<Map<String, Object>> songs = playlistService.getSongs(playlistId);
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
             assertEquals(1, songs.size());
             assertEquals(SONG_NAME, songs.get(0).get("songName"));
         }
@@ -90,7 +96,7 @@ class PlaylistServiceTest extends TransactionalServiceTest {
                     SONG_NAME, ARTIST, COVER_URL, 240);
 
             assertFalse(addedAgain);
-            assertEquals(1, playlistService.getSongs(playlistId).size());
+            assertEquals(1, playlistService.getSongs(USER_ID, playlistId).size());
         }
 
         @Test
@@ -119,7 +125,7 @@ class PlaylistServiceTest extends TransactionalServiceTest {
         @DisplayName("空歌单应返回空列表")
         void shouldReturnEmptyForEmptyPlaylist() {
             Long playlistId = createPlaylistAndGetId("空歌单");
-            List<Map<String, Object>> songs = playlistService.getSongs(playlistId);
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
             assertTrue(songs.isEmpty());
         }
 
@@ -130,8 +136,71 @@ class PlaylistServiceTest extends TransactionalServiceTest {
             playlistService.addSong(USER_ID, playlistId, SONG_SOURCE_ID, SONG_NAME, ARTIST,
                     "http://img.test/cover.jpg", 240);
 
-            List<Map<String, Object>> songs = playlistService.getSongs(playlistId);
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
             assertEquals("https://img.test/cover.jpg", songs.get(0).get("coverUrl"));
+        }
+
+        @Test
+        @DisplayName("非所有者读取他人歌单应抛 403")
+        void shouldThrow403ForNonOwner() {
+            Long playlistId = createPlaylistAndGetId("他人歌单不可读");
+            BusinessException ex = assertThrows(BusinessException.class, () ->
+                    playlistService.getSongs(999L, playlistId));
+            assertEquals(403, ex.getCode());
+        }
+
+        @Test
+        @DisplayName("读取不存在的歌单应抛 404")
+        void shouldThrow404ForMissingPlaylist() {
+            BusinessException ex = assertThrows(BusinessException.class, () ->
+                    playlistService.getSongs(USER_ID, 99999L));
+            assertEquals(404, ex.getCode());
+        }
+    }
+
+    @Nested
+    @DisplayName("platform 平台字段")
+    class PlatformTest {
+
+        @Test
+        @DisplayName("addSong 指定 platform 后 getSongs 应返回 name+songName+platform")
+        void shouldRoundTripPlatform() {
+            Long playlistId = createPlaylistAndGetId("平台测试歌单");
+            boolean added = playlistService.addSong(USER_ID, playlistId, SONG_SOURCE_ID,
+                    SONG_NAME, ARTIST, COVER_URL, 240, "qq");
+
+            assertTrue(added);
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals(1, songs.size());
+            Map<String, Object> song = songs.get(0);
+            assertEquals(SONG_NAME, song.get("name"));
+            assertEquals(SONG_NAME, song.get("songName"));
+            assertEquals("qq", song.get("platform"));
+        }
+
+        @Test
+        @DisplayName("platform 为空时应默认 netease")
+        void shouldDefaultBlankPlatformToNetease() {
+            Long playlistId = createPlaylistAndGetId("平台默认歌单");
+            playlistService.addSong(USER_ID, playlistId, SONG_SOURCE_ID,
+                    SONG_NAME, ARTIST, COVER_URL, 240, null);
+
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals("netease", songs.get(0).get("platform"));
+            assertEquals(SONG_NAME, songs.get(0).get("name"));
+        }
+
+        @Test
+        @DisplayName("老式 7 参 addSong 应默认 netease 并返回 name 字段")
+        void shouldDefaultLegacyAddSongToNetease() {
+            Long playlistId = createPlaylistAndGetId("兼容测试歌单");
+            playlistService.addSong(USER_ID, playlistId, SONG_SOURCE_ID,
+                    SONG_NAME, ARTIST, COVER_URL, 240);
+
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals("netease", songs.get(0).get("platform"));
+            assertEquals(SONG_NAME, songs.get(0).get("name"));
+            assertEquals(SONG_NAME, songs.get(0).get("songName"));
         }
     }
 
@@ -144,10 +213,10 @@ class PlaylistServiceTest extends TransactionalServiceTest {
         void shouldRemoveSongFromOwnPlaylist() {
             Long playlistId = createPlaylistAndGetId("删除测试歌单");
             playlistService.addSong(USER_ID, playlistId, SONG_SOURCE_ID, SONG_NAME, ARTIST, COVER_URL, 240);
-            assertEquals(1, playlistService.getSongs(playlistId).size());
+            assertEquals(1, playlistService.getSongs(USER_ID, playlistId).size());
 
             playlistService.removeSong(USER_ID, playlistId, SONG_SOURCE_ID);
-            assertTrue(playlistService.getSongs(playlistId).isEmpty());
+            assertTrue(playlistService.getSongs(USER_ID, playlistId).isEmpty());
         }
 
         @Test
@@ -236,6 +305,54 @@ class PlaylistServiceTest extends TransactionalServiceTest {
             int added = playlistService.importPlaylist(USER_ID, "重复导入歌单", null, songs);
             assertEquals(1, added);
         }
+
+        @Test
+        @DisplayName("导入 source=qq 时所有歌曲应持久化 platform=qq")
+        void shouldPersistQqPlatformOnImport() {
+            List<Map<String, Object>> songs = List.of(
+                    Map.of("id", "qq_song1", "name", "QQ歌1", "artist", "QQ歌手", "coverUrl", "", "duration", 200),
+                    Map.of("id", "qq_song2", "name", "QQ歌2", "artist", "QQ歌手", "coverUrl", "", "duration", 210)
+            );
+
+            int added = playlistService.importPlaylist(USER_ID, "QQ导入歌单", null, songs, "qq");
+            assertEquals(2, added);
+
+            Long playlistId = findPlaylistIdByName("QQ导入歌单");
+            List<Map<String, Object>> stored = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals(2, stored.size());
+            assertTrue(stored.stream().allMatch(s -> "qq".equals(s.get("platform"))));
+        }
+
+        @Test
+        @DisplayName("导入不传 source 时应默认 netease（向后兼容）")
+        void shouldDefaultImportPlatformToNetease() {
+            List<Map<String, Object>> songs = List.of(
+                    Map.of("id", "legacy_song1", "name", "老歌1", "artist", "歌手", "coverUrl", "", "duration", 180)
+            );
+
+            int added = playlistService.importPlaylist(USER_ID, "默认平台导入歌单", null, songs);
+            assertEquals(1, added);
+
+            Long playlistId = findPlaylistIdByName("默认平台导入歌单");
+            List<Map<String, Object>> stored = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals(1, stored.size());
+            assertEquals("netease", stored.get(0).get("platform"));
+        }
+
+        @Test
+        @DisplayName("导入未知 source 时应回落 netease")
+        void shouldFallbackUnknownSourceToNetease() {
+            List<Map<String, Object>> songs = List.of(
+                    Map.of("id", "unknown_song1", "name", "未知源歌", "artist", "歌手", "coverUrl", "", "duration", 180)
+            );
+
+            int added = playlistService.importPlaylist(USER_ID, "未知源导入歌单", null, songs, "kugou");
+            assertEquals(1, added);
+
+            Long playlistId = findPlaylistIdByName("未知源导入歌单");
+            List<Map<String, Object>> stored = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals("netease", stored.get(0).get("platform"));
+        }
     }
 
     @Nested
@@ -256,5 +373,14 @@ class PlaylistServiceTest extends TransactionalServiceTest {
     private Long createPlaylistAndGetId(String name) {
         Map<String, Object> result = playlistService.create(USER_ID, name, null, null);
         return ((Number) result.get("id")).longValue();
+    }
+
+    /** 辅助方法：按名称查找歌单 ID（直查实体，绕开 H2/Map 键大小写差异） */
+    private Long findPlaylistIdByName(String name) {
+        Playlist pl = playlistMapper.selectOne(new LambdaQueryWrapper<Playlist>()
+                .eq(Playlist::getUserId, USER_ID)
+                .eq(Playlist::getName, name));
+        if (pl == null) throw new AssertionError("歌单不存在: " + name);
+        return pl.getId();
     }
 }

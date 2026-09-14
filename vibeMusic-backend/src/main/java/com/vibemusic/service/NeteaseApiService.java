@@ -14,7 +14,10 @@ import org.springframework.web.client.RestTemplate;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 
 @Slf4j
 @Service
@@ -27,6 +30,27 @@ public class NeteaseApiService {
 
     /** 流式下载客户端（复用连接池） */
     private RestClient streamClient;
+
+    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,*.migu.cn}")
+    private String cdnWhitelistConfig;
+
+    private boolean isUrlAllowed(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            if (host == null) return false;
+            List<String> whitelist = Arrays.stream(cdnWhitelistConfig.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+            for (String pattern : whitelist) {
+                if (pattern.startsWith("*.")) {
+                    String suffix = pattern.substring(1);
+                    if (host.equals(pattern.substring(2)) || host.endsWith(suffix)) return true;
+                } else if (host.equals(pattern)) return true;
+            }
+            log.warn("SSRF blocked in NeteaseApiService: host={} url={}", host, url);
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     @PostConstruct
     void initStreamClient() {
@@ -73,6 +97,11 @@ public class NeteaseApiService {
         return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
     }
 
+    public Map<String, Object> searchMigu(String keyword, int limit) {
+        URI uri = buildUri("/migu/search", "keyword", keyword, "limit", String.valueOf(limit));
+        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+    }
+
     public Map<String, Object> getLyric(String musicId) {
         URI uri = buildUri("/lyric", "id", musicId);
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
@@ -95,6 +124,18 @@ public class NeteaseApiService {
     }
 
     /**
+     * 咪咕播放地址：musicapi 返回 302 Location 签名 URL 字符串（IP-bound，
+     * 由 StreamController 代理字节流，绝不直传 app）；无版权时 url=null。
+     */
+    public Map<String, Object> getMiguSongUrl(String contentId, String copyrightId) {
+        URI uri = buildUri("/migu/url", "id", contentId,
+                "copyrightId", copyrightId != null ? copyrightId : "");
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        log.info("Migu播放URL: {} status={}", contentId, response.getStatusCode());
+        return response.getBody();
+    }
+
+    /**
      * 流式下载歌曲到临时文件（避免全量加载到内存）
      * <p>
      * 调用方负责在 finally 中删除临时文件。
@@ -102,13 +143,22 @@ public class NeteaseApiService {
      * @return 临时文件
      */
     public java.io.File downloadSongToFile(String downloadUrl) {
+        if (!isUrlAllowed(downloadUrl)) {
+            throw new BusinessException(403, "下载链接不在白名单内，已阻止");
+        }
+        java.io.File tempFile = null;
         try {
-            java.io.File tempFile = java.io.File.createTempFile("vibemusic-dl-", ".mp3");
+            tempFile = java.io.File.createTempFile("vibemusic-dl-", ".mp3");
+            final java.io.File target = tempFile;
             streamClient.get()
-                    .uri(downloadUrl)
+                    .uri(URI.create(downloadUrl))
                     .exchange((req, resp) -> {
+                        if (resp.getStatusCode().isError()) {
+                            throw new BusinessException(502,
+                                    "CDN 返回异常状态: " + resp.getStatusCode().value());
+                        }
                         try (java.io.InputStream in = resp.getBody();
-                             java.io.FileOutputStream out = new java.io.FileOutputStream(tempFile)) {
+                             java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
                             StreamUtils.copy(in, out);
                         }
                         return null;
@@ -117,7 +167,12 @@ public class NeteaseApiService {
             return tempFile;
         } catch (Exception e) {
             log.error("流式下载失败: {}", e.getMessage());
-            throw new BusinessException(502, "歌曲下载失败");
+            if (tempFile != null && tempFile.exists() && !tempFile.delete()) {
+                log.warn("临时文件删除失败: {}", tempFile.getAbsolutePath());
+            }
+            BusinessException be = new BusinessException(502, "歌曲下载失败: " + e.getMessage());
+            be.initCause(e);
+            throw be;
         }
     }
 

@@ -1,6 +1,7 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.AnonymousIdentityUtils;
 import com.vibemusic.dto.RecommendResult;
 import com.vibemusic.service.RecommendService;
 import com.vibemusic.service.UserService;
@@ -33,9 +34,9 @@ public class RecommendController {
         // 优先从 JWT 获取 userId
         Long userId = UserService.getCurrentUserId();
 
-        // 未登录时用 deviceId 做缓存隔离
+        // 未登录时用 deviceId 做缓存隔离：参数优先于请求头，清洗后限长 64 + 白名单 [A-Za-z0-9_-]
         String deviceId = userId == null
-                ? (paramDeviceId != null ? paramDeviceId : headerDeviceId)
+                ? AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId)
                 : null;
 
         log.debug("推荐请求: userId={}, deviceId={}, refresh={}", userId, deviceId, refresh);

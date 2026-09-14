@@ -1,12 +1,14 @@
 package com.vibemusic.service;
 
 import com.vibemusic.config.AudioQualityTier;
+import com.vibemusic.config.ThreadPoolConfig;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -18,6 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 歌曲播放服务
  * <p>
  * 音质降级链：MinIO 缓存 → 原平台 API（多级音质）→ 跨平台降级 → DB 历史 URL 兜底
+ * <p>
+ * 线程池由 Spring 托管（ThreadPoolConfig），避免 static ExecutorService 泄漏。
  */
 @Slf4j
 @Service
@@ -28,20 +32,37 @@ public class SongPlayService {
     private final NeteaseApiService neteaseApiService;
     private final StorageService storageService;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ThreadPoolTaskExecutor getUrlExecutor;
 
     private static final String MINIO_CACHE_PREFIX = "minio:exists:v1:";
     private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
     /** 试听片段判定阈值（毫秒）：时长 ≤ 30 秒视为试听片段 */
     private static final int TRIAL_DURATION_MS = 30000;
-    /** 音质并行探测线程池，3级同时调用避免串行等待 */
-    private static final ExecutorService GET_URL_EXECUTOR = Executors.newFixedThreadPool(3, r -> {
-        Thread t = new Thread(r, "get-url-"); t.setDaemon(true); return t;
-    });
     private final AtomicInteger degradationCount = new AtomicInteger(0);
 
     public int getDegradationCount() { return degradationCount.get(); }
 
     // ==================== getPlayInfo ====================
+
+    /**
+     * 取消未完成的并行取链任务。
+     * <p>
+     * 语义说明（CompletableFuture.cancel(true) 无法中断已开始的任务，
+     * boolean 参数对 CompletableFuture 无实质中断效果）：
+     * <ul>
+     *   <li>排队中尚未开始的任务：cancel 后不再执行，不消耗线程与上游配额；</li>
+     *   <li>已开始执行的任务：无法被中断，会执行至返回/超时，但其结果会被调用方丢弃。</li>
+     * </ul>
+     * loser 并发被天然限制在 getUrl 池大小（3 线程 + 10 队列，AbortPolicy 快速失败）
+     * 与整体 8s DEADLINE 之内，不会 wedge 线程池。
+     */
+    private static void cancelUnfinished(Collection<CompletableFuture<Map<String, Object>>> futures) {
+        for (CompletableFuture<Map<String, Object>> f : futures) {
+            if (f != null && !f.isDone()) {
+                f.cancel(true);
+            }
+        }
+    }
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPlayInfo(String sourceId) {
@@ -81,14 +102,24 @@ public class SongPlayService {
                     AudioQualityTier.HIRES, AudioQualityTier.EXHIGH,
                     AudioQualityTier.HIGHER, AudioQualityTier.STANDARD
                 };
-                // 并行提交所有音质级别请求
+                // 并行提交所有音质级别请求（使用 Spring 托管线程池）。
+                // getUrl 池为 AbortPolicy：过载时 submit 同步抛 RejectedExecutionException，
+                // 该级别直接跳过（futures 中无条目，后续按 null 处理），不再阻塞降级链。
                 Map<AudioQualityTier, CompletableFuture<Map<String, Object>>> futures = new HashMap<>();
                 for (AudioQualityTier tier : tiers) {
                     if (System.currentTimeMillis() > DEADLINE) break;
-                    futures.put(tier, CompletableFuture.supplyAsync(() ->
-                            neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel())));
+                    try {
+                        futures.put(tier, CompletableFuture.supplyAsync(() ->
+                                neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel()), getUrlExecutor));
+                    } catch (RejectedExecutionException e) {
+                        log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", tier.getLabel(), sourceId);
+                    }
                 }
                 // 按音质优先级顺序检查结果（已完成的高优级别立即返回，未完成的等待但不再串行累积）
+                // 命中后 finally 取消排队中的 futures（已开始的任务无法中断，结果丢弃）；
+                // standard 级探测结果会被缓存，供最终试听兜底复用，避免重复请求。
+                Map<String, Object> standardProbe = null;
+                try {
                 for (AudioQualityTier tier : tiers) {
                     if (System.currentTimeMillis() > DEADLINE) {
                         log.warn("音质降级链超时: {}, 已检查至 {}", sourceId, tier.getLabel());
@@ -100,6 +131,7 @@ public class SongPlayService {
                         long remaining = Math.max(1, DEADLINE - System.currentTimeMillis());
                         Map<String, Object> result = cf.get(remaining, TimeUnit.MILLISECONDS);
                         if (result == null) continue;
+                        if (tier == AudioQualityTier.STANDARD) standardProbe = result;
                         List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
                         if (data == null || data.isEmpty()) continue;
                         String url = (String) data.get(0).get("url");
@@ -126,6 +158,9 @@ public class SongPlayService {
                         log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", tier.getLabel(), sourceId, e.getMessage());
                     }
                 }
+                } finally {
+                    cancelUnfinished(futures.values());
+                }
                 // 网易云全部降级为试听 → QQ降级（超时则跳过）
                 if (System.currentTimeMillis() > DEADLINE) {
                     log.warn("音质降级链超时: {} 跳过QQ降级, 降级至试听", sourceId);
@@ -149,7 +184,22 @@ public class SongPlayService {
                 info.put("quality", AudioQualityTier.FALLBACK.name());
                 info.put("qualityLabel", AudioQualityTier.FALLBACK.getLabel());
                 info.put("degraded", true);
-                Map<String, Object> f = neteaseApiService.getSongUrl(sourceId, "standard");
+                // 试听兜底：优先复用并行探测已拿到的 standard 结果，不再发起重复请求；
+                // 探测无结果时仅在预算未耗尽时补发一次（同步调用最坏 +45s，不许超出 8s 预算）。
+                Map<String, Object> f = standardProbe;
+                if (f == null) {
+                    long remaining = DEADLINE - System.currentTimeMillis();
+                    if (remaining <= 0) {
+                        log.warn("试听兜底跳过: {} 预算已耗尽，不再补发 standard 请求", sourceId);
+                    } else {
+                        try {
+                            f = neteaseApiService.getSongUrl(sourceId, "standard");
+                        } catch (Exception e) {
+                            log.warn("试听兜底 standard 请求失败: {} - {}", sourceId, e.getMessage());
+                            f = null;
+                        }
+                    }
+                }
                 if (f != null) {
                     List<Map<String, Object>> d = (List<Map<String, Object>>) f.get("data");
                     if (d != null && !d.isEmpty()) info.put("url", d.get(0).get("url"));
@@ -236,10 +286,28 @@ public class SongPlayService {
         // 2. 尝试从 API 获取
         boolean explicitQQ = "qq".equalsIgnoreCase(platform);
         boolean explicitNE = "netease".equalsIgnoreCase(platform);
+        boolean explicitMigu = "migu".equalsIgnoreCase(platform);
         boolean guessNetEase = sourceId != null && sourceId.matches("\\d+");
 
         try {
-            if (explicitQQ || (!explicitNE && !guessNetEase)) {
+            if (explicitMigu) {
+                // 咪咕：musicapi 返回 302 Location 签名 URL（IP-bound），由 StreamController 代理字节流
+                try {
+                    Map<String, Object> result = neteaseApiService.getMiguSongUrl(sourceId, null);
+                    if (result != null) {
+                        List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                        if (data != null && !data.isEmpty()) {
+                            String miguUrl = (String) data.get(0).get("url");
+                            if (miguUrl != null && !miguUrl.isEmpty()) return miguUrl;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("getPlayUrl: Migu {} 获取失败: {}", sourceId, e.getMessage());
+                }
+                log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) return neteaseUrl;
+            } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
                 try {
                     Map<String, Object> result = neteaseApiService.getQQSongUrl(sourceId);
                     if (result != null) {
@@ -260,17 +328,23 @@ public class SongPlayService {
                 String[] levels = {"exhigh", "higher", "standard"};
                 List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
                 for (String level : levels) {
-                    futures.add(CompletableFuture.supplyAsync(() -> {
-                        try {
-                            return neteaseApiService.getSongUrl(sourceId, level);
-                        } catch (Exception e) {
-                            log.debug("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
-                            return null;
-                        }
-                    }, GET_URL_EXECUTOR));
+                    try {
+                        futures.add(CompletableFuture.supplyAsync(() -> {
+                            try {
+                                return neteaseApiService.getSongUrl(sourceId, level);
+                            } catch (Exception e) {
+                                log.debug("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
+                                return null;
+                            }
+                        }, getUrlExecutor));
+                    } catch (RejectedExecutionException e) {
+                        log.warn("getPlayUrl: 取链池过载，level={} 直接跳过", level);
+                        futures.add(CompletableFuture.completedFuture(null));
+                    }
                 }
                 String neUrl = null;
                 boolean neAllFailed = true;
+                try {
                 for (int i = 0; i < levels.length && neUrl == null; i++) {
                     try {
                         Map<String, Object> result = futures.get(i).get(5, TimeUnit.SECONDS);
@@ -290,6 +364,9 @@ public class SongPlayService {
                     } catch (Exception e) {
                         log.debug("getPlayUrl: level={} timeout/error: {}", levels[i], e.getMessage());
                     }
+                }
+                } finally {
+                    cancelUnfinished(futures);
                 }
                 if (neUrl != null) return neUrl;
                 if (neAllFailed) {

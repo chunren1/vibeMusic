@@ -2,6 +2,7 @@ package com.vibemusic.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.AnonymousIdentityUtils;
 import com.vibemusic.service.AiToolService;
 import com.vibemusic.service.ChatMemoryService;
 import com.vibemusic.service.RateLimitService;
@@ -58,7 +59,7 @@ public class AssistantController {
                                RateLimitService rateLimitService,
                                ObjectMapper objectMapper,
                                @Value("${ai.api-key:}") String apiKey,
-                               @Value("${ai.model:deepseek-v4-flash}") String aiModel,
+                                @Value("${ai.model:deepseek-flash}") String aiModel,
                                @Value("${ai.thinking-mode:disabled}") String thinkingMode,
                                @Value("${ai.api-url:https://api.deepseek.com/chat/completions}") String apiUrl) {
         this.restTemplate = restTemplate;
@@ -77,7 +78,9 @@ public class AssistantController {
 
     @PostMapping("/chat")
     @Operation(summary = "AI 音乐聊天（Function Calling + 多轮记忆）")
-    public Result<Map<String, Object>> chat(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, Object>> chat(@RequestBody Map<String, Object> body,
+                                            @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
+                                            @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
         String songContext = (String) body.getOrDefault("context", "");
 
@@ -88,13 +91,16 @@ public class AssistantController {
             return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY", "model", aiModel));
 
         Long userId = UserService.getCurrentUserId();
-        String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anonymous");
+        // 匿名用户按设备标识隔离限流桶与对话记忆，避免陌生人互相污染/耗尽共享配额
+        String anonymousId = userId != null ? null
+                : AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId);
+        String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anon:" + anonymousId);
         if (!rateLimitService.tryAcquire(rateKey, AI_RATE_LIMIT, java.time.Duration.ofMinutes(1)))
             return Result.error(429, "请求太频繁，请稍后再试（每分钟最多 " + AI_RATE_LIMIT + " 次）");
 
         try {
             // 构建带历史记忆的消息列表
-            List<Map<String, Object>> messages = buildMessagesWithHistory(userId, userMessage, songContext);
+            List<Map<String, Object>> messages = buildMessagesWithHistory(userId, anonymousId, userMessage, songContext);
 
             // 第一轮：带 Function Calling 调用 LLM
             Map<String, Object> llmResponse = callLLMWithTools(messages);
@@ -135,8 +141,8 @@ public class AssistantController {
             if (reply == null || reply.isBlank()) reply = "让我想想...请稍后再试";
 
             // 保存对话到记忆
-            chatMemoryService.appendMessage(userId, "user", userMessage);
-            chatMemoryService.appendMessage(userId, "assistant", reply);
+            chatMemoryService.appendMessage(userId, "user", userMessage, anonymousId);
+            chatMemoryService.appendMessage(userId, "assistant", reply, anonymousId);
 
             // 从工具结果中提取歌曲列表
             List<Map<String, Object>> songs = extractSongsFromToolResults(toolResults);
@@ -157,7 +163,9 @@ public class AssistantController {
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "AI 流式聊天（WebClient 真正流式 + 逐 token 输出）")
-    public SseEmitter streamChat(@RequestBody Map<String, Object> body) {
+    public SseEmitter streamChat(@RequestBody Map<String, Object> body,
+                                 @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
+                                 @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
         SseEmitter emitter = new SseEmitter(60_000L);
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
         String songContext = (String) body.getOrDefault("context", "");
@@ -175,14 +183,16 @@ public class AssistantController {
         }
 
         Long userId = UserService.getCurrentUserId();
-        String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anonymous");
+        final String anonymousId = userId != null ? null
+                : AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId);
+        String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anon:" + anonymousId);
         if (!rateLimitService.tryAcquire(rateKey, AI_RATE_LIMIT, java.time.Duration.ofMinutes(1))) {
             sendEvent(emitter, "error", Map.of("message", "请求太频繁，请稍后再试"));
             emitter.complete();
             return emitter;
         }
 
-        List<Map<String, Object>> messages = buildMessagesWithHistory(userId, userMessage, songContext);
+        List<Map<String, Object>> messages = buildMessagesWithHistory(userId, anonymousId, userMessage, songContext);
 
         // 使用 WebClient 流式消费 LLM SSE 响应
         final Disposable[] disposableHolder = new Disposable[1];
@@ -199,8 +209,8 @@ public class AssistantController {
                     String data = sse.data();
                     if (data == null || "[DONE]".equals(data.trim())) {
                         // 流结束
-                        chatMemoryService.appendMessage(userId, "user", userMessage);
-                        chatMemoryService.appendMessage(userId, "assistant", fullReply.toString());
+                        chatMemoryService.appendMessage(userId, "user", userMessage, anonymousId);
+                        chatMemoryService.appendMessage(userId, "assistant", fullReply.toString(), anonymousId);
                         sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", aiModel));
                         emitter.complete();
                         return;
@@ -233,8 +243,8 @@ public class AssistantController {
                 },
                 () -> {
                     if (fullReply.length() > 0) {
-                        chatMemoryService.appendMessage(userId, "user", userMessage);
-                        chatMemoryService.appendMessage(userId, "assistant", fullReply.toString());
+                        chatMemoryService.appendMessage(userId, "user", userMessage, anonymousId);
+                        chatMemoryService.appendMessage(userId, "assistant", fullReply.toString(), anonymousId);
                     }
                     sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", aiModel));
                     emitter.complete();
@@ -252,9 +262,13 @@ public class AssistantController {
 
     @DeleteMapping("/history")
     @Operation(summary = "清除 AI 对话历史")
-    public Result<Void> clearHistory() {
+    public Result<Void> clearHistory(
+            @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
+            @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
         Long userId = UserService.getCurrentUserId();
-        chatMemoryService.clearHistory(userId);
+        String anonymousId = userId != null ? null
+                : AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId);
+        chatMemoryService.clearHistory(userId, anonymousId);
         return Result.ok(null);
     }
 
@@ -263,12 +277,13 @@ public class AssistantController {
     /**
      * 构建带历史记忆的消息列表
      */
-    private List<Map<String, Object>> buildMessagesWithHistory(Long userId, String userMessage, String songContext) {
+    private List<Map<String, Object>> buildMessagesWithHistory(Long userId, String anonymousId, String userMessage, String songContext) {
         List<Map<String, Object>> messages = new ArrayList<>();
         messages.add(Map.of("role", "system", "content", buildSystemPrompt(songContext)));
 
         // 加载对话历史
-        List<Map<String, String>> history = chatMemoryService.getHistory(userId);
+        List<Map<String, String>> history = chatMemoryService.getHistory(userId, anonymousId);
+        if (history == null) history = List.of();
         for (Map<String, String> msg : history) {
             messages.add(new HashMap<>(msg));
         }

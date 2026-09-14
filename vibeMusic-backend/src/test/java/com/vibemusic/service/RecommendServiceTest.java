@@ -3,18 +3,21 @@ package com.vibemusic.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.dto.RecommendResult;
+import com.vibemusic.dto.SearchResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.PlayHistory;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.PlayHistoryMapper;
 import com.vibemusic.mapper.SongMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -40,6 +43,7 @@ class RecommendServiceTest {
     private StringRedisTemplate stringRedisTemplate;
     private ValueOperations<String, String> valueOps;
     private ObjectMapper objectMapper;
+    private ThreadPoolTaskExecutor searchExecutor;
     private RecommendService recommendService;
 
     @BeforeEach
@@ -51,8 +55,20 @@ class RecommendServiceTest {
         stringRedisTemplate = mock(StringRedisTemplate.class);
         valueOps = mock(ValueOperations.class);
         objectMapper = new ObjectMapper();
+        searchExecutor = new ThreadPoolTaskExecutor();
+        searchExecutor.setCorePoolSize(4);
+        searchExecutor.setMaxPoolSize(4);
+        searchExecutor.setQueueCapacity(20);
+        searchExecutor.setThreadNamePrefix("test-recommend-");
+        searchExecutor.setDaemon(true);
+        searchExecutor.initialize();
         recommendService = new RecommendService(playHistoryMapper, songMapper,
-                songSearchService, storageService, stringRedisTemplate, objectMapper);
+                songSearchService, storageService, stringRedisTemplate, objectMapper, searchExecutor);
+    }
+
+    @AfterEach
+    void tearDown() {
+        searchExecutor.shutdown();
     }
 
     private SongDTO createSong(String sourceId, String name, String artist, String platform) {
@@ -207,6 +223,141 @@ class RecommendServiceTest {
 
             verify(stringRedisTemplate, never()).delete(anyString());
             assertEquals("小结果", result.getGreeting());
+        }
+    }
+
+    @Nested @DisplayName("Top歌手并行搜索")
+    class ParallelFanoutTest {
+
+        private PlayHistory historyOf(String sourceId, String artist) {
+            PlayHistory h = new PlayHistory();
+            h.setUserId(1L);
+            h.setSourceId(sourceId);
+            h.setSongName("歌-" + sourceId);
+            h.setArtist(artist);
+            h.setPlayedAt(LocalDateTime.now());
+            return h;
+        }
+
+        @Test @DisplayName("三歌手搜索并行执行并受总deadline约束")
+        void shouldBoundFanoutByDeadline() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            when(playHistoryMapper.selectPage(any(), any(LambdaQueryWrapper.class)))
+                    .thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<PlayHistory>()
+                            .setRecords(List.of(
+                                    historyOf("h1", "歌手A"),
+                                    historyOf("h2", "歌手B"),
+                                    historyOf("h3", "歌手C"))));
+            List<SongDTO> base = List.of(
+                    createSong("r1", "基础1", "路人甲", "netease"),
+                    createSong("r2", "基础2", "路人乙", "qq"),
+                    createSong("r3", "基础3", "路人丙", "migu"),
+                    createSong("r4", "基础4", "路人丁", "netease"));
+            when(songSearchService.getRandomSongs(anyInt())).thenReturn(base);
+            // 三个歌手搜索全部阻塞 20s：串行需 60s，并行+5s deadline 应快速返回
+            when(songSearchService.search(anyString(), eq(1), eq(10), isNull())).thenAnswer(inv -> {
+                Thread.sleep(20000);
+                return SearchResult.of(List.of(), 0, 1, 10, "api");
+            });
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+            long start = System.currentTimeMillis();
+            RecommendResult result = recommendService.getPersonalized(1L, "device-123");
+            long elapsed = System.currentTimeMillis() - start;
+
+            assertTrue(elapsed < 15000, "并行 fan-out 应受总 deadline 约束，实际耗时=" + elapsed + "ms");
+            verify(songSearchService, times(3)).search(anyString(), eq(1), eq(10), isNull());
+            assertNotNull(result);
+            assertEquals("personalized", result.getType());
+            assertFalse(result.getSongs().isEmpty());
+        }
+    }
+
+    @Nested @DisplayName("故障期缓存降级")
+    class OutageDegradeTest {
+
+        @Test @DisplayName("QQ熔断期污染缓存不删除直接返回旧缓存")
+        void shouldServeStaleDuringOutage() throws Exception {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            RecommendResult polluted = RecommendResult.builder()
+                    .songs(List.of(
+                            createSong("p1","a","歌手","netease"), createSong("p2","b","歌手","netease"),
+                            createSong("p3","c","歌手","netease"), createSong("p4","d","歌手","netease"),
+                            createSong("p5","e","歌手","netease"), createSong("p6","f","歌手","netease"),
+                            createSong("p7","g","歌手","netease"), createSong("p8","h","歌手","netease")))
+                    .greeting("污染").type("random").build();
+            when(valueOps.get("recommend:v3:user:1"))
+                    .thenReturn(objectMapper.writeValueAsString(polluted));
+            when(songSearchService.shouldSkipQq()).thenReturn(true);
+
+            RecommendResult result = recommendService.getPersonalized(1L, "device-123");
+
+            verify(stringRedisTemplate, never()).delete(anyString());
+            verify(songSearchService, never()).getRandomSongs(anyInt());
+            assertEquals("污染", result.getGreeting());
+            assertEquals(8, result.getSongs().size());
+        }
+
+        @Test @DisplayName("全咪咕缓存同样判定为污染并重算")
+        void shouldDetectMiguPollution() throws Exception {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            RecommendResult polluted = RecommendResult.builder()
+                    .songs(List.of(
+                            createSong("m1","a","歌手","migu"), createSong("m2","b","歌手","migu"),
+                            createSong("m3","c","歌手","migu"), createSong("m4","d","歌手","migu"),
+                            createSong("m5","e","歌手","migu"), createSong("m6","f","歌手","migu"),
+                            createSong("m7","g","歌手","migu"), createSong("m8","h","歌手","migu")))
+                    .greeting("污染").type("random").build();
+            when(valueOps.get("recommend:v3:user:1"))
+                    .thenReturn(objectMapper.writeValueAsString(polluted));
+            when(songSearchService.shouldSkipQq()).thenReturn(false);
+
+            RecommendResult result = recommendService.getPersonalized(1L, "device-123");
+
+            verify(stringRedisTemplate, atLeastOnce()).delete("recommend:v3:user:1");
+            assertNotNull(result);
+        }
+    }
+
+    @Nested @DisplayName("deviceId 清洗")
+    class DeviceIdSanitizeTest {
+
+        @Test @DisplayName("非法字符的deviceId清洗后拼Redis键")
+        void shouldSanitizeDeviceIdForKey() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            when(songSearchService.getRandomSongs(8)).thenReturn(List.of());
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+            recommendService.getPersonalized(null, "../../evil key!!!");
+
+            verify(valueOps).get("recommend:v3:guest:evilkey");
+        }
+
+        @Test @DisplayName("超长deviceId截断至64字符")
+        void shouldTruncateLongDeviceId() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            when(songSearchService.getRandomSongs(8)).thenReturn(List.of());
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+            String longId = "a".repeat(100);
+            recommendService.getPersonalized(null, longId);
+
+            verify(valueOps).get("recommend:v3:guest:" + "a".repeat(64));
+        }
+
+        @Test @DisplayName("空deviceId回退anon键")
+        void shouldFallbackToAnon() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            when(songSearchService.getRandomSongs(8)).thenReturn(List.of());
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+            recommendService.getPersonalized(null, null);
+
+            verify(valueOps).get("recommend:v3:guest:anon");
         }
     }
 

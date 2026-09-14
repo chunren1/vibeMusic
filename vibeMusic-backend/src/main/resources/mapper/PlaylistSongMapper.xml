@@ -9,10 +9,10 @@
         added_at 依赖 DB DEFAULT CURRENT_TIMESTAMP，不显式插入。
     -->
     <insert id="insertBatch">
-        INSERT IGNORE INTO playlist_song(playlist_id, source_id, song_name, artist, cover_url, duration)
+        INSERT IGNORE INTO playlist_song(playlist_id, source_id, song_name, artist, cover_url, duration, platform)
         VALUES
         <foreach collection="list" item="ps" separator=",">
-            (#{ps.playlistId}, #{ps.sourceId}, #{ps.songName}, #{ps.artist}, #{ps.coverUrl}, #{ps.duration})
+            (#{ps.playlistId}, #{ps.sourceId}, #{ps.songName}, #{ps.artist}, #{ps.coverUrl}, #{ps.duration}, #{ps.platform})
         </foreach>
     </insert>
 

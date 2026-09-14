@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -92,10 +93,13 @@ public class SongController {
     @GetMapping("/random")
     @Operation(summary = "随机推荐歌曲")
     public Result<List<SongDTO>> randomSongs(@RequestParam(defaultValue = "8") int count) {
-        return Result.ok(songSearchService.getRandomSongs(count));
+        // count 直通 DB LIMIT（含 lyric TEXT）：钳制到 1..50，默认值 8 不变
+        int safeCount = Math.max(1, Math.min(count, SongSearchService.MAX_RANDOM_COUNT));
+        return Result.ok(songSearchService.getRandomSongs(safeCount));
     }
 
-    private static final String LYRIC_CACHE_PREFIX = "lyric:v2:";
+    // v2 键下已缓存条目时间轴偏斜（百分秒被当毫秒解析），换 v3 键自然淘汰旧缓存
+    private static final String LYRIC_CACHE_PREFIX = "lyric:v3:";
     private static final java.time.Duration LYRIC_TTL = java.time.Duration.ofDays(365);
 
     @GetMapping("/lyric")
@@ -134,18 +138,19 @@ public class SongController {
         }
     }
 
-    private List<Map<String, Object>> parseLrc(String lyricStr) {
+    private static final Pattern LRC_PATTERN =
+            Pattern.compile("\\[(\\d{2}):(\\d{2})(?:\\.(\\d+))?\\](.*)");
+
+    static List<Map<String, Object>> parseLrc(String lyricStr) {
         List<Map<String, Object>> lines = new ArrayList<>();
         for (String line : lyricStr.split("\\n")) {
             line = line.trim();
             if (line.isEmpty()) continue;
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                    .compile("\\[(\\d{2}):(\\d{2})(?:\\.(\\d+))?\\](.*)")
-                    .matcher(line);
+            java.util.regex.Matcher m = LRC_PATTERN.matcher(line);
             if (m.find()) {
                 int min = Integer.parseInt(m.group(1));
                 int sec = Integer.parseInt(m.group(2));
-                int ms = m.group(3) != null ? Integer.parseInt(m.group(3)) : 0;
+                int ms = lrcFractionToMs(m.group(3));
                 String text = m.group(4).trim();
                 double time = min * 60 + sec + ms / 1000.0;
                 Map<String, Object> item = new HashMap<>();
@@ -154,5 +159,15 @@ public class SongController {
             }
         }
         return lines;
+    }
+
+    // LRC 小数部分按位数归一为毫秒：1 位=十分秒(x100)、2 位=百分秒(x10)、3 位=毫秒原值、更长截断到毫秒
+    static int lrcFractionToMs(String frac) {
+        if (frac == null || frac.isEmpty()) return 0;
+        String f = frac.length() > 3 ? frac.substring(0, 3) : frac;
+        int v = Integer.parseInt(f);
+        if (f.length() == 1) return v * 100;
+        if (f.length() == 2) return v * 10;
+        return v;
     }
 }

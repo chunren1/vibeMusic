@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS playlist_song (
     artist VARCHAR(500),
     cover_url VARCHAR(1000),
     duration INT DEFAULT 0,
+    platform VARCHAR(32) DEFAULT 'netease',
     sort_order INT DEFAULT 0,
     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (playlist_id, source_id)

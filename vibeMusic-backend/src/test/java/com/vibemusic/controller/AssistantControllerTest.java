@@ -54,7 +54,7 @@ class AssistantControllerTest {
                 rateLimitService,
                 objectMapper,
                 "sk-test-api-key",
-                "deepseek-v4-flash",
+                "deepseek-flash",
                 "disabled",
                 "https://api.deepseek.com/chat/completions");
         mockMvc = MockMvcBuilders.standaloneSetup(assistantController).build();
@@ -66,7 +66,7 @@ class AssistantControllerTest {
         @Test @DisplayName("正常对话应返回 reply 字段")
         void shouldReturnReply() throws Exception {
             when(rateLimitService.tryAcquire(anyString(), anyInt(), any(Duration.class))).thenReturn(true);
-            when(chatMemoryService.getHistory(any())).thenReturn(java.util.List.of());
+            when(chatMemoryService.getHistory(any(), any())).thenReturn(java.util.List.of());
 
             var responseBody = Map.of("choices", java.util.List.of(
                     Map.of("message", Map.of("role", "assistant", "content", "你好！我是音乐精灵～"))));
@@ -100,7 +100,7 @@ class AssistantControllerTest {
             var noKeyController = new AssistantController(
                     restTemplate, WebClient.builder(), aiToolService,
                     chatMemoryService, rateLimitService, objectMapper, "",
-                    "deepseek-v4-flash", "disabled", "https://api.deepseek.com/chat/completions");
+                    "deepseek-flash", "disabled", "https://api.deepseek.com/chat/completions");
             var noKeyMockMvc = MockMvcBuilders.standaloneSetup(noKeyController).build();
 
             noKeyMockMvc.perform(post("/api/assistant/chat")
@@ -126,7 +126,7 @@ class AssistantControllerTest {
         @Test @DisplayName("Function Calling 应触发工具调用")
         void shouldTriggerFunctionCalling() throws Exception {
             when(rateLimitService.tryAcquire(anyString(), anyInt(), any(Duration.class))).thenReturn(true);
-            when(chatMemoryService.getHistory(any())).thenReturn(java.util.List.of());
+            when(chatMemoryService.getHistory(any(), any())).thenReturn(java.util.List.of());
             when(aiToolService.getToolDefinitions()).thenReturn(java.util.List.of(
                     Map.of("type", "function", "function",
                             Map.of("name", "search_songs", "description", "搜索歌曲"))));
@@ -166,6 +166,100 @@ class AssistantControllerTest {
         void shouldClearHistory() throws Exception {
             mockMvc.perform(delete("/api/assistant/history"))
                     .andExpect(status().isOk());
+            verify(chatMemoryService).clearHistory(isNull(), eq("anon"));
+        }
+
+        @Test @DisplayName("匿名清除历史应只清自己的设备桶")
+        void shouldClearOwnAnonymousBucket() throws Exception {
+            mockMvc.perform(delete("/api/assistant/history")
+                            .header("X-Device-Id", "device-A"))
+                    .andExpect(status().isOk());
+            verify(chatMemoryService).clearHistory(isNull(), eq("device-A"));
+        }
+    }
+
+    @Nested @DisplayName("匿名隔离（X-Device-Id / deviceId）")
+    class AnonymousIsolationTest {
+
+        private void mockChatSuccess() throws Exception {
+            when(rateLimitService.tryAcquire(anyString(), anyInt(), any(Duration.class))).thenReturn(true);
+            when(chatMemoryService.getHistory(any(), any())).thenReturn(java.util.List.of());
+            var responseBody = Map.of("choices", java.util.List.of(
+                    Map.of("message", Map.of("role", "assistant", "content", "你好～"))));
+            when(restTemplate.postForEntity(anyString(), any(), eq(Map.class)))
+                    .thenReturn(new org.springframework.http.ResponseEntity<>(responseBody, org.springframework.http.HttpStatus.OK));
+        }
+
+        @Test @DisplayName("不同匿名设备应走独立限流桶")
+        void shouldUseIndependentRateLimitBuckets() throws Exception {
+            mockChatSuccess();
+
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("X-Device-Id", "device-A")
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("X-Device-Id", "device-B")
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk());
+
+            var rateKeyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(rateLimitService, times(2)).tryAcquire(rateKeyCaptor.capture(), anyInt(), any(Duration.class));
+            java.util.List<String> keys = rateKeyCaptor.getAllValues();
+            org.junit.jupiter.api.Assertions.assertEquals("assistant:anon:device-A", keys.get(0));
+            org.junit.jupiter.api.Assertions.assertEquals("assistant:anon:device-B", keys.get(1));
+        }
+
+        @Test @DisplayName("不同匿名设备应读写隔离的对话历史")
+        void shouldIsolateHistoryByDevice() throws Exception {
+            mockChatSuccess();
+
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("X-Device-Id", "device-A")
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk());
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("X-Device-Id", "device-B")
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk());
+
+            var anonCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(chatMemoryService, times(2)).getHistory(isNull(), anonCaptor.capture());
+            java.util.List<String> ids = anonCaptor.getAllValues();
+            org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("device-A", "device-B"), ids);
+            verify(chatMemoryService, times(2)).appendMessage(isNull(), eq("user"), eq("你好"), anonCaptor.capture());
+        }
+
+        @Test @DisplayName("无设备标识的匿名请求应回退到缺省桶")
+        void shouldFallbackToDefaultBucketWithoutDevice() throws Exception {
+            mockChatSuccess();
+
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk());
+
+            verify(rateLimitService).tryAcquire(eq("assistant:anon:anon"), anyInt(), any(Duration.class));
+            verify(chatMemoryService).getHistory(isNull(), eq("anon"));
+        }
+
+        @Test @DisplayName("deviceId 参数应优先于 X-Device-Id 请求头")
+        void shouldPreferParamOverHeader() throws Exception {
+            mockChatSuccess();
+
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("X-Device-Id", "header-device")
+                            .param("deviceId", "param-device")
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk());
+
+            verify(rateLimitService).tryAcquire(eq("assistant:anon:param-device"), anyInt(), any(Duration.class));
+            verify(chatMemoryService).getHistory(isNull(), eq("param-device"));
         }
     }
 }

@@ -116,6 +116,13 @@ public class PlaylistService {
     @Transactional(rollbackFor = Exception.class)
     public boolean addSong(Long userId, Long playlistId, String sourceId,
                            String songName, String artist, String coverUrl, Integer duration) {
+        return addSong(userId, playlistId, sourceId, songName, artist, coverUrl, duration, "netease");
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public boolean addSong(Long userId, Long playlistId, String sourceId,
+                           String songName, String artist, String coverUrl, Integer duration,
+                           String platform) {
         Playlist pl = playlistMapper.selectById(playlistId);
         if (pl == null) throw new BusinessException(404, "歌单不存在");
         if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
@@ -126,9 +133,11 @@ public class PlaylistService {
                 .eq(PlaylistSong::getSourceId, sourceId));
         if (exists) return false;
 
+        String resolvedPlatform = (platform == null || platform.isBlank()) ? "netease" : platform.trim();
         PlaylistSong ps = PlaylistSong.builder()
                 .playlistId(playlistId).sourceId(sourceId).songName(songName)
-                .artist(artist).coverUrl(coverUrl).duration(duration).build();
+                .artist(artist).coverUrl(coverUrl).duration(duration)
+                .platform(resolvedPlatform).build();
         try {
             songMapper.insert(ps);
             return true;
@@ -201,14 +210,20 @@ public class PlaylistService {
                 .eq(PlaylistSong::getSourceId, sourceId));
     }
 
-    public List<Map<String, Object>> getSongs(Long playlistId) {
+    public List<Map<String, Object>> getSongs(Long userId, Long playlistId) {
+        Playlist pl = playlistMapper.selectById(playlistId);
+        if (pl == null) throw new BusinessException(404, "歌单不存在");
+        if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
         List<PlaylistSong> list = songMapper.selectList(new LambdaQueryWrapper<PlaylistSong>()
                 .eq(PlaylistSong::getPlaylistId, playlistId)
                 .orderByDesc(PlaylistSong::getAddedAt));
         return list.stream().map(s -> {
             Map<String, Object> m = new HashMap<>();
             m.put("sourceId", s.getSourceId());
+            // 原生 App 用 name + platform；Web 端继续用 songName（双写兼容）
+            m.put("name", s.getSongName());
             m.put("songName", s.getSongName());
+            m.put("platform", s.getPlatform() != null && !s.getPlatform().isBlank() ? s.getPlatform() : "netease");
             m.put("artist", s.getArtist());
             // 升级 HTTP → HTTPS，防止手机通过 HTTPS 隧道时混合内容被浏览器拦截
             String cover = s.getCoverUrl();
@@ -251,6 +266,17 @@ public class PlaylistService {
     @Transactional(rollbackFor = Exception.class)
     public int importPlaylist(Long userId, String name, String coverUrl,
                               List<Map<String, Object>> songs) {
+        return importPlaylist(userId, name, coverUrl, songs, "netease");
+    }
+
+    /**
+     * 导入外部歌单（携带来源平台）：创建歌单 + 批量添加歌曲
+     * @param source 外部来源 netease/qq/migu，未知或空值回落 netease（兼容旧调用）
+     * @return 导入的歌曲数量
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int importPlaylist(Long userId, String name, String coverUrl,
+                              List<Map<String, Object>> songs, String source) {
         // 去重：同名歌单已存在则复用，只追加新歌
         Playlist existing = playlistMapper.selectOne(new LambdaQueryWrapper<Playlist>()
                 .eq(Playlist::getUserId, userId)
@@ -280,6 +306,7 @@ public class PlaylistService {
                 .stream().map(PlaylistSong::getSourceId).collect(Collectors.toSet()));
 
         // 2.2 过滤出新歌，分批插入（每批 50，防止大事务锁表）
+        String resolvedPlatform = normalizePlatform(source);
         List<PlaylistSong> toInsert = songs.stream()
                 .filter(s -> !existingIds.contains(String.valueOf(s.get("id"))))
                 .map(s -> PlaylistSong.builder()
@@ -289,6 +316,7 @@ public class PlaylistService {
                         .artist(String.valueOf(s.getOrDefault("artist", "")))
                         .coverUrl(String.valueOf(s.getOrDefault("coverUrl", "")))
                         .duration(s.get("duration") instanceof Number n ? n.intValue() : 0)
+                        .platform(resolvedPlatform)
                         .build())
                 .collect(Collectors.toList());
 
@@ -300,5 +328,12 @@ public class PlaylistService {
         }
         log.info("用户 {} 导入歌单 [{}] ({} 首歌曲)", userId, name, added);
         return added;
+    }
+
+    /** 归一化平台标识：仅接受 netease/qq/migu，其余回落 netease（与 DB 默认一致） */
+    private static String normalizePlatform(String source) {
+        if (source == null) return "netease";
+        String s = source.trim().toLowerCase();
+        return ("netease".equals(s) || "qq".equals(s) || "migu".equals(s)) ? s : "netease";
     }
 }

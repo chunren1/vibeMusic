@@ -24,11 +24,18 @@ public class JsonCacheService {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
 
+    /** 负缓存哨兵：null=未命中（继续穿透）；哨兵=明确空结果（直接返回空，不再穿透）。 */
+    public static final String EMPTY_SENTINEL_JSON = "\"__EMPTY__\"";
+
     /** 读取缓存并反序列化 */
     public <T> T get(String key, TypeReference<T> typeRef) {
         try {
             String json = stringRedisTemplate.opsForValue().get(key);
             if (json == null) return null;
+            if (EMPTY_SENTINEL_JSON.equals(json)) {
+                log.debug("命中空结果哨兵: key={}", key);
+                return null;
+            }
             return objectMapper.readValue(json, typeRef);
         } catch (Exception e) {
             log.debug("缓存读取失败: key={}", key);
@@ -36,12 +43,16 @@ public class JsonCacheService {
         }
     }
 
-    /** 读取缓存为 Map */
+    /** 读取缓存为 Map：哨兵命中返回空 Map（调用方 `!= null` 即视为命中，不再穿透）。 */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getAsMap(String key) {
         try {
             String json = stringRedisTemplate.opsForValue().get(key);
             if (json == null) return null;
+            if (EMPTY_SENTINEL_JSON.equals(json)) {
+                log.debug("命中空结果哨兵: key={}", key);
+                return Map.of();
+            }
             return objectMapper.readValue(json, Map.class);
         } catch (Exception e) {
             log.debug("缓存读取失败: key={}", key);
@@ -49,12 +60,16 @@ public class JsonCacheService {
         }
     }
 
-    /** 读取缓存为 List */
+    /** 读取缓存为 List：哨兵命中返回空 List（调用方 `!= null` 即视为命中，不再穿透）。 */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> getAsList(String key) {
         try {
             String json = stringRedisTemplate.opsForValue().get(key);
             if (json == null) return null;
+            if (EMPTY_SENTINEL_JSON.equals(json)) {
+                log.debug("命中空结果哨兵: key={}", key);
+                return List.of();
+            }
             return objectMapper.readValue(json, List.class);
         } catch (Exception e) {
             log.debug("缓存读取失败: key={}", key);
@@ -75,7 +90,7 @@ public class JsonCacheService {
     /** 设置空缓存占位（防穿透） */
     public void setEmpty(String key, Duration ttl) {
         try {
-            stringRedisTemplate.opsForValue().set(key, "\"__EMPTY__\"", ttl);
+            stringRedisTemplate.opsForValue().set(key, EMPTY_SENTINEL_JSON, ttl);
         } catch (Exception e) {
             log.debug("空缓存写入失败: key={}", key);
         }
