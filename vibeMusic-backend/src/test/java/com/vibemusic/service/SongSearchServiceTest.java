@@ -901,6 +901,24 @@ class SongSearchServiceTest {
             return m;
         }
 
+        /** 网关形态 B 站行：封面 + _raw 播放量/弹幕(门控与热度透传用)。 */
+        private Map<String, Object> biliSong(String id, String name, String artist, int durationMs,
+                                             String cover, long plays, long danmaku) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", id);
+            m.put("name", name);
+            m.put("artists", artist);
+            m.put("album", "");
+            m.put("cover", cover);
+            m.put("duration", durationMs);
+            m.put("vip", false);
+            Map<String, Object> raw = new java.util.HashMap<>();
+            raw.put("play", plays);
+            raw.put("danmaku", danmaku);
+            m.put("_raw", raw);
+            return m;
+        }
+
         @Test @DisplayName("platform=bilibili 只搜B站")
         void shouldSearchBiliOnly() {
             when(cacheService.getSearchCache(eq("B站歌:bilibili"))).thenReturn(null);
@@ -932,19 +950,143 @@ class SongSearchServiceTest {
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchKugou("少年", 40))
                     .thenReturn(Map.of("data", List.of()));
+            // 强行：有封面 + 标题成形 + 播放量达标，正常参与排序
             when(neteaseApiService.searchBili("少年", 40)).thenReturn(Map.of("data", List.of(
-                    apiSong("BV1De411p77r", "少年", "歌手乙", 258000, false))));
+                    biliSong("BV1De411p77r", "少年", "歌手乙", 258000,
+                            "https://i0.hdslb.com/bfs/archive/x.jpg", 2_955_739L, 17_317L))));
 
             SearchResult result = songSearchService.search("少年", 1, 20);
 
             assertEquals("api", result.getSource());
             assertEquals(4, result.getList().size());
-            // B站第 1 名：0.8 + 精确歌名 2.0 + 非 VIP 0.5 = 3.3
+            // B站第 1 名：0.7 + 精确歌名 2.0 + 非 VIP 0.5 = 3.2
             assertEquals("bilibili", result.getList().get(0).getPlatform());
-            assertEquals(0.8 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(0.7 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
             // 网易云第 2 名：0.75 + 精确歌名 2.0 = 2.75（vip 未知，中性）
             assertEquals("ne1", result.getList().get(1).getSourceId());
             assertEquals(0.75 + 2.0, result.getList().get(1).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("弱B站行封顶沉底：无封面低播放即使歌名精确也不得越过0.5")
+        void weakBiliRowCappedToBottom() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("少年", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne0", "无关歌", "路人", 200000, null),
+                    apiSong("ne1", "少年", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("少年", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("qq1", "少年啦啦版", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchMigu("少年", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("少年", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            // 弱行：无封面 + 播放/弹幕双低 → 加成后照样封顶 0.5
+            when(neteaseApiService.searchBili("少年", 40)).thenReturn(Map.of("data", List.of(
+                    biliSong("BV1weak000001", "少年", "UP主", 258000, "", 25_548L, 36L))));
+
+            SearchResult result = songSearchService.search("少年", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(4, result.getList().size());
+            assertEquals("ne1", result.getList().get(0).getSourceId());
+            assertEquals("qq1", result.getList().get(1).getSourceId());
+            assertEquals("ne0", result.getList().get(2).getSourceId());
+            assertEquals("bilibili", result.getList().get(3).getPlatform());
+            assertEquals(0.5, result.getList().get(3).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("弱B站行残留标题括号同样沉底：歌形成立但标题未解析")
+        void weakBiliRowWithRawTitleCapped() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            // 有封面、有播放，但标题残留【】(网关歧义回退) → 仍判弱
+            when(neteaseApiService.searchBili("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    biliSong("BV1raw000001", "【疑似《那天下雨了》MV】晴天", "UP主", 147000,
+                            "https://i0.hdslb.com/bfs/archive/y.jpg", 900_000L, 5_000L))));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(2, result.getList().size());
+            assertEquals("netease", result.getList().get(0).getPlatform());
+            assertEquals("bilibili", result.getList().get(1).getPlatform());
+            assertEquals(0.5, result.getList().get(1).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("跨平台合并行不受门控封顶：弱B站与网易云同曲时胜者保分")
+        void mergedBiliRowExemptFromGate() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            // 同曲弱 B 站行：合并后有多源背书，不封顶
+            when(neteaseApiService.searchBili("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    biliSong("BV1xx00000001", "晴天", "周杰伦", 240000, "", 10L, 0L))));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(1, result.getList().size());
+            assertTrue(result.getList().get(0).getAvailableSources().contains("bilibili"));
+            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("isBiliStrong 边界：播放10万/弹幕1000恰好放行，差一即拦")
+        void isBiliStrongBoundaries() {
+            SongDTO base = SongDTO.builder().name("晴天").artist("周杰伦")
+                    .coverUrl("https://i0.hdslb.com/x.jpg").build();
+            SongDTO playsOk = SongDTO.builder().name("晴天").artist("周杰伦")
+                    .coverUrl("https://i0.hdslb.com/x.jpg").playCount(100_000L).danmakuCount(0L).build();
+            assertTrue(SongSearchService.isBiliStrong(playsOk));
+            SongDTO playsShort = SongDTO.builder().name("晴天").artist("周杰伦")
+                    .coverUrl("https://i0.hdslb.com/x.jpg").playCount(99_999L).danmakuCount(999L).build();
+            assertFalse(SongSearchService.isBiliStrong(playsShort));
+            SongDTO danmakuOk = SongDTO.builder().name("晴天").artist("周杰伦")
+                    .coverUrl("https://i0.hdslb.com/x.jpg").playCount(50_000L).danmakuCount(1_000L).build();
+            assertTrue(SongSearchService.isBiliStrong(danmakuOk));
+            // 无封面：播放再高也弱
+            SongDTO noCover = SongDTO.builder().name("晴天").artist("周杰伦")
+                    .coverUrl("").playCount(9_000_000L).danmakuCount(80_000L).build();
+            assertFalse(SongSearchService.isBiliStrong(noCover));
+            // 热度未知(null，老缓存形态)：按 0 计→弱
+            assertFalse(SongSearchService.isBiliStrong(base));
+            // 超长标题/残留括号→弱
+            SongDTO longName = SongDTO.builder().name("晴".repeat(61)).artist("周杰伦")
+                    .coverUrl("https://i0.hdslb.com/x.jpg").playCount(9_000_000L).build();
+            assertFalse(SongSearchService.isBiliStrong(longName));
+            SongDTO rawTitle = SongDTO.builder().name("【4K】晴天").artist("周杰伦")
+                    .coverUrl("https://i0.hdslb.com/x.jpg").playCount(9_000_000L).build();
+            assertFalse(SongSearchService.isBiliStrong(rawTitle));
+        }
+
+        @Test @DisplayName("B站封面走 image-proxy 代取：hdslb 代理、他站 https 原样")
+        void biliCoverProxiedForHotlink() {
+            when(cacheService.getSearchCache(eq("晴天:bilibili"))).thenReturn(null);
+            when(neteaseApiService.searchBili("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    biliSong("BV1De411p77r", "晴天", "周杰伦", 258000,
+                            "https://i0.hdslb.com/bfs/archive/x.jpg", 2_955_739L, 17_317L),
+                    biliSong("BV1other00001", "夜曲", "周杰伦", 240000,
+                            "https://example.com/y.jpg", 500_000L, 2_000L))));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20, "bilibili");
+
+            assertEquals("api", result.getSource());
+            assertEquals(2, result.getList().size());
+            assertTrue(result.getList().get(0).getCoverUrl().startsWith("/api/image-proxy?url="));
+            assertTrue(result.getList().get(0).getCoverUrl().contains("i0.hdslb.com"));
+            assertEquals("https://example.com/y.jpg", result.getList().get(1).getCoverUrl());
+            // 热度透传上 DTO
+            assertEquals(2_955_739L, result.getList().get(0).getPlayCount());
+            assertEquals(17_317L, result.getList().get(0).getDanmakuCount());
         }
 
         @Test @DisplayName("网易云与B站同曲合并：跨平台加分且来源齐全")

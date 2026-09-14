@@ -130,12 +130,23 @@ public class SongSearchService {
     // 覆盖与元数据完整度不及咪咕签名的 PQ 链路，但优于无 Cookie 的 QQ(且不受熔断器降权)，
     // 故取中点，保持 netease > migu > kugou > qq 排序。
     private static final double KUGOU_WEIGHT = 1.0;
-    // B 站权重 0.8：guest 132–192k AAC 实测可播(酷狗 getdata 当前上游拒绝中，
-    // 名义 1.0 但实际不可播)，翻唱/古风/Live/OST 覆盖独特；但视频标题元数据
-    // 噪音大(无专辑、时长字符串解析)，故置于酷狗名义权重之下、QQ 之上，
-    // 保持 netease > migu > kugou > bilibili > qq 排序。
-    private static final double BILI_WEIGHT = 0.8;
+    // B 站权重 0.7：guest 132–192k AAC 实测可播，翻唱/古风/Live/OST 覆盖独特；
+    // 但视频标题元数据噪音大(网关已做标题解析仍残留歧义回退)，故置于酷狗(1.0)之下、
+    // QQ(0.6)之上，保持 netease > migu > kugou > bilibili > qq 排序。
+    // (2026-09 质量 pass 由 0.8 下调：质量区分改由播放量门控承担，权重只定基准档；
+    // 降 0.1 使无相关性加成时的 B 站首名(0.7)不再天然压过 QQ 首名(0.6)太多，
+    // 强 B 站行仍可靠精确歌名 +2.0 加成上浮，弱行则由门控封顶沉底。)
+    private static final double BILI_WEIGHT = 0.7;
     private static final double QQ_WEIGHT = 0.6;
+    // B 站播放量门控(2026-09 质量 pass)：网关 search/type 实测(热词'晴天' top10)：
+    // 成熟音乐投稿播放量 10万–1700万、低质搬运/广告混剪 <5万(如 vivo 广告 2.5万)，
+    // 弹幕 36–8万；MV 类投稿常低弹幕(如 98万播放/95弹幕)，故双信号取 OR。
+    // 强行 = 有封面 + 标题成形 + (播放>=10万 OR 弹幕>=1000)；弱行(纯 B 站来源)封顶沉底。
+    static final long BILI_MIN_PLAYS = 100_000L;
+    static final long BILI_MIN_DANMAKU = 1_000L;
+    // 弱 B 站行封顶 0.5：严格低于 QQ 首名基准分(0.6/1=0.6)，保证弱行永远排不过
+    // 任何平台的头名；相关性加成照常计算后再封顶(标题再贴切也不得越线)。
+    static final double BILI_WEAK_SCORE_CAP = 0.5;
     private static final double CROSS_PLATFORM_BONUS = 0.3;
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
     private static final double RELEVANCE_EXACT_NAME_BONUS = 2.0;
@@ -440,6 +451,7 @@ public class SongSearchService {
         long relevanceStart = System.currentTimeMillis();
         applyRelevanceBonus(merged, keyword);
         applyNonVipBonus(merged);
+        applyBiliPlayGate(merged);
         log.info("[SEARCH-RANK] 相关性重排: keyword='{}', count={}, relevance-cost={}ms",
                 keyword, merged.size(), System.currentTimeMillis() - relevanceStart);
         merged.sort((a, b) -> Double.compare(
@@ -619,6 +631,43 @@ public class SongSearchService {
         }
         if (nameMatch && artistMatch) bonus += RELEVANCE_NAME_AND_ARTIST_BONUS;
         return bonus;
+    }
+
+    /**
+     * B 站播放量门控：纯 B 站来源行必须同时满足歌曲形态(有封面 + 标题成形)与
+     * 热度(播放量或弹幕任一达标)，否则封顶至 {@link #BILI_WEAK_SCORE_CAP} 沉底。
+     * 跨平台合并行(availableSources 含其他平台)不封顶：该行有多源可用性背书，
+     * 质量由 pickBest 的专辑/封面完整度决定，不再受单源热度惩罚。
+     */
+    private void applyBiliPlayGate(List<SongDTO> merged) {
+        for (SongDTO song : merged) {
+            if (!"bilibili".equals(song.getPlatform())) continue;
+            List<String> sources = song.getAvailableSources();
+            if (sources != null && !(sources.size() == 1 && sources.contains("bilibili"))) continue;
+            if (isBiliStrong(song)) continue;
+            double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
+            if (base > BILI_WEAK_SCORE_CAP) {
+                song.setFinalScore(BILI_WEAK_SCORE_CAP);
+                log.debug("[BILI-GATE] 弱行沉底: name='{}', cover={}, plays={}, danmaku={}",
+                        song.getName(), song.getCoverUrl() != null && !song.getCoverUrl().isBlank(),
+                        song.getPlayCount(), song.getDanmakuCount());
+            }
+        }
+    }
+
+    /**
+     * 强 B 站行判定：有封面(经 image-proxy 代取后恒非空，空=上游缺图) +
+     * 标题成形(非空、≤60字、无残留视频标题括号【】，即网关解析成功或本就干净) +
+     * (播放量达标 OR 弹幕达标；缺失(null，老缓存/ES回填)按 0 计→弱行)。
+     */
+    static boolean isBiliStrong(SongDTO song) {
+        if (song.getCoverUrl() == null || song.getCoverUrl().isBlank()) return false;
+        String name = song.getName();
+        if (name == null || name.isBlank() || name.length() > 60) return false;
+        if (name.contains("【") || name.contains("】")) return false;
+        long plays = song.getPlayCount() != null ? song.getPlayCount() : 0L;
+        long danmaku = song.getDanmakuCount() != null ? song.getDanmakuCount() : 0L;
+        return plays >= BILI_MIN_PLAYS || danmaku >= BILI_MIN_DANMAKU;
     }
 
     /**
@@ -893,6 +942,31 @@ public class SongSearchService {
         if (song.getCoverUrl() != null && song.getCoverUrl().startsWith("http://")) {
             String encoded = java.net.URLEncoder.encode(song.getCoverUrl(), java.nio.charset.StandardCharsets.UTF_8);
             song.setCoverUrl("/api/image-proxy?url=" + encoded);
+            return;
+        }
+        // B 站封面防盗链代取(2026-09 质量 pass 实测)：hdslb CDN 对外来 Referer 回 403
+        // (curl 验证：无 Referer→200，外站 Referer→403，bilibili Referer→200)，
+        // 浏览器从 App 域名直连必带外站 Referer → 裂图。网关 pic 透传本身无误，
+        // App 亦无平台特判(纯 coverUrl 渲染)，故在此统一改走后端 image-proxy
+        // (ProxyController 白名单已含 i0/i1/i2.hdslb.com，服务端无 Referer 拉取→200)。
+        // 仅代理白名单内三域名，其他 https 原样保留；已代理的不重复包。
+        if (song.getCoverUrl() != null && isBiliCdnCover(song.getCoverUrl())
+                && !song.getCoverUrl().startsWith("/api/image-proxy")) {
+            String encoded = java.net.URLEncoder.encode(song.getCoverUrl(), java.nio.charset.StandardCharsets.UTF_8);
+            song.setCoverUrl("/api/image-proxy?url=" + encoded);
+        }
+    }
+
+    /** B 站封面 CDN 域名判定：与 ProxyController ALLOWED_HOSTS 内三域名镜像，防发出不可代理 URL。 */
+    static boolean isBiliCdnCover(String coverUrl) {
+        if (coverUrl == null) return false;
+        try {
+            String host = java.net.URI.create(coverUrl).getHost();
+            if (host == null) return false;
+            String h = host.toLowerCase(java.util.Locale.ROOT);
+            return h.equals("i0.hdslb.com") || h.equals("i1.hdslb.com") || h.equals("i2.hdslb.com");
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -910,16 +984,39 @@ public class SongSearchService {
             Object vipObj = raw.get("vip");
             // 上游未知保持 null（中性、不得分），只有明确非付费才加权，见 applyNonVipBonus
             Boolean vip = vipObj instanceof Boolean ? (Boolean) vipObj : null;
+            // B 站热度透传（网关 _raw.play/_raw.danmaku，加性；缺失即 null=未知，门控按 0 计）
+            Long playCount = null;
+            Long danmakuCount = null;
+            Object rawObj = raw.get("_raw");
+            if (rawObj instanceof Map<?, ?> rawMap) {
+                playCount = toLongOrNull(rawMap.get("play"));
+                if (playCount == null) playCount = toLongOrNull(rawMap.get("playCount"));
+                danmakuCount = toLongOrNull(rawMap.get("danmaku"));
+            }
 
             SongDTO dto = new SongDTO();
             dto.setSourceId(sourceId); dto.setName(name); dto.setArtist(artists);
             dto.setAlbum(album); dto.setCoverUrl(coverUrl); dto.setDuration(duration);
             dto.setVip(vip);
+            dto.setPlayCount(playCount); dto.setDanmakuCount(danmakuCount);
             return dto;
         } catch (Exception e) {
             log.warn("Failed to parse platform song: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** 网关 _raw 热度字段宽容转 Long：Number 直接取，数字字符串解析，其他一律 null。 */
+    static Long toLongOrNull(Object v) {
+        if (v instanceof Number n) return n.longValue();
+        if (v instanceof String s && s.trim().matches("-?\\d+")) {
+            try {
+                return Long.parseLong(s.trim());
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private <T> List<T> getWithTimeout(Future<List<T>> future, int seconds, String platform) {

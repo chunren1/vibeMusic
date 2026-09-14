@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 
 const axios = require('axios');
 const searchMod = require('../src/search');
-const { searchBili, mapBiliVideo, parseBiliDuration, getBiliUrl, getBiliView, isBiliTrackId, isBiliSingle, BILI_SINGLE_MAX_DURATION_MS, BILI_MUSIC_TID, urlCache, searchCache } = searchMod;
+const { searchBili, mapBiliVideo, parseBiliTitle, parseBiliDuration, getBiliUrl, getBiliView, isBiliTrackId, isBiliSingle, BILI_SINGLE_MAX_DURATION_MS, BILI_MUSIC_TID, urlCache, searchCache } = searchMod;
 
 const BVID = 'BV1De411p77r';
 const AID = 243082173;
@@ -34,6 +34,7 @@ function searchPayload() {
           typename: 'MV',
           pic: '//i0.hdslb.com/bfs/archive/e25120857a6298d1d4b9e64a805c023b5143c8ff.jpg',
           play: 1037655,
+          danmaku: 521,
           duration: '4:18',
         },
         {
@@ -153,14 +154,17 @@ test('searchBili 归一化形状：BV 过滤/em 去标签/封面 https/时长毫
 
     const [s] = songs;
     assert.equal(s.id, BVID);
-    assert.equal(s.name, '梦然-《少年》官方版');
-    assert.equal(s.artists, '大橘爱吃猫');
+    // 标题解析：'梦然-《少年》官方版' → 歌名=少年、歌手=梦然（不再是 UP 主）
+    assert.equal(s.name, '少年');
+    assert.equal(s.artists, '梦然');
     assert.equal(s.album, '');
     assert.equal(s.cover, 'https://i0.hdslb.com/bfs/archive/e25120857a6298d1d4b9e64a805c023b5143c8ff.jpg');
     assert.equal(s.duration, 258000);
     assert.equal(s.vip, false);
     assert.equal(s._raw.aid, String(AID));
     assert.equal(s._raw.bvid, BVID);
+    assert.equal(s._raw.play, 1037655);
+    assert.equal(s._raw.danmaku, 521);
     assert.deepEqual(Object.keys(s).sort(), ['_raw', 'album', 'artists', 'cover', 'duration', 'id', 'name', 'vip']);
   } finally {
     restore();
@@ -192,6 +196,73 @@ test('mapBiliVideo 容忍最小条目', () => {
   assert.equal(out.artists, '');
   assert.equal(out.duration, 0);
   assert.equal(out.vip, false);
+});
+
+test('mapBiliVideo 封面归一：// 补 https、http 升级、缺 pic 置空(不断言上游恒有)', () => {
+  assert.equal(
+    mapBiliVideo({ bvid: BVID, title: '少年', author: 'up', pic: '//i0.hdslb.com/x.jpg' }).cover,
+    'https://i0.hdslb.com/x.jpg');
+  assert.equal(
+    mapBiliVideo({ bvid: BVID, title: '少年', author: 'up', pic: 'http://i0.hdslb.com/x.jpg' }).cover,
+    'https://i0.hdslb.com/x.jpg');
+  assert.equal(mapBiliVideo({ bvid: BVID, title: '少年', author: 'up' }).cover, '');
+});
+
+test('mapBiliVideo _raw 透传播放量/弹幕数(供后端播放量门控)，缺失置 0', () => {
+  const full = mapBiliVideo({ bvid: BVID, title: '少年', author: 'up', play: 2955739, danmaku: 17317 });
+  assert.equal(full._raw.play, 2955739);
+  assert.equal(full._raw.danmaku, 17317);
+  const empty = mapBiliVideo({ bvid: BVID, title: '少年', author: 'up' });
+  assert.equal(empty._raw.play, 0);
+  assert.equal(empty._raw.danmaku, 0);
+});
+
+// ---- 标题解析 ----
+test('parseBiliTitle《》优先：歌手-《歌名》/歌手《歌名》/全角破折号', () => {
+  assert.deepEqual(parseBiliTitle('梦然-《少年》官方版', '大橘爱吃猫'), { name: '少年', artists: '梦然' });
+  assert.deepEqual(parseBiliTitle('周杰伦——《晴天》', '寻意zzzz'), { name: '晴天', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('【杜比音效】周杰伦《晴天》4K', 'up'), { name: '晴天', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('《晴天》- 周杰伦', 'up'), { name: '晴天', artists: '周杰伦' });
+  // live 实录：【Hi-Res】｜《晴天》- 周杰伦 -'…' → 邻位取歌手
+  assert.deepEqual(
+    parseBiliTitle('【Hi-Res无损音质】｜《晴天》- 周杰伦 -‘故事的小黄花’', 'VV音乐局'),
+    { name: '晴天', artists: '周杰伦' });
+});
+
+test('parseBiliTitle 排序：歌名-歌手翻唱/歌手-歌名/版本词倒装', () => {
+  assert.deepEqual(parseBiliTitle('晴天 - 周杰伦翻唱', '某UP'), { name: '晴天', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('【翻唱】阿梨 - 少年 (cover)', '阿梨本人'), { name: '少年', artists: '阿梨' });
+  assert.deepEqual(parseBiliTitle('晴天完整版 - 周杰伦', 'up'), { name: '晴天', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('周杰伦翻唱 - 晴天', 'up'), { name: '晴天', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('周杰伦 - 稻香 (Live版)', '搬运'), { name: '稻香', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('【Live】周杰伦 - 夜曲', 'up'), { name: '夜曲', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('周杰伦 - 夜曲 live', 'up'), { name: '夜曲', artists: '周杰伦' });
+  assert.deepEqual(parseBiliTitle('【4K修复】周杰伦 - 晴天MV 2160P修复版', 'up'), { name: '晴天', artists: '周杰伦' });
+});
+
+test('parseBiliTitle OST：剧名书名号剥除，真歌名保留', () => {
+  assert.deepEqual(
+    parseBiliTitle('林俊杰 - 她说 (电视剧《北上》主题曲)', 'up'),
+    { name: '她说', artists: '林俊杰' });
+  assert.deepEqual(
+    parseBiliTitle('《匆匆那年》- 电影《匆匆那年》主题曲', '影视音乐'),
+    { name: '匆匆那年', artists: '影视音乐' });
+});
+
+test('parseBiliTitle 歧义回退：多《》/指示词残留时保歌名、歌手回退 UP 主，绝不空', () => {
+  // 广告混剪双《》→整体回退(由后端播放量门控沉底)
+  const ad = parseBiliTitle('【疑似《那天下雨了》MV】周杰伦vivo最新广告《手握彩虹，遇见晴天》', 'up');
+  assert.equal(ad.artists, 'up');
+  assert.ok(ad.name.length > 0);
+  // '这才是'指示词拒识→歌手回退 UP 主，歌名保留
+  assert.deepEqual(parseBiliTitle('这才是《晴天》原版MV！', '杨某人'), { name: '晴天', artists: '杨某人' });
+  // 歌词引用尾巴过长→回退 UP 主
+  assert.deepEqual(parseBiliTitle('循环歌曲《晴天》|"刮风这天我试过握着你手', 'Echo'), { name: '晴天', artists: 'Echo' });
+  // 单段版本词照剥
+  assert.deepEqual(parseBiliTitle('少年完整版', '大橘爱吃猫'), { name: '少年', artists: '大橘爱吃猫' });
+  // 空输入绝不抛，name/artist 均为 ''
+  assert.deepEqual(parseBiliTitle('', ''), { name: '', artists: '' });
+  assert.deepEqual(parseBiliTitle(null, null), { name: '', artists: '' });
 });
 
 // ---- 单曲形态过滤 ----
