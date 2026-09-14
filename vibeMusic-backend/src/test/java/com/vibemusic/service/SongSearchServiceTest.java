@@ -731,6 +731,290 @@ class SongSearchServiceTest {
         }
     }
 
+    @Nested @DisplayName("酷狗四平台合并")
+    class KugouMergeTest {
+
+        private void mockCacheMiss() {
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
+            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
+        }
+
+        private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", id);
+            m.put("name", name);
+            m.put("artists", artist);
+            m.put("album", "");
+            m.put("cover", "");
+            m.put("duration", durationMs);
+            if (vip != null) m.put("vip", vip);
+            return m;
+        }
+
+        @Test @DisplayName("platform=kugou 只搜酷狗")
+        void shouldSearchKugouOnly() {
+            when(cacheService.getSearchCache(eq("酷狗歌:kugou"))).thenReturn(null);
+            when(neteaseApiService.searchKugou("酷狗歌", 40))
+                    .thenReturn(Map.of("data", List.of(
+                            Map.of("id", "45f763d7beb1fd000af890eb6c70b9a2", "name", "酷狗歌曲",
+                                    "artists", "歌手", "duration", 334000))));
+
+            SearchResult result = songSearchService.search("酷狗歌", 1, 20, "kugou");
+
+            assertEquals("api", result.getSource());
+            assertEquals("kugou", result.getList().get(0).getPlatform());
+            verify(neteaseApiService, times(1)).searchKugou(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchMigu(anyString(), anyInt());
+        }
+
+        @Test @DisplayName("酷狗结果进入 :all 合并且权重介于咪咕与 QQ 之间")
+        void kugouPresentInAllWithMidWeight() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("安静", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne0", "无关歌", "路人", 200000, null),
+                    apiSong("ne1", "安静", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("安静", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("qq1", "安静啦啦版", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchMigu("安静", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("安静", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("45f763d7beb1fd000af890eb6c70b9a2", "安静", "歌手乙", 334000, false))));
+
+            SearchResult result = songSearchService.search("安静", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(4, result.getList().size());
+            // 酷狗第 1 名：1.0 + 精确歌名 2.0 + 非 VIP 0.5 = 3.5
+            assertEquals("kugou", result.getList().get(0).getPlatform());
+            assertEquals(1.0 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            // 网易云第 2 名：0.75 + 精确歌名 2.0 = 2.75（vip 未知，中性）
+            assertEquals("ne1", result.getList().get(1).getSourceId());
+            assertEquals(0.75 + 2.0, result.getList().get(1).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("网易云与酷狗同曲合并：跨平台加分且来源齐全")
+        void neteaseKugouSameSongMergesWithBonus() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("45f763d7beb1fd000af890eb6c70b9a2", "晴天", "周杰伦", 240000, false))));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(1, result.getList().size());
+            assertTrue(result.getList().get(0).getAvailableSources().contains("netease"));
+            assertTrue(result.getList().get(0).getAvailableSources().contains("kugou"));
+            // 胜者为网易云（先入）：1.5 + 跨平台 0.3 + 精确歌名 2.0 + 非 VIP 0.5
+            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("仅酷狗失败不计全失败：有结果仍写缓存且不计数")
+        void onlyKugouFailureIsNotAllFailed() {
+            mockCacheMiss();
+            when(cacheService.tryLock(anyString())).thenReturn("lock-kg");
+            when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("kugou down"));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(1, result.getList().size());
+            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
+            assertEquals(0.0, meterRegistry.get("search.upstream.all_failed").counter().count());
+        }
+
+        @Test @DisplayName("五平台全失败不写空哨兵并计数")
+        void allFiveUpstreamFailedCountsWithoutSentinel() {
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
+            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
+            when(cacheService.tryLock(anyString())).thenReturn("lock-kg-all");
+            when(neteaseApiService.searchNetease(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("netease down"));
+            when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("qq down"));
+            when(neteaseApiService.searchMigu(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("migu down"));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("kugou down"));
+            when(neteaseApiService.searchBili(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("bili down"));
+
+            SearchResult result = songSearchService.search("四挂词", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertTrue(result.getList().isEmpty());
+            verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
+            verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
+            assertEquals(1.0, meterRegistry.get("search.upstream.all_failed").counter().count());
+        }
+
+        @Test @DisplayName("酷狗异常不影响网易云结果")
+        void kugouFailureDegradesGracefully() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("kugou down"));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(1, result.getList().size());
+            assertEquals("netease", result.getList().get(0).getPlatform());
+        }
+    }
+
+    @Nested @DisplayName("B站五平台合并")
+    class BiliMergeTest {
+
+        private void mockCacheMiss() {
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
+            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
+        }
+
+        private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", id);
+            m.put("name", name);
+            m.put("artists", artist);
+            m.put("album", "");
+            m.put("cover", "");
+            m.put("duration", durationMs);
+            if (vip != null) m.put("vip", vip);
+            return m;
+        }
+
+        @Test @DisplayName("platform=bilibili 只搜B站")
+        void shouldSearchBiliOnly() {
+            when(cacheService.getSearchCache(eq("B站歌:bilibili"))).thenReturn(null);
+            when(neteaseApiService.searchBili("B站歌", 40))
+                    .thenReturn(Map.of("data", List.of(
+                            Map.of("id", "BV1De411p77r", "name", "B站歌曲",
+                                    "artists", "UP主", "duration", 258000))));
+
+            SearchResult result = songSearchService.search("B站歌", 1, 20, "bilibili");
+
+            assertEquals("api", result.getSource());
+            assertEquals("bilibili", result.getList().get(0).getPlatform());
+            verify(neteaseApiService, times(1)).searchBili(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchMigu(anyString(), anyInt());
+            verify(neteaseApiService, never()).searchKugou(anyString(), anyInt());
+        }
+
+        @Test @DisplayName("B站结果进入 :all 合并且权重介于酷狗与 QQ 之间")
+        void biliPresentInAllWithLowMidWeight() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("少年", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne0", "无关歌", "路人", 200000, null),
+                    apiSong("ne1", "少年", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("少年", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("qq1", "少年啦啦版", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchMigu("少年", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("少年", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchBili("少年", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("BV1De411p77r", "少年", "歌手乙", 258000, false))));
+
+            SearchResult result = songSearchService.search("少年", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(4, result.getList().size());
+            // B站第 1 名：0.8 + 精确歌名 2.0 + 非 VIP 0.5 = 3.3
+            assertEquals("bilibili", result.getList().get(0).getPlatform());
+            assertEquals(0.8 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            // 网易云第 2 名：0.75 + 精确歌名 2.0 = 2.75（vip 未知，中性）
+            assertEquals("ne1", result.getList().get(1).getSourceId());
+            assertEquals(0.75 + 2.0, result.getList().get(1).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("网易云与B站同曲合并：跨平台加分且来源齐全")
+        void neteaseBiliSameSongMergesWithBonus() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchBili("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("BV1xx00000001", "晴天", "周杰伦", 240000, false))));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(1, result.getList().size());
+            assertTrue(result.getList().get(0).getAvailableSources().contains("netease"));
+            assertTrue(result.getList().get(0).getAvailableSources().contains("bilibili"));
+            // 胜者为网易云（先入）：1.5 + 跨平台 0.3 + 精确歌名 2.0 + 非 VIP 0.5
+            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+        }
+
+        @Test @DisplayName("仅B站失败不计全失败：有结果仍写缓存且不计数")
+        void onlyBiliFailureIsNotAllFailed() {
+            mockCacheMiss();
+            when(cacheService.tryLock(anyString())).thenReturn("lock-bi");
+            when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchBili(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("bili down"));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(1, result.getList().size());
+            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
+            assertEquals(0.0, meterRegistry.get("search.upstream.all_failed").counter().count());
+        }
+
+        @Test @DisplayName("B站异常不影响网易云结果")
+        void biliFailureDegradesGracefully() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchMigu("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchBili(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("bili down"));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertEquals(1, result.getList().size());
+            assertEquals("netease", result.getList().get(0).getPlatform());
+        }
+    }
+
     @Nested @DisplayName("单飞锁防击穿")
     class SingleFlightTest {
 
@@ -805,8 +1089,9 @@ class SongSearchServiceTest {
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchMigu(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
-
-            int threads = 3;
+            // 2 线程 × 五平台 = 10 提交，恰好容于本测试池(2 线程 + 10 队列)；
+            // 3 线程会触发过载快速失败 503(另有 PoolRejectionTest 专测该语义)。
+            int threads = 2;
             ExecutorService pool = Executors.newFixedThreadPool(threads);
             List<Future<SearchResult>> futures = new ArrayList<>();
             try {
@@ -875,6 +1160,10 @@ class SongSearchServiceTest {
                     .thenThrow(new RuntimeException("qq down"));
             when(neteaseApiService.searchMigu(anyString(), anyInt()))
                     .thenThrow(new RuntimeException("migu down"));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("kugou down"));
+            when(neteaseApiService.searchBili(anyString(), anyInt()))
+                    .thenThrow(new RuntimeException("bili down"));
         }
 
         @Test @DisplayName("命中空哨兵直接返回空，不再穿透上游")
@@ -918,6 +1207,10 @@ class SongSearchServiceTest {
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchMigu(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchBili(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
 
             SearchResult result = songSearchService.search("真空词", 1, 20);
 
@@ -941,6 +1234,10 @@ class SongSearchServiceTest {
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchMigu(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchBili(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
         }
 

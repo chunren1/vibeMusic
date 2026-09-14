@@ -76,7 +76,7 @@ class SongCacheServiceTest {
     @DisplayName("getSearchCache 命中时反序列化")
     void shouldGetCacheWhenHit() {
         String json = "[{\"sourceId\":\"1\",\"name\":\"晴天\",\"artist\":\"周杰伦\",\"platform\":\"netease\"}]";
-        when(valueOps.get("song:search:v4:晴天:all")).thenReturn(json);
+        when(valueOps.get("song:search:v6:晴天:all")).thenReturn(json);
         var result = cacheService.getSearchCache("晴天:all");
         assertFalse(result.isEmpty());
         assertEquals("晴天", result.get(0).getName());
@@ -95,10 +95,10 @@ class SongCacheServiceTest {
     void shouldRoundTripEmptySentinel() {
         var songs = List.of(new com.vibemusic.dto.SongDTO());
         cacheService.setSearchCache("无结果词:all", songs, false);
-        verify(valueOps).set(eq("song:search:v4:无结果词:all"),
+        verify(valueOps).set(eq("song:search:v6:无结果词:all"),
                 eq(SongCacheService.EMPTY_SENTINEL_JSON), any(Duration.class));
 
-        when(valueOps.get("song:search:v4:无结果词:all"))
+        when(valueOps.get("song:search:v6:无结果词:all"))
                 .thenReturn(SongCacheService.EMPTY_SENTINEL_JSON);
         var result = cacheService.getSearchCache("无结果词:all");
         assertNotNull(result);
@@ -119,7 +119,7 @@ class SongCacheServiceTest {
         var songs = List.of(new com.vibemusic.dto.SongDTO());
         // 不抛异常即视为成功
         cacheService.setSearchCache("周杰伦:all", songs, true);
-        verify(valueOps).set(eq("song:search:v4:周杰伦:all"), anyString(), any(Duration.class));
+        verify(valueOps).set(eq("song:search:v6:周杰伦:all"), anyString(), any(Duration.class));
     }
 
     @Test
@@ -141,7 +141,7 @@ class SongCacheServiceTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        when(valueOps.get("song:search:v4:告白气球:all")).thenReturn(json);
+        when(valueOps.get("song:search:v6:告白气球:all")).thenReturn(json);
 
         var result = cacheService.getSearchCache("告白气球:all");
         assertNotNull(result);
@@ -153,7 +153,7 @@ class SongCacheServiceTest {
     void shouldUseShortTtlForIncomplete() {
         var songs = List.of(new com.vibemusic.dto.SongDTO());
         cacheService.setSearchCache("周杰伦:all", songs, true, true);
-        verify(valueOps).set(eq("song:search:v4:周杰伦:all"), anyString(), eq(Duration.ofSeconds(30)));
+        verify(valueOps).set(eq("song:search:v6:周杰伦:all"), anyString(), eq(Duration.ofSeconds(30)));
     }
 
     @Test

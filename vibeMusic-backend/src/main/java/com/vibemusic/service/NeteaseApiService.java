@@ -31,7 +31,7 @@ public class NeteaseApiService {
     /** 流式下载客户端（复用连接池） */
     private RestClient streamClient;
 
-    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,*.migu.cn}")
+    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,*.migu.cn,*.bilivideo.com,*.hdslb.com}")
     private String cdnWhitelistConfig;
 
     private boolean isUrlAllowed(String url) {
@@ -132,6 +132,65 @@ public class NeteaseApiService {
                 "copyrightId", copyrightId != null ? copyrightId : "");
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
         log.info("Migu播放URL: {} status={}", contentId, response.getStatusCode());
+        return response.getBody();
+    }
+
+    public Map<String, Object> searchKugou(String keyword, int limit) {
+        URI uri = buildUri("/kugou/search", "keyword", keyword, "limit", String.valueOf(limit));
+        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+    }
+
+    /**
+     * 酷狗播放地址（phase 1 匿名直通，不登录/VIP）。
+     * 网关 /kugou/url 以 getdata 风格向上游取链：
+     * {@code https://wwwapi.kugou.com/yy/index.php?r=play/getdata&hash=&album_id=&appid=1014}，
+     * 无签名 crypto（v5/url 旋转 salt 留待 phase 2）。
+     * 音质档：low→128k 默认；standard→320hash（缺失则网关回落 128k）；
+     * high/super 为 VIP 档，phase 1 无登录链路，直接返回 null 且不请求上游。
+     */
+    public Map<String, Object> getKugouSongUrl(String hash, String albumId, String level) {
+        String tier = level != null ? level.trim().toLowerCase() : "low";
+        if ("high".equals(tier) || "super".equals(tier) || "sq".equals(tier)
+                || "hires".equals(tier) || "lossless".equals(tier)) {
+            log.info("KuGou播放URL: hash={} tier={} 为VIP档，phase1直接返回null", hash, tier);
+            return null;
+        }
+        if (!"standard".equals(tier)) tier = "low";
+        URI uri = buildUri("/kugou/url", "hash", hash,
+                "albumId", albumId != null ? albumId : "", "level", tier);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        log.info("KuGou播放URL: {} level={} status={}", hash, tier, response.getStatusCode());
+        return response.getBody();
+    }
+
+    /**
+     * 酷狗歌词：网关 /kugou/lyric 复用 getdata 响应内联 lyrics 字段，
+     * 返回与 /qq/lyric 同形 {code, data:{lyric}}。
+     */
+    public Map<String, Object> getKugouLyric(String hash, String albumId) {
+        URI uri = buildUri("/kugou/lyric", "hash", hash,
+                "albumId", albumId != null ? albumId : "");
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        log.info("获取KuGou歌词: hash={} status={}", hash, response.getStatusCode());
+        return response.getBody();
+    }
+
+    public Map<String, Object> searchBili(String keyword, int limit) {
+        URI uri = buildUri("/bili/search", "keyword", keyword, "limit", String.valueOf(limit));
+        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+    }
+
+    /**
+     * B站 guest 播放地址（phase 1 匿名，无登录/VIP）。
+     * 网关 /bili/url 内部 pagelist→cid→WBI playurl，取 DASH 伴音轨
+     * (guest 132–192k AAC)；id 接受纯 bvid 或复合 bvid|cid。
+     * 注：无 getBiliLyric——视频字幕需登录(player/v2 对匿名返回空)，
+     * 无 guest trivial 歌词通道，故本 phase 不提供。
+     */
+    public Map<String, Object> getBiliSongUrl(String biliId) {
+        URI uri = buildUri("/bili/url", "id", biliId);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        log.info("Bili播放URL: {} status={}", biliId, response.getStatusCode());
         return response.getBody();
     }
 

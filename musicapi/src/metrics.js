@@ -41,13 +41,15 @@ const upGauge = new promClient.Gauge({
 });
 upGauge.set(1);
 
-// Prometheus HTTP 指标中间件（记录请求耗时和数量）
+// 标签在 finish 时确定：中间件挂在路由之前，入口处 req.route 恒为 undefined；
+// 未匹配路由（404/通配未命中）统一归到 path="unmatched"，防止任意路径推高基数。
 function metricsMiddleware(req, res, next) {
-  const pathLabel = req.route ? req.route.path : req.path;
-  const end = httpRequestDuration.startTimer({ method: req.method, path: pathLabel });
+  const end = httpRequestDuration.startTimer();
   res.on('finish', () => {
-    end();
-    httpRequestTotal.inc({ method: req.method, path: pathLabel, status: res.statusCode });
+    const routePath = req.route && req.route.path ? req.route.path : null;
+    const label = typeof routePath === 'string' ? routePath : 'unmatched';
+    end({ method: req.method, path: label });
+    httpRequestTotal.inc({ method: req.method, path: label, status: res.statusCode });
   });
   next();
 }

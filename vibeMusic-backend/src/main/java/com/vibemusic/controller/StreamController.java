@@ -53,7 +53,7 @@ public class StreamController {
     public void shutdown() { ASYNC_CACHE_EXECUTOR.shutdown(); }
 
     /** 音频 CDN 域名通配符白名单（防 SSRF），支持 *.music.126.net 风格 */
-    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com}")
+    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,*.bilivideo.com,*.hdslb.com}")
     private String cdnWhitelistConfig;
 
     private List<String> loadCdnWhitelist() {

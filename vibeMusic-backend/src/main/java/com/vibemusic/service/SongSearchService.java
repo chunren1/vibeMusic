@@ -68,7 +68,7 @@ public class SongSearchService {
         searchRejectedCounter = Counter.builder("search.pool.rejected")
                 .description("搜索线程池过载拒绝次数").register(meterRegistry);
         upstreamAllFailedCounter = Counter.builder("search.upstream.all_failed")
-                .description("三平台上游全部失败次数").register(meterRegistry);
+                .description("五平台上游全部失败次数").register(meterRegistry);
         searchTimer = Timer.builder("search.latency")
                 .description("搜索总耗时").register(meterRegistry);
     }
@@ -107,6 +107,15 @@ public class SongSearchService {
 
     private static final double NET_WEIGHT = 1.5;
     private static final double MIGU_WEIGHT = 1.4;
+    // 酷狗权重 1.0：介于咪咕(1.4)与 QQ(0.6)之间。phase 1 匿名仅 128k/320k，
+    // 覆盖与元数据完整度不及咪咕签名的 PQ 链路，但优于无 Cookie 的 QQ(且不受熔断器降权)，
+    // 故取中点，保持 netease > migu > kugou > qq 排序。
+    private static final double KUGOU_WEIGHT = 1.0;
+    // B 站权重 0.8：guest 132–192k AAC 实测可播(酷狗 getdata 当前上游拒绝中，
+    // 名义 1.0 但实际不可播)，翻唱/古风/Live/OST 覆盖独特；但视频标题元数据
+    // 噪音大(无专辑、时长字符串解析)，故置于酷狗名义权重之下、QQ 之上，
+    // 保持 netease > migu > kugou > bilibili > qq 排序。
+    private static final double BILI_WEIGHT = 0.8;
     private static final double QQ_WEIGHT = 0.6;
     private static final double CROSS_PLATFORM_BONUS = 0.3;
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
@@ -298,15 +307,31 @@ public class SongSearchService {
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":migu", songs, true);
             return songs;
         }
+        if ("kugou".equals(cacheExtra)) {
+            List<SongDTO> songs = new ArrayList<>(safeSearchKugou(kw));
+            for (SongDTO s : songs) s.setPlatform("kugou");
+            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":kugou", songs, true);
+            return songs;
+        }
+        if ("bilibili".equals(cacheExtra)) {
+            List<SongDTO> songs = new ArrayList<>(safeSearchBili(kw));
+            for (SongDTO s : songs) s.setPlatform("bilibili");
+            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":bilibili", songs, true);
+            return songs;
+        }
 
         // 合并搜索（复用 Spring 托管线程池）；熔断开路时跳过 QQ 分支，不再吃 4s 超时。
         // 线程池过载 submit 同步抛 RejectedExecutionException → 快速失败转可重试错误，不静默丢任务。
         final AtomicBoolean neFailed = new AtomicBoolean(false);
         final AtomicBoolean qqFailed = new AtomicBoolean(false);
         final AtomicBoolean mgFailed = new AtomicBoolean(false);
+        final AtomicBoolean kgFailed = new AtomicBoolean(false);
+        final AtomicBoolean biFailed = new AtomicBoolean(false);
         final Future<List<SongDTO>> neF;
         final Future<List<SongDTO>> qqF;
         final Future<List<SongDTO>> mgF;
+        final Future<List<SongDTO>> kgF;
+        final Future<List<SongDTO>> biF;
         final AtomicBoolean qqOutcomeClaimed = new AtomicBoolean(false);
         try {
             neF = searchExecutor.submit(() -> safeSearchNetease(kw, neFailed));
@@ -329,6 +354,8 @@ public class SongSearchService {
             }
             qqF = qqFuture;
             mgF = searchExecutor.submit(() -> safeSearchMigu(kw, mgFailed));
+            kgF = searchExecutor.submit(() -> safeSearchKugou(kw, kgFailed));
+            biF = searchExecutor.submit(() -> safeSearchBili(kw, biFailed));
         } catch (RejectedExecutionException rex) {
             // ThreadPoolTaskExecutor.submit 把拒绝包装为 TaskRejectedException（仍是 RejectedExecutionException 子类），此处一并捕获。
             searchRejectedCounter.increment();
@@ -338,15 +365,17 @@ public class SongSearchService {
         List<SongDTO> neteaseSongs = getWithTimeout(neF, SEARCH_TIMEOUT_SEC, "Netease", neFailed);
         List<SongDTO> qqSongs = (qqF == null) ? Collections.emptyList() : getQqWithTimeout(qqF, qqOutcomeClaimed, qqFailed);
         List<SongDTO> miguSongs = getWithTimeout(mgF, SEARCH_TIMEOUT_SEC, "Migu", mgFailed);
-        List<SongDTO> merged = mergePlatformResults(neteaseSongs, qqSongs, miguSongs, kw);
+        List<SongDTO> kugouSongs = getWithTimeout(kgF, SEARCH_TIMEOUT_SEC, "Kugou", kgFailed);
+        List<SongDTO> biliSongs = getWithTimeout(biF, SEARCH_TIMEOUT_SEC, "Bili", biFailed);
+        List<SongDTO> merged = mergePlatformResults(neteaseSongs, qqSongs, miguSongs, kugouSongs, biliSongs, kw);
 
-        boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty();
-        log.info("[API-LAYER] 搜索完成: keyword='{}', 网易云={}首, QQ={}首, 咪咕={}首, 去重后={}首, API-cost={}ms, totalCost={}ms",
-                kw, neteaseSongs.size(), qqSongs.size(), miguSongs.size(), merged.size(),
+        boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty() || kugouSongs.isEmpty() || biliSongs.isEmpty();
+        log.info("[API-LAYER] 搜索完成: keyword='{}', 网易云={}首, QQ={}首, 咪咕={}首, 酷狗={}首, B站={}首, 去重后={}首, API-cost={}ms, totalCost={}ms",
+                kw, neteaseSongs.size(), qqSongs.size(), miguSongs.size(), kugouSongs.size(), biliSongs.size(), merged.size(),
                 System.currentTimeMillis() - apiStart, System.currentTimeMillis());
-        if (merged.isEmpty() && allUpstreamFailed(qqF == null, neFailed, qqFailed, mgFailed)) {
+        if (merged.isEmpty() && allUpstreamFailed(qqF == null, neFailed, qqFailed, mgFailed, kgFailed, biFailed)) {
             upstreamAllFailedCounter.increment();
-            log.warn("[API-LAYER] 三平台上游全部失败，不写空哨兵: keyword='{}'", kw);
+            log.warn("[API-LAYER] 五平台上游全部失败，不写空哨兵: keyword='{}'", kw);
             return merged;
         }
         cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
@@ -356,14 +385,17 @@ public class SongSearchService {
         return merged;
     }
 
-    /** 合并三平台结果：归一化去重、跨平台加分、查询相关性加分、按最终分排序 */
+    /** 合并五平台结果：归一化去重、跨平台加分、查询相关性加分、按最终分排序 */
     private List<SongDTO> mergePlatformResults(List<SongDTO> neteaseSongs, List<SongDTO> qqSongs,
-                                               List<SongDTO> miguSongs, String keyword) {
+                                               List<SongDTO> miguSongs, List<SongDTO> kugouSongs,
+                                               List<SongDTO> biliSongs, String keyword) {
         Map<String, SongDTO> mergedMap = new LinkedHashMap<>();
 
         addPlatformSongs(mergedMap, neteaseSongs, NET_WEIGHT, "netease", false);
         addPlatformSongs(mergedMap, qqSongs, QQ_WEIGHT, "qq", true);
         addPlatformSongs(mergedMap, miguSongs, MIGU_WEIGHT, "migu", true);
+        addPlatformSongs(mergedMap, kugouSongs, KUGOU_WEIGHT, "kugou", true);
+        addPlatformSongs(mergedMap, biliSongs, BILI_WEIGHT, "bilibili", true);
 
         List<SongDTO> merged = new ArrayList<>(mergedMap.values());
         long relevanceStart = System.currentTimeMillis();
@@ -686,10 +718,11 @@ public class SongSearchService {
         }
     }
 
-    /** 全失败判定：实际发起的平台全部异常/超时（熔断跳过的 QQ 不计入，被跳过时只看网易云+咪咕）。 */
+    /** 全失败判定：实际发起的平台全部异常/超时（熔断跳过的 QQ 不计入，被跳过时只看网易云+咪咕+酷狗+B站）。 */
     private boolean allUpstreamFailed(boolean qqSkipped, AtomicBoolean neFailed,
-                                      AtomicBoolean qqFailed, AtomicBoolean mgFailed) {
-        if (!neFailed.get() || !mgFailed.get()) return false;
+                                      AtomicBoolean qqFailed, AtomicBoolean mgFailed,
+                                      AtomicBoolean kgFailed, AtomicBoolean biFailed) {
+        if (!neFailed.get() || !mgFailed.get() || !kgFailed.get() || !biFailed.get()) return false;
         return qqSkipped || qqFailed.get();
     }
 
@@ -760,6 +793,52 @@ public class SongSearchService {
         } catch (Exception e) {
             if (failed != null) failed.set(true);
             log.error("Migu search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+            return Collections.emptyList();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SongDTO> safeSearchKugou(String keyword) {
+        return safeSearchKugou(keyword, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SongDTO> safeSearchBili(String keyword) {
+        return safeSearchBili(keyword, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SongDTO> safeSearchBili(String keyword, AtomicBoolean failed) {
+        try {
+            Map<String, Object> result = neteaseApiService.searchBili(keyword, PER_PLATFORM_FETCH);
+            if (result == null) return Collections.emptyList();
+            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+            if (data == null) return Collections.emptyList();
+            return data.stream()
+                    .map(this::parsePlatformSong).filter(Objects::nonNull)
+                    .peek(this::rewriteHttpCoverUrl)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            if (failed != null) failed.set(true);
+            log.error("Bili search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+            return Collections.emptyList();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SongDTO> safeSearchKugou(String keyword, AtomicBoolean failed) {
+        try {
+            Map<String, Object> result = neteaseApiService.searchKugou(keyword, PER_PLATFORM_FETCH);
+            if (result == null) return Collections.emptyList();
+            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+            if (data == null) return Collections.emptyList();
+            return data.stream()
+                    .map(this::parsePlatformSong).filter(Objects::nonNull)
+                    .peek(this::rewriteHttpCoverUrl)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            if (failed != null) failed.set(true);
+            log.error("Kugou search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
             return Collections.emptyList();
         }
     }

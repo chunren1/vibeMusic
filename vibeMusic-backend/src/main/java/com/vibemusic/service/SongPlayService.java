@@ -42,6 +42,22 @@ public class SongPlayService {
 
     public int getDegradationCount() { return degradationCount.get(); }
 
+    /** 酷狗 hash 判定：32 位十六进制（全数字 32 位亦命中，优先于网易云纯数字分支）。 */
+    static boolean isKugouHash(String sourceId) {
+        return sourceId != null && sourceId.matches("(?i)[a-f0-9]{32}");
+    }
+
+    /**
+     * B站 track 判定：纯 bvid(BV 开头)或复合 bvid|cid。
+     * BV 形与 QQ songmid 字符集有交集，故调用方必须优先显式 platform，
+     * ID 猜测仅在无显式平台时生效；裸数字 aid 一律不视为 B 站(归网易云)。
+     */
+    static boolean isBiliId(String sourceId) {
+        if (sourceId == null) return false;
+        String first = sourceId.split("\\|", -1)[0];
+        return first.matches("BV[a-zA-Z0-9]+");
+    }
+
     // ==================== getPlayInfo ====================
 
     /**
@@ -73,7 +89,7 @@ public class SongPlayService {
     public Map<String, Object> getPlayInfo(String sourceId, String songName, String artist) {
         Map<String, Object> info = new HashMap<>();
         info.put("isTrial", false);
-        info.put("platform", sourceId.matches("\\d+") ? "netease" : "qq");
+        info.put("platform", isBiliId(sourceId) ? "bilibili" : (isKugouHash(sourceId) ? "kugou" : (sourceId.matches("\\d+") ? "netease" : "qq")));
 
         // 1. 优先 MinIO 本地缓存（Redis 缓存 exists 结果，TTL 10min，减少 MinIO statObject 调用）
         String minioObjectName = "songs/" + sourceId + ".mp3";
@@ -94,7 +110,51 @@ public class SongPlayService {
         boolean degraded = false;
 
         try {
-            if (sourceId.matches("\\d+")) {
+            if (isBiliId(sourceId)) {
+                // B站 → guest 取链（phase 1 匿名 DASH 伴音轨）
+                String biliUrl = tryBiliUrl(sourceId);
+                if (biliUrl != null) {
+                    info.put("url", biliUrl);
+                    info.put("quality", AudioQualityTier.HIGHER.name());
+                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                    info.put("degraded", false);
+                    return info;
+                }
+                degradationCount.incrementAndGet();
+                log.info("B站歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String biFallback = tryNeteaseFallback(songName, artist, sourceId);
+                if (biFallback != null) {
+                    info.put("url", biFallback);
+                    info.put("platform", "netease");
+                    info.put("quality", AudioQualityTier.HIGHER.name());
+                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                    info.put("degraded", true);
+                    info.put("fallbackFrom", "bilibili-no-url");
+                    return info;
+                }
+            } else if (isKugouHash(sourceId)) {
+                // 酷狗 → 尝试获取 URL（phase 1 匿名：standard→low 逐级取链）
+                String kugouUrl = tryKugouUrl(sourceId);
+                if (kugouUrl != null) {
+                    info.put("url", kugouUrl);
+                    info.put("quality", AudioQualityTier.HIGHER.name());
+                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                    info.put("degraded", false);
+                    return info;
+                }
+                degradationCount.incrementAndGet();
+                log.info("酷狗歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String kgFallback = tryNeteaseFallback(songName, artist, sourceId);
+                if (kgFallback != null) {
+                    info.put("url", kgFallback);
+                    info.put("platform", "netease");
+                    info.put("quality", AudioQualityTier.HIGHER.name());
+                    info.put("qualityLabel", AudioQualityTier.HIGHER.getLabel());
+                    info.put("degraded", true);
+                    info.put("fallbackFrom", "kugou-no-url");
+                    return info;
+                }
+            } else if (sourceId.matches("\\d+")) {
                 // 网易云音质降级：并行探测所有级别，按质量优先级取首个非试听结果
                 // 优化前（串行）：P95 4.41s — HIRES→EXHIGH→HIGHER→STANDARD 逐级等待，4次API累计
                 // 优化后（并行）：所有级别同时请求，最快可用结果 = max(单次API耗时)，P95 目标 < 2s
@@ -287,6 +347,8 @@ public class SongPlayService {
         boolean explicitQQ = "qq".equalsIgnoreCase(platform);
         boolean explicitNE = "netease".equalsIgnoreCase(platform);
         boolean explicitMigu = "migu".equalsIgnoreCase(platform);
+        boolean explicitKugou = "kugou".equalsIgnoreCase(platform);
+        boolean explicitBili = "bilibili".equalsIgnoreCase(platform);
         boolean guessNetEase = sourceId != null && sourceId.matches("\\d+");
 
         try {
@@ -305,6 +367,22 @@ public class SongPlayService {
                     log.warn("getPlayUrl: Migu {} 获取失败: {}", sourceId, e.getMessage());
                 }
                 log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) return neteaseUrl;
+            } else if (explicitKugou || (!explicitQQ && !explicitNE && isKugouHash(sourceId))) {
+                // 酷狗：platform=kugou 显式指定，或无显式平台时的 32 位 hash 猜测
+                // （此前误入 QQ 分支）；albumId 暂无法透传，取链失败则走网易云降级
+                String kugouUrl = tryKugouUrl(sourceId);
+                if (kugouUrl != null) return kugouUrl;
+                log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                if (neteaseUrl != null) return neteaseUrl;
+            } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && isBiliId(sourceId))) {
+                // B站：platform=bilibili 显式指定，或无显式平台时的 BV 猜测
+                // （BV 形绝不能落入 QQ 分支，故本分支置于 QQ 分支之前）
+                String biliUrl = tryBiliUrl(sourceId);
+                if (biliUrl != null) return biliUrl;
+                log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", sourceId);
                 String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
@@ -422,6 +500,49 @@ public class SongPlayService {
     }
 
     // ==================== 跨平台降级（续） ====================
+
+    /**
+     * B站 guest 取链：网关 /bili/url 直通（纯 bvid 或复合 bvid|cid 原样透传）。
+     * 失败返回 null 由调用方降级，永不抛错。
+     */
+    @SuppressWarnings("unchecked")
+    private String tryBiliUrl(String biliId) {
+        try {
+            Map<String, Object> result = neteaseApiService.getBiliSongUrl(biliId);
+            if (result != null) {
+                List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                if (data != null && !data.isEmpty()) {
+                    String url = (String) data.get(0).get("url");
+                    if (url != null && !url.isEmpty()) return url;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("tryBiliUrl: {} 失败: {}", biliId, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 酷狗取链：phase 1 匿名 standard→low 逐级尝试。albumId 尚无透传字段，
+     * 传 null（网关按空 album_id 处理）；失败返回 null 由调用方降级，永不抛错。
+     */
+    @SuppressWarnings("unchecked")
+    private String tryKugouUrl(String hash) {        for (String level : new String[]{"standard", "low"}) {
+            try {
+                Map<String, Object> result = neteaseApiService.getKugouSongUrl(hash, null, level);
+                if (result != null) {
+                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                    if (data != null && !data.isEmpty()) {
+                        String url = (String) data.get(0).get("url");
+                        if (url != null && !url.isEmpty()) return url;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("tryKugouUrl: {} level={} 失败: {}", hash, level, e.getMessage());
+            }
+        }
+        return null;
+    }
 
     @SuppressWarnings("unchecked")
     private String tryQQFallback(String songName, String artist, String neteaseId) {

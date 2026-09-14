@@ -14,6 +14,7 @@ const cors = require('cors');
 const { writeLog } = require('./src/logger');
 const { globalLimiter } = require('./src/rate-limiters');
 const { register, metricsMiddleware } = require('./src/metrics');
+const { canReadMetrics, clientIp } = require('./src/access');
 const cookie = require('./src/cookie');
 const { searchCache } = require('./src/search');
 const registerRoutes = require('./src/routes');
@@ -21,13 +22,27 @@ const registerRoutes = require('./src/routes');
 const app = express();
 const PORT = 3000;
 
+// 部署现状：musicapi 3000 直绑宿主，前面无 nginx 反代（nginx/nginx.conf 无 musicapi 上游），
+// 故保持 trust proxy=false（Express 默认），限流按直连 IP 计数；若日后加反代再改为 'trust proxy', 1。
+app.set('trust proxy', false);
+
+// CORS 键名与仓库统一为复数 CORS_ORIGINS（docker-compose.yml:222、.env:53-55 均为复数，
+// 逗号分隔多源）；只改代码一侧，compose/文档不动。
+const corsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
 // ==================== 中间件 ====================
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: corsOrigins.length > 0 ? corsOrigins : 'http://localhost:5173',
   credentials: true
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Prometheus 中间件必须在限流器之前：被限流的 429 也要进指标，否则限流次数监控不可见
+app.use(metricsMiddleware);
 app.use(globalLimiter);  // 全局限流
 
 // 访问日志中间件
@@ -44,7 +59,7 @@ app.use(metricsMiddleware);
 
 // 根路由（健康检查）
 app.get('/', (req, res) => {
-  res.json({ service: 'vibeMusic API', version: '3.0', status: 'running', endpoints: ['/netease/search', '/qq/search', '/lyric', '/personalized', '/cookie-status', '/health'] });
+  res.json({ service: 'vibeMusic API', version: '3.0', status: 'running', endpoints: ['/netease/search', '/qq/search', '/migu/search', '/migu/url', '/lyric', '/personalized', '/cookie-status', '/health'] });
 });
 
 app.get('/health', (req, res) => {
@@ -61,13 +76,18 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Prometheus 指标暴露端点
+// Prometheus 指标暴露端点：本机/私网（容器抓取）或管理令牌可读，公网无令牌 403
 app.get('/metrics', async (req, res) => {
+  if (!canReadMetrics(req)) {
+    writeLog('access', 'WARN', `[/metrics] 拒绝公网访问: ${clientIp(req)}`);
+    return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
+  }
   try {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (err) {
-    res.status(500).end(err.message);
+    writeLog('api', 'ERROR', `[/metrics] ${err.message}`);
+    res.status(500).json({ code: 500, message: '服务繁忙，请稍后重试', data: null });
   }
 });
 

@@ -340,13 +340,60 @@ class PlaylistServiceTest extends TransactionalServiceTest {
         }
 
         @Test
+        @DisplayName("导入 source=kugou 时所有歌曲应持久化 platform=kugou")
+        void shouldPersistKugouPlatformOnImport() {
+            List<Map<String, Object>> songs = List.of(
+                    Map.of("id", "kg_hash1", "name", "酷狗歌1", "artist", "酷狗歌手", "coverUrl", "", "duration", 200)
+            );
+
+            int added = playlistService.importPlaylist(USER_ID, "酷狗导入歌单", null, songs, "kugou");
+            assertEquals(1, added);
+
+            Long playlistId = findPlaylistIdByName("酷狗导入歌单");
+            List<Map<String, Object>> stored = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals(1, stored.size());
+            assertEquals("kugou", stored.get(0).get("platform"));
+        }
+
+        @Test
+        @DisplayName("导入 source 大小写/首尾空格应归一化为 kugou")
+        void shouldNormalizeKugouPlatformCaseInsensitive() {
+            List<Map<String, Object>> songs = List.of(
+                    Map.of("id", "kg_hash2", "name", "酷狗歌2", "artist", "歌手", "coverUrl", "", "duration", 180)
+            );
+
+            int added = playlistService.importPlaylist(USER_ID, "酷狗归一歌单", null, songs, "KUGOU ");
+            assertEquals(1, added);
+
+            Long playlistId = findPlaylistIdByName("酷狗归一歌单");
+            List<Map<String, Object>> stored = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals("kugou", stored.get(0).get("platform"));
+        }
+
+        @Test
+        @DisplayName("导入 source=bilibili 时所有歌曲应持久化 platform=bilibili")
+        void shouldPersistBilibiliPlatformOnImport() {
+            List<Map<String, Object>> songs = List.of(
+                    Map.of("id", "BV1De411p77r", "name", "B站歌1", "artist", "UP主", "coverUrl", "", "duration", 200)
+            );
+
+            int added = playlistService.importPlaylist(USER_ID, "B站导入歌单", null, songs, "BILIBILI ");
+            assertEquals(1, added);
+
+            Long playlistId = findPlaylistIdByName("B站导入歌单");
+            List<Map<String, Object>> stored = playlistService.getSongs(USER_ID, playlistId);
+            assertEquals(1, stored.size());
+            assertEquals("bilibili", stored.get(0).get("platform"));
+        }
+
+        @Test
         @DisplayName("导入未知 source 时应回落 netease")
         void shouldFallbackUnknownSourceToNetease() {
             List<Map<String, Object>> songs = List.of(
                     Map.of("id", "unknown_song1", "name", "未知源歌", "artist", "歌手", "coverUrl", "", "duration", 180)
             );
 
-            int added = playlistService.importPlaylist(USER_ID, "未知源导入歌单", null, songs, "kugou");
+            int added = playlistService.importPlaylist(USER_ID, "未知源导入歌单", null, songs, "kugou2");
             assertEquals(1, added);
 
             Long playlistId = findPlaylistIdByName("未知源导入歌单");

@@ -330,10 +330,10 @@ public class PlaylistService {
         return added;
     }
 
-    /** 归一化平台标识：仅接受 netease/qq/migu，其余回落 netease（与 DB 默认一致） */
+    /** 归一化平台标识：仅接受 netease/qq/migu/kugou/bilibili，其余回落 netease（与 DB 默认一致） */
     private static String normalizePlatform(String source) {
         if (source == null) return "netease";
         String s = source.trim().toLowerCase();
-        return ("netease".equals(s) || "qq".equals(s) || "migu".equals(s)) ? s : "netease";
+        return ("netease".equals(s) || "qq".equals(s) || "migu".equals(s) || "kugou".equals(s) || "bilibili".equals(s)) ? s : "netease";
     }
 }

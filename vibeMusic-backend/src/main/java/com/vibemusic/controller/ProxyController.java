@@ -30,7 +30,9 @@ public class ProxyController {
             "music.126.net", "p1.music.126.net", "p2.music.126.net",
             "p3.music.126.net", "p4.music.126.net",
             // QQ 音乐封面 CDN：浏览器直连在部分网络下会 408/CORS，统一走后端代理
-            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn"
+            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn",
+            // B 站封面 CDN（i0/i1/i2.hdslb.com）：搜索结果封面走代理，防混合内容
+            "i0.hdslb.com", "i1.hdslb.com", "i2.hdslb.com"
     );
 
     private static final int TIMEOUT_MS = 8000;

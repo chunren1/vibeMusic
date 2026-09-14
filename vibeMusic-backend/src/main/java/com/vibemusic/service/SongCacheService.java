@@ -30,7 +30,8 @@ public class SongCacheService {
     private final ObjectMapper objectMapper;
 
     // 版本号递增即可自然淘汰旧缓存，无需 KEYS 扫描
-    private static final String SEARCH_PREFIX = "song:search:v4:";
+    // v6: 合并搜索 payload 由 4 平台变为 5 平台(含 B 站)，旧 v5 :all 条目会遮蔽 B 站结果
+    private static final String SEARCH_PREFIX = "song:search:v6:";
     private static final String LOCK_PREFIX = "song:search:lock:";
     private static final Duration TTL_RESULTS = Duration.ofHours(2);
     private static final Duration TTL_PARTIAL = Duration.ofSeconds(30); // 某平台空结果仅存30秒，快速重试

@@ -115,6 +115,201 @@ class SongPlayServiceTest {
                         songPlayService.getPlayUrl("60054701986", "青花瓷", "周杰伦", "migu")));
     }
 
+    @Test @DisplayName("platform=kugou 经酷狗取链返回 URL，不碰 QQ/网易云分支")
+    void kugouBranchReturnsUrl() {
+        when(neteaseApiService.getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://kg-cdn.example/320.mp3"))));
+
+        String url = songPlayService.getPlayUrl("45f763d7beb1fd000af890eb6c70b9a2", "安静", "周杰伦", "kugou");
+
+        assertEquals("https://kg-cdn.example/320.mp3", url);
+        verify(neteaseApiService, times(1))
+                .getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard");
+        verify(neteaseApiService, never()).getQQSongUrl(anyString());
+        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
+    }
+
+    @Test @DisplayName("无显式平台时酷狗 hash 走酷狗分支而非 QQ 分支")
+    void kugouHashWithoutPlatformRoutesToKugou() {
+        when(neteaseApiService.getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://kg-cdn.example/x.mp3"))));
+
+        String url = songPlayService.getPlayUrl("45f763d7beb1fd000af890eb6c70b9a2", "安静", "周杰伦");
+
+        assertEquals("https://kg-cdn.example/x.mp3", url);
+        verify(neteaseApiService, never()).getQQSongUrl(anyString());
+    }
+
+    @Test @DisplayName("酷狗 standard 无链时降级试 low 档")
+    void kugouStandardFallsBackToLow() {
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(neteaseApiService);
+        when(neteaseApiService.getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard"))
+                .thenReturn(Map.of("data", List.of(Map.of())));
+        when(neteaseApiService.getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "low"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://kg-cdn.example/128.mp3"))));
+
+        String url = songPlayService.getPlayUrl("45f763d7beb1fd000af890eb6c70b9a2", "安静", "周杰伦", "kugou");
+
+        assertEquals("https://kg-cdn.example/128.mp3", url);
+        inOrder.verify(neteaseApiService)
+                .getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard");
+        inOrder.verify(neteaseApiService)
+                .getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "low");
+    }
+
+    @Test @DisplayName("酷狗无链时降级到网易云同名歌曲")
+    void kugouNoUrlFallsBackToNetease() {
+        when(neteaseApiService.getKugouSongUrl(eq("45f763d7beb1fd000af890eb6c70b9a2"), any(), anyString()))
+                .thenReturn(Map.of("data", List.of(Map.of())));
+        when(neteaseApiService.searchNetease(eq("安静 周杰伦"), anyInt()))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("id", "123", "name", "安静", "duration", 240000))));
+        when(neteaseApiService.getSongUrl(eq("123"), anyString()))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://ne-cdn.example/x.mp3"))));
+
+        String url = songPlayService.getPlayUrl("45f763d7beb1fd000af890eb6c70b9a2", "安静", "周杰伦", "kugou");
+
+        assertEquals("https://ne-cdn.example/x.mp3", url);
+    }
+
+    @Test @DisplayName("getPlayInfo 酷狗 hash 显式走酷狗分支并标 platform=kugou")
+    void getPlayInfoKugouHashUsesKugouBranch() {
+        when(neteaseApiService.getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://kg-cdn.example/x.mp3"))));
+
+        Map<String, Object> info = songPlayService.getPlayInfo("45f763d7beb1fd000af890eb6c70b9a2", "安静", "周杰伦");
+
+        assertEquals("https://kg-cdn.example/x.mp3", info.get("url"));
+        assertEquals("kugou", info.get("platform"));
+        assertEquals("HIGHER", info.get("quality"));
+        assertEquals(false, info.get("degraded"));
+        verify(neteaseApiService, never()).getQQSongUrl(anyString());
+    }
+
+    @Test @DisplayName("getPlayInfo 全数字 32 位按酷狗 hash 优先于网易云分支")
+    void getPlayInfoNumeric32CharPrefersKugou() {
+        String numericHash = "12345678901234567890123456789012";
+        when(neteaseApiService.getKugouSongUrl(numericHash, null, "standard"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://kg-cdn.example/x.mp3"))));
+
+        Map<String, Object> info = songPlayService.getPlayInfo(numericHash, "安静", "周杰伦");
+
+        assertEquals("kugou", info.get("platform"));
+        assertEquals("https://kg-cdn.example/x.mp3", info.get("url"));
+        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
+    }
+
+    @Test @DisplayName("getPlayInfo 酷狗无链且降级无结果时落到 FALLBACK 并计数")
+    void getPlayInfoKugouNoUrlFallsToFallback() {
+        when(neteaseApiService.getKugouSongUrl(eq("45f763d7beb1fd000af890eb6c70b9a2"), any(), anyString()))
+                .thenReturn(Map.of("data", List.of()));
+        when(songMapper.selectOne(any())).thenReturn(null);
+
+        Map<String, Object> info = songPlayService.getPlayInfo("45f763d7beb1fd000af890eb6c70b9a2");
+
+        assertEquals("FALLBACK", info.get("quality"));
+        assertNull(info.get("url"));
+        assertTrue(songPlayService.getDegradationCount() >= 1);
+    }
+
+    @Test @DisplayName("platform=bilibili 经B站取链返回 URL，不碰 QQ/网易云分支")
+    void biliBranchReturnsUrl() {
+        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://xy.bilivideo.com/x.m4s"))));
+
+        String url = songPlayService.getPlayUrl("BV1De411p77r", "少年", "梦然", "bilibili");
+
+        assertEquals("https://xy.bilivideo.com/x.m4s", url);
+        verify(neteaseApiService, times(1)).getBiliSongUrl("BV1De411p77r");
+        verify(neteaseApiService, never()).getQQSongUrl(anyString());
+        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
+    }
+
+    @Test @DisplayName("无显式平台时 BV 走B站分支而非 QQ 分支")
+    void biliIdWithoutPlatformRoutesToBili() {
+        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://xy.bilivideo.com/x.m4s"))));
+
+        String url = songPlayService.getPlayUrl("BV1De411p77r", "少年", "梦然");
+
+        assertEquals("https://xy.bilivideo.com/x.m4s", url);
+        verify(neteaseApiService, never()).getQQSongUrl(anyString());
+    }
+
+    @Test @DisplayName("复合 BV|cid 原样透传网关")
+    void biliCompositeIdPassesThrough() {
+        when(neteaseApiService.getBiliSongUrl("BV1De411p77r|171776208"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://xy.bilivideo.com/x.m4s"))));
+
+        String url = songPlayService.getPlayUrl("BV1De411p77r|171776208", "少年", "梦然", "bilibili");
+
+        assertEquals("https://xy.bilivideo.com/x.m4s", url);
+        verify(neteaseApiService, times(1)).getBiliSongUrl("BV1De411p77r|171776208");
+    }
+
+    @Test @DisplayName("B站无链时降级到网易云同名歌曲")
+    void biliNoUrlFallsBackToNetease() {
+        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
+                .thenReturn(Map.of("data", List.of(Map.of())));
+        when(neteaseApiService.searchNetease(eq("少年 梦然"), anyInt()))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("id", "123", "name", "少年", "duration", 240000))));
+        when(neteaseApiService.getSongUrl(eq("123"), anyString()))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://ne-cdn.example/x.mp3"))));
+
+        String url = songPlayService.getPlayUrl("BV1De411p77r", "少年", "梦然", "bilibili");
+
+        assertEquals("https://ne-cdn.example/x.mp3", url);
+    }
+
+    @Test @DisplayName("B站取链异常不抛错，降级链继续")
+    void biliExceptionDegradesWithoutThrowing() {
+        when(neteaseApiService.getBiliSongUrl(anyString()))
+                .thenThrow(new RuntimeException("musicapi down"));
+        when(songMapper.selectOne(any())).thenReturn(null);
+
+        assertDoesNotThrow(() ->
+                assertNull(songPlayService.getPlayUrl("BV1De411p77r", "少年", "梦然", "bilibili")));
+    }
+
+    @Test @DisplayName("getPlayInfo BV 显式走B站分支并标 platform=bilibili")
+    void getPlayInfoBiliIdUsesBiliBranch() {
+        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://xy.bilivideo.com/x.m4s"))));
+
+        Map<String, Object> info = songPlayService.getPlayInfo("BV1De411p77r", "少年", "梦然");
+
+        assertEquals("https://xy.bilivideo.com/x.m4s", info.get("url"));
+        assertEquals("bilibili", info.get("platform"));
+        assertEquals("HIGHER", info.get("quality"));
+        assertEquals(false, info.get("degraded"));
+        verify(neteaseApiService, never()).getQQSongUrl(anyString());
+    }
+
+    @Test @DisplayName("getPlayInfo B站无链且降级无结果时落到 FALLBACK 并计数")
+    void getPlayInfoBiliNoUrlFallsToFallback() {
+        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
+                .thenReturn(Map.of("data", List.of()));
+        when(songMapper.selectOne(any())).thenReturn(null);
+
+        Map<String, Object> info = songPlayService.getPlayInfo("BV1De411p77r");
+
+        assertEquals("FALLBACK", info.get("quality"));
+        assertNull(info.get("url"));
+        assertTrue(songPlayService.getDegradationCount() >= 1);
+    }
+
     @Test @DisplayName("getPlayInfo 高优命中后排队的低优任务被取消，不再消耗线程与上游配额")
     void getPlayInfoCancelsLosersOnHit() throws Exception {
         ThreadPoolTaskExecutor single = new ThreadPoolTaskExecutor();
