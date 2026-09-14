@@ -7,6 +7,7 @@ import com.vibemusic.mapper.SongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,36 @@ public class SongPlayService {
     private final StorageService storageService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ThreadPoolTaskExecutor getUrlExecutor;
+
+    private UserService userService;
+
+    @Autowired(required = false)
+    public void setUserService(UserService userService) {
+        this.userService = userService;
+    }
+
+    private String resolveUserCookie() {
+        try {
+            Long userId = UserService.getCurrentUserId();
+            if (userId == null || userService == null) return null;
+            String cookie = userService.resolveNeteaseCookie(userId).orElse(null);
+            return (cookie == null || cookie.isBlank()) ? null : cookie;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Map<String, Object> fetchNeteaseUrl(String sourceId, String level, String userCookie) {
+        return userCookie != null
+                ? neteaseApiService.getSongUrl(sourceId, level, userCookie)
+                : neteaseApiService.getSongUrl(sourceId, level);
+    }
+
+    private Map<String, Object> fetchNeteaseSearch(String keyword, int limit, String userCookie) {
+        return userCookie != null
+                ? neteaseApiService.searchNetease(keyword, limit, userCookie)
+                : neteaseApiService.searchNetease(keyword, limit);
+    }
 
     private static final String MINIO_CACHE_PREFIX = "minio:exists:v1:";
     private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
@@ -87,13 +118,19 @@ public class SongPlayService {
 
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPlayInfo(String sourceId, String songName, String artist) {
+        return getPlayInfo(sourceId, songName, artist, resolveUserCookie());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> getPlayInfo(String sourceId, String songName, String artist, String userCookie) {
         Map<String, Object> info = new HashMap<>();
         info.put("isTrial", false);
         info.put("platform", isBiliId(sourceId) ? "bilibili" : (isKugouHash(sourceId) ? "kugou" : (sourceId.matches("\\d+") ? "netease" : "qq")));
 
         // 1. 优先 MinIO 本地缓存（Redis 缓存 exists 结果，TTL 10min，减少 MinIO statObject 调用）
+        // per-user 请求绕过共享 Redis exists 缓存（防 VIP 结果交叉），直探 MinIO 且不回写
         String minioObjectName = "songs/" + sourceId + ".mp3";
-        if (isCachedInMinio(sourceId)) {
+        if (isCachedInMinio(sourceId, userCookie)) {
             String directUrl = storageService.getDirectUrl(minioObjectName);
             info.put("url", directUrl);
             info.put("fromCache", true);
@@ -122,7 +159,7 @@ public class SongPlayService {
                 }
                 degradationCount.incrementAndGet();
                 log.info("B站歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String biFallback = tryNeteaseFallback(songName, artist, sourceId);
+                String biFallback = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (biFallback != null) {
                     info.put("url", biFallback);
                     info.put("platform", "netease");
@@ -144,7 +181,7 @@ public class SongPlayService {
                 }
                 degradationCount.incrementAndGet();
                 log.info("酷狗歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String kgFallback = tryNeteaseFallback(songName, artist, sourceId);
+                String kgFallback = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (kgFallback != null) {
                     info.put("url", kgFallback);
                     info.put("platform", "netease");
@@ -169,8 +206,9 @@ public class SongPlayService {
                 for (AudioQualityTier tier : tiers) {
                     if (System.currentTimeMillis() > DEADLINE) break;
                     try {
+                        final String uc = userCookie;
                         futures.put(tier, CompletableFuture.supplyAsync(() ->
-                                neteaseApiService.getSongUrl(sourceId, tier.toNeteaseLevel()), getUrlExecutor));
+                                fetchNeteaseUrl(sourceId, tier.toNeteaseLevel(), uc), getUrlExecutor));
                     } catch (RejectedExecutionException e) {
                         log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", tier.getLabel(), sourceId);
                     }
@@ -253,7 +291,7 @@ public class SongPlayService {
                         log.warn("试听兜底跳过: {} 预算已耗尽，不再补发 standard 请求", sourceId);
                     } else {
                         try {
-                            f = neteaseApiService.getSongUrl(sourceId, "standard");
+                            f = fetchNeteaseUrl(sourceId, "standard", userCookie);
                         } catch (Exception e) {
                             log.warn("试听兜底 standard 请求失败: {} - {}", sourceId, e.getMessage());
                             f = null;
@@ -282,7 +320,7 @@ public class SongPlayService {
                 }
                 degradationCount.incrementAndGet();
                 log.info("QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (neteaseUrl != null) {
                     info.put("url", neteaseUrl);
                     info.put("platform", "netease");
@@ -335,9 +373,14 @@ public class SongPlayService {
 
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform) {
+        return getPlayUrl(sourceId, songName, artist, platform, resolveUserCookie());
+    }
+
+    @SuppressWarnings("unchecked")
+    public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
         // 1. 优先检查 MinIO 缓存（Redis 缓存 exists 结果，TTL 10min）
         String minioObjectName = "songs/" + sourceId + ".mp3";
-        if (isCachedInMinio(sourceId)) {
+        if (isCachedInMinio(sourceId, userCookie)) {
             String directUrl = storageService.getDirectUrl(minioObjectName);
             log.info("getPlayUrl: {} 命中 MinIO 缓存", sourceId);
             return directUrl;
@@ -367,7 +410,7 @@ public class SongPlayService {
                     log.warn("getPlayUrl: Migu {} 获取失败: {}", sourceId, e.getMessage());
                 }
                 log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitKugou || (!explicitQQ && !explicitNE && isKugouHash(sourceId))) {
                 // 酷狗：platform=kugou 显式指定，或无显式平台时的 32 位 hash 猜测
@@ -375,7 +418,7 @@ public class SongPlayService {
                 String kugouUrl = tryKugouUrl(sourceId);
                 if (kugouUrl != null) return kugouUrl;
                 log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && isBiliId(sourceId))) {
                 // B站：platform=bilibili 显式指定，或无显式平台时的 BV 猜测
@@ -383,7 +426,7 @@ public class SongPlayService {
                 String biliUrl = tryBiliUrl(sourceId);
                 if (biliUrl != null) return biliUrl;
                 log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
                 try {
@@ -399,7 +442,7 @@ public class SongPlayService {
                     log.warn("getPlayUrl: QQ {} 获取失败: {}", sourceId, e.getMessage());
                 }
                 log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
                 // 并行探测 3 级音质（exhigh/higher/standard），取最高可用非试听版本
@@ -407,9 +450,10 @@ public class SongPlayService {
                 List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>();
                 for (String level : levels) {
                     try {
+                        final String uc = userCookie;
                         futures.add(CompletableFuture.supplyAsync(() -> {
                             try {
-                                return neteaseApiService.getSongUrl(sourceId, level);
+                                return fetchNeteaseUrl(sourceId, level, uc);
                             } catch (Exception e) {
                                 log.debug("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
                                 return null;
@@ -592,7 +636,19 @@ public class SongPlayService {
      * 任何异常（Redis/MinIO 不可用）均返回 false，调用方继续走 API/DB 降级
      */
     private boolean isCachedInMinio(String sourceId) {
+        return isCachedInMinio(sourceId, null);
+    }
+
+    private boolean isCachedInMinio(String sourceId, String userCookie) {
         if (sourceId == null) return false;
+        if (userCookie != null) {
+            try {
+                return storageService.exists("songs/" + sourceId + ".mp3");
+            } catch (Exception e) {
+                log.debug("isCachedInMinio per-user direct probe failed for {}: {}", sourceId, e.getMessage());
+                return false;
+            }
+        }
         try {
             String cacheKey = MINIO_CACHE_PREFIX + sourceId;
             // 先查 Redis
@@ -613,7 +669,7 @@ public class SongPlayService {
     }
 
     @SuppressWarnings("unchecked")
-    private String tryNeteaseFallback(String songName, String artist, String qqSourceId) {
+    private String tryNeteaseFallback(String songName, String artist, String qqSourceId, String userCookie) {
         if (songName == null || songName.isBlank()) {
             Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, qqSourceId));
             if (song == null || song.getName() == null) return null;
@@ -622,7 +678,7 @@ public class SongPlayService {
         }
         try {
             String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
-            Map<String, Object> result = neteaseApiService.searchNetease(keyword, 5);
+            Map<String, Object> result = fetchNeteaseSearch(keyword, 5, userCookie);
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null || data.isEmpty()) return null;
@@ -635,7 +691,7 @@ public class SongPlayService {
             }
             String[] levels = {"exhigh", "higher", "standard"};
             for (String level : levels) {
-                Map<String, Object> urlResult = neteaseApiService.getSongUrl(neteaseId, level);
+                Map<String, Object> urlResult = fetchNeteaseUrl(neteaseId, level, userCookie);
                 if (urlResult == null) continue;
                 List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
                 if (urlData == null || urlData.isEmpty()) continue;

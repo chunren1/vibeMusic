@@ -47,6 +47,10 @@ storage:
 musicapi:
   url: http://localhost:3000
 
+# Cookie 加解密测试用密钥（test-only, never production）：
+# 固定假密钥 = 32 个零字节的 base64，仅供测试加载 CookieCryptoService，绝不可用于生产
+COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
 logging:
   level:
     com.vibemusic: DEBUG

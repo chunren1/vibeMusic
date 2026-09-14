@@ -13,6 +13,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -48,6 +49,24 @@ public class SongSearchService {
     private final ThreadPoolTaskExecutor searchExecutor;
     private final ThreadPoolTaskExecutor warmExecutor;
     private final StringRedisTemplate stringRedisTemplate;
+
+    private UserService userService;
+
+    @Autowired(required = false)
+    public void setUserService(UserService userService) {
+        this.userService = userService;
+    }
+
+    private String resolveUserCookie() {
+        try {
+            Long userId = UserService.getCurrentUserId();
+            if (userId == null || userService == null) return null;
+            String cookie = userService.resolveNeteaseCookie(userId).orElse(null);
+            return (cookie == null || cookie.isBlank()) ? null : cookie;
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     // 缓存命中率仪表盘
     private Counter redisHitCounter;
@@ -180,10 +199,18 @@ public class SongSearchService {
      */
     @SuppressWarnings("unchecked")
     public SearchResult search(String keyword, int page, int size, String platform) {
+        return search(keyword, page, size, platform, resolveUserCookie());
+    }
+
+    @SuppressWarnings("unchecked")
+    public SearchResult search(String keyword, int page, int size, String platform, String userCookie) {
         page = Math.max(1, page);
         size = Math.max(1, Math.min(size, 100));
         if (keyword == null || keyword.trim().isEmpty())
             return SearchResult.of(Collections.emptyList(), 0, page, size, "none");
+        if (userCookie != null && userCookie.isBlank()) userCookie = null;
+        final String userCk = userCookie;
+        final boolean perUser = userCk != null;
         String rawKw = keyword.trim();
         if (rawKw.length() > MAX_KEYWORD_LENGTH) rawKw = rawKw.substring(0, MAX_KEYWORD_LENGTH);
         final String kw = rawKw;
@@ -194,7 +221,12 @@ public class SongSearchService {
 
         // ======== 第 1 步：Redis 缓存（null=未命中；空 List=负缓存哨兵命中，直接返回空） ========
         long redisStart = System.currentTimeMillis();
-        List<SongDTO> cached = cacheService.getSearchCache(kw + ":" + cacheExtra);
+        // per-user 请求绕过全部共享缓存读写（Redis/ES/单飞锁）：VIP 结果绝不落入
+        // 共享键，也绝不读取他人/匿名缓存；直查上游，结果仅当次返回
+        List<SongDTO> cached = null;
+        if (!perUser) {
+            cached = cacheService.getSearchCache(kw + ":" + cacheExtra);
+        }
         if (cached != null) {
             redisHitCounter.increment();
             searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
@@ -209,8 +241,8 @@ public class SongSearchService {
         long redisCost = System.currentTimeMillis() - redisStart;
         log.info("[CACHE-LAYER] Redis 未命中: keyword='{}', page={}, cost={}ms", kw, page, redisCost);
 
-        // ======== 第 2 步：ES 缓存（仅 :all 模式） ========
-        if (searchBoth) {
+        // ======== 第 2 步：ES 缓存（仅 :all 模式；per-user 跳过） ========
+        if (searchBoth && !perUser) {
             long esStart = System.currentTimeMillis();
             List<SongDTO> esCached;
             try {
@@ -237,8 +269,11 @@ public class SongSearchService {
         // 分布式锁单飞：持锁者执行搜索并回写缓存；未获锁者短暂等待后重试读缓存，
         // 仍无缓存则兜底直接执行（锁持有者异常/过慢时不阻塞请求）
         String allCacheKey = kw + ":" + cacheExtra;
-        String lockValue = cacheService.tryLock(allCacheKey);
         List<SongDTO> resultList;
+        if (perUser) {
+            resultList = doApiSearch(kw, cacheExtra, allCacheKey, userCk);
+        } else {
+        String lockValue = cacheService.tryLock(allCacheKey);
         if (lockValue == null) {
             List<SongDTO> retried = null;
             for (int round = 0; round < LOCK_WAIT_ROUNDS; round++) {
@@ -258,13 +293,14 @@ public class SongSearchService {
                 }
             }
             log.info("[API-LAYER] 单飞等待超时仍无缓存，兜底直查: keyword='{}', 原因=持锁者未及时回写", kw);
-            resultList = doApiSearch(kw, cacheExtra, allCacheKey);
+            resultList = doApiSearch(kw, cacheExtra, allCacheKey, null);
         } else {
             try {
-                resultList = doApiSearch(kw, cacheExtra, allCacheKey);
+                resultList = doApiSearch(kw, cacheExtra, allCacheKey, null);
             } finally {
                 cacheService.releaseLock(allCacheKey, lockValue);
             }
+        }
         }
 
         // 处理分页返回
@@ -280,15 +316,16 @@ public class SongSearchService {
      * 执行第三方 API 搜索（单平台或双平台合并去重），并回写 Redis + ES 缓存。
      * 调用方负责单飞锁的获取与释放。
      */
-    private List<SongDTO> doApiSearch(String kw, String cacheExtra, String allCacheKey) {
+    private List<SongDTO> doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie) {
         apiCallCounter.increment();
         log.info("[API-LAYER] 触发实时搜索(单飞): keyword='{}', 原因=Redis和ES均未命中", kw);
         long apiStart = System.currentTimeMillis();
+        final boolean perUser = userCookie != null;
 
         if ("netease".equals(cacheExtra)) {
-            List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw));
+            List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw, null, userCookie));
             for (SongDTO s : songs) s.setPlatform("netease");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":netease", songs, true);
+            if (!songs.isEmpty() && !perUser) cacheService.setSearchCache(kw + ":netease", songs, true);
             return songs;
         }
         if ("qq".equals(cacheExtra)) {
@@ -334,7 +371,7 @@ public class SongSearchService {
         final Future<List<SongDTO>> biF;
         final AtomicBoolean qqOutcomeClaimed = new AtomicBoolean(false);
         try {
-            neF = searchExecutor.submit(() -> safeSearchNetease(kw, neFailed));
+            neF = searchExecutor.submit(() -> safeSearchNetease(kw, neFailed, userCookie));
             Future<List<SongDTO>> qqFuture = null;
             if (shouldSkipQq()) {
                 log.warn("[QQ-BREAKER] 熔断中跳过QQ: keyword='{}'", kw);
@@ -378,9 +415,11 @@ public class SongSearchService {
             log.warn("[API-LAYER] 五平台上游全部失败，不写空哨兵: keyword='{}'", kw);
             return merged;
         }
-        cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
-        if (!merged.isEmpty()) {
-            esSearchService.indexSearchResults(kw, merged);
+        if (!perUser) {
+            cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
+            if (!merged.isEmpty()) {
+                esSearchService.indexSearchResults(kw, merged);
+            }
         }
         return merged;
     }
@@ -728,13 +767,20 @@ public class SongSearchService {
 
     @SuppressWarnings("unchecked")
     private List<SongDTO> safeSearchNetease(String keyword) {
-        return safeSearchNetease(keyword, null);
+        return safeSearchNetease(keyword, null, null);
     }
 
     @SuppressWarnings("unchecked")
     private List<SongDTO> safeSearchNetease(String keyword, AtomicBoolean failed) {
+        return safeSearchNetease(keyword, failed, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<SongDTO> safeSearchNetease(String keyword, AtomicBoolean failed, String userCookie) {
         try {
-            Map<String, Object> result = neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH);
+            Map<String, Object> result = userCookie != null
+                    ? neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH, userCookie)
+                    : neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH);
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();

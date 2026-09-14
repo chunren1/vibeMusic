@@ -58,10 +58,79 @@ public class NeteaseApiService {
     }
 
     // Cookie 已集中到 musicapi/config.js 统一管理，后端不再持有
+    //
+    // BYOC（Bring Your Own Cookie）：per-user 网易云 Cookie 经
+    // X-Vibe-User-Cookie 请求头透传给 musicapi 网关（见 musicapi/src/cookie.js
+    // resolveNeteaseCookie）。优先级（网关侧执行）：per-request header →
+    // 共享 NETEASE_COOKIE → 匿名。本类只负责透传，不做任何有效性判定；
+    // header 缺席 = 回落共享/匿名，与旧行为完全一致。
+
+    /** musicapi 网关采信的 per-request 用户 Cookie 请求头（仅内网可信网络）。 */
+    public static final String USER_COOKIE_HEADER = "X-Vibe-User-Cookie";
+
+    /**
+     * need-login 判定（BYOC Task 7：过期/失效探测）。
+     *
+     * <p>已核验的信号形状（网关 {@code GET /song/url/v1} 为
+     * {@code NeteaseCloudMusicApi.song_url_v1} 原样透传，见
+     * {@code musicapi/src/routes.js}，响应形为 {@code {code, data:[{id,url,…}]}}）：
+     * <ul>
+     *   <li>顶层 {@code code} 为 301（需登录）或 -101（账号异常/需登录）；</li>
+     *   <li>顶层 {@code message} 含“需要登录”/“need login”/“login required”（大小写不敏感）；</li>
+     *   <li>{@code /login/status} 形 {@code {account:{anonymous:true}}}（匿名态=登录失效）。</li>
+     * </ul>
+     * <p>明确的<b>非</b>信号：{@code code=200 + data[0].url=null} 只是无版权，
+     * 绝不能标记失效（否则会误删有效 Cookie）。
+     *
+     * @param body 网关返回的响应体（/song/url/v1 或 /login/status 原样透传）
+     * @return true=登录失效，调用方应调 {@code UserService#markNeteaseCookieInvalid}
+     */
+    public static boolean isNeedLoginPayload(Map<String, Object> body) {
+        if (body == null) return false;
+        if (isNeedLoginCode(body.get("code"))) return true;
+        Object message = body.get("message");
+        if (message instanceof String text && isNeedLoginMessage(text)) return true;
+        Object account = body.get("account");
+        if (account instanceof Map<?, ?> accountMap
+                && Boolean.TRUE.equals(accountMap.get("anonymous"))) return true;
+        return false;
+    }
+
+    /**
+     * 提取上游顶层 code，仅供失效日志（userId + code）使用。
+     *
+     * @param body 网关响应体，可能为 null
+     * @return code 原值（Number/String），缺失时为 null
+     */
+    public static Object extractUpstreamCode(Map<String, Object> body) {
+        return body == null ? null : body.get("code");
+    }
+
+    private static boolean isNeedLoginCode(Object code) {
+        if (code instanceof Number number) {
+            int value = number.intValue();
+            return value == 301 || value == -101;
+        }
+        if (code instanceof String text) {
+            String trimmed = text.strip();
+            return "301".equals(trimmed) || "-101".equals(trimmed);
+        }
+        return false;
+    }
+
+    private static boolean isNeedLoginMessage(String message) {
+        if (message.contains("需要登录")) return true;
+        String lower = message.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("need login") || lower.contains("login required");
+    }
 
     public Map<String, Object> getSongUrl(String musicId, String level) {
+        return getSongUrl(musicId, level, null);
+    }
+
+    public Map<String, Object> getSongUrl(String musicId, String level, String userCookie) {
         URI uri = buildUri("/song/url/v1", "id", musicId, "level", level != null ? level : "exhigh");
-        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
+        ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(userCookie), Map.class);
         log.info("获取歌曲 {} URL, level={}, status={}", musicId, level, response.getStatusCode());
         return response.getBody();
     }
@@ -88,8 +157,12 @@ public class NeteaseApiService {
     }
 
     public Map<String, Object> searchNetease(String keyword, int limit) {
+        return searchNetease(keyword, limit, null);
+    }
+
+    public Map<String, Object> searchNetease(String keyword, int limit, String userCookie) {
         URI uri = buildUri("/netease/search", "keyword", keyword, "limit", String.valueOf(limit));
-        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(userCookie), Map.class).getBody();
     }
 
     public Map<String, Object> searchQQ(String keyword, int limit) {
@@ -249,8 +322,15 @@ public class NeteaseApiService {
 
     // 每次调用新建 HttpHeaders（HttpHeaders 非线程安全，static 会导致并发修改异常）
     private HttpEntity<Void> buildHeaders() {
+        return buildHeaders(null);
+    }
+
+    private HttpEntity<Void> buildHeaders(String userCookie) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("User-Agent", USER_AGENT);
+        if (userCookie != null && !userCookie.isBlank()) {
+            headers.set(USER_COOKIE_HEADER, userCookie);
+        }
         return new HttpEntity<>(headers);
     }
 }

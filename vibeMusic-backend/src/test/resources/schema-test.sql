@@ -13,7 +13,12 @@ CREATE TABLE IF NOT EXISTS users (
     birthday VARCHAR(20),
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    netease_cookie_enc TEXT NULL,
+    netease_cookie_iv VARCHAR(32) NULL,
+    netease_cookie_updated_at DATETIME NULL,
+    netease_cookie_valid TINYINT(1) NULL,
+    bili_sessdata_enc TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS song (
