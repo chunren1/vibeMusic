@@ -30,9 +30,35 @@ function hasQQCookie() {
 }
 
 /** 给网易云 API 参数注入 cookie；未配置时省略该字段（不下发空串，上游按无登录态处理） */
-function withNeteaseCookie(extra = {}) {
-  if (!NETEASE_COOKIE) return { ...extra };
-  return { ...extra, cookie: NETEASE_COOKIE };
+function withNeteaseCookie(extra = {}, req) {
+  const effective = resolveNeteaseCookie(req);
+  if (!effective) return { ...extra };
+  return { ...extra, cookie: effective };
+}
+
+// ==================== per-request 用户 Cookie 覆盖（内部 BYOC） ====================
+// 信任边界：唯一调用方是内网后端（vibeMusic-backend 经本网关代理），
+// X-Vibe-User-Cookie 仅在 localhost/内网可信网络中予以采信；公网绝不能直调本网关。
+// 公网 query/body 中的 cookie 参数仍由 sanitizeNeteaseParams 一律剥离，此处不动。
+// 优先级：合法的 per-request header > 共享 NETEASE_COOKIE > ''（匿名）。
+// 校验：非空、长度上限 8KB、MUSIC_U 形态（须含 MUSIC_U=，否则视为脏值丢弃）。
+// 日志只打长度、绝不打值；响应绝不回显（见 routes.js scrubSecrets）。
+const USER_COOKIE_HEADER = 'x-vibe-user-cookie';
+const USER_COOKIE_MAX_LEN = 8192;
+
+function resolveNeteaseCookie(req) {
+  const raw = req && req.headers ? req.headers[USER_COOKIE_HEADER] : undefined;
+  const header = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof header === 'string' && header.trim()) {
+    const value = header.trim();
+    if (value.length > USER_COOKIE_MAX_LEN || !/MUSIC_U=/.test(value)) {
+      writeLog('cookie', 'WARN', `per-request 用户 Cookie 非法已丢弃 (长度: ${header.length})，回落共享 Cookie`);
+    } else {
+      writeLog('cookie', 'INFO', `per-request 用户 Cookie 生效 (长度: ${value.length})`);
+      return value;
+    }
+  }
+  return NETEASE_COOKIE || '';
 }
 
 async function checkCookies() {
@@ -152,6 +178,7 @@ module.exports = {
   cookieStatus,
   hasQQCookie,
   withNeteaseCookie,
+  resolveNeteaseCookie,
   checkCookies,
   checkQQCookie,
   failQQCookie,

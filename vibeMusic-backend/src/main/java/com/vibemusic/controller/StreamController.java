@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClient;
 
@@ -76,6 +77,23 @@ public class StreamController {
         }
         log.warn("SSRF blocked: host={} not in cdn-whitelist", host);
         return false;
+    }
+
+    /** B 站 upos CDN 强制 Referer，否则 403。仅 bilivideo/hdslb 域名需要。 */
+    static final String BILIBILI_REFERER = "https://www.bilibili.com/";
+
+    static boolean isBilibiliCdnHost(String host) {
+        if (host == null) return false;
+        String h = host.toLowerCase(Locale.ROOT);
+        return h.equals("bilivideo.com") || h.endsWith(".bilivideo.com")
+                || h.equals("hdslb.com") || h.endsWith(".hdslb.com");
+    }
+
+    /** 代理请求头构造：仅 B 站 CDN 附加 Referer，其他域行为不变。 */
+    static void applyProxyHeaders(HttpHeaders headers, String host, String rangeHeader) {
+        headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        if (rangeHeader != null) headers.set("Range", rangeHeader);
+        if (isBilibiliCdnHost(host)) headers.set("Referer", BILIBILI_REFERER);
     }
 
     /** 播放（记录历史 + 返回元信息） */
@@ -165,8 +183,7 @@ public class StreamController {
                 }
                 String rangeHeader = request.getHeader("Range");
                 restClient.get().uri(audioUrl).headers(h -> {
-                    h.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-                    if (rangeHeader != null) h.set("Range", rangeHeader);
+                    applyProxyHeaders(h, host, rangeHeader);
                 }).exchange((clientReq, clientResp) -> {
                     int cdnStatus = clientResp.getStatusCode().value();
                     // CDN URL 过期 (403) 或资源不存在 (404) → 抛异常触发重试获取新 URL

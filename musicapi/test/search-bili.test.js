@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 
 const axios = require('axios');
 const searchMod = require('../src/search');
-const { searchBili, mapBiliVideo, parseBiliDuration, getBiliUrl, getBiliView, isBiliTrackId, urlCache, searchCache } = searchMod;
+const { searchBili, mapBiliVideo, parseBiliDuration, getBiliUrl, getBiliView, isBiliTrackId, isBiliSingle, BILI_SINGLE_MAX_DURATION_MS, BILI_MUSIC_TID, urlCache, searchCache } = searchMod;
 
 const BVID = 'BV1De411p77r';
 const AID = 243082173;
@@ -192,6 +192,85 @@ test('mapBiliVideo 容忍最小条目', () => {
   assert.equal(out.artists, '');
   assert.equal(out.duration, 0);
   assert.equal(out.vip, false);
+});
+
+// ---- 单曲形态过滤 ----
+test('单曲过滤常量：阈值 480s / 音乐区 tid=3', () => {
+  assert.equal(BILI_SINGLE_MAX_DURATION_MS, 480000);
+  assert.equal(BILI_MUSIC_TID, 3);
+});
+
+test('searchBili 发 tids=音乐区(3)源头收窄', async () => {
+  const { restore, calls } = stubBili();
+  try {
+    await searchBili('少年', 20);
+    const searchCall = calls.find((c) => c.url.includes('/search/type'));
+    assert.equal(searchCall.params.tids, BILI_MUSIC_TID);
+  } finally {
+    restore();
+  }
+});
+
+function singleRow(bvid, title, duration) {
+  return { type: 'video', aid: 1, bvid, title, author: 'up', typename: '音乐', pic: '', play: 100, duration };
+}
+
+test('searchBili 过滤长视频(>8min)与合集标题，保留正常单曲', async () => {
+  const h = stubBili({
+    search: async () => ({
+      data: {
+        code: 0,
+        data: {
+          result: [
+            singleRow('BV1aaaaaaaaaa', '正常单曲-少年', '4:18'),
+            singleRow('BV1bbbbbbbbbb', '十五分钟串烧合集', '15:00'),
+            singleRow('BV1cccccccccc', '周杰伦串烧三首', '3:30'),
+            singleRow('BV1dddddddddd', '1小时Live全程回顾', '65:00'),
+          ],
+        },
+      },
+    }),
+  });
+  try {
+    const songs = await searchBili('少年', 20);
+    assert.equal(songs.length, 1);
+    assert.equal(songs[0].id, 'BV1aaaaaaaaaa');
+    assert.deepEqual(Object.keys(songs[0]).sort(), ['_raw', 'album', 'artists', 'cover', 'duration', 'id', 'name', 'vip']);
+  } finally {
+    h.restore();
+  }
+});
+
+test('searchBili 边界时长：8:00保留、8:01过滤；duration缺失保留', async () => {
+  const h = stubBili({
+    search: async () => ({
+      data: {
+        code: 0,
+        data: {
+          result: [
+            singleRow('BV1eeeeeeeeee', '边界八分钟整', '8:00'),
+            singleRow('BV1ffffffffff', '超一秒', '8:01'),
+            { type: 'video', aid: 3, bvid: 'BV1gggggggggg', title: '缺时长条目', author: 'up', typename: '音乐', pic: '', play: 10 },
+          ],
+        },
+      },
+    }),
+  });
+  try {
+    const songs = await searchBili('少年', 20);
+    assert.deepEqual(songs.map((s) => s.id), ['BV1eeeeeeeeee', 'BV1gggggggggg']);
+  } finally {
+    h.restore();
+  }
+});
+
+test('isBiliSingle 不误伤翻唱/现场/Live/MV/完整版', () => {
+  for (const name of ['少年 翻唱', '少年 现场版', '少年 Live', '少年 MV', '少年完整版', '少年 Official']) {
+    assert.equal(isBiliSingle({ name, duration: 200000 }), true, name);
+  }
+  assert.equal(isBiliSingle({ name: '百大串烧合集', duration: 200000 }), false);
+  assert.equal(isBiliSingle({ name: '年度盘点50首', duration: 200000 }), false);
+  assert.equal(isBiliSingle({ name: '正常歌', duration: 9999999 }), false);
 });
 
 // ---- 取链 ----

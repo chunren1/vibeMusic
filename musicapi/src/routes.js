@@ -257,7 +257,7 @@ function registerRoutes(app) {
 
       // ---- 并行请求上游 ----
       const [neteaseSongs, qqSongs] = await Promise.all([
-        searchNetease(kw, maxRank),
+        searchNetease(kw, maxRank, req),
         searchQQ(kw, maxRank),
       ]);
 
@@ -400,7 +400,7 @@ function registerRoutes(app) {
       if (!id) return res.status(400).json({ code: 400, message: 'id is required' });
       if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
       const result = await withTimeout(
-        NeteaseCloudMusicApi.lyric(cookie.withNeteaseCookie({ id })),
+        NeteaseCloudMusicApi.lyric(cookie.withNeteaseCookie({ id }, req)),
         UPSTREAM_TIMEOUT, 'netease/lyric'
       );
       res.json(result.body);
@@ -417,7 +417,7 @@ function registerRoutes(app) {
       const type = firstQuery(req.query.type) ?? 1;
       if (!keywords) return res.status(400).json({ code: 400, message: '缺少 keywords 参数' });
       const result = await withTimeout(
-        NeteaseCloudMusicApi.cloudsearch(cookie.withNeteaseCookie({ keywords, limit, type })),
+        NeteaseCloudMusicApi.cloudsearch(cookie.withNeteaseCookie({ keywords, limit, type }, req)),
         UPSTREAM_TIMEOUT, 'netease/cloudsearch'
       );
       res.json(result.body);
@@ -434,7 +434,7 @@ function registerRoutes(app) {
       if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
       if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
       const result = await withTimeout(
-        NeteaseCloudMusicApi.song_url_v1(cookie.withNeteaseCookie({ id, level })),
+        NeteaseCloudMusicApi.song_url_v1(cookie.withNeteaseCookie({ id, level }, req)),
         UPSTREAM_TIMEOUT, 'netease/song_url_v1'
       );
       res.json(result.body);
@@ -449,7 +449,7 @@ function registerRoutes(app) {
       const ids = queryStr(req.query.ids);
       if (!ids) return res.status(400).json({ code: 400, message: '缺少 ids 参数' });
       const result = await withTimeout(
-        NeteaseCloudMusicApi.song_detail(cookie.withNeteaseCookie({ ids })),
+        NeteaseCloudMusicApi.song_detail(cookie.withNeteaseCookie({ ids }, req)),
         UPSTREAM_TIMEOUT, 'netease/song_detail'
       );
       res.json(result.body);
@@ -463,7 +463,7 @@ function registerRoutes(app) {
     try {
       const limit = firstQuery(req.query.limit) ?? 10;
       const result = await withTimeout(
-        NeteaseCloudMusicApi.personalized(cookie.withNeteaseCookie({ limit })),
+        NeteaseCloudMusicApi.personalized(cookie.withNeteaseCookie({ limit }, req)),
         UPSTREAM_TIMEOUT, 'netease/personalized'
       );
       res.json(result.body);
@@ -481,7 +481,7 @@ function registerRoutes(app) {
       const limit = firstQuery(req.query.limit) ?? 20;
       if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
       // searchNetease 内部已有 SEARCH_TOTAL_BUDGET 总预算（12s 降级为空），此处不再叠加外层超时
-      const songs = await searchNetease(keyword, parseInt(limit));
+      const songs = await searchNetease(keyword, parseInt(limit), req);
       res.json({ code: 200, data: songs });
     } catch (error) {
       writeLog('api', 'ERROR', `[/netease/search] ${error.message}`);
@@ -664,7 +664,7 @@ function registerRoutes(app) {
       if (!ALLOWED_NETEASE_APIS.has(apiName)) {
         return res.status(403).json({ code: 403, message: `API ${apiName} not allowed` });
       }
-      const params = cookie.withNeteaseCookie(sanitizeNeteaseParams(req.query, req.body));
+      const params = cookie.withNeteaseCookie(sanitizeNeteaseParams(req.query, req.body), req);
       if (typeof NeteaseCloudMusicApi[apiName] === 'function') {
         const result = await withTimeout(
           NeteaseCloudMusicApi[apiName](params),

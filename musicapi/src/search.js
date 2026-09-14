@@ -43,7 +43,7 @@ const urlCache = new LRUCache({
 
 // ==================== 辅助: 搜索函数 (增强版) ====================
 
-async function searchNetease(keyword, limit) {
+async function searchNetease(keyword, limit, req) {
   const extractSongs = (result) => {
     if (!result || result.body.code !== 200) return null
     const songs = result.body?.result?.songs || result.body?.result?.songs
@@ -99,7 +99,7 @@ async function searchNetease(keyword, limit) {
 
   const makeParam = (withCookie) => {
     const base = { keywords: keyword, limit, type: 1 }
-    return withCookie ? withNeteaseCookie(base) : base
+    return withCookie ? withNeteaseCookie(base, req) : base
   }
 
   // 策略链: cloudsearch(cookie) → search(cookie) → cloudsearch(无cookie) → search(无cookie)
@@ -683,6 +683,18 @@ const BILI_SPI_URL = 'https://api.bilibili.com/x/frontend/finger/spi';
 const BILI_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const BILI_REFERER = 'https://www.bilibili.com/';
 
+// 单曲形态过滤(只动搜索过滤；merge/权重/缓存一律不动)：
+//   - 时长阈值 8min=480s：单曲通常 2–5min，Live/完整版多在 7min 内；
+//     串烧/合集/整场 Live 动辄 10min–数小时。480s 保留稍长单曲(含 Live 版)，
+//     拦截典型合集/长视频。duration 缺失(0)不断言，保守保留。
+const BILI_SINGLE_MAX_DURATION_MS = 8 * 60 * 1000; // 480000
+//   - 合集标题词(保守：只拦明确的合集/串烧/盘点词，不碰“翻唱/现场/Live/MV/完整版”等正常词)。
+const BILI_COMPILATION_KEYWORDS = ['串烧', '合集', '盘点', '连播', '联播', 'medley', 'compilation'];
+//   - 音乐区分区 tid=3：search/type 本就支持 tids 参数(现发 tids:0=全站，
+//     bilibili-API-collect 同款无签模式已验证)，改发 tids:3 只收音乐区，
+//     从源头收窄到单曲形态；若上游忽略该参数，时长+标题规则仍独立生效。
+const BILI_MUSIC_TID = 3;
+
 // WBI 签名混淆表(固定，官方算法)；mixin key 缓存 12h(官方轮换周期)。
 const BILI_MIXIN_TAB = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52];
 const BILI_WBI_TTL = 12 * 60 * 60 * 1000;
@@ -825,8 +837,23 @@ function mapBiliVideo(s) {
 }
 
 /**
+ * 单曲判断：时长超限或标题命中合集词即非单曲。duration<=0(缺失)保守保留。
+ * 时长解析复用 parseBiliDuration(调用方 mapBiliVideo 内已做)，此处只做比较。
+ */
+function isBiliSingle(track) {
+  if (!track) return false;
+  if (track.duration > BILI_SINGLE_MAX_DURATION_MS) return false;
+  const name = String(track.name || '').toLowerCase();
+  for (const kw of BILI_COMPILATION_KEYWORDS) {
+    if (kw && name.includes(String(kw).toLowerCase())) return false;
+  }
+  return true;
+}
+
+/**
  * B站视频搜索(匿名)：plain search/type 端口(RSSHub/searx 同款无签模式)，
  * 仅靠 buvid Cookie + Referer + UA。失败/异常一律返回 []，永不抛错。
+ * 单曲形态：tids=音乐区(3)源头收窄 + 时长(480s)+标题(合集词)客户端过滤。
  */
 async function searchBili(keyword, limit) {
   try {
@@ -839,7 +866,7 @@ async function searchBili(keyword, limit) {
         page_size: limit,
         order: 'totalrank',
         duration: 0,
-        tids: 0,
+        tids: BILI_MUSIC_TID,
       },
       headers: biliHeaders(buvid),
       timeout: UPSTREAM_TIMEOUT,
@@ -858,6 +885,7 @@ async function searchBili(keyword, limit) {
     return list
       .filter((s) => s && /^BV[a-zA-Z0-9]+$/.test(String(s.bvid || '')))
       .map(mapBiliVideo)
+      .filter(isBiliSingle)
       .slice(0, limit);
   } catch (error) {
     writeLog('degradation', 'ERROR', `B站搜索失败: keyword=${keyword}, ${error.message}`);
@@ -978,6 +1006,10 @@ module.exports = {
   searchBili,
   mapBiliVideo,
   parseBiliDuration,
+  isBiliSingle,
+  BILI_SINGLE_MAX_DURATION_MS,
+  BILI_COMPILATION_KEYWORDS,
+  BILI_MUSIC_TID,
   getBiliUrl,
   getBiliView,
   isBiliTrackId,
