@@ -73,7 +73,9 @@ netease:
 
 # 音频流代理 CDN 域名白名单（逗号分隔，支持 *.xxx.com 通配符）
 stream:
-  cdn-whitelist: ${STREAM_CDN_WHITELIST:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com}
+  cdn-whitelist: ${STREAM_CDN_WHITELIST:*.music.126.net,*.gtimg.cn,
+    *.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,
+    *.bilivideo.com,*.hdslb.com}
 
 storage:
   minio:

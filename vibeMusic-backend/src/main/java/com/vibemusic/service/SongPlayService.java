@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * 歌曲播放服务
@@ -108,6 +109,28 @@ public class SongPlayService {
             if (f != null && !f.isDone()) {
                 f.cancel(true);
             }
+        }
+    }
+
+    /**
+     * 在剩余预算内限时执行上游调用：预算约束调用本身而非仅约束是否发起。
+     * 预算耗尽/超时/异常一律返回 null，由调用方按降级处理；超时时 cancel 排队任务。
+     */
+    private <T> T callWithDeadline(Supplier<T> s, long deadline) {
+        long left = deadline - System.currentTimeMillis();
+        if (left <= 0) return null;
+        final CompletableFuture<T> cf;
+        try {
+            cf = CompletableFuture.supplyAsync(s, getUrlExecutor);
+        } catch (RejectedExecutionException e) {
+            log.warn("限时调用取链池过载，直接跳过");
+            return null;
+        }
+        try {
+            return cf.get(left, TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            cf.cancel(true);
+            return null;
         }
     }
 
@@ -265,7 +288,7 @@ public class SongPlayService {
                 } else {
                     degradationCount.incrementAndGet();
                     log.info("音质降级: {} 网易云全试听 → 尝试QQ降级", sourceId);
-                    String qqUrl = tryQQFallback(songName, artist, sourceId);
+                    String qqUrl = callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), DEADLINE);
                     if (qqUrl != null) {
                         achievedTier = AudioQualityTier.HIGHER;
                         info.put("url", qqUrl);
@@ -291,7 +314,7 @@ public class SongPlayService {
                         log.warn("试听兜底跳过: {} 预算已耗尽，不再补发 standard 请求", sourceId);
                     } else {
                         try {
-                            f = fetchNeteaseUrl(sourceId, "standard", userCookie);
+                            f = callWithDeadline(() -> fetchNeteaseUrl(sourceId, "standard", userCookie), DEADLINE);
                         } catch (Exception e) {
                             log.warn("试听兜底 standard 请求失败: {} - {}", sourceId, e.getMessage());
                             f = null;

@@ -389,7 +389,7 @@ public class SongSearchService {
         List<SongDTO> biliSongs = getWithTimeout(biF, SEARCH_TIMEOUT_SEC, "Bili", biFailed);
         List<SongDTO> merged = mergePlatformResults(neteaseSongs, qqSongs, miguSongs, kugouSongs, biliSongs, kw);
 
-        boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty() || kugouSongs.isEmpty() || biliSongs.isEmpty();
+        boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty() || miguSongs.isEmpty() || kugouSongs.isEmpty() || biliSongs.isEmpty();
         log.info("[API-LAYER] 搜索完成: keyword='{}', 网易云={}首, QQ={}首, 咪咕={}首, 酷狗={}首, B站={}首, 去重后={}首, API-cost={}ms, totalCost={}ms",
                 kw, neteaseSongs.size(), qqSongs.size(), miguSongs.size(), kugouSongs.size(), biliSongs.size(), merged.size(),
                 System.currentTimeMillis() - apiStart, System.currentTimeMillis());

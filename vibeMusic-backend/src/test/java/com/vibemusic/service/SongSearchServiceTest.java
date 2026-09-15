@@ -1386,4 +1386,42 @@ class SongSearchServiceTest {
             verify(songMapper, times(2)).findRandomSongs(1);
         }
     }
+
+    @Nested @DisplayName("不完整缓存判定")
+    class IncompleteCacheTest {
+
+        private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", id);
+            m.put("name", name);
+            m.put("artists", artist);
+            m.put("album", "");
+            m.put("cover", "");
+            m.put("duration", durationMs);
+            if (vip != null) m.put("vip", vip);
+            return m;
+        }
+
+        @Test @DisplayName("咪咕为空、其余四平台非空 → 以不完整标记写缓存（30s档）")
+        void miguEmptyOthersFullWritesIncomplete() {
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
+            when(cacheService.tryLock(anyString())).thenReturn("lock-migu-empty");
+            when(neteaseApiService.searchNetease(eq("咪咕缺货"), eq(40))).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "咪咕缺货", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ(eq("咪咕缺货"), eq(40))).thenReturn(Map.of("data", List.of(
+                    apiSong("qq1", "咪咕缺货", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchMigu(eq("咪咕缺货"), eq(40)))
+                    .thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchKugou(eq("咪咕缺货"), eq(40))).thenReturn(Map.of("data", List.of(
+                    apiSong("45f763d7beb1fd000af890eb6c70b9a2", "咪咕缺货", "周杰伦", 334000, false))));
+            when(neteaseApiService.searchBili(eq("咪咕缺货"), eq(40))).thenReturn(Map.of("data", List.of(
+                    apiSong("BV1De411p77r", "咪咕缺货", "周杰伦", 258000, false))));
+
+            SearchResult result = songSearchService.search("咪咕缺货", 1, 20);
+
+            assertEquals("api", result.getSource());
+            assertFalse(result.getList().isEmpty());
+            verify(cacheService).setSearchCache(eq("咪咕缺货:all"), anyList(), eq(true), eq(true));
+        }
+    }
 }

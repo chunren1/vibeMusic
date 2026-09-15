@@ -209,11 +209,15 @@ public class StreamController {
                 });
                 return;
             } catch (Exception e) {
-                if (attempt < 3 && !response.isCommitted()) {
-                    log.warn("音频流代理重试 ({}/{}) sourceId={}: {}", attempt, 3, sourceId, e.getMessage());
+                boolean last = (attempt == 5);
+                if (!last && !response.isCommitted()) {
+                    log.warn("音频流代理重试 ({}/5) sourceId={}: {}", attempt, sourceId, e.getMessage());
                 } else {
-                    log.error("音频流代理最终失败 sourceId={}: {}", sourceId, e.getMessage());
-                    if (!response.isCommitted()) response.setStatus(500);
+                    if (!response.isCommitted()) {
+                        response.setStatus(500);
+                        log.error("音频流代理最终失败 sourceId={}: {}", sourceId, e.getMessage());
+                    }
+                    return;   // 终局：不再空转
                 }
             }
         }
