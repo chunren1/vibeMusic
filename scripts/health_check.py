@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vibeMusic 健康检查脚本 — 纯标准库，零依赖。
+"""vibeMusic 健康检查脚本。
 
 用法:
     python scripts/health_check.py                    # 默认 localhost
@@ -60,7 +60,6 @@ def main():
     # ── 端点定义 ──
     endpoints = [
         ("Spring Boot 健康检查", f"http://{host}:8080/actuator/health"),
-        ("ES 搜索健康检查", f"http://{host}:8080/api/songs/es-health"),
         ("MusicAPI 网关健康", f"http://{host}:3000/health"),
         ("MusicAPI Cookie 状态", f"http://{host}:3000/cookie-status"),
     ]

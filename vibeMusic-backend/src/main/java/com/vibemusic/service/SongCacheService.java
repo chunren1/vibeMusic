@@ -33,7 +33,8 @@ public class SongCacheService {
     // v6: 合并搜索 payload 由 4 平台变为 5 平台(含 B 站)，旧 v5 :all 条目会遮蔽 B 站结果
     private static final String SEARCH_PREFIX = "song:search:v6:";
     private static final String LOCK_PREFIX = "song:search:lock:";
-    private static final Duration TTL_RESULTS = Duration.ofHours(2);
+    // ES 已下线（二级缓存 Redis → API），结果 TTL 由 2h 延长至 6h 以覆盖原 ES 6h 清理窗口
+    private static final Duration TTL_RESULTS = Duration.ofHours(6);
     private static final Duration TTL_PARTIAL = Duration.ofSeconds(30); // 某平台空结果仅存30秒，快速重试
     private static final Duration TTL_EMPTY = Duration.ofSeconds(10); // 空结果仅缓存10秒，快速恢复
     private static final Duration LOCK_TTL = Duration.ofSeconds(10); // 锁过期时间，防止死锁

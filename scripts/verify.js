@@ -5,7 +5,7 @@ const check = (label, pass) => { pass ? ok++ : console.log('  ✗ ' + label); to
 
 console.log('=== 1. 凭据安全 ===');
 const env = fs.readFileSync('d:/vibeMusic/.env', 'utf8');
-['MYSQL_ROOT_PASSWORD', 'ES_PASSWORD', 'JWT_SECRET', 'REDIS_PASSWORD'].forEach(k => {
+['MYSQL_ROOT_PASSWORD', 'JWT_SECRET', 'REDIS_PASSWORD'].forEach(k => {
   const v = env.match(new RegExp('^' + k + '=(.+)$', 'm'));
   const good = v && v[1].length > 8 && v[1] !== '123456' && !v[1].startsWith('ChangeMe') && !v[1].startsWith('<your');
   check(k, good);
@@ -25,7 +25,6 @@ console.log('\n=== 2. 关键文件 ===');
 console.log('\n=== 3. 配置一致性 ===');
 const dc = fs.readFileSync('d:/vibeMusic/docker-compose.yml', 'utf8');
 check('资源限制', dc.includes('deploy:'));
-check('ES xpack安全', dc.includes('xpack.security.enabled=true'));
 check('Redis密码', dc.includes('requirepass'));
 check('CORS', dc.includes('CORS_ORIGINS'));
 

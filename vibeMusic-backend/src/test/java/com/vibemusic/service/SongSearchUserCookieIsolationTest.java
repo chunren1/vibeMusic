@@ -28,7 +28,7 @@ import static org.mockito.Mockito.*;
  * SongSearchService per-user Cookie 隔离测试（纯 Mockito）。
  *
  * <p>隔离策略（已定）：per-user Cookie 存在时绕过全部共享缓存读写
- * （Redis 读/写、ES 读/索引回写、单飞锁），直查上游且结果仅当次返回。
+ * （Redis 读/写、单飞锁），直查上游且结果仅当次返回。
  * A 用户的 VIP 结果永不写入共享键，也永不读到 B/匿名缓存。
  */
 @TestPropertySource(properties = "COOKIE_ENC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
@@ -40,7 +40,6 @@ class SongSearchUserCookieIsolationTest {
     private SongMapper songMapper;
     private NeteaseApiService neteaseApiService;
     private SongCacheService cacheService;
-    private ESSearchService esSearchService;
     private StringRedisTemplate redisTemplate;
     private ThreadPoolTaskExecutor searchExec;
     private ThreadPoolTaskExecutor warmExec;
@@ -52,7 +51,6 @@ class SongSearchUserCookieIsolationTest {
         songMapper = mock(SongMapper.class);
         neteaseApiService = mock(NeteaseApiService.class);
         cacheService = mock(SongCacheService.class);
-        esSearchService = mock(ESSearchService.class);
         redisTemplate = mock(StringRedisTemplate.class);
         searchExec = new ThreadPoolTaskExecutor();
         searchExec.setCorePoolSize(2);
@@ -66,7 +64,7 @@ class SongSearchUserCookieIsolationTest {
         warmExec.initialize();
         userService = mock(UserService.class);
         songSearchService = new SongSearchService(songMapper, neteaseApiService,
-                cacheService, esSearchService, new SimpleMeterRegistry(),
+                cacheService, new SimpleMeterRegistry(),
                 searchExec, warmExec, redisTemplate);
         songSearchService.setUserService(userService);
         songSearchService.initMetrics();
@@ -114,14 +112,12 @@ class SongSearchUserCookieIsolationTest {
     }
 
     @Test
-    @DisplayName("per-user：绕过 Redis/ES 读与写，直查上游并透传 Cookie")
+    @DisplayName("per-user：绕过 Redis 读与写，直查上游并透传 Cookie")
     void perUserBypassesSharedCacheReadsAndWrites() {
         loginAs(2L);
         when(userService.resolveNeteaseCookie(2L)).thenReturn(Optional.of(COOKIE_B));
         when(cacheService.getSearchCache(anyString()))
                 .thenReturn(List.of(song("shared-1", "共享旧结果")));
-        when(esSearchService.findByKeyword(anyString()))
-                .thenReturn(List.of(song("es-1", "ES旧结果")));
         stubOtherPlatformsEmpty();
         when(neteaseApiService.searchNetease(eq("晴天"), eq(40), eq(COOKIE_B)))
                 .thenReturn(apiPayload("vip-1", "晴天VIP版"));
@@ -136,8 +132,7 @@ class SongSearchUserCookieIsolationTest {
         verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
         verify(cacheService, never()).tryLock(anyString());
         verify(cacheService, never()).releaseLock(anyString(), anyString());
-        verify(esSearchService, never()).findByKeyword(anyString());
-        verify(esSearchService, never()).indexSearchResults(anyString(), anyList());
+
         verify(neteaseApiService, times(1)).searchNetease(eq("晴天"), eq(40), eq(COOKIE_B));
         verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
     }
@@ -147,7 +142,6 @@ class SongSearchUserCookieIsolationTest {
     void userBIsolatedFromSharedCache() {
         stubOtherPlatformsEmpty();
         when(cacheService.getSearchCache(anyString())).thenReturn(null);
-        when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         when(cacheService.tryLock(anyString())).thenReturn("lock-anon");
         when(neteaseApiService.searchNetease(eq("夜曲"), eq(40)))
                 .thenReturn(apiPayload("shared-a", "夜曲"));
@@ -158,7 +152,7 @@ class SongSearchUserCookieIsolationTest {
         assertEquals("api", anon.getSource());
         assertEquals("shared-a", anon.getList().get(0).getSourceId());
 
-        clearInvocations(cacheService, esSearchService);
+        clearInvocations(cacheService);
         when(cacheService.getSearchCache(anyString()))
                 .thenReturn(List.of(song("shared-a", "夜曲")));
 
@@ -171,7 +165,6 @@ class SongSearchUserCookieIsolationTest {
         verify(cacheService, never()).getSearchCache(anyString());
         verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
         verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
-        verify(esSearchService, never()).indexSearchResults(anyString(), anyList());
     }
 
     @Test
@@ -190,7 +183,6 @@ class SongSearchUserCookieIsolationTest {
 
         clearInvocations(cacheService, neteaseApiService);
         when(cacheService.getSearchCache(eq("夜曲:all"))).thenReturn(null);
-        when(esSearchService.findByKeyword("夜曲")).thenReturn(List.of());
         when(cacheService.tryLock(anyString())).thenReturn(null);
         when(neteaseApiService.searchNetease(eq("夜曲"), eq(40)))
                 .thenReturn(apiPayload("n-1", "夜曲"));

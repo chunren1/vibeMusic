@@ -35,8 +35,8 @@ import static org.mockito.Mockito.*;
 /**
  * SongSearchService 搜索服务测试
  * <p>
- * 纯 Mockito 单元测试，Mock Redis/ES/musicapi 依赖，
- * 验证四级降级链：Redis → ES → API → 空结果兜底。
+ * 纯 Mockito 单元测试，Mock Redis/musicapi 依赖，
+ * 验证降级链：Redis → API → 空结果兜底。
  */
 @DisplayName("SongSearchService 搜索服务测试")
 class SongSearchServiceTest {
@@ -44,7 +44,6 @@ class SongSearchServiceTest {
     private SongMapper songMapper;
     private NeteaseApiService neteaseApiService;
     private SongCacheService cacheService;
-    private ESSearchService esSearchService;
     private SongSearchService songSearchService;
     private StringRedisTemplate redisTemplate;
     private ThreadPoolTaskExecutor searchExec;
@@ -56,7 +55,6 @@ class SongSearchServiceTest {
         songMapper = mock(SongMapper.class);
         neteaseApiService = mock(NeteaseApiService.class);
         cacheService = mock(SongCacheService.class);
-        esSearchService = mock(ESSearchService.class);
         redisTemplate = mock(StringRedisTemplate.class);
         meterRegistry = new SimpleMeterRegistry();
         searchExec = new ThreadPoolTaskExecutor();
@@ -70,7 +68,7 @@ class SongSearchServiceTest {
         warmExec.setQueueCapacity(5);
         warmExec.initialize();
         songSearchService = new SongSearchService(songMapper, neteaseApiService,
-                cacheService, esSearchService, meterRegistry, searchExec, warmExec,
+                cacheService, meterRegistry, searchExec, warmExec,
                 redisTemplate);
         songSearchService.initMetrics();
     }
@@ -93,7 +91,7 @@ class SongSearchServiceTest {
     @Nested @DisplayName("L1: Redis 缓存命中")
     class RedisHitTest {
 
-        @Test @DisplayName("Redis 命中应直接返回缓存结果，不查 ES/API")
+        @Test @DisplayName("Redis 命中应直接返回缓存结果，不查 API")
         void shouldReturnRedisCache() {
             List<SongDTO> cached = List.of(createSong("1", "晴天", "周杰伦"));
             when(cacheService.getSearchCache(eq("晴天:all"))).thenReturn(cached);
@@ -103,35 +101,16 @@ class SongSearchServiceTest {
             assertEquals("redis", result.getSource());
             assertEquals(1, result.getList().size());
             verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
-            verify(esSearchService, never()).findByKeyword(anyString());
             verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
-        }
-    }
-
-    @Nested @DisplayName("L2: ES 缓存命中")
-    class EsHitTest {
-
-        @Test @DisplayName("Redis 未命中 + ES 命中应返回 ES 结果并回写 Redis")
-        void shouldReturnEsCacheAndBackfillRedis() {
-            when(cacheService.getSearchCache(eq("七里香:all"))).thenReturn(null);
-            List<SongDTO> esResults = List.of(createSong("2", "七里香", "周杰伦"));
-            when(esSearchService.findByKeyword("七里香")).thenReturn(esResults);
-
-            SearchResult result = songSearchService.search("七里香", 1, 20);
-
-            assertEquals("es", result.getSource());
-            assertEquals(1, result.getList().size());
-            verify(cacheService).setSearchCache(eq("七里香:all"), eq(esResults), eq(true), eq(false));
         }
     }
 
     @Nested @DisplayName("L3: API 实时搜索")
     class ApiHitTest {
 
-        @Test @DisplayName("Redis/ES 均未命中 + API 返回结果应聚合去重")
+        @Test @DisplayName("Redis 未命中 + API 返回结果应聚合去重")
         void shouldSearchFromApiAndMerge() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
 
             var neSong = Map.of("id", "3", "name", "夜曲", "artists", "周杰伦",
                     "album", "十一月的肖邦", "cover", "", "duration", 300000);
@@ -146,13 +125,11 @@ class SongSearchServiceTest {
             assertFalse(result.getList().isEmpty());
             assertEquals("netease", result.getList().get(0).getPlatform());
             verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
-            verify(esSearchService).indexSearchResults(anyString(), anyList());
         }
 
         @Test @DisplayName("API 超时应降级返回空列表")
         void shouldReturnEmptyOnApiTimeout() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenThrow(new RuntimeException("timeout"));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenThrow(new RuntimeException("timeout"));
 
@@ -218,7 +195,6 @@ class SongSearchServiceTest {
 
         private void mockCacheMiss() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         }
 
         private Map<String, Object> apiSong(String id, String name, String artist, int durationMs) {
@@ -317,7 +293,6 @@ class SongSearchServiceTest {
 
         private void mockCacheMiss() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         }
 
         private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
@@ -386,7 +361,6 @@ class SongSearchServiceTest {
 
         private void mockCacheMiss() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         }
 
         @Test @DisplayName("连续 3 次失败开路，此前保持闭路；成功清零")
@@ -519,7 +493,7 @@ class SongSearchServiceTest {
 
         private SongSearchService newBreakerService(StringRedisTemplate tpl, AtomicLong clock) {
             SongSearchService s = new SongSearchService(songMapper, neteaseApiService,
-                    cacheService, esSearchService, new SimpleMeterRegistry(), searchExec, warmExec, tpl);
+                    cacheService, new SimpleMeterRegistry(), searchExec, warmExec, tpl);
             s.initMetrics();
             s.setQqClockForTest(clock::get);
             return s;
@@ -584,7 +558,6 @@ class SongSearchServiceTest {
             s.recordQqFailure();
             assertTrue(s.shouldSkipQq());
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -603,7 +576,6 @@ class SongSearchServiceTest {
         @Test @DisplayName("API 歌曲足够时随机打乱返回")
         void shouldShuffleApiResults() {
             when(cacheService.getSearchCache(eq("热歌:all"))).thenReturn(null);
-            when(esSearchService.findByKeyword("热歌")).thenReturn(List.of());
 
             var song = Map.of("id", "6", "name", "热歌", "artists", "歌手", "duration", 240000);
             when(neteaseApiService.searchNetease("热歌", 40)).thenReturn(Map.of("data", List.of(song)));
@@ -621,7 +593,6 @@ class SongSearchServiceTest {
 
         private void mockCacheMiss() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         }
 
         private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
@@ -736,7 +707,6 @@ class SongSearchServiceTest {
 
         private void mockCacheMiss() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         }
 
         private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
@@ -839,7 +809,6 @@ class SongSearchServiceTest {
         @Test @DisplayName("五平台全失败不写空哨兵并计数")
         void allFiveUpstreamFailedCountsWithoutSentinel() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(cacheService.tryLock(anyString())).thenReturn("lock-kg-all");
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenThrow(new RuntimeException("netease down"));
@@ -886,7 +855,6 @@ class SongSearchServiceTest {
 
         private void mockCacheMiss() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
         }
 
         private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
@@ -1172,7 +1140,6 @@ class SongSearchServiceTest {
             AtomicInteger lockCalls = new AtomicInteger(0);
             when(cacheService.tryLock(eq(key))).thenAnswer(inv ->
                     lockCalls.getAndIncrement() == 0 ? "holder-lock" : null);
-            when(esSearchService.findByKeyword("击穿词")).thenReturn(List.of());
 
             CountDownLatch holderEntered = new CountDownLatch(1);
             CountDownLatch releaseHolder = new CountDownLatch(1);
@@ -1224,7 +1191,6 @@ class SongSearchServiceTest {
         void holderCrashDegradesWithoutDeadlock() throws Exception {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -1271,13 +1237,12 @@ class SongSearchServiceTest {
             };
             SimpleMeterRegistry reg = new SimpleMeterRegistry();
             SongSearchService svc = new SongSearchService(songMapper, neteaseApiService,
-                    cacheService, esSearchService, reg, tiny, warmExec, redisTemplate);
+                    cacheService, reg, tiny, warmExec, redisTemplate);
             svc.initMetrics();
             try {
                 tiny.execute(blocker);
                 tiny.execute(blocker);
                 when(cacheService.getSearchCache(anyString())).thenReturn(null);
-                when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
                 when(cacheService.tryLock(anyString())).thenReturn("lock-tp");
 
                 BusinessException ex = assertThrows(BusinessException.class,
@@ -1316,7 +1281,6 @@ class SongSearchServiceTest {
 
             assertEquals("redis", result.getSource());
             assertTrue(result.getList().isEmpty());
-            verify(esSearchService, never()).findByKeyword(anyString());
             verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
             verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
         }
@@ -1324,7 +1288,6 @@ class SongSearchServiceTest {
         @Test @DisplayName("三平台全失败不写空哨兵并计数，下次仍可穿透重试")
         void shouldNotWriteSentinelWhenAllUpstreamFailed() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(cacheService.tryLock(anyString())).thenReturn("lock-fail");
             mockUpstreamDown();
 
@@ -1334,14 +1297,12 @@ class SongSearchServiceTest {
             assertTrue(result.getList().isEmpty());
             verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
             verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
-            verify(esSearchService, never()).indexSearchResults(anyString(), anyList());
             assertEquals(1.0, meterRegistry.get("search.upstream.all_failed").counter().count());
         }
 
         @Test @DisplayName("三平台返回空数据（非异常）仍写空哨兵防穿透")
         void shouldWriteSentinelWhenGenuinelyEmpty() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(cacheService.tryLock(anyString())).thenReturn("lock-empty");
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
@@ -1369,7 +1330,6 @@ class SongSearchServiceTest {
 
         private void mockEmptyUpstream() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(cacheService.tryLock(anyString())).thenReturn("lock-cap");
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));

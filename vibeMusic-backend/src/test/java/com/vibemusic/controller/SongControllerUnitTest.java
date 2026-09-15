@@ -1,7 +1,6 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
-import com.vibemusic.service.ESSearchService;
 import com.vibemusic.service.JsonCacheService;
 import com.vibemusic.service.NeteaseApiService;
 import com.vibemusic.service.SongSearchService;
@@ -21,14 +20,13 @@ import static org.mockito.Mockito.*;
  * SongController 纯单元测试（Mockito 直调，不启动 Spring）
  * <p>
  * 覆盖 banner 缓存命中/空结果/异常、lyric 双平台与哨兵分支、
- * es-health 可达/不可达、parseLrc 空行与空文本。
+ * parseLrc 空行与空文本。
  */
 @DisplayName("SongController 分支单元测试")
 class SongControllerUnitTest {
 
     private SongSearchService songSearchService;
     private NeteaseApiService neteaseApiService;
-    private ESSearchService esSearchService;
     private JsonCacheService cache;
     private SongController controller;
 
@@ -36,9 +34,8 @@ class SongControllerUnitTest {
     void setUp() {
         songSearchService = mock(SongSearchService.class);
         neteaseApiService = mock(NeteaseApiService.class);
-        esSearchService = mock(ESSearchService.class);
         cache = mock(JsonCacheService.class);
-        controller = new SongController(songSearchService, neteaseApiService, esSearchService, cache);
+        controller = new SongController(songSearchService, neteaseApiService, cache);
     }
 
     @Test
@@ -86,20 +83,6 @@ class SongControllerUnitTest {
         when(neteaseApiService.personalizedPlaylists(5)).thenThrow(new RuntimeException("down"));
 
         assertTrue(controller.banner().getData().isEmpty());
-    }
-
-    @Test
-    @DisplayName("es-health 可达时返回 connected，不可达时返回 unreachable")
-    void shouldReportEsHealthBothWays() {
-        when(esSearchService.healthCheck()).thenReturn(Map.of("status", "yellow"));
-        when(esSearchService.isAvailable()).thenReturn(true);
-        Result<Map<String, Object>> ok = controller.esHealth();
-        assertEquals("connected", ok.getData().get("status"));
-
-        when(esSearchService.healthCheck()).thenReturn(null);
-        when(esSearchService.isAvailable()).thenReturn(false);
-        Result<Map<String, Object>> down = controller.esHealth();
-        assertEquals("unreachable", down.getData().get("status"));
     }
 
     @Test

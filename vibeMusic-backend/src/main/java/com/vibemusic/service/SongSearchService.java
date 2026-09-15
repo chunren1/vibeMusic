@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
 /**
  * 歌曲搜索服务
  * <p>
- * 三级缓存：Redis → ES → API 实时搜索
+ * 二级缓存：Redis → API 实时搜索
  * 支持分源搜索（网易云 / QQ）和跨平台去重合并
  * <p>
  * 线程池由 Spring 托管（ThreadPoolConfig），避免 static ExecutorService 泄漏。
@@ -44,7 +44,6 @@ public class SongSearchService {
     private final SongMapper songMapper;
     private final NeteaseApiService neteaseApiService;
     private final SongCacheService cacheService;
-    private final ESSearchService esSearchService;
     private final MeterRegistry meterRegistry;
     private final ThreadPoolTaskExecutor searchExecutor;
     private final ThreadPoolTaskExecutor warmExecutor;
@@ -70,7 +69,6 @@ public class SongSearchService {
 
     // 缓存命中率仪表盘
     private Counter redisHitCounter;
-    private Counter esHitCounter;
     private Counter apiCallCounter;
     private Counter searchRejectedCounter;
     private Counter upstreamAllFailedCounter;
@@ -80,8 +78,6 @@ public class SongSearchService {
     void initMetrics() {
         redisHitCounter = Counter.builder("cache.hit.redis")
                 .description("Redis 缓存命中次数").register(meterRegistry);
-        esHitCounter = Counter.builder("cache.hit.es")
-                .description("ES 缓存命中次数").register(meterRegistry);
         apiCallCounter = Counter.builder("cache.miss.api")
                 .description("穿透到 musicapi 的次数").register(meterRegistry);
         searchRejectedCounter = Counter.builder("search.pool.rejected")
@@ -100,7 +96,7 @@ public class SongSearchService {
     );
 
     /**
-     * 启动时异步预热热门搜索词到 Redis + ES 缓存，
+     * 启动时异步预热热门搜索词到 Redis 缓存，
      * 避免上线后的首次 API 穿透造成 P95 延迟飙升。
      * 每个关键词间隔 1.5 秒防止同时击穿第三方 API。
      */
@@ -111,7 +107,7 @@ public class SongSearchService {
             for (String kw : HOT_KEYWORDS) {
                 try {
                     search(kw, 1, 20);
-                    log.info("[PREWARM] '{}' 预热完成 (缓存已回写 Redis + ES)", kw);
+                    log.info("[PREWARM] '{}' 预热完成 (缓存已回写 Redis)", kw);
                     Thread.sleep(1500);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
@@ -252,31 +248,7 @@ public class SongSearchService {
         long redisCost = System.currentTimeMillis() - redisStart;
         log.info("[CACHE-LAYER] Redis 未命中: keyword='{}', page={}, cost={}ms", kw, page, redisCost);
 
-        // ======== 第 2 步：ES 缓存（仅 :all 模式；per-user 跳过） ========
-        if (searchBoth && !perUser) {
-            long esStart = System.currentTimeMillis();
-            List<SongDTO> esCached;
-            try {
-                esCached = esSearchService.findByKeyword(kw);
-            } catch (Exception e) {
-                log.warn("[ES-LAYER] ES 查询异常，降级到 API: keyword='{}', error={}", kw, e.getMessage());
-                esCached = List.of();
-            }
-            if (!esCached.isEmpty()) {
-                esHitCounter.increment();
-                searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
-                long esCost = System.currentTimeMillis() - esStart;
-                log.info("[ES-LAYER] 返回ES缓存结果: keyword='{}', count={}, ES-cost={}ms, totalCost={}ms",
-                        kw, esCached.size(), esCost, System.currentTimeMillis() - searchStart);
-                cacheService.setSearchCache(kw + ":all", esCached, true, false);
-                int from = (page - 1) * size;
-                int to = Math.min(from + size, esCached.size());
-                if (from >= esCached.size()) return SearchResult.of(Collections.emptyList(), esCached.size(), page, size, "es");
-                return SearchResult.of(esCached.subList(from, to), esCached.size(), page, size, "es");
-            }
-        }
-
-        // ======== 第 3 步：API 实时搜索（兜底）======
+        // ======== 第 2 步：API 实时搜索（兜底）======
         // 分布式锁单飞：持锁者执行搜索并回写缓存；未获锁者短暂等待后重试读缓存，
         // 仍无缓存则兜底直接执行（锁持有者异常/过慢时不阻塞请求）
         String allCacheKey = kw + ":" + cacheExtra;
@@ -324,12 +296,12 @@ public class SongSearchService {
     }
 
     /**
-     * 执行第三方 API 搜索（单平台或双平台合并去重），并回写 Redis + ES 缓存。
+     * 执行第三方 API 搜索（单平台或双平台合并去重），并回写 Redis 缓存。
      * 调用方负责单飞锁的获取与释放。
      */
     private List<SongDTO> doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie) {
         apiCallCounter.increment();
-        log.info("[API-LAYER] 触发实时搜索(单飞): keyword='{}', 原因=Redis和ES均未命中", kw);
+        log.info("[API-LAYER] 触发实时搜索(单飞): keyword='{}', 原因=Redis未命中", kw);
         long apiStart = System.currentTimeMillis();
         final boolean perUser = userCookie != null;
 
@@ -428,9 +400,6 @@ public class SongSearchService {
         }
         if (!perUser) {
             cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
-            if (!merged.isEmpty()) {
-                esSearchService.indexSearchResults(kw, merged);
-            }
         }
         return merged;
     }

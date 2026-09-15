@@ -105,19 +105,6 @@ class SongControllerTest extends BaseTest {
     }
 
     @Nested
-    @DisplayName("GET /api/songs/es-health")
-    class EsHealth {
-        @Test
-        @DisplayName("ES 健康检查 → 可用（中间件已启动）")
-        void shouldReportEsAvailable() throws Exception {
-            mockMvc.perform(get("/api/songs/es-health"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.code").value(200));
-            // 如果 ES 中间件没启动，会降级返回 unavailable
-        }
-    }
-
-    @Nested
     @DisplayName("GET /api/songs/history")
     class History {
         @Test

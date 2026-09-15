@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * Adversarial fault-tolerance test suite — verifies production degrades gracefully
- * when Redis/ES/musicapi/DB/threadpool/network fail. Dependency faults degrade to
+ * when Redis/musicapi/DB/threadpool/network fail. Dependency faults degrade to
  * empty results; pool overload fail-fasts with retriable 503 (AbortPolicy contract,
  * never silent-drop); never 500.
  */
@@ -45,7 +45,6 @@ class AdversarialFaultToleranceTest {
     private SongMapper songMapper;
     private NeteaseApiService neteaseApiService;
     private SongCacheService cacheService;
-    private ESSearchService esSearchService;
     private SongSearchService songSearchService;
     private ThreadPoolTaskExecutor searchExec;
     private ThreadPoolTaskExecutor warmExec;
@@ -55,7 +54,6 @@ class AdversarialFaultToleranceTest {
         songMapper = mock(SongMapper.class);
         neteaseApiService = mock(NeteaseApiService.class);
         cacheService = mock(SongCacheService.class);
-        esSearchService = mock(ESSearchService.class);
         searchExec = new ThreadPoolTaskExecutor();
         searchExec.setCorePoolSize(4);
         searchExec.setMaxPoolSize(4);
@@ -68,7 +66,7 @@ class AdversarialFaultToleranceTest {
         warmExec.setMaxPoolSize(1);
         warmExec.setQueueCapacity(5);
         warmExec.initialize();
-        songSearchService = new SongSearchService(songMapper, neteaseApiService, cacheService, esSearchService,
+        songSearchService = new SongSearchService(songMapper, neteaseApiService, cacheService,
                 new SimpleMeterRegistry(), searchExec, warmExec, mock(StringRedisTemplate.class));
         songSearchService.initMetrics();
     }
@@ -142,7 +140,6 @@ class AdversarialFaultToleranceTest {
             // Simulate Redis down: getSearchCache -> empty, tryLock -> null, retried cache -> empty, then API
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             var neSong = Map.of("id", "r1", "name", "晴天", "artists", "周杰伦", "album", "叶惠美", "cover", "", "duration", 300000);
             when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(neSong)));
             when(neteaseApiService.searchQQ("晴天", 40)).thenReturn(Map.of("data", List.of()));
@@ -165,7 +162,6 @@ class AdversarialFaultToleranceTest {
             // here we mock SongSearchService deps to throw, and verify SongSearchService handles via mocked cache returning empty
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
 
@@ -177,20 +173,17 @@ class AdversarialFaultToleranceTest {
     }
 
     // ================================================================
-    // 2. ES down — findByKeyword throws TimeoutException → degrade to API, 200
+    // 2. 缓存未命中 → 直查 API，200
     // ================================================================
     @Nested
-    @DisplayName("2. ES down — findByKeyword throws TimeoutException, search degrades to API, 200")
-    class EsDown {
+    @DisplayName("2. 缓存未命中 → 直查 API，200")
+    class CacheMissFallback {
 
         @Test
-        @DisplayName("ES throws TimeoutException → search degrades to API, returns 200 not 500")
+        @DisplayName("Redis 未命中 → 直查 API，返回 200 not 500")
         void esTimeoutDegradesToApi() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("lock-val");
-            // ES throws — must be caught inside SongSearchService.search and degrade
-            when(esSearchService.findByKeyword(anyString()))
-                    .thenThrow(new RuntimeException(new java.util.concurrent.TimeoutException("ES timeout")));
             var neSong = Map.of("id", "e1", "name", "夜曲", "artists", "周杰伦", "duration", 300000);
             when(neteaseApiService.searchNetease("夜曲", 40)).thenReturn(Map.of("data", List.of(neSong)));
             when(neteaseApiService.searchQQ("夜曲", 40)).thenReturn(Map.of("data", List.of()));
@@ -198,21 +191,19 @@ class AdversarialFaultToleranceTest {
             SearchResult result = songSearchService.search("夜曲", 1, 20);
 
             assertNotNull(result);
-            assertEquals("api", result.getSource(), "ES down must degrade to api source, not throw");
+            assertEquals("api", result.getSource(), "缓存未命中必须走 api source，不抛错");
             assertFalse(result.getList().isEmpty());
-            verify(esSearchService).findByKeyword("夜曲");
         }
 
         @Test
-        @DisplayName("ES throws RuntimeException (connection) → search still 200 via API, no 500/503")
-        void esRuntimeExceptionDegrades() {
+        @DisplayName("上游返回空 → search 仍返回 200 api source，不抛 500/503")
+        void upstreamEmptyStillReturnsApiSource() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("lock-2");
-            when(esSearchService.findByKeyword(anyString())).thenThrow(new RuntimeException("ES connection refused"));
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
 
-            SearchResult result = songSearchService.search("ES故障", 1, 20);
+            SearchResult result = songSearchService.search("上游空结果", 1, 20);
             assertNotNull(result);
             // Must not throw, must return api source even if empty
             assertEquals("api", result.getSource());
@@ -231,7 +222,6 @@ class AdversarialFaultToleranceTest {
         void bothPlatformsDownReturnsEmpty200() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("lock-m");
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenThrow(new RuntimeException("musicapi Netease down"));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenThrow(new RuntimeException("musicapi QQ down"));
 
@@ -247,7 +237,6 @@ class AdversarialFaultToleranceTest {
         void onePlatformDownPartialResult() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("lock-p");
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             var qqSong = Map.of("id", "q1", "name", "告白气球", "artists", "周杰伦", "duration", 200000);
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenThrow(new RuntimeException("Netease down"));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenReturn(Map.of("data", List.of(qqSong)));
@@ -263,7 +252,6 @@ class AdversarialFaultToleranceTest {
         @DisplayName("getRandomSongs with musicapi fallback still works when DB also queried — not 500")
         void getRandomSongsFallbackWhenApiEmpty() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenThrow(new RuntimeException("musicapi down"));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenThrow(new RuntimeException("musicapi down"));
             when(songMapper.findRandomSongs(anyInt())).thenReturn(List.of());
@@ -325,7 +313,6 @@ class AdversarialFaultToleranceTest {
             // subsequent search must still work (using original searchExec, not overfillExec)
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("lock-tp");
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             var neSong = Map.of("id", "tp1", "name", "稻香", "artists", "周杰伦", "duration", 200000);
             when(neteaseApiService.searchNetease("稻香", 40)).thenReturn(Map.of("data", List.of(neSong)));
             when(neteaseApiService.searchQQ("稻香", 40)).thenReturn(Map.of("data", List.of()));
@@ -365,7 +352,6 @@ class AdversarialFaultToleranceTest {
         @DisplayName("getRandomSongs when findRandomSongs throws DataAccessException returns empty/not 500")
         void getRandomSongsHandlesDataAccessException() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
             when(songMapper.findRandomSongs(anyInt()))
@@ -381,7 +367,6 @@ class AdversarialFaultToleranceTest {
         @DisplayName("getRandomSongs when findFirstSongs throws still returns partial, not 500")
         void getRandomSongsHandlesFindFirstFailure() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             var neSong = Map.of("id", "db1", "name", "七里香", "artists", "周杰伦", "duration", 300000);
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of(neSong)));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));
@@ -400,7 +385,6 @@ class AdversarialFaultToleranceTest {
         void searchNotAffectedByDbException() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("db-lock");
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             var neSong = Map.of("id", "s1", "name", "晴天", "artists", "周杰伦", "duration", 200000);
             when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(neSong)));
             when(neteaseApiService.searchQQ("晴天", 40)).thenReturn(Map.of("data", List.of()));
@@ -513,10 +497,9 @@ class AdversarialFaultToleranceTest {
             // Re-stub to simulate degrade: first get throws, second get after lock also empty
             // To avoid mock throwing, we reset and stub to return empty for this test via real fallback logic
             // Simpler: mock to return empty (degraded) and tryLock null
-            reset(cacheService, esSearchService, neteaseApiService);
+            reset(cacheService, neteaseApiService);
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn(null);
-            when(esSearchService.findByKeyword(anyString())).thenThrow(new RuntimeException("ES down"));
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenThrow(new RuntimeException("musicapi down"));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenThrow(new RuntimeException("musicapi down"));
 
@@ -533,7 +516,6 @@ class AdversarialFaultToleranceTest {
         void concurrentSearchesDoNotThrow() throws Exception {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
             when(cacheService.tryLock(anyString())).thenReturn("lock-conc");
-            when(esSearchService.findByKeyword(anyString())).thenReturn(List.of());
             var neSong = Map.of("id", "c1", "name", "并发", "artists", "测试", "duration", 200000);
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of(neSong)));
             when(neteaseApiService.searchQQ(anyString(), anyInt())).thenReturn(Map.of("data", List.of()));

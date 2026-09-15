@@ -94,42 +94,6 @@ services:
 
 
   # ==========================
-  # Elasticsearch 8.18.0 — 全文搜索引擎
-  # ==========================
-  elasticsearch:
-    image: elasticsearch:8.18.0
-    container_name: vibemusic-es
-    restart: unless-stopped
-    logging: *default-logging
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=true
-      - ELASTIC_PASSWORD=${ES_PASSWORD:-ChangeMeES123!}
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-      - TZ=Asia/Shanghai
-    # ES 仅内部网络访问，不暴露到宿主机（本地调试时可取消注释）
-    # ports:
-    #   - "9201:9200"
-    volumes:
-      # ES 数据
-      - ./docker-data/elasticsearch/data:/usr/share/elasticsearch/data
-      # IK 插件持久化
-      - ./docker-data/elasticsearch/plugins:/usr/share/elasticsearch/plugins
-      # 启动脚本（含 IK 自动安装）
-      - ./docker-data/elasticsearch/es-start.sh:/es-start.sh:ro
-    command: ["/bin/bash", "/es-start.sh"]
-    mem_limit: 2G
-    cpus: 2.0
-    networks:
-      - vibemusic-net
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f -u elastic:${ES_PASSWORD:-ChangeMeES123!} http://localhost:9200/_cluster/health || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 8
-      start_period: 60s
-
-  # ==========================
   # musicapi — 网易云 + QQ 音乐统一 API 代理 (Node.js)
   # ==========================
   musicapi:

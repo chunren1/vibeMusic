@@ -21,7 +21,7 @@
     "docker:status": "docker compose ps",
     "docker:logs": "docker compose logs -f",
     "docker:monitor": "docker compose up -d prometheus grafana alertmanager",
-    "docker:middleware": "docker compose up -d mysql redis redis-exporter elasticsearch minio mysql-exporter nginx prometheus grafana alertmanager mysql-backup",
+    "docker:middleware": "docker compose up -d mysql redis redis-exporter minio mysql-exporter nginx prometheus grafana alertmanager mysql-backup",
     "docker:mid": "docker compose up -d mysql redis redis-exporter minio prometheus grafana alertmanager mysql-backup",
     "nginx:reload": "docker exec vibemusic-nginx nginx -s reload",
     "deploy": "npm run build && npm run docker:up",

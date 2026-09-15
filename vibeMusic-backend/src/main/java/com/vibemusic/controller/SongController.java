@@ -26,7 +26,6 @@ public class SongController {
 
     private final SongSearchService songSearchService;
     private final NeteaseApiService neteaseApiService;
-    private final ESSearchService esSearchService;
     private final JsonCacheService cache;
 
     private static final String BANNER_CACHE_KEY = "banner:v2:home";
@@ -63,30 +62,13 @@ public class SongController {
 
     /** 搜索（v2：独立平台搜索 + 去重合并 + 排序打分 + 分页 + 分源） */
     @GetMapping("/search")
-    @Operation(summary = "搜索歌曲（三级缓存：Redis → ES → musicapi），返回 SearchResult 含 total/hasMore/source")
+    @Operation(summary = "搜索歌曲（二级缓存：Redis → musicapi），返回 SearchResult 含 total/hasMore/source")
     public Result<SearchResult> search(
             @RequestParam String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "40") int size,
             @RequestParam(required = false) String platform) {
         return Result.ok(songSearchService.search(keyword, page, size, platform));
-    }
-
-    /** ES 健康检查 — 用于验证 ES 连接状态 & 索引数据 */
-    @GetMapping("/es-health")
-    @Operation(summary = "ES 健康检查（集群状态 + 索引文档数 + 可用性）")
-    public Result<Map<String, Object>> esHealth() {
-        Map<String, Object> result = new HashMap<>();
-        Map<String, Object> cluster = esSearchService.healthCheck();
-        result.put("available", esSearchService.isAvailable());
-        if (cluster != null) {
-            result.put("cluster", cluster);
-            result.put("status", "connected");
-        } else {
-            result.put("status", "unreachable");
-            result.put("message", "ES 不可达，搜索缓存已自动降级（不影响搜索功能）");
-        }
-        return Result.ok(result);
     }
 
     /** 随机推荐 */

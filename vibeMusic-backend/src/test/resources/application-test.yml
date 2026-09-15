@@ -25,10 +25,6 @@ spring:
     exclude:
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
-      
-  # 禁用 Elasticsearch
-  elasticsearch:
-    enabled: false
 
 # JWT 测试用密钥
 jwt:
