@@ -1,4 +1,5 @@
 // ==================== 全部路由（保持原注册顺序） ====================
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -88,6 +89,13 @@ function scrubSecrets(value, depth = 0) {
   return value;
 }
 
+// /refresh-qq-cookie 日志脱敏：只记长度 + 失败时 scrubbed stderr 尾部（≤200 字符）。
+// 遵循 cookie.js「日志只打长度、绝不打值」规范；凭证原文绝不进日志文件。
+function scrubCookieValues(s) {
+  return String(s).replace(
+    /\b(MUSIC_U|qqmusic_key|qm_keyst|uin|psrf_qqunionid|psrf_qqrefresh_token)=[^;\s]+/gi, '$1=***');
+}
+
 // /search 内部字段：绝不进缓存、不出响应。higherQuality 曾存对象引用，
 // 等时长自赋值即成循环引用（JSON 序列化抛错 → 500，且毒化缓存）。
 // 如今只存标量时长提示，此处做递归兜底剥离（含历史毒化条目与嵌套）。
@@ -112,6 +120,19 @@ function stripSearchInternals(value, seen = new Set()) {
     else value[k] = cleaned;
   }
   return value;
+}
+
+// G1：/search 缓存键的 Cookie 派生维度。userCk 经 resolveNeteaseCookie 归一
+// （per-request 用户 Cookie > 共享 NETEASE_COOKIE > ''）；ckDim 只存 sha256
+// 摘要前 16 字符，原文与完整摘要绝不进日志/指标；无 Cookie 落 'anon' 共享桶。
+function searchCookieDim(req) {
+  const userCk = cookie.resolveNeteaseCookie(req);
+  if (!userCk) return 'anon';
+  return crypto.createHash('sha256').update(userCk).digest('hex').slice(0, 16);
+}
+
+function buildSearchCacheKey(kw, maxRank, safePrefer, req) {
+  return `search:${kw}:${maxRank}:${safePrefer ?? 'none'}:${searchCookieDim(req)}`;
 }
 
 // QQ 上游请求头：Cookie 为可选项，仅在已配置时携带；无 Cookie 直接请求，服务端按无登录态返回
@@ -244,8 +265,10 @@ function registerRoutes(app) {
 
       const kw = keywordRaw.trim();
 
-      // 缓存键含 prefer：排序受偏好加成影响，不同偏好必须隔离（条目数 ×3，可接受）
-      const cacheKey = `search:${kw}:${maxRank}:${safePrefer ?? 'none'}`;
+      // 缓存键含 prefer + Cookie 派生维度：排序受偏好加成影响，不同偏好必须隔离；
+      // 网易策略链头两条消费 per-request 用户 Cookie，同词不同用户也必须隔离（G1），
+      // 匿名桶（anon）仍共享以保留命中率。
+      const cacheKey = buildSearchCacheKey(kw, maxRank, safePrefer, req);
       const cached = searchCache.get(cacheKey);
       if (cached !== undefined) {
         cacheHitTotal.inc({ cache_type: 'search' });
@@ -357,7 +380,9 @@ function registerRoutes(app) {
     child.stderr.on('data', (d) => { stderr += d.toString(); });
 
     child.on('close', async (code) => {
-      writeLog('cookie', code === 0 ? 'INFO' : 'ERROR', `[/refresh-qq-cookie] 脚本退出码: ${code}, 输出: ${(stdout + stderr).slice(0, 500)}`);
+      writeLog('cookie', code === 0 ? 'INFO' : 'ERROR',
+        `[/refresh-qq-cookie] 退出码=${code}, outLen=${stdout.length}, errLen=${stderr.length}` +
+        (code === 0 ? '' : `, 尾部: ${scrubCookieValues(stderr).slice(-200)}`));
       if (code === 0 && cookie.reloadQQCookie()) {
         cookie.cookieStatus.qq = true;
         cookieStatusGauge.set({ platform: 'qq' }, 1);
@@ -372,8 +397,13 @@ function registerRoutes(app) {
     });
   });
 
-  // POST /cookie/reload — 手动重载 .env 中的 Cookie（无需重启 musicapi）
+  // POST /cookie/reload — 手动重载 .env 中的 Cookie（无需重启 musicapi）。
+  // 与 /refresh-qq-cookie 同门禁：未授权调用可把内存中新 Cookie 回滚成 .env 旧值，故必须鉴权。
   app.post('/cookie/reload', (req, res) => {
+    if (!canRefreshCookie(req)) {
+      writeLog('access', 'WARN', `[/cookie/reload] 拒绝非授权访问: ${clientIp(req)}`);
+      return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
+    }
     if (cookie.reloadQQCookie()) {
       res.json({ code: 200, message: 'Cookie 已从 .env 重新加载', data: { qqCookieKeys: Object.keys(config.qq).length } });
     } else {
@@ -381,8 +411,12 @@ function registerRoutes(app) {
     }
   });
 
-  // Cookie 状态查询端点
+  // Cookie 状态查询端点（同门禁：响应含 qqCookieKeys 计数，匿名不可见）
   app.get('/cookie-status', (req, res) => {
+    if (!canRefreshCookie(req)) {
+      writeLog('access', 'WARN', `[/cookie-status] 拒绝非授权访问: ${clientIp(req)}`);
+      return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
+    }
     const qqKeys = Object.keys(config.qq).length;
     res.json({
       code: 200,
@@ -765,6 +799,9 @@ function registerRoutes(app) {
 module.exports = registerRoutes;
 module.exports.sanitizeNeteaseParams = sanitizeNeteaseParams;
 module.exports.scrubSecrets = scrubSecrets;
+module.exports.scrubCookieValues = scrubCookieValues;
+module.exports.buildSearchCacheKey = buildSearchCacheKey;
+module.exports.searchCookieDim = searchCookieDim;
 module.exports.qqRequestHeaders = qqRequestHeaders;
 module.exports.stripSearchInternals = stripSearchInternals;
 module.exports.fetchQQPlayUrl = fetchQQPlayUrl;

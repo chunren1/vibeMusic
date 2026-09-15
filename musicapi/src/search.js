@@ -25,7 +25,8 @@ function withTimeout(promise, ms, label) {
 const CACHE_TTL = 5 * 60 * 1000; // 5分钟
 
 const searchCache = new LRUCache({
-  max: 200,
+  // G1：BYOC 键基数随用户增长（每用户一 ckDim），200 会把匿名热门词挤出去 → 提到 500。
+  max: 500,
   ttl: CACHE_TTL,
   updateAgeOnGet: true,
 });

@@ -63,7 +63,7 @@ for (const c of cookies) {
 
 console.log(`\n📋 提取到 ${Object.keys(result).length}/${NEEDED.length} 个字段:`);
 for (const [k, v] of Object.entries(result)) {
-  console.log(`  ${k} = ${v.substring(0, 30)}${v.length > 30 ? '...' : ''}`);
+  console.log(`  ${k} = *** (len=${v.length})`);
 }
 
 // 更新 .env

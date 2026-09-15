@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const axios = require('axios');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { searchCache, urlCache } = require('../src/search');
-const { stripSearchInternals } = require('../src/routes');
+const { stripSearchInternals, buildSearchCacheKey } = require('../src/routes');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -165,7 +165,8 @@ test('历史毒化缓存（循环引用）不再 500：命中即清洗后返回 
   };
   bad.higherQuality = bad; // 模拟修复前的自引用毒化条目
   bad._raw = { listenCount: 1 };
-  searchCache.set(`search:${kw}:30:none`, [bad]);
+  // G1 后键尾追加 Cookie 维度：匿名请求落 anon 桶
+  searchCache.set(buildSearchCacheKey(kw, 30, undefined, undefined), [bad]);
 
   const r = await getSearch(kw);
   assert.equal(r.status, 200);
@@ -198,7 +199,7 @@ test('空结果不入库：上游双失败后恢复，上游恢复即返回新�
   assert.equal(failed.status, 200);
   assert.equal(failed.body.data.total, 0);
   // 空数组永不写入缓存：miss 与 empty 解耦
-  assert.equal(searchCache.get(`search:${kw}:30:none`), undefined);
+  assert.equal(searchCache.get(buildSearchCacheKey(kw, 30, undefined, undefined)), undefined);
 
   restoreUpstream();
   restoreUpstream = stubUpstreamSuccess();

@@ -12,6 +12,7 @@ const assert = require('node:assert/strict');
 const axios = require('axios');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { searchCache, urlCache, searchNetease, SEARCH_TOTAL_BUDGET } = require('../src/search');
+const { buildSearchCacheKey } = require('../src/routes');
 const { register, metricsMiddleware } = require('../src/metrics');
 const access = require('../src/access');
 
@@ -103,8 +104,9 @@ test('#4 prefer 缓存键隔离：netease/qq 各自独立，相同偏好二次�
   const r3 = await get(`/search?keyword=${kw}&prefer=qq`);
   assert.equal(r3.body.message, 'success (cached)');
 
-  assert.notEqual(searchCache.get(`search:${kw}:30:netease`), undefined);
-  assert.notEqual(searchCache.get(`search:${kw}:30:qq`), undefined);
+  // G1：键尾追加 Cookie 维度（本环境无 header → anon 共享桶）
+  assert.notEqual(searchCache.get(buildSearchCacheKey(kw, 30, 'netease', undefined)), undefined);
+  assert.notEqual(searchCache.get(buildSearchCacheKey(kw, 30, 'qq', undefined)), undefined);
   assert.equal(searchCache.get(`search:${kw}:30`), undefined); // 旧无后缀键不再产生
 });
 

@@ -54,9 +54,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Prometheus HTTP 指标中间件（记录请求耗时和数量）
-app.use(metricsMiddleware);
-
 // 根路由（健康检查）
 app.get('/', (req, res) => {
   res.json({ service: 'vibeMusic API', version: '3.0', status: 'running', endpoints: ['/netease/search', '/qq/search', '/migu/search', '/migu/url', '/lyric', '/personalized', '/cookie-status', '/health'] });
