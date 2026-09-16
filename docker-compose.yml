@@ -181,6 +181,8 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-ChangeMe456!}
       # JWT
       JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecretKey123!}
+      # Cookie 加密（CookieCryptoService 硬性要求；缺失则后端启动 fail-fast）
+      COOKIE_ENC_KEY: ${COOKIE_ENC_KEY:-}
       # AI 助手
       AI_API_KEY: ${AI_API_KEY:-change-me}
       # musicapi (网易云 API 代理)
