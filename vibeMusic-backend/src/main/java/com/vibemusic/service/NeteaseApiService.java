@@ -1,6 +1,7 @@
 package com.vibemusic.service;
 
 import com.vibemusic.common.exception.BusinessException;
+import com.vibemusic.common.utils.CdnWhitelist;
 import com.vibemusic.common.utils.StreamUtils;
 import com.vibemusic.config.NeteaseApiConfig;
 import jakarta.annotation.PostConstruct;
@@ -14,8 +15,6 @@ import org.springframework.web.client.RestTemplate;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -38,15 +37,11 @@ public class NeteaseApiService {
         try {
             String host = URI.create(url).getHost();
             if (host == null) return false;
-            List<String> whitelist = Arrays.stream(cdnWhitelistConfig.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
-            for (String pattern : whitelist) {
-                if (pattern.startsWith("*.")) {
-                    String suffix = pattern.substring(1);
-                    if (host.equals(pattern.substring(2)) || host.endsWith(suffix)) return true;
-                } else if (host.equals(pattern)) return true;
+            boolean ok = CdnWhitelist.matches(host, CdnWhitelist.parse(cdnWhitelistConfig));
+            if (!ok) {
+                log.warn("SSRF blocked in NeteaseApiService: host={} url={}", host, url);
             }
-            log.warn("SSRF blocked in NeteaseApiService: host={} url={}", host, url);
-            return false;
+            return ok;
         } catch (Exception e) {
             return false;
         }

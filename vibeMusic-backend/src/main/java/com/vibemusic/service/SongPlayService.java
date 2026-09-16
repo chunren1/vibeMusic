@@ -286,9 +286,7 @@ public class SongPlayService {
                 if (System.currentTimeMillis() > DEADLINE) {
                     log.warn("音质降级链超时: {} 跳过QQ降级, 降级至试听", sourceId);
                 } else {
-                    degradationCount.incrementAndGet();
-                    log.info("音质降级: {} 网易云全试听 → 尝试QQ降级", sourceId);
-                    String qqUrl = callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), DEADLINE);
+                    String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
                     if (qqUrl != null) {
                         achievedTier = AudioQualityTier.HIGHER;
                         info.put("url", qqUrl);
@@ -490,12 +488,10 @@ public class SongPlayService {
                     }
                 }
                 String neUrl = null;
-                boolean neAllFailed = true;
                 try {
                 for (int i = 0; i < levels.length && neUrl == null; i++) {
                     try {
                         Map<String, Object> result = futures.get(i).get(5, TimeUnit.SECONDS);
-                        neAllFailed = false;
                         if (result == null) continue;
                         List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
                         if (data == null || data.isEmpty()) continue;
@@ -516,11 +512,9 @@ public class SongPlayService {
                     cancelUnfinished(futures);
                 }
                 if (neUrl != null) return neUrl;
-                if (neAllFailed) {
-                    log.info("getPlayUrl: 歌曲 {} 网易云全失败，尝试QQ降级", sourceId);
-                    String qqUrl = callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), DEADLINE);
-                    if (qqUrl != null) return qqUrl;
-                }
+                // 网易云无可用链接（全失败或全试听）→ QQ 降级，与 getPlayInfo 同序（Q2d 收敛）
+                String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
+                if (qqUrl != null) return qqUrl;
                 log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
             }
         } catch (Exception e) {
@@ -611,6 +605,24 @@ public class SongPlayService {
             }
         }
         return null;
+    }
+
+    /**
+     * 网易→QQ 降级链唯一入口（Q2d 收敛）。
+     *
+     * <p>决策记录：完整方法级合并不可行——{@code getPlayUrl} 是生产路径，
+     * 携带显式 platform 分支（migu/kugou/bilibili）；{@code getPlayInfo}
+     * 无生产调用方，但携带测试锁定的音质元数据契约
+     * （quality/degraded/fallbackFrom）。任一方向的整体委托都会改变行为，
+     * 故收敛为"同一降级动作 + 同一降级顺序"：两调用方在网易云无可用链接时
+     * 均经此步到 QQ 再到 DB；生产路径原先的 {@code neAllFailed} 门控只在
+     * 取链超时才成立（supplier 内异常被吞，flag 近似死代码），导致全试听时
+     * 跳过 QQ 直接落 DB，与 {@code getPlayInfo} 顺序不一致，已随本次删除。
+     */
+    private String degradeNeteaseToQq(String songName, String artist, String sourceId, long deadline) {
+        degradationCount.incrementAndGet();
+        log.info("音质降级: {} 网易云不可用 → 尝试QQ降级", sourceId);
+        return callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), deadline);
     }
 
     @SuppressWarnings("unchecked")

@@ -1,6 +1,7 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.CdnWhitelist;
 import com.vibemusic.common.utils.StreamUtils;
 import com.vibemusic.service.*;
 import io.swagger.v3.oas.annotations.Operation;
@@ -58,25 +59,16 @@ public class StreamController {
     private String cdnWhitelistConfig;
 
     private List<String> loadCdnWhitelist() {
-        return Arrays.stream(cdnWhitelistConfig.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
+        return CdnWhitelist.parse(cdnWhitelistConfig);
     }
 
     private boolean isCdnWhitelisted(String host) {
         if (host == null) return false;
-        List<String> whitelist = loadCdnWhitelist();
-        for (String pattern : whitelist) {
-            if (pattern.startsWith("*.")) {
-                String suffix = pattern.substring(1);
-                if (host.equals(pattern.substring(2)) || host.endsWith(suffix)) return true;
-            } else if (host.equals(pattern)) {
-                return true;
-            }
+        boolean ok = CdnWhitelist.matches(host, loadCdnWhitelist());
+        if (!ok) {
+            log.warn("SSRF blocked: host={} not in cdn-whitelist", host);
         }
-        log.warn("SSRF blocked: host={} not in cdn-whitelist", host);
-        return false;
+        return ok;
     }
 
     /** B 站 upos CDN 强制 Referer，否则 403。仅 bilivideo/hdslb 域名需要。 */
