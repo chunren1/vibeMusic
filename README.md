@@ -31,10 +31,10 @@
 
 市面上的音乐播放器项目大多停留在 CRUD 和播放功能。本项目希望**完整模拟互联网音乐平台的后台架构**，因此加入了：
 
-- **五源聚合**：网易云（VIP-cookie 主源）+ QQ 音乐（无 cookie 备用）+ 咪咕 + 酷狗 v5 + B 站（游客模式）聚合搜索、去重、评分排序
+- **多源聚合搜索**：多家音乐内容源统一归一化（曲名 / 艺人 / 封面 / 时长 / 播放地址），指纹去重 + 相关性 / 可播性多因子排序，单源故障自动降级不影响整体可用性
 - **AI Agent**：基于 LLM Function Calling 实现自然语言操控音乐系统
-- **缓存**：Redis（TTL 6h）→ 直调 API 两级链路，ES 已移除，保障搜索 SLA
-- **BYOC**：用户自带网易云 cookie（`/api/cookies`，AES-GCM 加密、按用户隔离）
+- **缓存**：Redis（TTL 6h）→ 直调 API 两级链路，保障搜索 SLA
+- **BYOC（用户自带凭证）**：多租户凭证隔离架构——用户级密钥 AES-GCM 加密存储、请求级透传、缓存级隔离（个人结果永不落入共享缓存），附带过期检测与重绑引导
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
 - **全栈 DevOps**：14 服务 Docker 编排 + GitHub Actions CI/CD + 654 条测试（后端 392 · 网关 105 · 前端 157）
 
@@ -73,13 +73,13 @@ docker compose up -d
 
 ## 🔍 功能
 
-**搜索两级缓存** — `Redis（TTL 6h）→ 直调 API`，热门词预热，缓存命中时显著快于直调，ES 已移除。
+**多源聚合（高可用设计）** — 统一归一化 + 指纹去重 + 多因子排序；任一上游抖动或故障时自动降级，其余源正常服务，搜索成功率不受单点影响。
 
-**AI Function Calling** — DeepSeek V4 + `search_songs` / `get_user_history` 工具，LLM 自主决定搜索关键词，SSE 流式输出。
+**AI Function Calling** — LLM 自主决定搜索关键词并调用 `search_songs` / `get_user_history` 工具，SSE 流式输出，自然语言操控音乐系统。
 
-**音质六级 SLA** — LOCAL → HIRES → EXHIGH → HIGHER → STANDARD → FALLBACK，`CompletableFuture` 并行探测，逐级降级保障可播性。
+**音质六级 SLA** — LOCAL → HIRES → EXHIGH → HIGHER → STANDARD → FALLBACK，并行探测、逐级降级保障可播性。
 
-**BYOC 自带 Cookie** — 用户在 `/api/cookies` 绑定自己的网易云 cookie，AES-GCM 加密存储、按用户隔离，VIP 权益归属用户个人。
+**BYOC 多租户凭证隔离** — 用户级密钥加密存储、请求级透传、缓存级隔离的三层隔离设计：个人权益归属个人，共享缓存零污染，过期自动引导重绑。
 
 **个性化推荐 v3** — 随机种子 + 歌手兴趣扩展 + Redis 缓存 + 离线标记，30 分钟刷新周期。
 
@@ -316,8 +316,8 @@ Collector 配置：`docker-data/otel-collector-config.yaml`（`otlp:4317/4318` �
 | ✅ **v5** | Docker 14 服务 · Prometheus · Grafana · 告警 |
 | ✅ **v6** | K6 压测达标 · 音频并行降级 · 收藏重试 |
 | ⬜ **v7** | Kubernetes 部署 · ArgoCD · OpenTelemetry（未建设） |
-| ✅ **v8** | 五源聚合（网易云 VIP-cookie 主源 + QQ 无 cookie 备用 + 咪咕 + 酷狗 v5 + B 站游客模式）· ES 移除 |
-| ✅ **v9** | BYOC 用户自带网易云 cookie（`/api/cookies`，AES-GCM，按用户隔离） |
+| ✅ **v8** | 多源聚合搜索（统一归一化 / 指纹去重 / 故障自动降级）· 缓存架构简化为 Redis 两级 |
+| ✅ **v9** | BYOC 多租户凭证隔离（用户级密钥加密存储 / 请求级透传 / 缓存级隔离 / 过期重绑） |
 
 ---
 
