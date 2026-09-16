@@ -213,25 +213,43 @@ public class PlaylistService {
     public List<Map<String, Object>> getSongs(Long userId, Long playlistId) {
         Playlist pl = playlistMapper.selectById(playlistId);
         if (pl == null) throw new BusinessException(404, "歌单不存在");
-        if (!pl.getUserId().equals(userId)) throw new BusinessException(403, "无权操作此歌单");
+        if (!Objects.equals(pl.getUserId(), userId)) throw new BusinessException(403, "无权操作此歌单");
         List<PlaylistSong> list = songMapper.selectList(new LambdaQueryWrapper<PlaylistSong>()
                 .eq(PlaylistSong::getPlaylistId, playlistId)
                 .orderByDesc(PlaylistSong::getAddedAt));
-        return list.stream().map(s -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("sourceId", s.getSourceId());
-            // 原生 App 用 name + platform；Web 端继续用 songName（双写兼容）
-            m.put("name", s.getSongName());
-            m.put("songName", s.getSongName());
-            m.put("platform", s.getPlatform() != null && !s.getPlatform().isBlank() ? s.getPlatform() : "netease");
-            m.put("artist", s.getArtist());
-            // 升级 HTTP → HTTPS，防止手机通过 HTTPS 隧道时混合内容被浏览器拦截
-            String cover = s.getCoverUrl();
-            m.put("coverUrl", cover != null ? cover.replace("http://", "https://") : "");
-            m.put("duration", s.getDuration());
-            m.put("addedAt", s.getAddedAt());
-            return m;
-        }).collect(Collectors.toList());
+        // 逐行映射：单行损坏只跳过该行，绝不拖垮整个列表（推荐歌单导入后的脏数据曾导致整单 500）
+        List<Map<String, Object>> result = new ArrayList<>(list.size());
+        for (PlaylistSong s : list) {
+            try {
+                Map<String, Object> m = toSongMap(s);
+                if (m != null) result.add(m);
+            } catch (Exception e) {
+                log.warn("跳过损坏的歌单歌曲行: playlistId={}, songId={}", playlistId,
+                        s != null ? s.getId() : null, e);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 单行映射（null-guard）：缺字段给默认值；无有效 sourceId 的行返回 null（调用方跳过）。
+     */
+    private static Map<String, Object> toSongMap(PlaylistSong s) {
+        if (s == null || s.getSourceId() == null || s.getSourceId().isBlank()) return null;
+        Map<String, Object> m = new HashMap<>();
+        m.put("sourceId", s.getSourceId());
+        // 原生 App 用 name + platform；Web 端继续用 songName（双写兼容）
+        String songName = s.getSongName() != null ? s.getSongName() : "";
+        m.put("name", songName);
+        m.put("songName", songName);
+        m.put("platform", s.getPlatform() != null && !s.getPlatform().isBlank() ? s.getPlatform() : "netease");
+        m.put("artist", s.getArtist() != null ? s.getArtist() : "");
+        // 升级 HTTP → HTTPS，防止手机通过 HTTPS 隧道时混合内容被浏览器拦截
+        String cover = s.getCoverUrl();
+        m.put("coverUrl", cover != null ? cover.replace("http://", "https://") : "");
+        m.put("duration", s.getDuration() != null ? s.getDuration() : 0);
+        m.put("addedAt", s.getAddedAt());
+        return m;
     }
 
     @Transactional(rollbackFor = Exception.class)

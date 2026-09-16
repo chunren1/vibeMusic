@@ -3,7 +3,9 @@ package com.vibemusic.service;
 import com.vibemusic.TransactionalServiceTest;
 import com.vibemusic.common.exception.BusinessException;
 import com.vibemusic.entity.Playlist;
+import com.vibemusic.entity.PlaylistSong;
 import com.vibemusic.mapper.PlaylistMapper;
+import com.vibemusic.mapper.PlaylistSongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -29,6 +31,9 @@ class PlaylistServiceTest extends TransactionalServiceTest {
 
     @Autowired
     private PlaylistMapper playlistMapper;
+
+    @Autowired
+    private PlaylistSongMapper songMapper;
 
     private static final Long USER_ID = 1L;
     private static final String SONG_SOURCE_ID = "000rh0dE2TyUic";
@@ -155,6 +160,43 @@ class PlaylistServiceTest extends TransactionalServiceTest {
             BusinessException ex = assertThrows(BusinessException.class, () ->
                     playlistService.getSongs(USER_ID, 99999L));
             assertEquals(404, ex.getCode());
+        }
+
+        @Test
+        @DisplayName("损坏行（sourceId为空）应被跳过，好行仍正常返回")
+        void shouldSkipCorruptRowsAndReturnGoodOnes() {
+            Long playlistId = createPlaylistAndGetId("坏行跳过歌单");
+            playlistService.addSong(USER_ID, playlistId, SONG_SOURCE_ID, SONG_NAME, ARTIST, COVER_URL, 240);
+            songMapper.insert(PlaylistSong.builder()
+                    .playlistId(playlistId).sourceId("")
+                    .songName(null).artist(null).coverUrl(null).duration(null).platform(null)
+                    .build());
+
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
+
+            assertEquals(1, songs.size());
+            assertEquals(SONG_SOURCE_ID, songs.get(0).get("sourceId"));
+        }
+
+        @Test
+        @DisplayName("字段全空但sourceId有效行应被保留且空字段给默认值")
+        void shouldNullGuardRowsWithMissingFields() {
+            Long playlistId = createPlaylistAndGetId("空字段歌单");
+            songMapper.insert(PlaylistSong.builder()
+                    .playlistId(playlistId).sourceId("half_empty_1")
+                    .songName(null).artist(null).coverUrl(null).duration(null).platform(null)
+                    .build());
+
+            List<Map<String, Object>> songs = playlistService.getSongs(USER_ID, playlistId);
+
+            assertEquals(1, songs.size());
+            Map<String, Object> row = songs.get(0);
+            assertEquals("", row.get("songName"));
+            assertEquals("", row.get("name"));
+            assertEquals("", row.get("artist"));
+            assertEquals("", row.get("coverUrl"));
+            assertEquals(0, row.get("duration"));
+            assertEquals("netease", row.get("platform"));
         }
     }
 
