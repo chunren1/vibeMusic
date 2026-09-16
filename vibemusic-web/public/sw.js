@@ -1,5 +1,15 @@
 // vibeMusic Service Worker — 离线缓存 + 秒开
-const CACHE_NAME = 'vibemusic-v5'
+// 缓存名跟随构建变化：对 workbox 注入清单的 url+revision 做指纹，
+// 发版后旧缓存整体淘汰（activate 按前缀清理），避免 hash 资源永久堆积
+const WB_MANIFEST = self.__WB_MANIFEST || []
+function manifestId(list) {
+  const s = list.map(e => typeof e === 'string' ? e : ((e && e.url || '') + '@' + (e && e.revision || ''))).join('\n')
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+const CACHE_PREFIX = 'vibemusic-'
+const CACHE_NAME = CACHE_PREFIX + (WB_MANIFEST.length ? manifestId(WB_MANIFEST) : 'dev')
 // 预缓存的离线核心资源（首次安装后即可离线访问；生产构建时被 workbox 注入的 hash 清单替代）
 const ASSETS_TO_CACHE = [
   '/',              // 主页 (SPA entry)
@@ -21,21 +31,23 @@ const offlineFallbackFor = requestUrl => {
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      const assets = (self.__WB_MANIFEST || ASSETS_TO_CACHE).map(entry =>
+      const assets = (WB_MANIFEST.length ? WB_MANIFEST : ASSETS_TO_CACHE).map(entry =>
         typeof entry === 'string' ? entry : entry.url
       )
-      return cache.addAll(assets).catch(() => {})
+      return cache.addAll(assets).catch((err) => {
+        console.warn('[SW] precache 部分资源失败，离线能力可能不完整:', err && err.message || err)
+      })
     })
   )
   self.skipWaiting()
 })
 
-// 激活：清理旧缓存
+// 激活：清理旧缓存（同前缀不同构建指纹一律删除）
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys => {
       return Promise.all(
-        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+        keys.filter(k => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map(k => caches.delete(k))
       )
     })
   )
@@ -52,6 +64,8 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url)
   if (url.protocol === 'chrome-extension:') return
   if (url.pathname.startsWith('/api/')) return
+  // 用户上传内容（头像/背景图）不缓存：登出/换账号后同设备不可再读
+  if (url.pathname.startsWith('/uploads/')) return
   // 跳过跨域请求（网易云封面等图片走 CDN 强缓存，Cache API 无法缓存 no-cors opaque 响应，
   // 拦截后反而绕过浏览器 HTTP 缓存导致每次渲染重复请求）
   if (url.origin !== self.location.origin) return

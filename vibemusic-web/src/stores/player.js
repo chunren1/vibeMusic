@@ -119,6 +119,18 @@ export const usePlayerStore = defineStore('player', () => {
   audio.addEventListener('play', () => { isPlaying.value = true })
   audio.addEventListener('pause', () => { isPlaying.value = false })
   audio.addEventListener('ended', () => onEnded())
+  // /songs/play 不返回 duration：用音频元数据回填当前歌曲与队列条目时长
+  audio.addEventListener('loadedmetadata', () => {
+    const d = Math.floor(audio.duration || 0)
+    if (!d) return
+    duration.value = audio.duration
+    if (currentSong.value?.id) {
+      currentSong.value.duration = d
+      const hit = queue.value.find(s => (s.sourceId || s.id) === currentSong.value.id)
+      if (hit) hit.duration = d
+      debouncedSave()
+    }
+  })
   // 音频流断流/错误时自动重试
   let _retryCount = 0
   let _errorLocked = false  // 防止无限重试死循环
@@ -191,7 +203,8 @@ export const usePlayerStore = defineStore('player', () => {
         qualityLabel.value = '标准'
         isTrialSong.value = false
       }
-      playBySourceId(sourceId, name, artist, coverUrl, res.data?.duration || 0, platform)
+      // 后端 play 不返回 duration，传 0 并由 loadedmetadata 回填真实时长
+      playBySourceId(sourceId, name, artist, coverUrl, 0, platform)
     } catch {
       playBySourceId(sourceId, name, artist, coverUrl, 0, platform)
     }
@@ -288,15 +301,25 @@ export const usePlayerStore = defineStore('player', () => {
 
   /** 从队列中移除歌曲 */
   function removeFromQueue(idx) {
+    const wasCurrent = idx === currentIdx.value
     queue.value.splice(idx, 1)
-    if (currentIdx.value >= queue.value.length) currentIdx.value = queue.value.length - 1
-    if (idx === currentIdx.value && queue.value.length > 0) playCurrent()
-    else if (queue.value.length === 0) {
+    // 队列清空 → 重置播放状态
+    if (queue.value.length === 0) {
+      currentIdx.value = -1
       currentSong.value = { id: '', title: '未播放', artist: '', coverUrl: '', duration: 0 }
       audio.pause()
       audio.src = ''
       isPlaying.value = false
+      return
     }
+    // 删除的正是当前项 → 索引钳制到尾部并播放顶上来的那首
+    if (wasCurrent) {
+      currentIdx.value = Math.min(idx, queue.value.length - 1)
+      playCurrent()
+      return
+    }
+    // 删除当前项之前的条目 → 整体前移，currentIdx 跟随减一（不触发播放）
+    if (idx < currentIdx.value) currentIdx.value--
   }
 
   /** 播放队列中指定索引 */

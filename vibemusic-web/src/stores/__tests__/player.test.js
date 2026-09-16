@@ -96,6 +96,72 @@ describe('PlayerStore', () => {
       expect(store.queue).toHaveLength(0)
       expect(store.currentSong.title).toBe('未播放')
     })
+
+    it('移除当前曲目之前的条目后 currentIdx 跟随前移', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: '1', name: 'S1' })
+      store.addToQueue({ sourceId: '2', name: 'S2' })
+      store.addToQueue({ sourceId: '3', name: 'S3' })
+      store.currentIdx = 2
+      store.removeFromQueue(0)
+      expect(store.queue).toHaveLength(2)
+      expect(store.currentIdx).toBe(1)
+      expect(store.queue[store.currentIdx].sourceId).toBe('3')
+    })
+
+    it('移除当前曲目之后的条目不影响 currentIdx', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: '1', name: 'S1' })
+      store.addToQueue({ sourceId: '2', name: 'S2' })
+      store.addToQueue({ sourceId: '3', name: 'S3' })
+      store.currentIdx = 0
+      store.removeFromQueue(2)
+      expect(store.queue).toHaveLength(2)
+      expect(store.currentIdx).toBe(0)
+      expect(store.queue[store.currentIdx].sourceId).toBe('1')
+    })
+
+    it('删除当前项 → 播放顶上来的下一首', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: '1', name: 'S1' })
+      store.addToQueue({ sourceId: '2', name: 'S2' })
+      store.addToQueue({ sourceId: '3', name: 'S3' })
+      store.currentIdx = 1
+      store.removeFromQueue(1)
+      expect(store.queue).toHaveLength(2)
+      expect(store.currentIdx).toBe(1)
+      expect(store.queue[store.currentIdx].sourceId).toBe('3')
+      expect(store.currentSong.id).toBe('3')
+      expect(store.audio.src).toContain('3')
+    })
+
+    it('删除当前项之前的条目 → 不触发重新播放', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: '1', name: 'S1' })
+      store.addToQueue({ sourceId: '2', name: 'S2' })
+      store.addToQueue({ sourceId: '3', name: 'S3' })
+      store.currentIdx = 1
+      const playSpy = vi.spyOn(store.audio, 'play')
+      store.removeFromQueue(0)
+      expect(store.queue).toHaveLength(2)
+      expect(store.currentIdx).toBe(0)
+      expect(store.queue[store.currentIdx].sourceId).toBe('2')
+      expect(playSpy).not.toHaveBeenCalled()
+    })
+
+    it('删除正在播放的最后一项 → 回退到新的尾项并播放', () => {
+      const store = usePlayerStore()
+      store.addToQueue({ sourceId: '1', name: 'S1' })
+      store.addToQueue({ sourceId: '2', name: 'S2' })
+      store.addToQueue({ sourceId: '3', name: 'S3' })
+      store.currentIdx = 2
+      store.removeFromQueue(2)
+      expect(store.queue).toHaveLength(2)
+      expect(store.currentIdx).toBe(1)
+      expect(store.queue[store.currentIdx].sourceId).toBe('2')
+      expect(store.currentSong.id).toBe('2')
+      expect(store.audio.src).toContain('2')
+    })
   })
 
   describe('clearQueue', () => {

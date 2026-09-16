@@ -43,6 +43,8 @@ musicapi/config.js
 
 # 测试脚本中的真实 API Key（如需保留脚本，请改为从环境变量读取）
 scripts/test_deepseek.py
+# 一次性密钥清理脚本（含历史密钥字面量，永不提交）
+scripts/_*.js
 
 # 后端敏感配置覆盖文件
 vibeMusic-backend/src/main/resources/application-local.yml

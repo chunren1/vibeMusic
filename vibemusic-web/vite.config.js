@@ -60,6 +60,11 @@ export default defineConfig({
       manifest: false,        // 已有 public/manifest.json，不自动生成
       injectRegister: false,  // index.html 已手动注册 /sw.js，避免重复注册
       registerType: 'autoUpdate',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        globIgnores: ['**/*.map'],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+      },
     }),
   ],
   resolve: {
@@ -86,10 +91,10 @@ export default defineConfig({
         chunkSizeWarningLimit: 500,
         manualChunks(id) {
           if (!id.includes('node_modules')) return
+          if (id.includes('@sentry')) return 'sentry'
           if (id.includes('vue') || id.includes('@vue')) return 'vue-core'
           if (id.includes('pinia')) return 'pinia'
           if (id.includes('axios')) return 'axios'
-          if (id.includes('@capacitor')) return 'capacitor'
           return 'vendor'
         },
       },
