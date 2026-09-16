@@ -182,7 +182,7 @@ public class StreamController {
                     response.setStatus(403); return;
                 }
                 String rangeHeader = request.getHeader("Range");
-                restClient.get().uri(audioUrl).headers(h -> {
+                restClient.get().uri(URI.create(audioUrl)).headers(h -> {
                     applyProxyHeaders(h, host, rangeHeader);
                 }).exchange((clientReq, clientResp) -> {
                     int cdnStatus = clientResp.getStatusCode().value();
