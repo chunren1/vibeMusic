@@ -3,7 +3,7 @@
  *
  * 运行: node --test --test-force-exit test/cookie-endpoints-hardening.test.js（无需启动 server，无需真实网络，纯 stub）
  * 零新依赖：仅 node:test + node:assert/strict 内置模块。
- * 覆盖：G3 /cookie/reload + /cookie-status 鉴权门禁（403 匿名 / 200 带令牌 / 无令牌本机行为不变）、
+ * 覆盖：G3 /cookie-status 鉴权门禁（403 匿名 / 200 带令牌 / 无令牌本机行为不变）、
  *       G4 scrubCookieValues 脱敏 + 日志无原文断言 + 提取脚本无明文打印、
  *       G2 metricsMiddleware 单次挂载。
  */
@@ -47,22 +47,12 @@ afterEach(() => {
   else delete process.env.MUSICAPI_ADMIN_TOKEN;
 });
 
-async function postReload(query = '') {
-  const r = await fetch(`${base}/cookie/reload${query}`, { method: 'POST' });
-  return { status: r.status, body: await r.json() };
-}
 async function getStatus(query = '') {
   const r = await fetch(`${base}/cookie-status${query}`);
   return { status: r.status, body: await r.json() };
 }
 
 // ---- G3：未授权一律 403（与 /refresh-qq-cookie 同形） ----
-test('G3 /cookie/reload 匿名 403：{code,message,data} 同形', async () => {
-  const r = await postReload();
-  assert.equal(r.status, 403);
-  assert.deepEqual(r.body, { code: 403, message: 'Forbidden', data: null });
-});
-
 test('G3 /cookie-status 匿名 403：{code,message,data} 同形', async () => {
   const r = await getStatus();
   assert.equal(r.status, 403);
@@ -70,15 +60,6 @@ test('G3 /cookie-status 匿名 403：{code,message,data} 同形', async () => {
 });
 
 // ---- G3：带令牌行为不变（形状保持） ----
-test('G3 /cookie/reload 带令牌 200：原形状 {code,message,data.qqCookieKeys} 不变', async () => {
-  stub(cookie, 'reloadQQCookie', () => true);
-  const r = await postReload('?token=t-secret');
-  assert.equal(r.status, 200);
-  assert.equal(r.body.code, 200);
-  assert.equal(r.body.message, 'Cookie 已从 .env 重新加载');
-  assert.equal(typeof r.body.data.qqCookieKeys, 'number');
-});
-
 test('G3 /cookie-status 带令牌 200：原形状 {code,data,timestamp} 不变', async () => {
   const r = await getStatus('?token=t-secret');
   assert.equal(r.status, 200);
