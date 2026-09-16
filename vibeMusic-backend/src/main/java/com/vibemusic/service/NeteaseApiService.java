@@ -31,7 +31,7 @@ public class NeteaseApiService {
     /** 流式下载客户端（复用连接池） */
     private RestClient streamClient;
 
-    @Value("${stream.cdn-whitelist:*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,*.migu.cn,*.bilivideo.com,*.hdslb.com}")
+    @Value("${stream.cdn-whitelist}")
     private String cdnWhitelistConfig;
 
     private boolean isUrlAllowed(String url) {

@@ -401,6 +401,8 @@ public class SongPlayService {
 
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
+        // 生产链路整体 8s 超时保护（与 getPlayInfo 一致）
+        final long DEADLINE = System.currentTimeMillis() + 8000;
         // 1. 优先检查 MinIO 缓存（Redis 缓存 exists 结果，TTL 10min）
         String minioObjectName = "songs/" + sourceId + ".mp3";
         if (isCachedInMinio(sourceId, userCookie)) {
@@ -516,7 +518,7 @@ public class SongPlayService {
                 if (neUrl != null) return neUrl;
                 if (neAllFailed) {
                     log.info("getPlayUrl: 歌曲 {} 网易云全失败，尝试QQ降级", sourceId);
-                    String qqUrl = tryQQFallback(songName, artist, sourceId);
+                    String qqUrl = callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), DEADLINE);
                     if (qqUrl != null) return qqUrl;
                 }
                 log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
