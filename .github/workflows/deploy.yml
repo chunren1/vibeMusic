@@ -8,38 +8,21 @@ on:
     tags:
       - 'v*'          # 推送 tag 如 v1.0.0 时自动部署
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
+# NOTE: tests live in ci.yml (backend / frontend / gateway / infra-lint).
+# This workflow is artifact-build only; do NOT re-add test or compose-lint jobs here.
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Backend Tests
-        run: cd vibeMusic-backend && mvn test -B
-
-      - name: Frontend Install & Test
-        run: cd vibemusic-web && npm ci && npm test
-
   build-and-deploy:
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -48,11 +31,14 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: maven
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: vibemusic-web/package-lock.json
 
       - name: Build Backend JAR
         run: cd vibeMusic-backend && mvn package -DskipTests -B
@@ -84,3 +70,10 @@ jobs:
           name: frontend-dist
           path: vibemusic-web/dist/
           retention-days: 7
+
+      # 示例：镜像推送与远程部署（需配置 secrets.RSA / REGISTRY）
+      # - name: Build & push images
+      #   run: |
+      #     echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+      #     docker compose build backend frontend
+      #     docker compose push

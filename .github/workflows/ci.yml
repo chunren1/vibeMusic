@@ -1,0 +1,200 @@
+# vibeMusic unified CI — single workflow replacing backend-ci / frontend-ci /
+# musicapi-ci / test.yml (merged Q2b). 3 parallel test jobs + 1 infra-lint.
+# deploy.yml keeps artifact-build only (no test duplication here).
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'vibeMusic-backend/**'
+      - 'vibemusic-web/**'
+      - 'musicapi/**'
+      - 'docker-compose.yml'
+      - 'docker-data/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'vibeMusic-backend/**'
+      - 'vibemusic-web/**'
+      - 'musicapi/**'
+      - 'docker-compose.yml'
+      - 'docker-data/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- Job 1: Spring Boot backend (JaCoCo 60% gate runs on `verify`) ----
+  backend:
+    name: Backend (Maven verify)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: vibeMusic-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build & Verify (JaCoCo 60% gate on verify)
+        run: mvn -B verify -DskipTests=false
+        env:
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+          # test-only, never production：32 个零字节的 base64 假密钥，仅供测试加载 CookieCryptoService
+          COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+      - name: Upload Surefire test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: vibeMusic-backend/target/surefire-reports/
+          retention-days: 7
+
+      - name: Upload JaCoCo coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-report
+          path: vibeMusic-backend/target/site/jacoco/
+          retention-days: 7
+
+  # ---- Job 2: Vue 3 frontend (build + Vitest) ----
+  frontend:
+    name: Frontend (Vite build + Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: vibemusic-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vibemusic-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint (if configured)
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.json" ] || [ -f ".eslintrc.cjs" ] || [ -f "eslint.config.js" ] || [ -f "eslint.config.mjs" ]; then
+            echo "ESLint config found, running..."
+            npx eslint . --ext .js,.vue || echo "::warning::eslint found issues"
+          else
+            echo "No ESLint config, skipping (project is pure JS without eslint by design)"
+          fi
+
+      - name: Build (Vite)
+        run: npm run build
+
+      - name: Run tests (Vitest)
+        run: npx vitest run --reporter=verbose --coverage
+
+      - name: Upload dist
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: vibemusic-web/dist/
+          retention-days: 7
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-report
+          path: vibemusic-web/coverage/
+          retention-days: 7
+
+  # ---- Job 3: Express BFF gateway (offline stub tests, no live server) ----
+  # NOTE: test/server.test.js is deliberately excluded — it requires a live
+  # server on :3000. All other test files are self-contained (node:test stubs)
+  # and run per-file explicitly with --test-force-exit.
+  gateway:
+    name: Gateway (node --test, 11 files)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: musicapi
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: musicapi/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check
+        run: |
+          node --check server.js
+          for f in $(find . -name '*.js' -not -path './node_modules/*'); do node --check "$f"; done
+
+      - name: Run gateway tests (per-file, no live server)
+        run: |
+          node --test --test-force-exit test/cookie-endpoints-hardening.test.js \
+            test/gateway-top10.test.js \
+            test/netease-ssrf.test.js \
+            test/netease-user-cookie.test.js \
+            test/qq-no-cookie.test.js \
+            test/search-bili.test.js \
+            test/search-cache-key-isolation.test.js \
+            test/search-cache-regression.test.js \
+            test/search-kugou.test.js \
+            test/search-migu.test.js \
+            test/search-qq.test.js
+
+  # ---- Job 4: infra-lint (the ONLY `docker compose config` in CI) ----
+  infra-lint:
+    name: Infra (compose + otel)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint docker-compose (syntax only, no env needed)
+        run: docker compose config -q
+
+      - name: Validate otel-collector config YAML syntax
+        run: |
+          python3 -c 'import yaml; yaml.safe_load(open("docker-data/otel-collector-config.yaml")); print("otel-collector-config.yaml: YAML ok")'
+
+      - name: Check otel tail_sampling policies present
+        run: |
+          python3 << 'PY'
+          import yaml, sys
+          cfg = yaml.safe_load(open('docker-data/otel-collector-config.yaml'))
+          policies = cfg.get('processors', {}).get('tail_sampling', {}).get('policy', [])
+          names = {p.get('name') for p in policies}
+          expected = {'always-sample-errors', 'sample-slow', 'sample-low-throughput'}
+          missing = expected - names
+          if missing:
+              print(f"::error::otel tail_sampling missing policies: {missing}")
+              sys.exit(1)
+          print(f"tail_sampling policies ok: {names}")
+          traces_procs = cfg.get('service', {}).get('pipelines', {}).get('traces', {}).get('processors', [])
+          if 'memory_limiter' not in traces_procs:
+              print("::warning::traces pipeline missing memory_limiter")
+          else:
+              print(f"traces processors: {traces_procs}")
+          PY
