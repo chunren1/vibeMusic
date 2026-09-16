@@ -41,8 +41,8 @@ onMounted(() => {
 <template>
   <div class="mobile-shell" :class="{ 'no-padding': isPlayerPage }">
     <RouterView v-slot="{ Component }">
-      <!-- max=6：与 include 列表等长，LRU 淘汰最久未用，防止无限缓存内存增长 -->
-      <keep-alive :include="['MHomeView', 'MLikesView', 'MRecentView', 'MPlaylistsView', 'MProfileView', 'MChatView']" :max="6">
+      <!-- Q2c：keep-alive 缓存与路由收敛保持一致（MHomeView 保留 + 桌面视图复用） -->
+      <keep-alive :include="['MHomeView', 'LikesView', 'RecentView', 'PlaylistsView', 'ProfileView', 'ChatView']" :max="6">
         <component :is="Component" />
       </keep-alive>
     </RouterView>

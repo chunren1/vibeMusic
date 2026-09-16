@@ -16,21 +16,24 @@ const routes = [
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
 
   // ===== 移动端路由 (/m) =====
+  // Q2c 收敛：仅保留 3 个移动端核心页（首页/搜索/播放器），其余 /m 路由
+  // 复用桌面端视图（响应式渲染），路由名/路径/meta 保持不变，无 404。
+  // 被替换的 mobile/*.vue 文件保留在原位，仅不再被路由引用，便于回滚。
   {
     path: '/m',
     component: () => import('@/views/mobile/MobileShell.vue'),
     children: [
       { path: '', name: 'm-home', component: () => import('@/views/mobile/MHomeView.vue') },
       { path: 'search', name: 'm-search', component: () => import('@/views/mobile/MSearchView.vue') },
-      { path: 'likes', name: 'm-likes', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MLikesView.vue') },
-      { path: 'recent', name: 'm-recent', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MRecentView.vue') },
-      { path: 'playlists', name: 'm-playlists', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistsView.vue') },
-      { path: 'profile', name: 'm-profile', component: () => import('@/views/mobile/MProfileView.vue') },
-      { path: 'profile/detail', name: 'm-profile-detail', component: () => import('@/views/mobile/MProfileDetailView.vue') },
-      { path: 'playlist/:id', name: 'm-playlist', meta: { requiresAuth: true }, component: () => import('@/views/mobile/MPlaylistView.vue') },
-      { path: 'playlist/:source/:id', name: 'm-playlist-detail', component: () => import('@/views/mobile/MPlaylistDetailView.vue') },
+      { path: 'likes', name: 'm-likes', meta: { requiresAuth: true }, component: () => import('@/views/LikesView.vue') },
+      { path: 'recent', name: 'm-recent', meta: { requiresAuth: true }, component: () => import('@/views/RecentView.vue') },
+      { path: 'playlists', name: 'm-playlists', meta: { requiresAuth: true }, component: () => import('@/views/PlaylistsView.vue') },
+      { path: 'profile', name: 'm-profile', component: () => import('@/views/ProfileView.vue') },
+      { path: 'profile/detail', name: 'm-profile-detail', component: () => import('@/views/ProfileDetailView.vue') },
+      { path: 'playlist/:id', name: 'm-playlist', meta: { requiresAuth: true }, component: () => import('@/views/PlaylistView.vue') },
+      { path: 'playlist/:source/:id', name: 'm-playlist-detail', component: () => import('@/views/PlaylistDetailView.vue') },
       { path: 'player', name: 'm-player', component: () => import('@/views/mobile/MPlayerView.vue') },
-      { path: 'chat', name: 'm-chat', component: () => import('@/views/mobile/MChatView.vue') },
+      { path: 'chat', name: 'm-chat', component: () => import('@/views/ChatView.vue') },
     ]
   },
 
