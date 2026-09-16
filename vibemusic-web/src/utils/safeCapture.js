@@ -11,8 +11,4 @@ export function safeCapture(error, context = "unknown", extra = {}) {
   } catch (e) {}
 }
 
-export function silentCapture(error, context) {
-  console.warn("[silent] " + context + ":", error?.message || error);
-}
-
 export default safeCapture;

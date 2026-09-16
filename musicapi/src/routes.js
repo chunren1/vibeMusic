@@ -397,20 +397,6 @@ function registerRoutes(app) {
     });
   });
 
-  // POST /cookie/reload — 手动重载 .env 中的 Cookie（无需重启 musicapi）。
-  // 与 /refresh-qq-cookie 同门禁：未授权调用可把内存中新 Cookie 回滚成 .env 旧值，故必须鉴权。
-  app.post('/cookie/reload', (req, res) => {
-    if (!canRefreshCookie(req)) {
-      writeLog('access', 'WARN', `[/cookie/reload] 拒绝非授权访问: ${clientIp(req)}`);
-      return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
-    }
-    if (cookie.reloadQQCookie()) {
-      res.json({ code: 200, message: 'Cookie 已从 .env 重新加载', data: { qqCookieKeys: Object.keys(config.qq).length } });
-    } else {
-      res.status(500).json({ code: 500, message: '重载失败，请检查 .env 文件' });
-    }
-  });
-
   // Cookie 状态查询端点（同门禁：响应含 qqCookieKeys 计数，匿名不可见）
   app.get('/cookie-status', (req, res) => {
     if (!canRefreshCookie(req)) {
@@ -444,23 +430,6 @@ function registerRoutes(app) {
     }
   });
 
-  app.get('/cloudsearch', async (req, res) => {
-    try {
-      const keywords = queryStr(req.query.keywords);
-      const limit = firstQuery(req.query.limit) ?? 20;
-      const type = firstQuery(req.query.type) ?? 1;
-      if (!keywords) return res.status(400).json({ code: 400, message: '缺少 keywords 参数' });
-      const result = await withTimeout(
-        NeteaseCloudMusicApi.cloudsearch(cookie.withNeteaseCookie({ keywords, limit, type }, req)),
-        UPSTREAM_TIMEOUT, 'netease/cloudsearch'
-      );
-      res.json(result.body);
-    } catch (error) {
-      writeLog('api', 'ERROR', `[/cloudsearch] ${error.message}`);
-      res.status(500).json({ code: 500, message: GENERIC_500 });
-    }
-  });
-
   app.get('/song/url/v1', async (req, res) => {
     try {
       const id = queryStr(req.query.id);
@@ -474,21 +443,6 @@ function registerRoutes(app) {
       res.json(result.body);
     } catch (error) {
       writeLog('api', 'ERROR', `[/song/url/v1] ${error.message}`);
-      res.status(500).json({ code: 500, message: GENERIC_500 });
-    }
-  });
-
-  app.get('/song/detail', async (req, res) => {
-    try {
-      const ids = queryStr(req.query.ids);
-      if (!ids) return res.status(400).json({ code: 400, message: '缺少 ids 参数' });
-      const result = await withTimeout(
-        NeteaseCloudMusicApi.song_detail(cookie.withNeteaseCookie({ ids }, req)),
-        UPSTREAM_TIMEOUT, 'netease/song_detail'
-      );
-      res.json(result.body);
-    } catch (error) {
-      writeLog('api', 'ERROR', `[/song/detail] ${error.message}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
     }
   });

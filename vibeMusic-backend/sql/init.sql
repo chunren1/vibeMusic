@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
+-- 默认管理员 (首次登录后必须改密)
 INSERT IGNORE INTO users (username, password, nickname, enabled)
 VALUES ('admin', '$2b$10$1/FXBiQlDlBnapQ6PosJO.lv3oj59Zf6j.VVrHao0xASJxcewwlDG', '管理员', TRUE);
 

@@ -35,12 +35,6 @@ public class ThreadPoolConfig {
     private int getUrlQueue = 10;
     private int getUrlKeepAlive = 60;
 
-    // 异步缓存清理线程池配置
-    private int asyncCacheCore = 2;
-    private int asyncCacheMax = 4;
-    private int asyncCacheQueue = 20;
-    private int asyncCacheKeepAlive = 30;
-
     @Bean(name = "searchExecutor")
     public ThreadPoolTaskExecutor searchExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
@@ -109,21 +103,6 @@ public class ThreadPoolConfig {
         return executor;
     }
 
-    @Bean(name = "asyncCacheExecutor")
-    public ThreadPoolTaskExecutor asyncCacheExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(asyncCacheCore);
-        executor.setMaxPoolSize(asyncCacheMax);
-        executor.setQueueCapacity(asyncCacheQueue);
-        executor.setKeepAliveSeconds(asyncCacheKeepAlive);
-        executor.setThreadNamePrefix("async-cache-");
-        executor.setDaemon(true);
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardPolicy());
-        executor.initialize();
-        log.info("[THREAD-POOL] asyncCacheExecutor 初始化完成: core={}, max={}, queue={}", asyncCacheCore, asyncCacheMax, asyncCacheQueue);
-        return executor;
-    }
-
     // Setters for @ConfigurationProperties
     public void setSearchCore(int searchCore) { this.searchCore = searchCore; }
     public void setSearchMax(int searchMax) { this.searchMax = searchMax; }
@@ -137,8 +116,4 @@ public class ThreadPoolConfig {
     public void setGetUrlMax(int getUrlMax) { this.getUrlMax = getUrlMax; }
     public void setGetUrlQueue(int getUrlQueue) { this.getUrlQueue = getUrlQueue; }
     public void setGetUrlKeepAlive(int getUrlKeepAlive) { this.getUrlKeepAlive = getUrlKeepAlive; }
-    public void setAsyncCacheCore(int asyncCacheCore) { this.asyncCacheCore = asyncCacheCore; }
-    public void setAsyncCacheMax(int asyncCacheMax) { this.asyncCacheMax = asyncCacheMax; }
-    public void setAsyncCacheQueue(int asyncCacheQueue) { this.asyncCacheQueue = asyncCacheQueue; }
-    public void setAsyncCacheKeepAlive(int asyncCacheKeepAlive) { this.asyncCacheKeepAlive = asyncCacheKeepAlive; }
 }

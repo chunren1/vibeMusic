@@ -34,8 +34,10 @@ export const options = {
 
 // ---- Setup: 获取 JWT ----
 export function setup() {
+  const ADMIN_USER = __ENV.ADMIN_USER || 'admin';
+  const ADMIN_PASS = __ENV.ADMIN_PASS || '';
   const res = http.post(`${BASE}/api/auth/login`, JSON.stringify({
-    username: 'admin', password: '123456',
+    username: ADMIN_USER, password: ADMIN_PASS,
   }), { headers: { 'Content-Type': 'application/json' } });
 
   const token = res.json('data.token');

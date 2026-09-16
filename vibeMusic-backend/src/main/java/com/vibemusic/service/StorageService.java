@@ -9,7 +9,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -47,35 +46,6 @@ public class StorageService {
     }
 
     /**
-     * 上传文件到 MinIO
-     *
-     * @param objectName 对象名（路径+文件名，如 songs/186016.mp3）
-     * @param data       文件字节数据
-     * @param contentType MIME类型
-     * @return 访问 URL
-     */
-    public String upload(String objectName, byte[] data, String contentType) {
-        try {
-            // MinIO 单次 PUT 限制 10MB，设置 partSize=5MB 强制分块上传
-            client.putObject(
-                    PutObjectArgs.builder()
-                            .bucket(config.getBucketName())
-                            .object(objectName)
-                            .stream(new ByteArrayInputStream(data), data.length, 5 * 1024 * 1024)
-                            .contentType(contentType != null ? contentType : "audio/mpeg")
-                            .build());
-
-            // 返回公开访问地址
-            String url = config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
-            log.info("上传成功: {} -> {} ({} bytes)", objectName, url, data.length);
-            return url;
-        } catch (Exception e) {
-            log.error("上传失败: {} - {}", objectName, e.getMessage());
-            throw new BusinessException(500, "文件上传失败");
-        }
-    }
-
-    /**
      * 检查文件是否存在
      */
     public boolean exists(String objectName) {
@@ -96,23 +66,6 @@ public class StorageService {
      */
     public String getDirectUrl(String objectName) {
         return config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
-    }
-
-    /**
-     * 获取临时访问URL（有效期7天）
-     */
-    public String getPresignedUrl(String objectName) {
-        try {
-            return client.getPresignedObjectUrl(
-                    GetPresignedObjectUrlArgs.builder()
-                            .bucket(config.getBucketName())
-                            .object(objectName)
-                            .expiry(7 * 24 * 60 * 60) // 7天
-                            .build());
-        } catch (Exception e) {
-            log.error("生成预签名URL失败: {}", e.getMessage());
-            return config.getEndpoint() + "/" + config.getBucketName() + "/" + objectName;
-        }
     }
 
     /**

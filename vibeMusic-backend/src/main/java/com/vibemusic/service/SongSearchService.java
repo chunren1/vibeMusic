@@ -14,7 +14,6 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -452,10 +451,6 @@ public class SongSearchService {
         }
     }
 
-    public SearchResult search(String keyword) {
-        return search(keyword, 1, 20);
-    }
-
     public List<SongDTO> getRandomSongs(int count) {
         count = Math.max(1, Math.min(count, MAX_RANDOM_COUNT));
         List<SongDTO> songs;
@@ -497,11 +492,6 @@ public class SongSearchService {
             songs.addAll(dbDtos);
         }
         return songs;
-    }
-
-    @Cacheable(value = "songTotalCount", sync = true)
-    public long getTotalSongCount() {
-        return songMapper.selectCount(null);
     }
 
     // ==================== 私有辅助方法 ====================

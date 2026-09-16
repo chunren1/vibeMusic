@@ -106,17 +106,6 @@ class ThreadPoolConfigTest {
     }
 
     @Test
-    @DisplayName("asyncCacheExecutor 初始化正确")
-    void shouldCreateAsyncCacheExecutor() {
-        ThreadPoolConfig config = new ThreadPoolConfig();
-        ThreadPoolTaskExecutor executor = config.asyncCacheExecutor();
-        assertNotNull(executor);
-        assertEquals(2, executor.getCorePoolSize());
-        assertEquals(4, executor.getMaxPoolSize());
-        executor.shutdown();
-    }
-
-    @Test
     @DisplayName("全部 setter 生效：自定义参数透传到各线程池")
     void shouldApplyAllSetters() {
         ThreadPoolConfig config = new ThreadPoolConfig();
@@ -132,10 +121,6 @@ class ThreadPoolConfigTest {
         config.setGetUrlMax(2);
         config.setGetUrlQueue(3);
         config.setGetUrlKeepAlive(32);
-        config.setAsyncCacheCore(3);
-        config.setAsyncCacheMax(5);
-        config.setAsyncCacheQueue(6);
-        config.setAsyncCacheKeepAlive(33);
 
         ThreadPoolTaskExecutor search = config.searchExecutor();
         assertEquals(2, search.getCorePoolSize());
@@ -155,11 +140,6 @@ class ThreadPoolConfigTest {
         assertEquals(2, getUrl.getMaxPoolSize());
         assertEquals(3, getUrl.getQueueCapacity());
         getUrl.shutdown();
-
-        ThreadPoolTaskExecutor async = config.asyncCacheExecutor();
-        assertEquals(3, async.getCorePoolSize());
-        assertEquals(5, async.getMaxPoolSize());
-        async.shutdown();
     }
 
     @Test
