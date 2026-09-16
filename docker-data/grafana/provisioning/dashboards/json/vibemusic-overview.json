@@ -15,7 +15,7 @@
       "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
       "targets": [
         {
-          "expr": "sum(rate(cache_hit_redis_total[5m])) / (sum(rate(cache_hit_redis_total[5m])) + sum(rate(cache_hit_es_total[5m])) + sum(rate(cache_miss_api_total[5m]))) * 100",
+          "expr": "sum(rate(cache_hit_redis_total[5m])) / (sum(rate(cache_hit_redis_total[5m])) + sum(rate(cache_miss_api_total[5m]))) * 100",
           "legendFormat": "Redis 命中率%",
           "refId": "A"
         }
@@ -40,7 +40,7 @@
       "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
       "targets": [
         {
-          "expr": "sum(rate(cache_miss_api_total[5m])) / (sum(rate(cache_hit_redis_total[5m])) + sum(rate(cache_hit_es_total[5m])) + sum(rate(cache_miss_api_total[5m]))) * 100",
+          "expr": "sum(rate(cache_miss_api_total[5m])) / (sum(rate(cache_hit_redis_total[5m])) + sum(rate(cache_miss_api_total[5m]))) * 100",
           "legendFormat": "API 穿透率%",
           "refId": "A"
         }
@@ -125,11 +125,6 @@
           "expr": "rate(cache_hit_redis_total[5m])",
           "legendFormat": "Redis 命中",
           "refId": "A"
-        },
-        {
-          "expr": "rate(cache_hit_es_total[5m])",
-          "legendFormat": "ES 命中",
-          "refId": "B"
         },
         {
           "expr": "rate(cache_miss_api_total[5m])",

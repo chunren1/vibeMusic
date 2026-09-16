@@ -5,13 +5,13 @@
 
 ## OVERVIEW
 Spring Boot 4.0.6 + Java 17 + MyBatis-Plus 3.5.9 + jjwt 0.12.6 + MinIO 8.5.17 + springdoc 2.8.5 + Flyway。
-包结构 `com.vibemusic.{controller,service,entity,mapper,config,dto,common,security,task}`。
+包结构 `com.vibemusic.{controller,service,entity,mapper,config,dto,common,security}`。
 
 ## PACKAGE COUNTS（实测，CLAUDE.md 已过时）
 - controller: 12（Auth, Upload, Song, Playlist, PlayHistory, Favorite, Recommend, Assistant, Stream, Download, Proxy, CacheMonitor）
-- service: 19（User, Song, SongSearch, SongPlay, SongCache, NeteaseApi, ESSearch, JsonCache, Recommend, Playlist, PlayHistory, PlayHistoryCleanup, Favorite, Storage, Download, RateLimit, IdempotentGuard, ChatMemory, AiTool）
+- service: 18（User, Song, SongSearch, SongPlay, SongCache, NeteaseApi, JsonCache, Recommend, Playlist, PlayHistory, PlayHistoryCleanup, Favorite, Storage, Download, RateLimit, IdempotentGuard, ChatMemory, AiTool）
 - entity: 7（User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory, BaseEntity 抽象）
-- mapper: 6 · config: 12（含 AudioQualityTier 枚举）· dto: 4（SongDTO, SearchResult, SearchResponse, RecommendResult）· common: 6 · security: 2 · task: 1（ESCleanupTask）
+- mapper: 6 · config: 12（含 AudioQualityTier 枚举）· dto: 3（SongDTO, SearchResult, RecommendResult）· common: 6 · security: 2
 
 ## CRITICAL COUPLINGS（改坏即崩）
 1. `SongSearchService.search()` 返回 `SearchResult`，恰好 3 个外部调用方：SongController、AiToolService（被 AssistantController 用）、RecommendService；另有 getRandomSongs() 内部调用。改 SearchResult 全链路受影响。
@@ -40,6 +40,6 @@ Spring Boot 4.0.6 + Java 17 + MyBatis-Plus 3.5.9 + jjwt 0.12.6 + MinIO 8.5.17 + 
 
 ## NOTES
 - DotenvLoader 经 META-INF/spring/org.springframework.boot.env.EnvironmentPostProcessor 注册。
-- ESSearchService 用 WebClient（webflux）而非 elasticsearch-java；异步初始化线程等 ES 容器 2s。
-- Config profiles：dev（默认，SQL StdOut + knife4j）、docker（关 springdoc）、prod（无 JWT 兜底、actuator 受限）、test（H2 MODE=MySQL，排除 Redis/ES）。
+- WebClient（webflux）现仅用于 AI 助手 SSE 流式输出（AssistantController）。
+- Config profiles：dev（默认，SQL StdOut + knife4j）、docker（关 springdoc）、prod（无 JWT 兜底、actuator 受限）、test（H2 MODE=MySQL，排除 Redis）。
 - Application：VibeMusicBackendApplication（@SpringBootApplication + @MapperScan("com.vibemusic.mapper") + @EnableScheduling）。

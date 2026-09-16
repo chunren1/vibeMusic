@@ -212,17 +212,6 @@
 							"path": ["api", "songs", "history"]
 						}
 					}
-				},
-				{
-					"name": "ES 健康检查",
-					"request": {
-						"method": "GET",
-						"url": {
-							"raw": "{{baseUrl}}/api/songs/es-health",
-							"host": ["{{baseUrl}}"],
-							"path": ["api", "songs", "es-health"]
-						}
-					}
 				}
 			]
 		},

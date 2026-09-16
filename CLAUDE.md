@@ -68,7 +68,6 @@ vibeMusic/
 |------|------|------|
 | MySQL 8 | 3306 | 主数据库 |
 | Redis 7 | 6379 | 缓存 / Session |
-| Elasticsearch 8.18 | 9200 | 全文搜索 |
 | MinIO | 9000/9001 | 对象存储（音频文件） |
 
 ## Conventions
