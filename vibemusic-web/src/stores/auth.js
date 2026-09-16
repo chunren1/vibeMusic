@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
-import { getToken, setToken, API_HOST } from '@/api/request'
-import { getMe, updateProfile as apiUpdateProfile, uploadAvatar as apiUploadAvatar, uploadBgImage as apiUploadBgImage } from '@/api/auth'
+import { getToken, setToken, refreshOnce, API_HOST } from '@/api/request'
+import { getMe, logout as apiLogout, updateProfile as apiUpdateProfile, uploadAvatar as apiUploadAvatar, uploadBgImage as apiUploadBgImage } from '@/api/auth'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(getToken())
@@ -12,7 +12,7 @@ export const useAuthStore = defineStore('auth', () => {
   const sessionRestored = ref(false)
   let _restorePending = null
 
-  const isLoggedIn = computed(() => sessionRestored.value && !!user.value)
+  const isLoggedIn = computed(() => sessionRestored.value && !!user.value?.userId)
 
   // 头像完整 URL
   const avatarSrc = computed(() => {
@@ -40,10 +40,22 @@ export const useAuthStore = defineStore('auth', () => {
     sessionChecked.value = true
     sessionRestored.value = true
     setToken(newToken)
+    // 登录成功后拉取本账号收藏（动态导入避免与 favorite store 循环依赖）
+    try {
+      import('@/stores/favorite').then(({ useFavoriteStore }) => {
+        useFavoriteStore().fetchFavIds()
+      }).catch(() => {})
+    } catch (_) { /* ignore */ }
     return true
   }
 
   function logout() {
+    // best-effort：通知后端销毁会话；网络错误一律吞掉，本地清理照常进行。
+    // fire-and-forget（不同步 await），保持同步调用方（路由守卫、401 拦截器）行为不变。
+    try {
+      const p = apiLogout()
+      if (p && typeof p.catch === 'function') p.catch(() => {})
+    } catch (_) { /* ignore */ }
     token.value = null
     user.value = null
     redirectPath.value = null
@@ -51,6 +63,16 @@ export const useAuthStore = defineStore('auth', () => {
     sessionChecked.value = true
     sessionRestored.value = false
     setToken(null)
+    // 同步清收藏镜像 + 异步重置 favorite store，防止同标签页换账号残留上一用户收藏态
+    window.vibeFavIds = new Set()
+    try {
+      import('@/stores/favorite').then(({ useFavoriteStore }) => {
+        const fav = useFavoriteStore()
+        fav.favIds = new Set()
+        fav.loaded = false
+        window.vibeFavIds = fav.favIds
+      }).catch(() => {})
+    } catch (_) { /* ignore */ }
   }
 
   function openLogin() {
@@ -80,29 +102,37 @@ export const useAuthStore = defineStore('auth', () => {
       try {
         const res = await getMe()
         if (res.code === 200 && res.data) {
-          sessionRestored.value = true
-          user.value = {
-            userId: res.data.userId,
-            username: res.data.username,
-            nickname: res.data.nickname,
-            avatar: res.data.avatar,
-            bgImage: res.data.bgImage,
-            gender: res.data.gender,
-            birthday: res.data.birthday,
-          }
-          try {
-            const refreshRes = await fetch(`${API_HOST}/api/auth/refresh`, {
-              method: 'POST',
-              credentials: 'include',
-            })
-            if (refreshRes.ok) {
-              const data = await refreshRes.json()
-              if (data.code === 200 && data.data?.token) {
-                token.value = data.data.token
-                setToken(data.data.token)
-              }
+          if (res.data.guest) {
+            user.value = null
+            sessionRestored.value = true
+          } else {
+            sessionRestored.value = true
+            user.value = {
+              userId: res.data.userId,
+              username: res.data.username,
+              nickname: res.data.nickname,
+              avatar: res.data.avatar,
+              bgImage: res.data.bgImage,
+              gender: res.data.gender,
+              birthday: res.data.birthday,
             }
-          } catch (_) { /* cookie-based auth already works without Bearer token */ }
+            // 经 request.js 全局单飞入口续签：与 401 触发的静默续签共用 _refreshPromise，
+            // 后端 refresh token 一次性轮换，并发 refresh 会互踢下线
+            try {
+              if (typeof refreshOnce === 'function') {
+                const ok = await refreshOnce()
+                if (ok === true) {
+                  const t = getToken()
+                  if (t) token.value = t
+                }
+              }
+            } catch (_) { /* cookie-based auth already works without Bearer token */ }
+            // 会话恢复后拉取本账号收藏（keep-alive 页面不重挂载，靠 store 同步）
+            try {
+              const { useFavoriteStore } = await import('@/stores/favorite')
+              await useFavoriteStore().fetchFavIds()
+            } catch (_) { /* 收藏拉取失败不影响登录态 */ }
+          }
         }
       } catch (_) { /* 未登录 */ }
       sessionChecked.value = true

@@ -6,18 +6,26 @@ import { useAuthStore } from '@/stores/auth'
 vi.mock('@/api/request', () => ({
   getToken: vi.fn(() => null),
   setToken: vi.fn(),
+  refreshOnce: vi.fn(async () => true),
   API_HOST: 'http://localhost:8080',
 }))
 
 vi.mock('@/api/auth', () => ({
   getMe: vi.fn(),
+  logout: vi.fn(),
   updateProfile: vi.fn(),
   uploadAvatar: vi.fn(),
   uploadBgImage: vi.fn(),
 }))
 
-import { getMe, updateProfile, uploadAvatar, uploadBgImage } from '@/api/auth'
-import { getToken, setToken } from '@/api/request'
+vi.mock('@/api/song', () => ({
+  getFavoriteIds: vi.fn(),
+  toggleFavorite: vi.fn(),
+}))
+
+import { getMe, logout as apiLogout, updateProfile, uploadAvatar, uploadBgImage } from '@/api/auth'
+import { getFavoriteIds } from '@/api/song'
+import { getToken, setToken, refreshOnce } from '@/api/request'
 
 describe('AuthStore', () => {
   beforeEach(() => {
@@ -89,6 +97,62 @@ describe('AuthStore', () => {
       expect(auth.showLoginModal).toBe(false)
       expect(auth.sessionChecked).toBe(true)
       expect(setToken).toHaveBeenCalledWith(null)
+    })
+
+    it('应 best-effort 请求后端登出接口', () => {
+      apiLogout.mockResolvedValue({ code: 200, data: 'ok' })
+      const auth = useAuthStore()
+      auth.login('token', { userId: 1, username: 'test' })
+
+      auth.logout()
+
+      expect(apiLogout).toHaveBeenCalledTimes(1)
+      expect(auth.token).toBeNull()
+      expect(auth.user).toBeNull()
+      expect(auth.isLoggedIn).toBe(false)
+    })
+
+    it('后端登出失败时本地清理照常进行且不抛错', async () => {
+      apiLogout.mockRejectedValue(new Error('Network Error'))
+      const auth = useAuthStore()
+      auth.login('token', { userId: 1, username: 'test' })
+
+      expect(() => auth.logout()).not.toThrow()
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(apiLogout).toHaveBeenCalledTimes(1)
+      expect(auth.token).toBeNull()
+      expect(auth.user).toBeNull()
+      expect(auth.isLoggedIn).toBe(false)
+      expect(setToken).toHaveBeenCalledWith(null)
+    })
+
+    it('登出应清空收藏集合与 loaded 标记（防同页换账号残留）', async () => {
+      const auth = useAuthStore()
+      auth.login('token', { userId: 1, username: 'a' })
+      const { useFavoriteStore } = await import('@/stores/favorite')
+      const fav = useFavoriteStore()
+      fav.favIds = new Set(['s1', 's2'])
+      fav.loaded = true
+      window.vibeFavIds = fav.favIds
+
+      auth.logout()
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(fav.favIds.size).toBe(0)
+      expect(fav.loaded).toBe(false)
+      expect(window.vibeFavIds.size).toBe(0)
+    })
+
+    it('登录成功后应拉取本账号收藏', async () => {
+      getFavoriteIds.mockResolvedValue({ data: ['s1'] })
+      const auth = useAuthStore()
+      auth.login('token', { userId: 2, username: 'b' })
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(getFavoriteIds).toHaveBeenCalled()
+      const { useFavoriteStore } = await import('@/stores/favorite')
+      expect(useFavoriteStore().favIds.has('s1')).toBe(true)
     })
   })
 
@@ -221,6 +285,31 @@ describe('AuthStore', () => {
       ])
 
       expect(getMe).toHaveBeenCalledTimes(1)
+      vi.unstubAllGlobals()
+    })
+
+    it('restore 经全局单飞 refreshOnce 续签：只刷一次、不走裸 fetch、不登出', async () => {
+      getToken.mockReturnValue(null)
+      getMe.mockResolvedValue({
+        code: 200,
+        data: { userId: 9, username: 'race', nickname: '竞态', avatar: null, bgImage: null }
+      })
+      const fetchSpy = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: 200, data: { token: 't' } }),
+      }))
+      vi.stubGlobal('fetch', fetchSpy)
+      refreshOnce.mockClear()
+      apiLogout.mockClear()
+      const auth = useAuthStore()
+
+      await auth.tryRestoreSession()
+
+      expect(refreshOnce).toHaveBeenCalledTimes(1)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(apiLogout).not.toHaveBeenCalled()
+      expect(auth.isLoggedIn).toBe(true)
+      expect(auth.sessionChecked).toBe(true)
       vi.unstubAllGlobals()
     })
   })

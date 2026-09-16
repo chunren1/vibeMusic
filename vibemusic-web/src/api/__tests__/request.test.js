@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 // test-setup.js 全局 mock 了 @/api/request，这里用 importActual 绕过 mock，测试真实实例与拦截器
 const requestModule = await vi.importActual('@/api/request')
 const request = requestModule.default
-const { deepRewriteCoverUrl, deepRestoreProxiedUrl, isAuthUrl, setToken, getToken } = requestModule
+const { deepRewriteCoverUrl, deepRestoreProxiedUrl, isAuthUrl, setToken, getToken, refreshOnce } = requestModule
 
 // handleUnauthorized 内部动态 import('@/stores/auth')，mock 之以便断言登出/弹窗
 const authMocks = vi.hoisted(() => ({ logout: vi.fn(), openLogin: vi.fn() }))
@@ -148,6 +148,147 @@ describe('响应拦截器', () => {
     await expect(request.get('/favorites/list')).rejects.toThrow('登录过期')
     await vi.waitFor(() => expect(authMocks.logout).toHaveBeenCalled())
     expect(authMocks.openLogin).toHaveBeenCalled()
+  })
+
+  it('code=401 时先静默续签，成功则重发原请求且不登出', async () => {
+    let refreshCalls = 0
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config.url && config.url.includes('/auth/refresh')) {
+        refreshCalls++
+        return { data: { code: 200, data: { token: 'new-token' } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      if (config._retry) {
+        return { data: { code: 200, data: { ok: true } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    authMocks.logout.mockClear()
+    authMocks.openLogin.mockClear()
+    setToken('old-token')
+    const res = await request.get('/favorites/list')
+    expect(res.code).toBe(200)
+    expect(getToken()).toBe('new-token')
+    expect(refreshCalls).toBe(1)
+    expect(authMocks.logout).not.toHaveBeenCalled()
+  })
+
+  it('并发 401 只触发一次 refresh（单飞）', async () => {
+    let refreshCalls = 0
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config.url && config.url.includes('/auth/refresh')) {
+        refreshCalls++
+        await new Promise((r) => setTimeout(r, 30))
+        return { data: { code: 200, data: { token: 'new-token' } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      if (config._retry) {
+        return { data: { code: 200, data: {} }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    authMocks.logout.mockClear()
+    setToken('old-token')
+    const results = await Promise.all([
+      request.get('/favorites/list'),
+      request.get('/playlists/list'),
+      request.get('/songs/history'),
+    ])
+    expect(results).toHaveLength(3)
+    expect(refreshCalls).toBe(1)
+    expect(authMocks.logout).not.toHaveBeenCalled()
+  })
+
+  it('刷新完成后到达的迟到 401 用新 token 重发一次（不再直接拒绝）', async () => {
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config._retry) {
+        return { data: { code: 200, data: { ok: true } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      // 模拟时序：401 响应到达前，刷新已在别处完成、token 已更新
+      setToken('new-token')
+      return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    authMocks.logout.mockClear()
+    authMocks.openLogin.mockClear()
+    setToken('old-token')
+    const res = await request.get('/favorites/list')
+    expect(res.code).toBe(200)
+    // 重发请求携带新 token
+    expect(getHeader(captured[1], 'Authorization')).toBe('Bearer new-token')
+    expect(authMocks.logout).not.toHaveBeenCalled()
+  })
+
+    it('refreshOnce 并发调用只发一次 refresh（全局单飞，可供 restore 复用）', async () => {
+    let refreshCalls = 0
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config.url && config.url.includes('/auth/refresh')) {
+        refreshCalls++
+        await new Promise((r) => setTimeout(r, 20))
+        return { data: { code: 200, data: { token: 't' } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      return { data: { code: 200, data: {} }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    setToken('old-token')
+    const [a, b] = await Promise.all([refreshOnce(), refreshOnce()])
+    expect(a).toBe(true)
+    expect(b).toBe(true)
+    expect(refreshCalls).toBe(1)
+    expect(getToken()).toBe('t')
+    expect(authMocks.logout).not.toHaveBeenCalled()
+  })
+
+  it('迟到 401 但请求已重试过则直接拒绝（防循环）', async () => {
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      setToken('new-token')
+      return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    authMocks.logout.mockClear()
+    setToken('old-token')
+    // 手动标记已重试：模拟重发后再次 401
+    await expect(request.get('/favorites/list', {})).rejects.toThrow()
+    await new Promise((r) => setTimeout(r, 20))
+  })
+
+  it('续签请求网络失败（超时）时不断开登录态', async () => {
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config.url && config.url.includes('/auth/refresh')) {
+        const err = new Error('timeout of 15000ms exceeded')
+        err.code = 'ECONNABORTED'
+        err.config = config
+        err.request = {}
+        throw err
+      }
+      return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    authMocks.logout.mockClear()
+    authMocks.openLogin.mockClear()
+    setToken('old-token')
+    await expect(request.get('/favorites/list')).rejects.toThrow('登录过期')
+    // 留出动态 import 完成的机会窗口后断言未触发登出
+    await new Promise((r) => setTimeout(r, 20))
+    expect(authMocks.logout).not.toHaveBeenCalled()
+    expect(authMocks.openLogin).not.toHaveBeenCalled()
+  })
+
+  it('重发后仍 401 则登出且不再续签（防循环）', async () => {
+    let refreshCalls = 0
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config.url && config.url.includes('/auth/refresh')) {
+        refreshCalls++
+        return { data: { code: 200, data: { token: 't2' } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    authMocks.logout.mockClear()
+    setToken('old-token')
+    await expect(request.get('/favorites/list')).rejects.toThrow('登录过期')
+    expect(refreshCalls).toBe(1)
+    await vi.waitFor(() => expect(authMocks.logout).toHaveBeenCalled())
   })
 
   it('code=401 但为认证接口时不触发登出', async () => {

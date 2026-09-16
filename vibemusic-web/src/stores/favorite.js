@@ -8,6 +8,8 @@ import { useAuthStore } from '@/stores/auth'
  * 所有页面/组件的收藏状态统一从此 store 读取和操作，
  * 实现跨页面收藏状态同步：在搜索页收藏的歌曲，歌词页/播放页立即同步显示已收藏样式。
  */
+// 请求代际计数：每次 fetchFavIds 自增，旧代际的迟到响应直接丢弃（防换账号串号）
+let gen = 0
 export const useFavoriteStore = defineStore('favorite', () => {
   const favIds = ref(new Set())
   const loaded = ref(false)
@@ -15,12 +17,13 @@ export const useFavoriteStore = defineStore('favorite', () => {
 
   /** 从后端加载收藏 ID 集合 */
   async function fetchFavIds() {
-    if (loading.value) return
     const authStore = useAuthStore()
     if (!authStore.isLoggedIn) return
+    const my = ++gen // 代际令牌：换账号后的新 fetch 使旧响应过期
     loading.value = true
     try {
       const res = await getFavoriteIds()
+      if (my !== gen || !useAuthStore().isLoggedIn) return // 过期/已登出 → 丢弃
       if (res.data) {
         favIds.value = new Set(res.data)
         // 保持 window 全局兼容（LyricsView 等旧代码可能还在读）
@@ -30,7 +33,7 @@ export const useFavoriteStore = defineStore('favorite', () => {
     } catch {
       // 静默失败，不影响页面正常使用
     } finally {
-      loading.value = false
+      if (my === gen) loading.value = false
     }
   }
 
@@ -72,6 +75,7 @@ export const useFavoriteStore = defineStore('favorite', () => {
       else favIds.value.delete(sid)
       favIds.value = new Set(favIds.value)
       window.vibeFavIds = favIds.value
+      window.toast?.('操作失败', 'error')
     }
   }
 

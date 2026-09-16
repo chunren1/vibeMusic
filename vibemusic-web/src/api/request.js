@@ -32,7 +32,102 @@ function generateUUID() {
 const request = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
+  // refresh token 走 httpOnly Cookie，跨域续签必须带上
+  withCredentials: true,
 })
+
+// 静默续签单飞：并发 401 共用一次 refresh，避免雪崩打爆后端
+let _refreshPromise = null
+// 返回 true=续签成功；false=凭据失效；'network'=网络层失败（超时/断网，见 catch）
+function trySilentRefresh() {
+  if (_refreshPromise) return _refreshPromise
+  _refreshPromise = request
+    .post('/auth/refresh', {}, { _isRefresh: true })
+    .then((res) => {
+      const token = res && res.data && res.data.token
+      if (res && res.code === 200 && token) {
+        setToken(token)
+        return true
+      }
+      return false
+    })
+    .catch((e) => {
+      // 区分"网络失败"与"凭据失效"：无 response 的 axios 网络层错误
+      // （超时 ECONNABORTED / 断网 ERR_NETWORK / 取消）不断开登录态；
+      // 信封 401/403（new Error，无 response 无 code）与 HTTP 401（有 response）均为凭据失效。
+      if (e && !e.response && (e.code === 'ECONNABORTED' || e.code === 'ERR_NETWORK' || e.code === 'ERR_CANCELED')) return 'network'
+      return false
+    })
+    .finally(() => { _refreshPromise = null })
+  return _refreshPromise
+}
+
+// 全局单飞续签入口：restore 与 401 静默续签共用，确保同一时刻只有一次 refresh 在飞
+// （后端 refresh token 一次性轮换，并发 refresh 会使旧 token 被拉黑导致互踢下线）
+export function refreshOnce() {
+  return trySilentRefresh()
+}
+
+function forceLogout() {
+  // 仅在用户确实处于登录状态时才触发退出+弹窗；
+  // 未登录用户访问公开页面时可能触发收藏等需要认证的接口，
+  // 这些 401 不应强制弹出登录框。
+  import('@/stores/auth').then(({ useAuthStore }) => {
+    const store = useAuthStore()
+    if (store.isLoggedIn) {
+      store.logout()
+      store.openLogin()
+    }
+  }).catch((e) => {
+    console.warn('[request] store import failed:', e.message)
+  })
+}
+
+async function isLoggedInAsync() {
+  if (_tokenCache) return true
+  try {
+    const { useAuthStore } = await import('@/stores/auth')
+    return !!useAuthStore().isLoggedIn
+  } catch {
+    return false
+  }
+}
+
+// 401/403 统一处理：先静默续签，重试一次；续签失败才登出
+async function onUnauthorized(config, originalError) {
+  if (!config) {
+    forceLogout()
+    return Promise.reject(originalError)
+  }
+  if (config._isRefresh || config._retry || isAuthUrl(config.url)) {
+    if (!config._isRefresh && !isAuthUrl(config.url)) forceLogout()
+    return Promise.reject(originalError)
+  }
+  // 迟到 401：请求发出后 token 已更新（刷新在别处完成），旧 token 的 401 不应直接丢弃；
+  // 若该请求尚未重试过且新旧 token 均有效，用新 token 重发一次。
+  // _sentToken 为空（登录前发出的旧请求）则沿用原语义直接拒绝，避免误触发退出。
+  if (config._sentToken !== _tokenCache) {
+    if (!config._retry && config._sentToken && _tokenCache) {
+      config._retry = true
+      return request(config)
+    }
+    return Promise.reject(originalError)
+  }
+  if (!(await isLoggedInAsync())) {
+    return Promise.reject(originalError)
+  }
+  const ok = await trySilentRefresh()
+  // 离线抖动：续签请求根本没发出去（超时/断网），不断开登录态、不弹窗，直接拒绝由调用方提示
+  if (ok === 'network') {
+    return Promise.reject(originalError)
+  }
+  if (!ok) {
+    forceLogout()
+    return Promise.reject(originalError)
+  }
+  config._retry = true
+  return request(config)
+}
 
 request.interceptors.request.use((config) => {
   // 记录请求发起时的 token，用于响应阶段判断 401 是否来自"旧 token"
@@ -58,7 +153,7 @@ const PROXY_URL_PREFIX = '/api/image-proxy?url='
 
 function rewriteCoverUrl(value) {
   if (typeof value !== 'string' || !COVER_CDN_HOSTS.test(value)) return value
-  // 拼 API_HOST：dev/prod web 为空走相对路径，Capacitor 有绝对地址才可访问
+  // 拼 API_HOST：dev/prod web 为空走相对路径（原生 App 另行处理，不走此分支）
   return API_HOST + PROXY_URL_PREFIX + encodeURIComponent(value)
 }
 
@@ -127,8 +222,8 @@ request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code !== 200) {
-      if ((res.code === 401 || res.code === 403) && !isAuthUrl(response.config.url)) {
-        handleUnauthorized(response.config)
+      if ((res.code === 401 || res.code === 403) && !response.config._isRefresh) {
+        return onUnauthorized(response.config, new Error(res.message || '请求失败'))
       }
       return Promise.reject(new Error(res.message || '请求失败'))
     }
@@ -137,31 +232,11 @@ request.interceptors.response.use(
   },
   (error) => {
     const status = error.response?.status
-    if ((status === 401 || status === 403) && !isAuthUrl(error.config?.url)) {
-      handleUnauthorized(error.config)
+    if ((status === 401 || status === 403) && !error.config?._isRefresh) {
+      return onUnauthorized(error.config, error)
     }
     return Promise.reject(error)
   }
 )
-
-function handleUnauthorized(config) {
-  // 防止旧请求（登录前发起的）的 401 误触发退出
-  // 如果请求时的 token 与当前 token 不同，说明是旧请求，忽略
-  if (config && config._sentToken !== _tokenCache) {
-    return
-  }
-  // 仅在用户确实处于登录状态时才触发退出+弹窗；
-  // 未登录用户访问公开页面时可能触发收藏等需要认证的接口，
-  // 这些 401 不应强制弹出登录框。
-  import('@/stores/auth').then(({ useAuthStore }) => {
-    const store = useAuthStore()
-    if (store.isLoggedIn) {
-      store.logout()
-      store.openLogin()
-    }
-  }).catch((e) => {
-    console.warn('[request] store import failed:', e.message)
-  })
-}
 
 export default request
