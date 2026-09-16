@@ -1,6 +1,7 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.CoverUrlUtils;
 import com.vibemusic.service.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +49,7 @@ public class PlaylistController {
         result.put("id", String.valueOf(pl.get("id")));
         result.put("name", pl.get("name"));
         result.put("description", pl.getOrDefault("description", ""));
-        result.put("coverUrl", String.valueOf(pl.getOrDefault("coverImgUrl", "")).replace("http://", "https://"));
+        result.put("coverUrl", CoverUrlUtils.cleanCoverUrl(pl.get("coverImgUrl")));
         Map<String, Object> creator = (Map<String, Object>) pl.get("creator");
         result.put("creator", Map.of(
                 "name", creator != null ? creator.getOrDefault("nickname", "") : "",
@@ -68,7 +69,7 @@ public class PlaylistController {
                 s.put("artist", ar != null ? ar.stream().map(a -> String.valueOf(a.get("name"))).collect(Collectors.joining("/")) : "");
                 Map<String, Object> al = (Map<String, Object>) t.get("al");
                 s.put("album", al != null ? al.get("name") : "");
-                s.put("coverUrl", al != null ? String.valueOf(al.get("picUrl")).replace("http://", "https://") : "");
+                s.put("coverUrl", CoverUrlUtils.cleanCoverUrl(al != null ? al.get("picUrl") : null));
                 Object dt = t.get("dt");
                 s.put("duration", dt instanceof Number ? ((Number) dt).intValue() / 1000 : 0);
                 songs.add(s);
@@ -109,7 +110,7 @@ public class PlaylistController {
                 Map<String, Object> m = new HashMap<>();
                 m.put("id", p.get("id"));
                 m.put("name", String.valueOf(p.getOrDefault("name", "")));
-                m.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")).replace("http://", "https://"));
+                m.put("coverUrl", CoverUrlUtils.cleanCoverUrl(p.get("picUrl")));
                 m.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                 m.put("count", p.getOrDefault("playCount", 0));
                 m.put("source", "netease");

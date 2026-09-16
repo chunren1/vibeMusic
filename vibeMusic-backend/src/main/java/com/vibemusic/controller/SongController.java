@@ -1,6 +1,7 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.common.utils.CoverUrlUtils;
 import com.vibemusic.dto.SearchResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.service.*;
@@ -50,7 +51,7 @@ public class SongController {
             List<Map<String, Object>> banners = list.stream().map(p -> {
                 Map<String, Object> b = new HashMap<>();
                 b.put("name", String.valueOf(p.getOrDefault("name", "")));
-                b.put("coverUrl", String.valueOf(p.getOrDefault("picUrl", "")).replace("http://", "https://"));
+                b.put("coverUrl", CoverUrlUtils.cleanCoverUrl(p.get("picUrl")));
                 b.put("desc", String.valueOf(p.getOrDefault("copywriter", "精选歌单")));
                 b.put("playCount", p.getOrDefault("playCount", 0));
                 return b;
