@@ -17,6 +17,9 @@ class UserServiceTest extends TransactionalServiceTest {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private PlaylistService playlistService;
+
     @Nested
     @DisplayName("loadUserByUsername")
     class LoadUserByUsername {
@@ -65,6 +68,13 @@ class UserServiceTest extends TransactionalServiceTest {
         void shouldUseUsernameAsNicknameWhenNull() {
             User user = userService.register("nonick", "pass1234", null);
             assertThat(user.getNickname()).isEqualTo("nonick");
+        }
+
+        @Test
+        @DisplayName("注册新用户 → 自动创建 6 个默认歌单")
+        void shouldSeedDefaultPlaylistsOnRegister() {
+            User user = userService.register("seeduser", "pass1234", null);
+            assertThat(playlistService.listPlaylists(user.getId())).hasSize(6);
         }
     }
 

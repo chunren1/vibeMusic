@@ -28,6 +28,7 @@ public class UserService implements UserDetailsService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final CookieCryptoService cookieCryptoService;
+    private final PlaylistService playlistService;
 
     /** 网易云 Cookie 明文上限（字符数，约 8KB，防超大输入撑爆加密/TEXT 字段） */
     private static final int NETEASE_COOKIE_MAX_CHARS = 8192;
@@ -50,6 +51,11 @@ public class UserService implements UserDetailsService {
             userMapper.insert(user);
         } catch (DuplicateKeyException e) {
             throw new BusinessException(409, "用户名已存在");
+        }
+        try {
+            playlistService.seedDefaults(user.getId());
+        } catch (Exception e) {
+            log.warn("新用户 {} 默认歌单 seeding 失败（注册本身成功）: {}", user.getId(), e.getMessage());
         }
         return user;
     }

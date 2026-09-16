@@ -53,6 +53,26 @@ class SongControllerTest extends BaseTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value(400));
         }
+
+        @Test
+        @DisplayName("搜索 keyword 为空 → 方法级校验 400（handleConstraintViolation 分支）")
+        void shouldRejectEmptyKeyword() throws Exception {
+            mockMvc.perform(get("/api/songs/search")
+                            .param("keyword", ""))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message", containsString("搜索关键词不能为空")));
+        }
+
+        @Test
+        @DisplayName("搜索 keyword 超 100 字符 → 方法级校验 400（handleConstraintViolation 分支）")
+        void shouldRejectOverlongKeyword() throws Exception {
+            mockMvc.perform(get("/api/songs/search")
+                            .param("keyword", "周".repeat(101)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message", containsString("搜索关键词过长")));
+        }
     }
 
     @Nested

@@ -77,7 +77,7 @@ docker compose up -d
 
 **AI Function Calling** — LLM 自主决定搜索关键词并调用 `search_songs` / `get_user_history` 工具，SSE 流式输出，自然语言操控音乐系统。
 
-**音质六级 SLA** — LOCAL → HIRES → EXHIGH → HIGHER → STANDARD → FALLBACK，并行探测、逐级降级保障可播性。
+**服务端自动降级播放** — 缓存命中直出，其余按可用性逐级降级保障可播性（客户端暂无音质选择器，音质由服务端自动决定）。
 
 **BYOC 多租户凭证隔离** — 用户级密钥加密存储、请求级透传、缓存级隔离的三层隔离设计：个人权益归属个人，共享缓存零污染，过期自动引导重绑。
 

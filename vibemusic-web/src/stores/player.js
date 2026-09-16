@@ -63,8 +63,6 @@ export const usePlayerStore = defineStore('player', () => {
   const currentSong = ref(tryParse(SONG_KEY, null) || { id: '', title: '未播放', artist: '', coverUrl: '', duration: 0 })
   const isPlaying = ref(false)
   const isTrialSong = ref(false)
-  const quality = ref('STANDARD')
-  const qualityLabel = ref('标准')
   const playMode = ref(localStorage.getItem(MODE_KEY) || 'list-loop')
   const volume = ref(parseInt(localStorage.getItem(VOL_KEY) || '70'))
   const progress = ref(0)
@@ -193,16 +191,8 @@ export const usePlayerStore = defineStore('player', () => {
     if (!sourceId) return
     resumeAudioContext()
     try {
-      const res = await apiPlaySong(sourceId, name, artist, coverUrl || '', platform || '')
-      if (res.data?.fromCache) {
-        quality.value = 'LOCAL'
-        qualityLabel.value = '本地缓存'
-        isTrialSong.value = false
-      } else {
-        quality.value = 'STANDARD'
-        qualityLabel.value = '标准'
-        isTrialSong.value = false
-      }
+      await apiPlaySong(sourceId, name, artist, coverUrl || '', platform || '')
+      isTrialSong.value = false
       // 后端 play 不返回 duration，传 0 并由 loadedmetadata 回填真实时长
       playBySourceId(sourceId, name, artist, coverUrl, 0, platform)
     } catch {
@@ -479,8 +469,6 @@ export const usePlayerStore = defineStore('player', () => {
         coverUrl: currentSong.value.coverUrl,
         duration: currentSong.value.duration,
         isTrial: isTrialSong.value,
-        quality: quality.value,
-        qualityLabel: qualityLabel.value,
       }
     }))
   }
@@ -525,7 +513,6 @@ export const usePlayerStore = defineStore('player', () => {
 
   return {
     audio, queue, currentIdx, currentSong, isPlaying, isTrialSong,
-    quality, qualityLabel,
     playMode, volume, progress, currentTime, duration, isMuted, pendingRestore,
     modeLabels,
     playBySourceId, playSongFromApi, playCurrent, next, prev,

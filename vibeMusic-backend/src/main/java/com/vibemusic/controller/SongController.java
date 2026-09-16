@@ -6,8 +6,11 @@ import com.vibemusic.dto.SongDTO;
 import com.vibemusic.service.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -21,6 +24,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/songs")
 @RequiredArgsConstructor
+@Validated
 @Tag(name = "歌曲", description = "搜索、Banner、歌词")
 public class SongController {
 
@@ -64,6 +68,8 @@ public class SongController {
     @GetMapping("/search")
     @Operation(summary = "搜索歌曲（二级缓存：Redis → musicapi），返回 SearchResult 含 total/hasMore/source")
     public Result<SearchResult> search(
+            @NotBlank(message = "搜索关键词不能为空")
+            @Size(max = 100, message = "搜索关键词过长")
             @RequestParam String keyword,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "40") int size,

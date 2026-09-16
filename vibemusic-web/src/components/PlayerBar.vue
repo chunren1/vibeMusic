@@ -15,7 +15,6 @@ const audio = store.audio
 // 从 store 解构（使用 storeToRefs 保持响应式）
 const {
   queue, currentIdx, currentSong, isPlaying, isTrialSong,
-  quality, qualityLabel,
   progress, currentTime, playMode, volume, isMuted
 } = storeToRefs(store)
 const modeLabels = store.modeLabels
@@ -173,10 +172,6 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
             <div class="mini-name-wrap">
               <span class="mini-name">{{ currentSong.title }}</span>
               <span v-if="isTrialSong" class="tag-trial">试听</span>
-              <span class="tag-quality">
-                <SvgIcon name="quality" size="12" color="#31c27c" />
-                {{ qualityLabel }}
-              </span>
             </div>
             <div class="mini-artist">{{ currentSong.artist }}</div>
           </div>
@@ -333,7 +328,6 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 .mini-name { color: var(--text-primary); font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; min-width: 0; }
 .mini-artist { color: var(--text-secondary); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tag-trial { display: inline-block; font-size: 9px; padding: 0 4px; border-radius: 3px; background: rgba(207,19,34,.15); color: #ff7875; border: 1px solid rgba(255,163,158,.35); vertical-align: middle; line-height: 16px; white-space: nowrap; flex-shrink: 0; }
-.tag-quality { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 3px; background: rgba(49,194,124,0.12); color: #31c27c; font-weight: 500; vertical-align: middle; line-height: 16px; white-space: nowrap; flex-shrink: 0; }
 .func-btn { width: 40px; height: 40px; border: none; background: none; border-radius: 50%; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: .15s; }
 .func-btn:hover { background: rgba(255,255,255,.08); color: #ec4141; }
 .func-btn.fav { color: #ec4141; }

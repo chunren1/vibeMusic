@@ -2,6 +2,7 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.JwtUtils;
+import com.vibemusic.dto.AuthRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.service.UserService;
@@ -13,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.vibemusic.service.JsonCacheService;
+import jakarta.validation.Valid;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -39,13 +41,12 @@ public class AuthController {
 
     @PostMapping("/register")
     @Operation(summary = "用户注册")
-    public Result<Map<String, Object>> register(@RequestBody Map<String, String> body,
-                                                 HttpServletRequest request,
-                                                 HttpServletResponse response) {
-        String username = body.get("username");
-        String password = body.get("password");
-        String nickname = body.containsKey("nickname") && body.get("nickname") != null
-                ? body.get("nickname") : username;
+    public Result<Map<String, Object>> register(@Valid @RequestBody AuthRequest.RegisterRequest req,
+                                                  HttpServletRequest request,
+                                                  HttpServletResponse response) {
+        String username = req.username();
+        String password = req.password();
+        String nickname = req.nickname() != null ? req.nickname() : username;
 
         if (username == null || username.trim().isEmpty()) return Result.error("用户名不能为空");
         if (password == null || password.length() < 8) return Result.error("密码至少8位");
@@ -68,20 +69,18 @@ public class AuthController {
 
     @PostMapping("/login")
     @Operation(summary = "用户登录")
-    public Result<Map<String, Object>> login(@RequestBody Map<String, String> body,
-                                              HttpServletRequest request,
-                                              HttpServletResponse response) {
-        log.info("[/api/auth/login] 收到请求 - origin={}, contentType={}, bodyKeys={}, cookies={}",
+    public Result<Map<String, Object>> login(@Valid @RequestBody AuthRequest.LoginRequest req,
+                                               HttpServletRequest request,
+                                               HttpServletResponse response) {
+        log.info("[/api/auth/login] 收到请求 - origin={}, contentType={}",
                 request.getHeader("Origin"),
-                request.getContentType(),
-                body != null ? body.keySet() : "null",
-                request.getCookies() != null ? request.getCookies().length : 0);
+                request.getContentType());
 
-        String username = body.get("username");
-        String password = body.get("password");
+        String username = req.username();
+        String password = req.password();
 
         if (username == null || password == null) {
-            log.warn("[/api/auth/login] 缺少参数 username={} password={}", username != null, password != null);
+            log.warn("[/api/auth/login] 缺少参数");
             return Result.error("用户名和密码不能为空");
         }
         username = username.trim();

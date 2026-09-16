@@ -49,27 +49,58 @@ class AuthControllerTest extends BaseTest {
         }
 
         @Test
-        @DisplayName("密码少于 4 位 → 拒绝")
+        @DisplayName("密码少于 8 位 → Bean Validation 400（handleValidationException 分支）")
         void shouldRejectShortPassword() throws Exception {
             String body = objectMapper.writeValueAsString(Map.of(
                     "username", "short", "password", "12"));
             mockMvc.perform(post("/api/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.code").value(400));
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message").value("password: 密码至少8位"));
         }
 
         @Test
-        @DisplayName("用户名为空 → 拒绝")
+        @DisplayName("用户名为空 → Bean Validation 400（handleValidationException 分支）")
         void shouldRejectEmptyUsername() throws Exception {
             String body = objectMapper.writeValueAsString(Map.of(
-                    "username", "", "password", "123456"));
+                    "username", "", "password", "12345678"));
             mockMvc.perform(post("/api/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.code").value(400));
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message").value("username: 用户名不能为空"));
+        }
+
+        @Test
+        @DisplayName("用户名超 30 字符 → Bean Validation 400（手工校验未覆盖的新防线）")
+        void shouldRejectLongUsername() throws Exception {
+            String body = objectMapper.writeValueAsString(Map.of(
+                    "username", "u".repeat(31), "password", "pass1234"));
+            mockMvc.perform(post("/api/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message").value("username: 用户名格式不正确"));
+        }
+    }
+
+    @Nested
+    @DisplayName("POST /api/auth/login 入参校验")
+    class LoginValidation {
+        @Test
+        @DisplayName("缺少 password → Bean Validation 400（handleValidationException 分支）")
+        void shouldRejectMissingPassword() throws Exception {
+            String body = objectMapper.writeValueAsString(Map.of("username", "testuser"));
+            mockMvc.perform(post("/api/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message").value("password: 用户名和密码不能为空"));
         }
     }
 
