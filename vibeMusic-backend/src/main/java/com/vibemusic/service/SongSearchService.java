@@ -156,6 +156,19 @@ public class SongSearchService {
     public static final int MAX_RANDOM_COUNT = 50;
     // 非 VIP 加权：用户侧无 VIP，适度降权付费内容（见 applyNonVipBonus 注释）。
     static final double NON_VIP_BONUS = 0.5;
+    /**
+     * 标题长度罚分：超过阈值的标题按超出字数线性扣分并封顶。
+     * 阈值 30 字：正常单曲中文名多为 1–10 字，即使带 "(Live版)" / "feat. X" 等
+     * 后缀也极少超 30；而拼盘/串烧/合集类标题常靠堆砌歌名冲到 50 字以上。
+     * 取 B 站强行判定(>60 字判弱)的一半，保守起见只打超长、不误伤正常歌名。
+     * 步长 0.05/字：超出 20 字扣 1.0，恰好抵消一档歌名包含加成(+1.0)，渐进而非一刀切。
+     * 封顶 2.0 = 精确歌名加成(+2.0)：标题堆砌至多 cancel 掉精确匹配红利，
+     * 不超过最大相关性信号；扣分后下限钳制 0，保证排序分非负、返回结构不变。
+     * 按码点计数：emoji 堆砌标题按一个可见字符计，不因 UTF-16 代理对被双倍惩罚。
+     */
+    static final int TITLE_LENGTH_FREE = 30;
+    static final double TITLE_LENGTH_PENALTY_PER_CHAR = 0.05;
+    static final double TITLE_LENGTH_PENALTY_MAX = 2.0;
     // 未获单飞锁时的 bounded 短轮询：持锁者仍在搜索中，立即重读必 miss；
     // 短暂等待让持锁者回写缓存，并发同关键词请求共享结果而非各自穿透上游。
     // 上限 5 x 80ms = 400ms，远小于 SEARCH_TIMEOUT_SEC=4s 预算，不拖慢兜底路径。
@@ -419,6 +432,7 @@ public class SongSearchService {
         long relevanceStart = System.currentTimeMillis();
         applyRelevanceBonus(merged, keyword);
         applyNonVipBonus(merged);
+        applyTitleLengthPenalty(merged);
         applyBiliPlayGate(merged);
         log.info("[SEARCH-RANK] 相关性重排: keyword='{}', count={}, relevance-cost={}ms",
                 keyword, merged.size(), System.currentTimeMillis() - relevanceStart);
@@ -639,6 +653,24 @@ public class SongSearchService {
             if (Boolean.FALSE.equals(song.getVip())) {
                 double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
                 song.setFinalScore(base + NON_VIP_BONUS);
+            }
+        }
+    }
+
+    static double titleLengthPenalty(String name) {
+        if (name == null || name.isEmpty()) return 0;
+        int len = name.codePointCount(0, name.length());
+        if (len <= TITLE_LENGTH_FREE) return 0;
+        return Math.min(TITLE_LENGTH_PENALTY_MAX,
+                (len - TITLE_LENGTH_FREE) * TITLE_LENGTH_PENALTY_PER_CHAR);
+    }
+
+    private void applyTitleLengthPenalty(List<SongDTO> merged) {
+        for (SongDTO song : merged) {
+            double penalty = titleLengthPenalty(song.getName());
+            if (penalty > 0) {
+                double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
+                song.setFinalScore(Math.max(0, base - penalty));
             }
         }
     }

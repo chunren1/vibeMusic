@@ -1387,6 +1387,81 @@ class SongSearchServiceTest {
         }
     }
 
+    @Nested @DisplayName("标题长度罚分")
+    class TitleLengthPenaltyTest {
+
+        private void mockCacheMiss() {
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
+        }
+
+        private Map<String, Object> apiSong(String id, String name, String artist, int durationMs) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", id);
+            m.put("name", name);
+            m.put("artists", artist);
+            m.put("album", "专辑");
+            m.put("cover", "");
+            m.put("duration", durationMs);
+            return m;
+        }
+
+        @Test @DisplayName("阈值内不扣分：30字恰好免罚，31字起罚")
+        void boundaryAtThirtyChars() {
+            assertEquals(0, SongSearchService.titleLengthPenalty("晴".repeat(30)), 1e-9);
+            assertEquals(0, SongSearchService.titleLengthPenalty("晴天"), 1e-9);
+            assertEquals(0.05, SongSearchService.titleLengthPenalty("晴".repeat(31)), 1e-9);
+        }
+
+        @Test @DisplayName("罚分渐进：越长扣得越多，封顶2.0")
+        void penaltyProgressiveAndCapped() {
+            double p40 = SongSearchService.titleLengthPenalty("晴".repeat(40));
+            double p50 = SongSearchService.titleLengthPenalty("晴".repeat(50));
+            assertEquals(0.5, p40, 1e-9);
+            assertEquals(1.0, p50, 1e-9);
+            assertTrue(p50 > p40, "更长标题罚分应更大");
+            assertEquals(2.0, SongSearchService.titleLengthPenalty("晴".repeat(70)), 1e-9);
+            assertEquals(2.0, SongSearchService.titleLengthPenalty("晴".repeat(200)), 1e-9);
+        }
+
+        @Test @DisplayName("空标题与null不扣分不抛异常")
+        void nullAndEmptyTitleNoPenalty() {
+            assertEquals(0, SongSearchService.titleLengthPenalty(null), 1e-9);
+            assertEquals(0, SongSearchService.titleLengthPenalty(""), 1e-9);
+        }
+
+        @Test @DisplayName("超长拼盘标题沉到正常单曲之下")
+        void absurdlyLongTitleSinksBelowNormalSingle() {
+            mockCacheMiss();
+            String junk = "晴天" + "串烧合集精选".repeat(8);
+            assertTrue(junk.codePointCount(0, junk.length()) > 30, "测试标题必须超阈值");
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", junk, "群星", 240000),
+                    apiSong("ne2", "晴天", "周杰伦", 240000))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(2, result.getList().size());
+            assertEquals("ne2", result.getList().get(0).getSourceId());
+            assertEquals("ne1", result.getList().get(1).getSourceId());
+        }
+
+        @Test @DisplayName("正常长度标题分数不受影响")
+        void saneTitleScoreUnaffected() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(1, result.getList().size());
+            assertEquals(1.5 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
+        }
+    }
+
     @Nested @DisplayName("不完整缓存判定")
     class IncompleteCacheTest {
 
