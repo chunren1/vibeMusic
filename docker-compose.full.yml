@@ -1,0 +1,486 @@
+# ============================================================
+# 通用日志配置（限制大小 + 轮转）
+# ============================================================
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+# 资源限制（Docker Compose 原生语法，非 Swarm）
+x-resources-small:
+  mem_limit: 256M
+  cpus: 0.5
+
+x-resources-medium:
+  mem_limit: 512M
+  cpus: 1.0
+
+x-resources-large:
+  mem_limit: 2G
+  cpus: 2.0
+
+services:
+  # ==========================
+  # MySQL 8.0 — 关系数据库
+  # ==========================
+  mysql:
+    image: mysql:8.0
+    container_name: vibemusic-mysql
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: vibemusic
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+      TZ: Asia/Shanghai
+    # MySQL 仅内部网络访问（生产环境已关闭端口暴露）
+    # 本地调试需直连（已开启）
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      # 数据持久化
+      - ./docker-data/mysql/data:/var/lib/mysql
+      # 初始化 SQL（首次启动自动执行）
+      - ./vibeMusic-backend/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      # 慢查询日志（超过 1 秒记录）
+      - --slow_query_log=ON
+      - --slow_query_log_file=/var/lib/mysql/slow.log
+      - --long_query_time=1
+      - --log_queries_not_using_indexes=ON
+      - --log_slow_admin_statements=ON
+    mem_limit: 2G
+    cpus: 2.0
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================
+  # Redis 7 — 缓存 & 会话
+  # ==========================
+  redis:
+    image: redis:7-alpine
+    container_name: vibemusic-redis
+    restart: unless-stopped
+    logging: *default-logging
+    # Redis 仅内部网络访问（生产环境已关闭端口暴露）
+    # 本地调试需直连（已开启）
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      # 数据持久化
+      - ./docker-data/redis/data:/data
+      # 自定义配置
+      - ./docker-data/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    mem_limit: 256M
+    cpus: 0.5
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+
+  # ==========================
+  # musicapi — 网易云 + QQ 音乐统一 API 代理 (Node.js)
+  # ==========================
+  musicapi:
+    build:
+      context: ./musicapi
+      dockerfile: Dockerfile
+    image: vibemusic-musicapi:latest
+    container_name: vibemusic-musicapi
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: Asia/Shanghai
+      # 音乐平台 Cookie（从 .env 注入）
+      MUSIC_QQ_COOKIE: ${MUSIC_QQ_COOKIE:-{}}
+      MUSIC_NETEASE_COOKIE: ${MUSIC_NETEASE_COOKIE:-}
+    ports:
+      - "127.0.0.1:3000:3000"
+    mem_limit: 256M
+    cpus: 0.5
+    networks:
+      - vibemusic-net
+    # 健康检查由 Dockerfile 内置的 `node -e http.get` 提供，避免 alpine 镜像缺 curl/wget
+
+  # ==========================
+  # MinIO 对象存储
+  # ==========================
+  minio:
+    image: minio/minio:latest
+    container_name: vibemusic-minio
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rustfsadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ChangeMe456!}
+      TZ: Asia/Shanghai
+    # MinIO 暴露到宿主机，供本地开发连接
+    ports:
+      # API 端口（S3 兼容）
+      - "127.0.0.1:9000:9000"
+      # Web 控制台
+      - "127.0.0.1:9001:9001"
+    volumes:
+      # 对象数据持久化
+      - ./docker-data/minio/data:/data
+    command: server /data --console-address ":9001"
+    mem_limit: 512M
+    cpus: 1.0
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==========================
+  # Spring Boot 后端 — vibeMusic API
+  # ==========================
+  backend:
+    build:
+      context: ./vibeMusic-backend
+      dockerfile: Dockerfile
+    image: vibemusic-backend:latest
+    container_name: vibemusic-backend
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # 数据库
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD:
+      # MinIO
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-rustfsadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-ChangeMe456!}
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecretKey123!}
+      # AI 助手
+      AI_API_KEY: ${AI_API_KEY:-change-me}
+      # musicapi (网易云 API 代理)
+      MUSICAPI_URL: http://musicapi:3000
+      # CORS 允许的来源（生产环境改为你的实际域名）
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://localhost,http://localhost:5173}
+      # Profile
+      SPRING_PROFILES_ACTIVE: docker
+      # JVM 自适应内存 (MaxRAMPercentage 自动按容器限制分配)
+      # 显式设置非堆内存上限，防止 DirectMemory/Metaspace OOM
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:MaxDirectMemorySize=128m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication"
+      # 数据库连接池（可通过环境变量覆盖）
+      DB_POOL_MAX_SIZE: 20
+      DB_POOL_MIN_IDLE: 5
+      # OpenTelemetry Java Agent (自动插桩)
+      OTEL_JAVAAGENT_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_RESOURCE_ATTRIBUTES: service.name=vibemusic-backend,service.version=${PROJECT_VERSION:-0.0.1},deployment.environment=docker
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_PROBABILITY: 0.1
+      OTEL_PROPAGATORS: tracecontext,baggage,b3
+    ports:
+      - "127.0.0.1:8080:8080"
+    mem_limit: 512M
+    cpus: 1.0
+    networks:
+      - vibemusic-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      musicapi:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      # OTel Java Agent (挂载到容器内，由入口脚本自动加载)
+      - ./docker-data/otel-javaagent:/otel-javaagent:ro
+
+  # ==========================
+  # ==========================
+  # Nginx — 统一入口 & 反向代理（HTTPS）
+  # ==========================
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: vibemusic-nginx
+    restart: unless-stopped
+    logging: *default-logging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Nginx 配置
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # TLS 证书
+      - ./nginx/certs:/etc/nginx/certs:ro
+      # 前端构建产物
+      - ./vibemusic-web/dist:/usr/share/nginx/html:ro
+      # 日志持久化
+      - ./docker-data/nginx/logs:/var/log/nginx
+      # 日志轮转配置
+      - ./nginx/logrotate-nginx.conf:/etc/nginx/logrotate-nginx.conf:ro
+      # 自定义入口脚本
+      - ./nginx/docker-entrypoint.sh:/usr/local/bin/vibe-nginx-entrypoint.sh:ro
+    command: ["nginx", "-g", "daemon off;"]
+    entrypoint: ["/usr/local/bin/vibe-nginx-entrypoint.sh"]
+    mem_limit: 256M
+    cpus: 0.5
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "curl", "-kf", "https://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: vibemusic-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-ChangeMe456!};
+      /usr/bin/mc mb --ignore-existing minio/vibemusic;
+      echo 'Bucket vibemusic ready';
+      exit 0;
+      "
+    networks:
+      - vibemusic-net
+
+  # ==========================
+  # Prometheus — 指标采集与存储
+  # ==========================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vibemusic-prometheus
+    restart: unless-stopped
+    logging: *default-logging
+    # Prometheus 仅内部网络访问（通过 Nginx 反向代理 + auth 访问）
+    # 本地调试需直接访问时取消注释: ports: - "9090:9090"
+    volumes:
+      - ./docker-data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker-data/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - ./docker-data/prometheus/data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    mem_limit: 256M
+    cpus: 0.5
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ==========================
+  # Grafana — 指标可视化仪表盘
+  # ==========================
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: vibemusic-grafana
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      TZ: Asia/Shanghai
+    # Grafana 仅内部网络访问（通过 Nginx 反向代理 + auth 访问）
+    # 本地调试需直接访问时取消注释: ports: - "3001:3000"
+    mem_limit: 256M
+    cpus: 0.5
+    volumes:
+      - ./docker-data/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker-data/grafana/data:/var/lib/grafana
+    networks:
+      - vibemusic-net
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ==========================
+  # Alertmanager — 告警通知管理
+  # ==========================
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: vibemusic-alertmanager
+    restart: unless-stopped
+    logging: *default-logging
+    # Alertmanager 仅内部网络访问
+    # 本地调试需直接访问时取消注释: ports: - "9093:9093"
+    volumes:
+      - ./docker-data/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./docker-data/alertmanager/data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    mem_limit: 256M
+    cpus: 0.5
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ==========================
+  # OpenTelemetry Collector — 链路追踪收集与导出
+  # ==========================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.112.0
+    container_name: vibemusic-otel-collector
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./docker-data/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "127.0.0.1:8888:8888"   # Prometheus metrics (OTel Collector 自身)
+      - "127.0.0.1:13133:13133" # Health check
+    mem_limit: 256M
+    cpus: 0.5
+    networks:
+      - vibemusic-net
+    healthcheck:
+      test: ["NONE"]
+
+  # ==========================
+  # MySQL 自动备份（每天凌晨 2 点，保留 30 天）
+  # ==========================
+  mysql-backup:
+    image: mysql:8.0
+    container_name: vibemusic-mysql-backup
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      TZ: Asia/Shanghai
+    entrypoint: ["/bin/bash", "-c", "
+      trap 'echo \"[BACKUP] 收到信号，正在退出...\"; exit 0' SIGTERM SIGINT;
+      mkdir -p /backup;
+      LOCK_FILE=/backup/.backup.lock;
+      while true; do
+        # 等待锁，最多等 1 小时防止并发备份
+        if flock -w 3600 $$LOCK_FILE; then
+          ts=$$(date +%Y%m%d-%H%M%S);
+          outfile=/backup/vibemusic-$$ts.sql.gz;
+          mysqldump -h mysql -u root -p$$MYSQL_ROOT_PASSWORD --single-transaction --routines --triggers vibemusic | gzip > $$outfile;
+          # 校验和
+          sha256sum $$outfile > $$outfile.sha256;
+          echo \"[BACKUP] $$outfile (SHA256: $$(cat $$outfile.sha256 | cut -d' ' -f1))\";
+          find /backup -name 'vibemusic-*.sql.gz' -mtime +30 -delete;
+          find /backup -name 'vibemusic-*.sql.gz.sha256' -mtime +30 -delete;
+        else
+          echo \"[BACKUP] 获取锁超时，跳过本次备份\";
+        fi;
+        sleep 86400 & wait $$!;  # 可中断的 sleep
+      done
+    "]
+    volumes:
+      - ./docker-data/backups/mysql:/backup
+    networks:
+      - vibemusic-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ==========================
+  # Redis Exporter — 将 Redis 指标暴露为 Prometheus 格式
+  # ==========================
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: vibemusic-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    networks:
+      - vibemusic-net
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ==========================
+  # MinIO 每日备份（将对象存储同步到本地备份目录）
+  # ==========================
+  minio-backup:
+    image: minio/mc:latest
+    container_name: vibemusic-minio-backup
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    entrypoint: ["/bin/sh", "-c", "
+      trap 'echo \"[MINIO-BACKUP] 收到信号，正在退出...\"; exit 0' SIGTERM SIGINT;
+      mkdir -p /backup;
+      LOCK_FILE=/backup/.backup.lock;
+      while true; do
+        if flock -w 3600 $$LOCK_FILE; then
+          /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-ChangeMe456!};
+          /usr/bin/mc mirror --overwrite minio/vibemusic /backup/vibemusic 2>&1 | head -5;
+          # 生成校验清单
+          find /backup/vibemusic -type f -exec sha256sum {} + > /backup/vibemusic-$$(date +%Y%m%d-%H%M%S).sha256 2>/dev/null || true;
+          echo \"[MINIO-BACKUP] $$(date +%Y%m%d-%H%M%S) backup done\";
+        else
+          echo \"[MINIO-BACKUP] 获取锁超时，跳过本次备份\";
+        fi;
+        sleep 86400 & wait $$!;
+      done
+    "]
+    volumes:
+      - ./docker-data/backups/minio:/backup
+    networks:
+      - vibemusic-net
+    depends_on:
+      minio:
+        condition: service_healthy
+
+# ==========================
+# 独立数据卷（宿主机挂载）
+# ==========================
+networks:
+  vibemusic-net:
+    driver: bridge
+    name: vibemusic-net

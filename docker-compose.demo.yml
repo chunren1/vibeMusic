@@ -1,0 +1,135 @@
+# Demo 轻量（体验一致，仅调优看不见的内存，全量代码不动）
+# MinIO 已去掉：下载走 StreamController proxy_cache 直连 p3.music.126.net/y.gtimg.cn
+# MySQL 保留但瘦身：innodb 128M + Hikari 5/2，140M
+# 5 服务：nginx(64M) + backend(512M) + musicapi(128M) + redis(128M) + mysql(140M) = 972M < 1.6G avail 1.1G
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: vibemusic-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_DATABASE: vibemusic
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - ./docker-data/mysql/data:/var/lib/mysql
+      - ./vibeMusic-backend/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --innodb-buffer-pool-size=128M
+      - --max-connections=50
+      - --slow_query_log=ON
+      - --long_query_time=1
+    mem_limit: 512M
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [vibemusic-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: vibemusic-redis
+    restart: unless-stopped
+    ports: ["127.0.0.1:6379:6379"]
+    volumes:
+      - ./docker-data/redis/data:/data
+      - ./docker-data/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    mem_limit: 128M
+    cpus: 0.3
+    networks: [vibemusic-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  musicapi:
+    build:
+      context: ./musicapi
+      dockerfile: Dockerfile
+    image: vibemusic-musicapi:latest
+    container_name: vibemusic-musicapi
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MUSIC_QQ_COOKIE: ${MUSIC_QQ_COOKIE:-{}}
+      MUSIC_NETEASE_COOKIE: ${MUSIC_NETEASE_COOKIE:-}
+    ports: ["127.0.0.1:3000:3000"]
+    mem_limit: 128M
+    cpus: 0.3
+    networks: [vibemusic-net]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./vibeMusic-backend
+      dockerfile: Dockerfile
+    image: vibemusic-backend:latest
+    container_name: vibemusic-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD:
+      MINIO_ENDPOINT: ""
+      MINIO_ACCESS_KEY: ""
+      MINIO_SECRET_KEY: ""
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      AI_API_KEY: ${AI_API_KEY:-change-me}
+      MUSICAPI_URL: http://musicapi:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://vibe.cyk666.top,http://localhost:5173}
+      SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MetaspaceSize=48m -XX:MaxMetaspaceSize=96m -XX:+UseG1GC"
+      DB_POOL_MAX_SIZE: 5
+      DB_POOL_MIN_IDLE: 2
+      APP_GUEST_MODE: "true"
+    ports: ["127.0.0.1:8080:8080"]
+    mem_limit: 512M
+    cpus: 0.5
+    networks: [vibemusic-net]
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      musicapi: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: vibemusic-nginx
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./vibemusic-web/dist:/usr/share/nginx/html:ro
+      - ./docker-data/nginx/logs:/var/log/nginx
+    mem_limit: 64M
+    cpus: 0.2
+    networks: [vibemusic-net]
+    depends_on:
+      backend: {condition: service_healthy}
+
+networks:
+  vibemusic-net:
+    driver: bridge
+    name: vibemusic-net
