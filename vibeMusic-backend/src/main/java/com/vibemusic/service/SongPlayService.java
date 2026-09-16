@@ -54,10 +54,33 @@ public class SongPlayService {
         }
     }
 
-    private Map<String, Object> fetchNeteaseUrl(String sourceId, String level, String userCookie) {
-        return userCookie != null
+    private Map<String, Object> fetchNeteaseUrl(String sourceId, String level, String userCookie, Long userId) {
+        Map<String, Object> body = userCookie != null
                 ? neteaseApiService.getSongUrl(sourceId, level, userCookie)
                 : neteaseApiService.getSongUrl(sourceId, level);
+        observeNeteaseUrlPayload(body, userCookie, userId);
+        return body;
+    }
+
+    /**
+     * BYOC 过期探测（Q3-11 接线）：per-user 取链拿到上游 need-login 信号
+     * （{@code /song/url/v1} 原样透传体，见 {@link NeteaseApiService#isNeedLoginPayload}）
+     * 时将该用户 Cookie 标失效，后续 {@code GET /api/cookies/status} 返回
+     * {@code needsRebind:true}。
+     *
+     * <p>仅 per-user 请求参与（userCookie/userId 任一缺席即跳过，匿名/共享失败永不翻转）；
+     * 永不抛错，不干扰播放降级链；日志仅 userId + 上游 code，绝不记 Cookie 字节。
+     * 搜索链路不接：网关 {@code /netease/search} 已归一化为 {@code code:200}，
+     * 上游 need-login 在网关内即被吞为匿名降级，后端侧无信号可探。
+     */
+    private void observeNeteaseUrlPayload(Map<String, Object> body, String userCookie, Long userId) {
+        if (userCookie == null || userId == null || userService == null) return;
+        if (!NeteaseApiService.isNeedLoginPayload(body)) return;
+        try {
+            userService.markNeteaseCookieInvalid(userId, NeteaseApiService.extractUpstreamCode(body));
+        } catch (Exception e) {
+            log.warn("BYOC 失效标记失败: userId={}, error={}", userId, e.getMessage());
+        }
     }
 
     private Map<String, Object> fetchNeteaseSearch(String keyword, int limit, String userCookie) {
@@ -147,6 +170,9 @@ public class SongPlayService {
     @SuppressWarnings("unchecked")
     private Map<String, Object> getPlayInfo(String sourceId, String songName, String artist, String userCookie) {
         Map<String, Object> info = new HashMap<>();
+        // BYOC 探测用 userId 必须在请求线程捕获：取链 lambda 跑在 getUrlExecutor，
+        // SecurityContext 不跨线程，异步内重读恒为 null。
+        final Long callerUserId = UserService.getCurrentUserId();
         info.put("isTrial", false);
         info.put("platform", isBiliId(sourceId) ? "bilibili" : (isKugouHash(sourceId) ? "kugou" : (sourceId.matches("\\d+") ? "netease" : "qq")));
 
@@ -182,7 +208,7 @@ public class SongPlayService {
                 }
                 degradationCount.incrementAndGet();
                 log.info("B站歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String biFallback = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String biFallback = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (biFallback != null) {
                     info.put("url", biFallback);
                     info.put("platform", "netease");
@@ -204,7 +230,7 @@ public class SongPlayService {
                 }
                 degradationCount.incrementAndGet();
                 log.info("酷狗歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String kgFallback = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String kgFallback = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (kgFallback != null) {
                     info.put("url", kgFallback);
                     info.put("platform", "netease");
@@ -230,8 +256,9 @@ public class SongPlayService {
                     if (System.currentTimeMillis() > DEADLINE) break;
                     try {
                         final String uc = userCookie;
+                        final Long uid = callerUserId;
                         futures.put(tier, CompletableFuture.supplyAsync(() ->
-                                fetchNeteaseUrl(sourceId, tier.toNeteaseLevel(), uc), getUrlExecutor));
+                                fetchNeteaseUrl(sourceId, tier.toNeteaseLevel(), uc, uid), getUrlExecutor));
                     } catch (RejectedExecutionException e) {
                         log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", tier.getLabel(), sourceId);
                     }
@@ -312,7 +339,7 @@ public class SongPlayService {
                         log.warn("试听兜底跳过: {} 预算已耗尽，不再补发 standard 请求", sourceId);
                     } else {
                         try {
-                            f = callWithDeadline(() -> fetchNeteaseUrl(sourceId, "standard", userCookie), DEADLINE);
+                            f = callWithDeadline(() -> fetchNeteaseUrl(sourceId, "standard", userCookie, callerUserId), DEADLINE);
                         } catch (Exception e) {
                             log.warn("试听兜底 standard 请求失败: {} - {}", sourceId, e.getMessage());
                             f = null;
@@ -341,7 +368,7 @@ public class SongPlayService {
                 }
                 degradationCount.incrementAndGet();
                 log.info("QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) {
                     info.put("url", neteaseUrl);
                     info.put("platform", "netease");
@@ -399,6 +426,8 @@ public class SongPlayService {
 
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
+        // 请求线程捕获 userId（同 getPlayInfo：异步取链线程读不到 SecurityContext）。
+        final Long callerUserId = UserService.getCurrentUserId();
         // 生产链路整体 8s 超时保护（与 getPlayInfo 一致）
         final long DEADLINE = System.currentTimeMillis() + 8000;
         // 1. 优先检查 MinIO 缓存（Redis 缓存 exists 结果，TTL 10min）
@@ -433,7 +462,7 @@ public class SongPlayService {
                     log.warn("getPlayUrl: Migu {} 获取失败: {}", sourceId, e.getMessage());
                 }
                 log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitKugou || (!explicitQQ && !explicitNE && isKugouHash(sourceId))) {
                 // 酷狗：platform=kugou 显式指定，或无显式平台时的 32 位 hash 猜测
@@ -441,7 +470,7 @@ public class SongPlayService {
                 String kugouUrl = tryKugouUrl(sourceId);
                 if (kugouUrl != null) return kugouUrl;
                 log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && isBiliId(sourceId))) {
                 // B站：platform=bilibili 显式指定，或无显式平台时的 BV 猜测
@@ -449,7 +478,7 @@ public class SongPlayService {
                 String biliUrl = tryBiliUrl(sourceId);
                 if (biliUrl != null) return biliUrl;
                 log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
                 try {
@@ -465,7 +494,7 @@ public class SongPlayService {
                     log.warn("getPlayUrl: QQ {} 获取失败: {}", sourceId, e.getMessage());
                 }
                 log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie);
+                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
                 // 并行探测 3 级音质（exhigh/higher/standard），取最高可用非试听版本
@@ -474,9 +503,10 @@ public class SongPlayService {
                 for (String level : levels) {
                     try {
                         final String uc = userCookie;
+                        final Long uid = callerUserId;
                         futures.add(CompletableFuture.supplyAsync(() -> {
                             try {
-                                return fetchNeteaseUrl(sourceId, level, uc);
+                                return fetchNeteaseUrl(sourceId, level, uc, uid);
                             } catch (Exception e) {
                                 log.debug("getPlayUrl: 网易云 {} level={} 失败: {}", sourceId, level, e.getMessage());
                                 return null;
@@ -706,7 +736,7 @@ public class SongPlayService {
     }
 
     @SuppressWarnings("unchecked")
-    private String tryNeteaseFallback(String songName, String artist, String qqSourceId, String userCookie) {
+    private String tryNeteaseFallback(String songName, String artist, String qqSourceId, String userCookie, Long userId) {
         if (songName == null || songName.isBlank()) {
             Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, qqSourceId));
             if (song == null || song.getName() == null) return null;
@@ -728,7 +758,7 @@ public class SongPlayService {
             }
             String[] levels = {"exhigh", "higher", "standard"};
             for (String level : levels) {
-                Map<String, Object> urlResult = fetchNeteaseUrl(neteaseId, level, userCookie);
+                Map<String, Object> urlResult = fetchNeteaseUrl(neteaseId, level, userCookie, userId);
                 if (urlResult == null) continue;
                 List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
                 if (urlData == null || urlData.isEmpty()) continue;

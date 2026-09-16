@@ -163,4 +163,67 @@ class SongPlayUserCookieTest {
         verify(neteaseApiService, never()).getSongUrl(anyString(), anyString(), anyString());
         verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
     }
+
+    private static Map<String, Object> needLoginPayload(Object code) {
+        return Map.of("code", code, "data", List.of(Map.of("id", "123456", "url", "")));
+    }
+
+    @Test
+    @DisplayName("per-user 取链命中上游 301：标记该用户 Cookie 失效（透传上游 code）")
+    void perUserNeedLoginMarksCookieInvalid() {
+        loginAs(1L);
+        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
+                .thenReturn(needLoginPayload(301));
+        when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                .thenReturn(Map.of("data", List.of()));
+
+        songPlayService.getPlayUrl("123456", "晴天", "周杰伦", "netease");
+
+        verify(userService, atLeastOnce()).markNeteaseCookieInvalid(eq(1L), eq(301));
+    }
+
+    @Test
+    @DisplayName("匿名取链命中上游 301：永不标记（无 userCookie 即无翻转）")
+    void anonymousNeedLoginNeverMarks() {
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString()))
+                .thenReturn(needLoginPayload(301));
+        when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                .thenReturn(Map.of("data", List.of()));
+
+        songPlayService.getPlayUrl("123456");
+
+        verify(userService, never()).markNeteaseCookieInvalid(any(), any());
+    }
+
+    @Test
+    @DisplayName("per-user 取链无版权（code200+空链）：永不误标")
+    void perUserNoCopyrightNeverMarks() {
+        loginAs(1L);
+        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
+                .thenReturn(needLoginPayload(200));
+        when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                .thenReturn(Map.of("data", List.of()));
+
+        songPlayService.getPlayUrl("123456", "晴天", "周杰伦", "netease");
+
+        verify(userService, never()).markNeteaseCookieInvalid(any(), any());
+    }
+
+    @Test
+    @DisplayName("失效标记抛错：不干扰播放链路（吞错降级，不向上传播）")
+    void markFailureDoesNotBreakPlayback() {
+        loginAs(1L);
+        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
+                .thenReturn(needLoginPayload(301));
+        when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                .thenReturn(Map.of("data", List.of()));
+        doThrow(new RuntimeException("db down"))
+                .when(userService).markNeteaseCookieInvalid(eq(1L), eq(301));
+
+        assertDoesNotThrow(() -> songPlayService.getPlayUrl("123456", "晴天", "周杰伦", "netease"));
+        verify(userService, atLeastOnce()).markNeteaseCookieInvalid(eq(1L), eq(301));
+    }
 }
