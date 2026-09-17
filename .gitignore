@@ -98,6 +98,12 @@ docker-data/elasticsearch/plugins/
 .codebuddy/
 .workbuddy/
 
+# AI 工具本地目录（opencode 配置与 node_modules，不公开）
+.opencode/
+
+# OTel Java Agent 下载产物（二进制不入库，按需执行 download-otel-javaagent.sh）
+docker-data/otel-javaagent/
+
 # AI 调试产物（临时）
 .omo/
 .playwright-mcp/
