@@ -173,7 +173,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Lint docker-compose (syntax only, no env needed)
-        run: docker compose config -q
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.full.yml config -q
+          docker compose -f docker-compose.demo.yml config -q
 
       - name: Validate otel-collector config YAML syntax
         run: |

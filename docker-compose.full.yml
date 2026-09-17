@@ -1,4 +1,11 @@
 # ============================================================
+# docker-compose.full.yml — 可选完整变体
+# 默认请用 docker-compose.yml（12 服务）；本文件在其基础上增加 otel-collector。
+# 使用前必须先把 javaagent 下载到 docker-data/otel-javaagent/（下载命令见 README 的 OTel 段落）
+# 启动：docker compose -f docker-compose.full.yml up -d
+# ============================================================
+
+# ============================================================
 # 通用日志配置（限制大小 + 轮转）
 # ============================================================
 x-logging: &default-logging
@@ -185,7 +192,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       # JVM 自适应内存 (MaxRAMPercentage 自动按容器限制分配)
       # 显式设置非堆内存上限，防止 DirectMemory/Metaspace OOM
-      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:MaxDirectMemorySize=128m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication"
+      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:MaxDirectMemorySize=128m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication -javaagent:/otel-javaagent/opentelemetry-javaagent.jar"
       # 数据库连接池（可通过环境变量覆盖）
       DB_POOL_MAX_SIZE: 20
       DB_POOL_MIN_IDLE: 5
@@ -233,6 +240,11 @@ services:
     container_name: vibemusic-nginx
     restart: unless-stopped
     logging: *default-logging
+    # worker_connections 2048 需要更高的 nofile 上限
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     ports:
       - "80:80"
       - "443:443"
@@ -339,34 +351,10 @@ services:
       retries: 5
 
   # ==========================
-  # Alertmanager — 告警通知管理
+  # OpenTelemetry Collector — 链路追踪收集与导出（可选变体）
   # ==========================
-  alertmanager:
-    image: prom/alertmanager:latest
-    container_name: vibemusic-alertmanager
-    restart: unless-stopped
-    logging: *default-logging
-    # Alertmanager 仅内部网络访问
-    # 本地调试需直接访问时取消注释: ports: - "9093:9093"
-    volumes:
-      - ./docker-data/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-      - ./docker-data/alertmanager/data:/alertmanager
-    command:
-      - '--config.file=/etc/alertmanager/alertmanager.yml'
-      - '--storage.path=/alertmanager'
-    mem_limit: 256M
-    cpus: 0.5
-    networks:
-      - vibemusic-net
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9093/-/healthy"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-
-  # ==========================
-  # OpenTelemetry Collector — 链路追踪收集与导出
-  # ==========================
+  # 使用前提：先把 javaagent 下载到 docker-data/otel-javaagent/（见 README OTel 段落），
+  # 并已在 backend 的 JAVA_OPTS 中挂载 -javaagent（见下方 backend.environment）。
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.112.0
     container_name: vibemusic-otel-collector

@@ -3,7 +3,7 @@
   vibeMusic
 </h1>
 
-> 独立开发的全栈音乐平台 — 五源聚合搜索、AI Function Calling Agent、Redis 两级缓存、Docker 14 服务编排、Prometheus 可观测性。
+> 独立开发的全栈音乐平台 — 五源聚合搜索、AI Function Calling Agent、Redis 两级缓存、Docker 12 服务编排、Prometheus 可观测性。
 
 <p align="center">
   <a href="https://vibe.cyk666.top"><img src="https://img.shields.io/badge/Live%20Demo-vibe.cyk666.top-ff6b6b?style=for-the-badge&logo=vercel" alt="Live Demo"></a>
@@ -20,9 +20,9 @@
 
 | 🚀 指标 | 数值 | 🚀 指标 | 数值 |
 |--------|:----:|--------|:----:|
-| 全栈测试 | **654 条** | Docker 服务 | **14 个** |
+| 全栈测试 | **703 条** | Docker 服务 | **12 个** |
 | 代码覆盖率 | **60%+ 门禁** | 缓存策略 | **Redis 两级缓存** |
-| 音源聚合 | **五源聚合** | 测试构成 | **后端 392 · 网关 105 · 前端 157** |
+| 音源聚合 | **五源聚合** | 测试构成 | **后端 415 · 网关 121 · 前端 167** |
 | AI 助手 | **流式输出** | API 端点 | **45 个** |
 
 ---
@@ -36,7 +36,7 @@
 - **缓存**：Redis（TTL 6h）→ 直调 API 两级链路，保障搜索 SLA
 - **BYOC（用户自带凭证）**：多租户凭证隔离架构——用户级密钥 AES-GCM 加密存储、请求级透传、缓存级隔离（个人结果永不落入共享缓存），附带过期检测与重绑引导
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
-- **全栈 DevOps**：14 服务 Docker 编排 + GitHub Actions CI/CD + 654 条测试（后端 392 · 网关 105 · 前端 157）
+- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions CI/CD + 703 条测试（后端 415 · 网关 121 · 前端 167）
 
 ---
 
@@ -134,9 +134,9 @@ docker compose up -d
   </tr>
 </table>
 
-**14 服务**：Nginx · Spring Boot · Express BFF · MySQL 8.0 · Redis 7 · MinIO · Prometheus · Grafana · Alertmanager · otel-collector · MinIO Init · MySQL Backup · Redis Exporter · MinIO Backup
+**12 服务**：Nginx · Spring Boot · Express BFF · MySQL 8.0 · Redis 7 · MinIO · Prometheus · Grafana · MinIO Init · MySQL Backup · Redis Exporter · MinIO Backup
 
-**监控链路**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化 → Alertmanager 告警
+**监控链路**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化（告警规则在 Prometheus/Grafana 界面可见）
 
 ---
 
@@ -146,27 +146,20 @@ docker compose up -d
 
 | 变量 | 说明 | 默认值 | 来源 |
 |------|------|--------|------|
-| `DB_POOL_MAX_SIZE` | Hikari 最大连接数 | `20` | `application.yml` → `hikari.maximum-pool-size` / `docker-compose.yml` `backend` |
-| `DB_POOL_MIN_IDLE` | Hikari 最小空闲连接 | `5` | 同上 `minimum-idle` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP gRPC 采集端点 | `http://otel-collector:4317` | `application.yml` `otel.exporter.otlp.endpoint` / compose `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | OTLP 协议 | `grpc` | compose `OTEL_EXPORTER_OTLP_PROTOCOL` |
-| `OTEL_TRACES_SAMPLER` | 采样策略 | `parentbased_traceidratio` | compose |
-| `OTEL_TRACES_SAMPLER_PROBABILITY` | 采样率 (0.0–1.0)，生产 0.1 / 测试可 1.0 | `0.1` | `application.yml` `management.tracing.sampling.probability` + compose |
-| `OTEL_RESOURCE_ATTRIBUTES` | 资源属性 `service.name/version/env` | `vibemusic-backend,...` | compose |
-| `OTEL_PROPAGATORS` | Trace 传播器 | `tracecontext,baggage,b3` | compose + `management.tracing.propagation` |
-| `OTEL_JAVAAGENT_ENABLED` | 是否启用 Java Agent 自动插桩 | `true` | compose |
-| `DEPLOYMENT_ENV` / `SPRING_PROFILES_ACTIVE` | 部署环境 (`docker`/`prod`/`dev`)，同时注入 `deployment.environment` 与 `otel.resource.attributes` | `docker` | compose / `otel-collector-config.yaml` `${DEPLOYMENT_ENV}` |
-| `PROJECT_VERSION` | 服务版本，注入 `service.version` | `0.0.1` | compose `OTEL_RESOURCE_ATTRIBUTES` / collector `resource` processor |
-| `threadpool.searchCore` | 搜索线程池 core | `50` | `ThreadPoolConfig` `@ConfigurationProperties(prefix="threadpool")` |
-| `threadpool.searchMax` | 搜索线程池 max | `100` | 同上 |
-| `threadpool.searchQueue` | 搜索线程池队列容量 | `300` | 同上 |
+| `DB_POOL_MAX_SIZE` | Hikari 最大连接数 | `10`（compose 设为 `20`） | `application.yml` → `hikari.maximum-pool-size` |
+| `DB_POOL_MIN_IDLE` | Hikari 最小空闲连接 | `2`（compose 设为 `5`） | 同上 `minimum-idle` |
+| `DEPLOYMENT_ENV` / `SPRING_PROFILES_ACTIVE` | 部署环境 (`docker`/`prod`/`dev`) | `docker` | compose / `.env` |
+| `threadpool.searchCore` | 搜索线程池 core | `20` | `ThreadPoolConfig` `@ConfigurationProperties(prefix="threadpool")` |
+| `threadpool.searchMax` | 搜索线程池 max | `40` | 同上 |
+| `threadpool.searchQueue` | 搜索线程池队列容量 | `100` | 同上 |
 | `threadpool.searchKeepAlive` | 搜索线程池 keepAlive (秒) | `60` | 同上 |
 | `threadpool.warmCore/warmMax/warmQueue` | 预热线程池 | `1/1/20` | 同上 |
 | `threadpool.getUrlCore/getUrlMax/getUrlQueue` | 取播放链接线程池 | `3/3/10` | 同上 |
-| `threadpool.asyncCacheCore/asyncCacheMax/asyncCacheQueue` | 异步缓存清理线程池 | `2/4/20` | 同上 |
+
+> OpenTelemetry 相关变量（`OTEL_*`）当前**未启用**（主栈无 otel-collector 服务、Dockerfile 未挂 javaagent），仅在 `.env.example` 中作为接入预留，详见下文。
 
 > Hikari 额外硬化：`pool-name=vibeMusic-HikariCP`、`auto-commit=false`、`leak-detection-threshold=10s`、`register-mbeans=true`、`connection-timeout=5s / max-lifetime=10m / idle-timeout=5m`。
-> JVM 硬化（`JAVA_OPTS`）：`-XX:MaxDirectMemorySize=128m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:+UseG1GC`。
+> JVM 硬化（`JAVA_OPTS`，由 Dockerfile `sh -c exec java $JAVA_OPTS` 展开）：`-XX:MaxDirectMemorySize=128m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:+UseG1GC`。
 
 示例（覆盖默认值）：
 
@@ -174,8 +167,6 @@ docker compose up -d
 # .env
 DB_POOL_MAX_SIZE=20
 DB_POOL_MIN_IDLE=5
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-OTEL_TRACES_SAMPLER_PROBABILITY=0.1
 DEPLOYMENT_ENV=docker
 PROJECT_VERSION=1.2.0
 CORS_ORIGINS=https://vibe.cyk666.top
@@ -192,56 +183,47 @@ threadpool.searchKeepAlive=60
 # 或 env: THREADPOOL_SEARCHCORE=50
 ```
 
-### 启用 OpenTelemetry 链路追踪
+### OpenTelemetry 链路追踪（未接入，可选扩展）
+
+> 当前状态：主栈未部署 `otel-collector`、Dockerfile 未挂 `-javaagent`，因此**没有 traces 数据**；
+> `docker-data/otel-collector-config.yaml`、`docker-data/download-otel-javaagent.sh` 与 `.env.example`
+> 中的 `OTEL_*` 变量作为接入预留保留。以下步骤供需要时开启（不要在 README 假设已生效）：
 
 ```bash
-# 1. 下载 Java Agent（首次 / 升级版本）
-./docker-data/download-otel-javaagent.sh        # 默认 2.6.0，可传参 ./download-otel-javaagent.sh 2.8.0
-# 产物：docker-data/otel-javaagent/opentelemetry-javaagent.jar （软链）
+# 1. 下载 Java Agent（首次 / 升级版本；也可用本机留存的 docker-data/download-otel-javaagent.sh）
+mkdir -p docker-data/otel-javaagent && cd docker-data/otel-javaagent
+curl -fLO https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.6.0/opentelemetry-javaagent-2.6.0.jar
+ln -sf opentelemetry-javaagent-2.6.0.jar opentelemetry-javaagent.jar && cd ../..
+# 产物：docker-data/otel-javaagent/opentelemetry-javaagent.jar （已 gitignore）
 
-# 2. 启动采集器 + 后端
-docker compose up -d otel-collector backend
-# compose 已挂载 ./docker-data/otel-javaagent:/otel-javaagent:ro
-#        并注入 OTEL_* 环境变量，backend 依赖 otel-collector healthy
+# 2. 在 docker-compose.yml 增加 otel-collector 服务（配置样例见 docker-data/otel-collector-config.yaml），
+#    并给 backend 挂载 ./docker-data/otel-javaagent:/otel-javaagent:ro
+#    在 JAVA_OPTS 追加 -javaagent:/otel-javaagent/opentelemetry-javaagent.jar
+#    （Dockerfile 已改为 sh -c exec java $JAVA_OPTS，可直接生效）
 
 # 3. 验证
-curl -f http://localhost:8080/actuator/health
-curl http://localhost:13133   # otel-collector health
 docker compose logs otel-collector | tail -n 50
 ```
 
-Collector 配置：`docker-data/otel-collector-config.yaml`（`otlp:4317/4318` → `memory_limiter` → `batch` → `resource` → `tail_sampling` → `prometheus` + `logging`）。
+Collector 配置样例：`otlp:4317/4318` → `memory_limiter` → `batch` → `resource` → `tail_sampling` → `prometheus` + `logging`。
+CI 中的 infra-lint job 会对该 YAML 做语法与 `tail_sampling` 策略校验，保证样例不腐化。
 
-关键处理器：
-
-| Processor | 作用 |
-|-----------|------|
-| `memory_limiter` | `limit_mib=400 / spike_limit_mib=100 / check_interval=1s` 防 OOM |
-| `batch` | `timeout=10s / send_batch_size=512` 降导出开销 |
-| `resource` | 注入 `service.name/service.version/deployment.environment`（取 `DEPLOYMENT_ENV` / `PROJECT_VERSION`） |
-| `tail_sampling` | `decision_wait=30s / num_traces=50000` 保留 ERROR / 慢请求 (>2s) / 限流采样 |
-
-### 查看 Traces
-
-- **开箱即看**：`docker compose logs -f otel-collector` — `logging` exporter 以 `sampling_initial=5 / thereafter=100` 打印 traces/metrics。
-- **Prometheus 指标**：`http://localhost:8888/metrics`（Collector 自身 + OTLP 转 metrics），已纳入 `prometheus.yml` 抓取。
-- **Jaeger（可选）**：取消 `otel-collector-config.yaml` 中 `jaeger` exporter 注释，并添加 jaeger 服务到 compose，之后访问 `http://localhost:16686` 查看完整调用链。
-
-### 告警规则（7 组 20+ 条）
+### 告警规则（19 条，按实际抓取指标校准）
 
 > 源文件：`docker-data/prometheus/alert-rules.yml`（Prometheus `rule_files` 引用，经 `promtool check rules` 校验）
+> 说明：仅保留主栈实际抓取到的指标（backend/musicapi/prometheus/redis 四个 job）；
+> 依赖 node-exporter/cAdvisor 的磁盘与容器类规则已移除（未部署对应 exporter，保留会永不触发）。
 
 | 组 | 数量 | 告警 | 触发条件 |
 |----|------|------|----------|
-| `service-alerts` / **availability** | 3 | `BackendDown` / `MusicApiDown` / `PrometheusDown` | `up{job=...}==0` 超 1m |
-| `infrastructure-alerts` / **infra** | 4 | `DiskSpaceCritical` / `HighFdUsage` / `ContainerMemoryHigh` / `ContainerCpuThrottling` | 磁盘 <15% / fd >80% / 内存 >85% / throttling >25% (5m) |
-| `jvm-alerts` / **jvm** | 5 | `HighJvmMemoryUsage` / `HighJvmNonHeapMemoryUsage` / `HighGcFrequency` / `LongOldGcDuration` / `HighThreadCount` | 堆/非堆 >85% / GC >10/s / OldGC P99 >1s / 线程 >500 |
-| `datasource-alerts` / **datasource** | 3 | `HikariPoolUsageHigh` / `HikariPoolAcquireSlow` / `HikariPoolLeakDetected` | 活跃 >85% / P95 获取 >1s / pending >0 |
-| `threadpool-alerts` / **threadpool** | 2 | `SearchThreadPoolQueueBacklog` / `SearchThreadPoolRejected` | 队列 >100 (2m) / `rate(rejected)>0` |
-| `cache-alerts` / **cache** | 2 | `LowCacheHitRate` / `RedisConnectionFailed` | 穿透 >70% (10m) / `redis_connection_failures>0` |
-| `business-sla-alerts` + `performance-alerts` / **business**+**performance** | 4 | `SearchSuccessRateLow` / `PlayFailureRateHigh` / `LoginFailureRateHigh` / `HighSearchLatency` | 搜索成功率 <99% / 播放 5xx >1% / 登录 4xx >5% / 搜索 P95 >1s |
+| `service-alerts` | 3 | `BackendDown` / `MusicApiDown` / `PrometheusDown` | `up{job=...}==0` 超 1m |
+| `infrastructure-alerts` | 1 | `HighFdUsage` | 文件描述符 >80% (5m) |
+| `jvm-alerts` | 5 | `HighJvmMemoryUsage` / `HighJvmNonHeapMemoryUsage` / `HighGcFrequency` / `LongOldGcDuration` / `HighThreadCount` | 堆 >85% / 非堆 >400MB / GC >10/s / OldGC 单次 >1s / 线程 >500 |
+| `datasource-alerts` | 3 | `HikariPoolUsageHigh` / `HikariPoolAcquireSlow` / `HikariPoolLeakDetected` | 活跃 >85% / 单次获取 >1s / pending >0 持续 3m |
+| `cache-alerts` | 2 | `LowCacheHitRate` / `RedisDown` | 穿透 >70% (10m) / `up{job="redis"}==0` |
+| `business-sla-alerts` + `performance-alerts` | 5 | `SearchSuccessRateLow` / `PlayFailureRateHigh` / `LoginFailureRateHigh` / `ApiAvgLatencyHigh` / `HighSearchLatency` | 搜索成功率 <99% / 播放 5xx >1% / 登录 4xx >5% / API 均值 >2s / 搜索 P95 >1s |
 
-通知链路：`Prometheus --rules--> Alertmanager (docker-data/alertmanager/alertmanager.yml)`，按 `severity=critical/warning` 分级。
+通知：Alertmanager 为空壳 receiver（从不投递）已移除；当前告警仅在 Prometheus/Grafana 界面可见，需要触达可复用 `scripts/ops/cookie-monitor.py` 的 Server酱通道或自建 webhook。
 
 ### 线程池调优指南
 
@@ -273,13 +255,13 @@ Collector 配置：`docker-data/otel-collector-config.yaml`（`otlp:4317/4318` �
 ## 🧪 测试
 
 ```text
-654 条自动化测试
-├── 后端 392 条 (JUnit 5 + Mockito + H2)
+703 条自动化测试
+├── 后端 415 条 (JUnit 5 + Mockito + H2)
 │   └── Service · Controller · JWT · 幂等守卫 · 限流
-├── 网关 105 条 (musicapi Express BFF)
+├── 网关 121 条 (musicapi Express BFF)
 │   └── 聚合搜索 · Cookie · 降级链路
-├── 前端 157 条 (Vitest + jsdom)
-│   └── PlayerStore · AuthStore · FavoriteStore
+├── 前端 167 条 (Vitest + jsdom)
+│   └── PlayerStore · AuthStore · FavoriteStore · 视图交互
 └── CI/CD (GitHub Actions)
     └── push / PR → 全量测试 → JaCoCo 60% 覆盖率门禁
 ```

@@ -219,6 +219,11 @@ services:
     restart: unless-stopped
     logging: *default-logging
     <<: *resources-small
+    # worker_connections 2048 需要更高的 nofile 上限，否则高并发下 nginx 会告警并受限
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     ports:
       - "80:80"
       - "443:443"

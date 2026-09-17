@@ -12,21 +12,36 @@ const activeSlide = ref(0)
 const bannerHover = ref(false)
 let bannerTimer = null
 
-// 首图 LCP：改为 <img> 预加载更可靠，CSS background 的 preload 关联弱，易报 invalid href / not used
-// 保留空实现以兼容旧调用，实际预加载由 <img> 的 fetchpriority 高优先级完成
+// 首图 LCP：用 <img> 高优先级预取。URL 构造与 CSS background 共用 coverWithParam，
+// 保证「预取的 URL == 实际展示的 URL」，避免预取无效（二次拉原图）。
+const COVER_PARAM = 'param=1600y900'
+
+function coverWithParam(url) {
+  if (!url) return ''
+  try {
+    const u = new URL(url, window.location.origin)
+    if (!u.hostname) return url
+    return u.href + (u.search ? '&' : '?') + COVER_PARAM
+  } catch {
+    return url
+  }
+}
+
 function preloadFirstBanner(url) {
   if (!url || typeof document === 'undefined') return
-  // 校验 URL 合法性，仅用于打点，不再注入 <link rel=preload>（避免 invalid href / not used 告警）
+  // 无法解析/无 host 的 URL 直接跳过（避免发出无效预取请求）
+  let src
   try {
     const u = new URL(url, window.location.origin)
     if (!u.hostname) return
-    // 可选：用 Image 预取代替 link preload，更贴合 CSS background 的实际加载
-    const img = new Image()
-    img.decoding = 'async'
-    img.src = u.href + (u.search ? '&' : '?') + 'param=1600y900'
+    src = u.href + (u.search ? '&' : '?') + COVER_PARAM
   } catch {
     return
   }
+  const img = new Image()
+  img.decoding = 'async'
+  img.fetchPriority = 'high'
+  img.src = src
 }
 
 function loadBanners() {
@@ -61,7 +76,7 @@ onUnmounted(() => stopBanner())
   <div class="banner" @mouseenter="onEnter" @mouseleave="onLeave">
     <div v-if="bannerLoading" class="banner-skel skeleton"></div>
     <div v-for="(slide, idx) in slides" :key="idx" class="banner-slide" :class="{ active: idx === activeSlide }"
-      :style="idx === activeSlide && slide.coverUrl ? { backgroundImage: 'url(' + slide.coverUrl + '?param=1600y900)' } : {}">
+      :style="idx === activeSlide && slide.coverUrl ? { backgroundImage: 'url(&quot;' + coverWithParam(slide.coverUrl) + '&quot;)' } : {}">
       <div class="slide-text"><h2>{{ slide.name }}</h2><p>{{ slide.desc }}</p></div>
     </div>
     <button class="banner-arrow left" @click.stop="prevBanner" aria-label="上一张"><SvgIcon name="chevron-left" /></button>

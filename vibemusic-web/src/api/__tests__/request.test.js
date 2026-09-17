@@ -239,17 +239,23 @@ describe('响应拦截器', () => {
     expect(authMocks.logout).not.toHaveBeenCalled()
   })
 
-  it('迟到 401 但请求已重试过则直接拒绝（防循环）', async () => {
+  it('迟到 401 重发后仍 401：直接拒绝，不再重发、不触发续签（防循环）', async () => {
+    let refreshCalls = 0
     request.defaults.adapter = async (config) => {
       captured.push(config)
-      setToken('new-token')
+      if (config.url && config.url.includes('/auth/refresh')) {
+        refreshCalls++
+        return { data: { code: 401, message: 'refresh 失效' }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      setToken('new-token') // 模拟 token 已在别处刷新，旧请求的 401 是"迟到 401"
       return { data: { code: 401, message: '登录过期' }, status: 200, statusText: 'OK', headers: {}, config }
     }
     authMocks.logout.mockClear()
     setToken('old-token')
-    // 手动标记已重试：模拟重发后再次 401
-    await expect(request.get('/favorites/list', {})).rejects.toThrow()
-    await new Promise((r) => setTimeout(r, 20))
+    await expect(request.get('/favorites/list', {})).rejects.toThrow('登录过期')
+    // 防循环核心断言：业务请求最多重发一次（原始 + 重发 = 2），且不走续签分支
+    expect(captured.filter(c => c.url && c.url.includes('/favorites/list')).length).toBe(2)
+    expect(refreshCalls).toBe(0)
   })
 
   it('续签请求网络失败（超时）时不断开登录态', async () => {

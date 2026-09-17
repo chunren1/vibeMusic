@@ -73,7 +73,12 @@ function downloadViaBackend(song) {
 }
 
 // ===== 用户信息 =====
-const username = computed(() => authStore.user?.nickname || authStore.user?.username || `用户${authStore.user?.userId || ''}` || '音乐爱好者')
+// 末级兜底必须可达（此前 `用户${...}` 模板串恒真，'音乐爱好者' 永远不会显示）
+const username = computed(() => {
+  const u = authStore.user
+  if (!u) return '音乐爱好者'
+  return u.nickname || u.username || (u.userId ? `用户${u.userId}` : '音乐爱好者')
+})
 
 onMounted(() => { favStore.fetchFavIds() })
 onUnmounted(() => { if (suggestTimer) clearTimeout(suggestTimer) })

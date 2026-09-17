@@ -7,12 +7,13 @@ global:
 rule_files:
   - "alert-rules.yml"
 
-# Alertmanager 配置
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-            - alertmanager:9093
+# Alertmanager 已移除（空 receiver 从不投递，告警规则仅在界面可见）。
+# 如需恢复通知链路：新增 alertmanager 服务与 receiver 配置后，取消下面注释。
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#             - alertmanager:9093
 
 # 抓取目标
 scrape_configs:

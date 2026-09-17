@@ -112,6 +112,21 @@ f4-orchestrator-home.png
 # 代码图谱索引（本地生成，不公开）
 .codegraph/
 
+# 本地审查报告与专项文档（本地留存，不入库）
+docs/*-report-*.md
+docs/code-review-round*.md
+docs/architecture-review-*.md
+docs/secret-scan-*.md
+docs/OPTIMIZATION-PLAN.md
+docs/app-alignment-addendum-*.md
+docs/frontend-walkthrough.html
+
+# 本地观测栈（第二套 Prometheus/Grafana/blackbox）与压测脚本
+monitoring/
+scripts/adversarial-load.js
+scripts/k6-threadpool-cache-test.js
+docker-data/download-otel-javaagent.sh
+
 # 本地开发杂散产物
 vite-dev.log
 nginx/Dockerfile.txt
