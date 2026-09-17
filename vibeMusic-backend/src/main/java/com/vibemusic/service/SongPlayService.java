@@ -141,7 +141,10 @@ public class SongPlayService {
      */
     private <T> T callWithDeadline(Supplier<T> s, long deadline) {
         long left = deadline - System.currentTimeMillis();
-        if (left <= 0) return null;
+        if (left <= 0) {
+            log.warn("限时调用跳过: 预算已耗尽");
+            return null;
+        }
         final CompletableFuture<T> cf;
         try {
             cf = CompletableFuture.supplyAsync(s, getUrlExecutor);
@@ -151,8 +154,17 @@ public class SongPlayService {
         }
         try {
             return cf.get(left, TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
+        } catch (TimeoutException e) {
             cf.cancel(true);
+            log.warn("限时调用超时: {}ms 预算内未返回，已取消", left);
+            return null;
+        } catch (InterruptedException e) {
+            cf.cancel(true);
+            Thread.currentThread().interrupt();
+            log.warn("限时调用被中断，已取消");
+            return null;
+        } catch (ExecutionException e) {
+            log.warn("限时调用上游异常: {}", e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
             return null;
         }
     }
@@ -338,12 +350,8 @@ public class SongPlayService {
                     if (remaining <= 0) {
                         log.warn("试听兜底跳过: {} 预算已耗尽，不再补发 standard 请求", sourceId);
                     } else {
-                        try {
-                            f = callWithDeadline(() -> fetchNeteaseUrl(sourceId, "standard", userCookie, callerUserId), DEADLINE);
-                        } catch (Exception e) {
-                            log.warn("试听兜底 standard 请求失败: {} - {}", sourceId, e.getMessage());
-                            f = null;
-                        }
+                        // callWithDeadline 自身不抛（超时/异常均返回 null），失败原因已在其内部打日志
+                        f = callWithDeadline(() -> fetchNeteaseUrl(sourceId, "standard", userCookie, callerUserId), DEADLINE);
                     }
                 }
                 if (f != null) {

@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const LOG_DIR = path.join(__dirname, '..', 'logs');
+const LOG_DIR = process.env.MUSICAPI_LOG_DIR || path.join(__dirname, '..', 'logs');
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
 
 class LogManager {
@@ -34,7 +34,12 @@ class LogManager {
     // 打开新流（带日期后缀）
     for (const name of ['api-errors', 'cookie-monitor', 'degradation', 'access']) {
       const filePath = path.join(LOG_DIR, `${name}.${date}.log`);
-      this.streams[name] = fs.createWriteStream(filePath, { flags: 'a' });
+      const stream = fs.createWriteStream(filePath, { flags: 'a' });
+      // 日志文件不可写（权限/只读卷）不应拖垮进程：吞掉 stream error 并降级为 console 告警
+      stream.on('error', (e) => {
+        console.error(`[LogManager] 日志文件不可写 ${filePath}: ${e.message}`);
+      });
+      this.streams[name] = stream;
     }
 
     this._cleanupOldLogs();
@@ -84,8 +89,18 @@ class LogManager {
 
 const logManager = new LogManager(30);
 
+// 写日志类别 → 落盘文件流的映射。
+// 调用方写作 'api' / 'cookie'，而流键是 'api-errors' / 'cookie-monitor'；
+// 此前未做映射，导致这两类日志只进 console、从不落盘（文件长期 0 字节）。
+const STREAM_BY_CATEGORY = {
+  api: 'api-errors',
+  cookie: 'cookie-monitor',
+  degradation: 'degradation',
+  access: 'access',
+};
+
 function writeLog(category, level, message) {
-  logManager.write(category, level, message);
+  logManager.write(STREAM_BY_CATEGORY[category] || category, level, message);
   if (category === 'api' || category === 'cookie') console.log(`[${new Date().toISOString()}] [${level}] ${message}`);
 }
 

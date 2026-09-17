@@ -11,9 +11,25 @@ const { test, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+// 日志目录隔离：必须在 require 任何 src 模块（logger 在加载时确定 LOG_DIR）之前设置，
+// 否则本地跑测试会写进生产 logs/，且与 root 身份运行的服务产生 EACCES 冲突。
+process.env.MUSICAPI_LOG_DIR = path.join(os.tmpdir(), 'vibemusic-musicapi-test-logs');
+const LOG_DIR = process.env.MUSICAPI_LOG_DIR;
 
 const cookie = require('../src/cookie');
-const { scrubCookieValues } = require('../src/routes');
+
+// routes.js 在 require 时解构 child_process.spawn，测试需先包装再加载 routes，
+// 以便 E2E 用例注入假子进程验证"失败路径日志脱敏"（不依赖 Playwright/真实浏览器）。
+const cp = require('child_process');
+const realSpawn = cp.spawn;
+let spawnImpl = null;
+cp.spawn = function patchedSpawn(...args) {
+  return spawnImpl ? spawnImpl(...args) : realSpawn.apply(cp, args);
+};
+
+const { scrubCookieValues, SENSITIVE_COOKIE_KEYS } = require('../src/routes');
 
 const restores = [];
 function stub(obj, key, impl) {
@@ -69,37 +85,89 @@ test('G3 /cookie-status 带令牌 200：原形状 {code,data,timestamp} 不变',
 });
 
 // ---- G3：canRefreshCookie 语义保持（无令牌时本机仍可调） ----
-test('G3 无令牌本机语义不变：localhost 仍可调 reload/status', async () => {
+// 注：/cookie/reload 端点已随死代码清理删除（1332182），此处只验证存活的 /cookie-status。
+test('G3 无令牌本机语义不变：localhost 仍可调 cookie-status', async () => {
   delete process.env.MUSICAPI_ADMIN_TOKEN;
-  stub(cookie, 'reloadQQCookie', () => true);
-  const r1 = await postReload();
-  assert.equal(r1.status, 200);
-  const r2 = await getStatus();
-  assert.equal(r2.status, 200);
+  const r = await getStatus();
+  assert.equal(r.status, 200);
+  assert.equal(r.body.code, 200);
 });
 
-// ---- G4：脱敏函数 ----
+// ---- G4：脱敏函数（键清单硬编码 + 与生产导出一致性；形态含 k=v 与 JSON） ----
+const KNOWN_SENSITIVE_KEYS = [
+  'uin', 'qqmusic_key', 'MUSIC_U', 'qm_keyst',
+  'psrf_qqunionid', 'psrf_qqrefresh_token', 'psrf_qqaccess_token', 'psrf_qqopenid',
+];
+
+test('G4 生产键清单覆盖全部已知敏感键（防漏字段回归）', () => {
+  for (const k of KNOWN_SENSITIVE_KEYS) {
+    assert.ok(SENSITIVE_COOKIE_KEYS.has(k), `SENSITIVE_COOKIE_KEYS 缺少 ${k}`);
+  }
+});
+
 test('G4 scrubCookieValues：掩码全部敏感键值，保留键名与结构', () => {
-  const raw = 'uin=123456; qqmusic_key=SECRETVALUE; MUSIC_U=abcdef; qm_keyst=kk; psrf_qqunionid=uu; psrf_qqrefresh_token=rr; ptcz=plain';
+  const raw = 'uin=123456; qqmusic_key=SECRETVALUE; MUSIC_U=abcdef; qm_keyst=kk; psrf_qqunionid=uu; psrf_qqrefresh_token=rr; psrf_qqaccess_token=aa; psrf_qqopenid=oo; ptcz=plain';
   const out = scrubCookieValues(raw);
-  assert.equal(out.includes('SECRETVALUE'), false);
-  assert.equal(out.includes('abcdef'), false);
-  assert.equal(out.includes('123456'), false);
-  for (const k of ['uin', 'qqmusic_key', 'MUSIC_U', 'qm_keyst', 'psrf_qqunionid', 'psrf_qqrefresh_token']) {
+  for (const secret of ['SECRETVALUE', 'abcdef', '123456']) {
+    assert.equal(out.includes(secret), false, `原文 ${secret} 不应出现`);
+  }
+  for (const k of KNOWN_SENSITIVE_KEYS) {
     assert.match(out, new RegExp(`${k}=\\*\\*\\*`));
   }
   assert.match(out, /ptcz=plain/); // 非敏感键原样保留
   assert.equal(scrubCookieValues('everything ok, no secrets').includes('***'), false);
 });
 
-// ---- G4：源码断言（日志不再含原文输出） ----
-test('G4 routes.js：无 (stdout+stderr).slice(0,500) 原文落盘，改记 outLen/errLen + scrubbed 尾部', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes.js'), 'utf8');
-  assert.equal(src.includes('(stdout + stderr).slice(0, 500)'), false);
-  assert.match(src, /outLen=\$\{stdout\.length\}, errLen=\$\{stderr\.length\}/);
-  assert.match(src, /scrubCookieValues\(stderr\)\.slice\(-200\)/);
+test('G4 scrubCookieValues：JSON 形态（MUSIC_QQ_COOKIE= 后接 JSON）同样脱敏', () => {
+  const raw = 'MUSIC_QQ_COOKIE={"uin":"123456","qqmusic_key":"SECRETVALUE","ptcz":"plain"}';
+  const out = scrubCookieValues(raw);
+  assert.equal(out.includes('123456'), false);
+  assert.equal(out.includes('SECRETVALUE'), false);
+  assert.match(out, /"uin":"\*\*\*"/);
+  assert.match(out, /"qqmusic_key":"\*\*\*"/);
+  assert.match(out, /"ptcz":"plain"/);
 });
 
+test('G4 scrubCookieValues：带 = 填充的 Cookie 值不残留尾部', () => {
+  const out = scrubCookieValues('MUSIC_U=abc==def;');
+  assert.equal(out.includes('abc'), false);
+  assert.match(out, /MUSIC_U=\*\*\*/);
+});
+
+// ---- G4：行为断言（真实请求 + 假子进程 + 读日志文件，替代源码文本断言） ----
+test('G4 行为：/refresh-qq-cookie 失败时日志已脱敏（无 Cookie 原文）', async () => {
+  const { EventEmitter } = require('node:events');
+  const { PassThrough } = require('node:stream');
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  spawnImpl = () => child;
+
+  try {
+    const p = fetch(`${base}/refresh-qq-cookie?token=t-secret`);
+    await new Promise((r) => setTimeout(r, 30)); // 等路由注册 stderr 监听
+    child.stderr.write('MUSIC_U=SUPERSECRETVALUE; qqmusic_key=ANOTHERSECRET');
+    child.emit('close', 1);
+    const r = await p;
+    assert.equal(r.status, 500);
+
+    const logFile = path.join(LOG_DIR, `cookie-monitor.${new Date().toISOString().slice(0, 10)}.log`);
+    let content = '';
+    for (let i = 0; i < 20; i++) { // 日志为异步 appendFile，轮询至多 ~1s
+      content = fs.existsSync(logFile) ? fs.readFileSync(logFile, 'utf8') : '';
+      if (content.includes('refresh-qq-cookie')) break;
+      await new Promise((r2) => setTimeout(r2, 50));
+    }
+    assert.ok(content.includes('refresh-qq-cookie'), '日志应包含本次刷新记录');
+    assert.equal(content.includes('SUPERSECRETVALUE'), false);
+    assert.equal(content.includes('ANOTHERSECRET'), false);
+    assert.match(content, /MUSIC_U=\*\*\*/);
+  } finally {
+    spawnImpl = null;
+  }
+});
+
+// ---- G4：源码断言保留（提取脚本依赖 Playwright，无法行为化，仅作静态护栏） ----
 test('G4 提取脚本：不再打印 Cookie 明文前缀，只记长度', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'get_qq_cookie.mjs'), 'utf8');
   assert.equal(src.includes('v.substring(0, 30)'), false);

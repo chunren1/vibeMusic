@@ -91,9 +91,26 @@ function scrubSecrets(value, depth = 0) {
 
 // /refresh-qq-cookie 日志脱敏：只记长度 + 失败时 scrubbed stderr 尾部（≤200 字符）。
 // 遵循 cookie.js「日志只打长度、绝不打值」规范；凭证原文绝不进日志文件。
+// 敏感键清单与 scripts/get_qq_cookie.mjs 的 NEEDED 保持一致（psrf_qqaccess_token/psrf_qqopenid
+// 此前漏网）；另按字段名形态兜底（psrf_ 前缀、token/key/secret/passwd/password），
+// 同时覆盖 `k=v` 与 JSON `"k":"v"` 两种形态。
+const SENSITIVE_COOKIE_KEYS = new Set([
+  'MUSIC_U', 'qqmusic_key', 'qm_keyst', 'uin',
+  'psrf_qqunionid', 'psrf_qqrefresh_token', 'psrf_qqaccess_token', 'psrf_qqopenid',
+]);
+
+function isSensitiveKey(k) {
+  return SENSITIVE_COOKIE_KEYS.has(k) || /^psrf_|token|key|secret|passwd|password/i.test(k);
+}
+
 function scrubCookieValues(s) {
-  return String(s).replace(
-    /\b(MUSIC_U|qqmusic_key|qm_keyst|uin|psrf_qqunionid|psrf_qqrefresh_token)=[^;\s]+/gi, '$1=***');
+  return String(s)
+    // JSON 形态："k":"v" 或 "k": v
+    .replace(/"([A-Za-z_][A-Za-z0-9_]*)"\s*:\s*("[^"]*"|[^,}\s]+)/g,
+      (m, k) => (isSensitiveKey(k) ? `"${k}":"***"` : m))
+    // Cookie 头形态：k=v（值可含 = 填充，读到 ; 或空白为止）
+    .replace(/\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;\s]+)/g,
+      (m, k) => (isSensitiveKey(k) ? `${k}=***` : m));
 }
 
 // /search 内部字段：绝不进缓存、不出响应。higherQuality 曾存对象引用，
@@ -124,7 +141,9 @@ function stripSearchInternals(value, seen = new Set()) {
 
 // G1：/search 缓存键的 Cookie 派生维度。userCk 经 resolveNeteaseCookie 归一
 // （per-request 用户 Cookie > 共享 NETEASE_COOKIE > ''）；ckDim 只存 sha256
-// 摘要前 16 字符，原文与完整摘要绝不进日志/指标；无 Cookie 落 'anon' 共享桶。
+// 摘要前 16 字符，原文与完整摘要绝不进日志/指标。
+// 三态语义：per-request 指纹桶 / 共享 Cookie 桶（未带 per-request 时统一落此，
+// 与共享 Cookie 摘要相同）/ 'anon' 桶（仅当共享 Cookie 也为空时出现）。
 function searchCookieDim(req) {
   const userCk = cookie.resolveNeteaseCookie(req);
   if (!userCk) return 'anon';
@@ -754,6 +773,7 @@ module.exports = registerRoutes;
 module.exports.sanitizeNeteaseParams = sanitizeNeteaseParams;
 module.exports.scrubSecrets = scrubSecrets;
 module.exports.scrubCookieValues = scrubCookieValues;
+module.exports.SENSITIVE_COOKIE_KEYS = SENSITIVE_COOKIE_KEYS;
 module.exports.buildSearchCacheKey = buildSearchCacheKey;
 module.exports.searchCookieDim = searchCookieDim;
 module.exports.qqRequestHeaders = qqRequestHeaders;
