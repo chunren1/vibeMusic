@@ -60,12 +60,6 @@ public class UserService implements UserDetailsService {
         return user;
     }
 
-    public User findByUsername(String username) {
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getUsername, username));
-        if (user == null) throw new BusinessException(404, "用户不存在");
-        return user;
-    }
-
     public User findById(Long id) {
         User user = userMapper.selectById(id);
         if (user == null) throw new BusinessException(404, "用户不存在");

@@ -101,30 +101,17 @@ class ChatMemoryServiceTest {
     }
 
     @Test
-    @DisplayName("一参重载走默认匿名链路：getHistory/appendMessage/clearHistory")
-    void shouldSupportSingleArgOverloads() {
-        when(valueOps.get("chat:session:anon:anon")).thenReturn(null);
-        assertTrue(chatMemoryService.getHistory(null).isEmpty());
-
-        chatMemoryService.appendMessage(7L, "user", "hello");
-        verify(valueOps).set(eq("chat:session:7"), anyString(), any());
-
-        chatMemoryService.clearHistory(7L);
-        verify(stringRedisTemplate).delete("chat:session:7");
-    }
-
-    @Test
     @DisplayName("Redis 异常时读写清一律降级为空，不抛错")
     void shouldDegradeOnRedisFailure() {
         when(valueOps.get(anyString())).thenThrow(new RuntimeException("redis down"));
-        assertTrue(chatMemoryService.getHistory(1L).isEmpty());
+        assertTrue(chatMemoryService.getHistory(1L, null).isEmpty());
         assertTrue(chatMemoryService.getHistory(null, "device-X").isEmpty());
 
         doThrow(new RuntimeException("redis down")).when(valueOps)
                 .set(anyString(), anyString(), any());
-        assertDoesNotThrow(() -> chatMemoryService.appendMessage(1L, "user", "hi"));
+        assertDoesNotThrow(() -> chatMemoryService.appendMessage(1L, "user", "hi", null));
         doThrow(new RuntimeException("redis down")).when(stringRedisTemplate).delete(anyString());
-        assertDoesNotThrow(() -> chatMemoryService.clearHistory(1L));
+        assertDoesNotThrow(() -> chatMemoryService.clearHistory(1L, null));
     }
 
     @Test
@@ -138,7 +125,7 @@ class ChatMemoryServiceTest {
         sb.append(']');
         when(valueOps.get("chat:session:9")).thenReturn(sb.toString());
 
-        chatMemoryService.appendMessage(9L, "assistant", "new");
+        chatMemoryService.appendMessage(9L, "assistant", "new", null);
 
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
         verify(valueOps).set(eq("chat:session:9"), jsonCaptor.capture(), any());

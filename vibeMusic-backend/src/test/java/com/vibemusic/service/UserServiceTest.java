@@ -79,26 +79,6 @@ class UserServiceTest extends TransactionalServiceTest {
     }
 
     @Nested
-    @DisplayName("findByUsername")
-    class FindByUsername {
-        @Test
-        @DisplayName("查找存在的用户")
-        void shouldFindExistingUser() {
-            User user = userService.findByUsername("testuser");
-            assertThat(user).isNotNull();
-            assertThat(user.getUsername()).isEqualTo("testuser");
-        }
-
-        @Test
-        @DisplayName("查找不存在的用户 → 抛出异常")
-        void shouldThrowWhenNotFound() {
-            assertThatThrownBy(() -> userService.findByUsername("ghost"))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("用户不存在");
-        }
-    }
-
-    @Nested
     @DisplayName("changePassword")
     class ChangePassword {
         @Test

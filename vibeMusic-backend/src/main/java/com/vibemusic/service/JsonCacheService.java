@@ -27,7 +27,10 @@ public class JsonCacheService {
     /** 负缓存哨兵：null=未命中（继续穿透）；哨兵=明确空结果（直接返回空，不再穿透）。 */
     public static final String EMPTY_SENTINEL_JSON = "\"__EMPTY__\"";
 
-    /** 读取缓存并反序列化 */
+    /**
+     * 读取缓存并按 TypeReference 反序列化（泛型通用口，单测覆盖哨兵/坏数据语义；
+     * 生产主链路走 getAsMap/getAsList 的快捷形式）。
+     */
     public <T> T get(String key, TypeReference<T> typeRef) {
         try {
             String json = stringRedisTemplate.opsForValue().get(key);

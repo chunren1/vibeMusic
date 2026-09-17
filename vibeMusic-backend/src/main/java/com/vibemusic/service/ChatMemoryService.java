@@ -46,15 +46,6 @@ public class ChatMemoryService {
     }
 
     /**
-     * 获取用户的对话历史
-     * @param userId 用户 ID，null 表示匿名（使用缺省匿名标识）
-     * @return 消息列表（role + content），可能为空
-     */
-    public List<Map<String, String>> getHistory(Long userId) {
-        return getHistory(userId, null);
-    }
-
-    /**
      * 获取对话历史（匿名用户按设备标识隔离）
      * @param userId 用户 ID，null 表示匿名
      * @param anonymousId 匿名设备标识（已登录时忽略）
@@ -70,13 +61,6 @@ public class ChatMemoryService {
             log.warn("读取对话历史失败: {}", e.getMessage());
             return new ArrayList<>();
         }
-    }
-
-    /**
-     * 追加一条消息到会话历史，并自动裁剪超长部分
-     */
-    public void appendMessage(Long userId, String role, String content) {
-        appendMessage(userId, role, content, null);
     }
 
     /**
@@ -97,13 +81,6 @@ public class ChatMemoryService {
         } catch (Exception e) {
             log.warn("保存对话历史失败: {}", e.getMessage());
         }
-    }
-
-    /**
-     * 清除用户会话历史
-     */
-    public void clearHistory(Long userId) {
-        clearHistory(userId, null);
     }
 
     /**

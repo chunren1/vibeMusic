@@ -43,7 +43,4 @@ public class User {
 
     /** 网易云 Cookie 有效性：NULL=未知，true=有效，false=失效 */
     private Boolean neteaseCookieValid;
-
-    /** B 站 SESSDATA 密文槽位（预留，Phase 1 无任何读写） */
-    private String biliSessdataEnc;
 }

@@ -53,12 +53,4 @@ class SongServiceTest extends TransactionalServiceTest {
         Song song = songService.getBySourceId("nonexistent");
         assertThat(song).isNull();
     }
-
-    @Test
-    @DisplayName("getById → 正常查询")
-    void shouldFindById() {
-        Song song = songService.getById(1L);
-        assertThat(song).isNotNull();
-        assertThat(song.getSourceId()).isEqualTo("000rh0dE2TyUic");
-    }
 }

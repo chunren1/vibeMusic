@@ -31,8 +31,6 @@ public class SongService {
         return song;
     }
 
-    public Song getById(Long id) { return songMapper.selectById(id); }
-
     public Song getBySourceId(String sourceId) {
         return songMapper.selectOne(new LambdaQueryWrapper<Song>().eq(Song::getSourceId, sourceId));
     }
