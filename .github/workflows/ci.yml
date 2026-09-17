@@ -177,6 +177,11 @@ jobs:
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.full.yml config -q
           docker compose -f docker-compose.demo.yml config -q
+        env:
+          # demo/full 变体对少数变量用 ${VAR:?} 强制必填（防止误用默认口令上线），
+          # CI 无 .env，这里给占位值让语法校验可通过
+          JWT_SECRET: ci-lint-placeholder
+          GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
 
       - name: Validate otel-collector config YAML syntax
         run: |
