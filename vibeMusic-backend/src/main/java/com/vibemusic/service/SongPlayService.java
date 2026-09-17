@@ -2,6 +2,7 @@ package com.vibemusic.service;
 
 import com.vibemusic.config.AudioQualityTier;
 import com.vibemusic.config.ThreadPoolConfig;
+import com.vibemusic.common.utils.SongIdUtils;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -111,7 +112,7 @@ public class SongPlayService {
 
     /** 酷狗 hash 判定：32 位十六进制（全数字 32 位亦命中，优先于网易云纯数字分支）。 */
     static boolean isKugouHash(String sourceId) {
-        return sourceId != null && sourceId.matches("(?i)[a-f0-9]{32}");
+        return SongIdUtils.isKugouHash(sourceId);
     }
 
     /**
@@ -120,9 +121,7 @@ public class SongPlayService {
      * ID 猜测仅在无显式平台时生效；裸数字 aid 一律不视为 B 站(归网易云)。
      */
     static boolean isBiliId(String sourceId) {
-        if (sourceId == null) return false;
-        String first = sourceId.split("\\|", -1)[0];
-        return first.matches("BV[a-zA-Z0-9]+");
+        return SongIdUtils.isBiliId(sourceId);
     }
 
     // ==================== getPlayInfo ====================
@@ -198,7 +197,7 @@ public class SongPlayService {
         // SecurityContext 不跨线程，异步内重读恒为 null。
         final Long callerUserId = UserService.getCurrentUserId();
         info.put("isTrial", false);
-        info.put("platform", isBiliId(sourceId) ? "bilibili" : (isKugouHash(sourceId) ? "kugou" : (sourceId.matches("\\d+") ? "netease" : "qq")));
+        info.put("platform", SongIdUtils.guessPlatform(sourceId));
 
         // 1. 优先 MinIO 本地缓存（Redis 缓存 exists 结果，TTL 10min，减少 MinIO statObject 调用）
         // per-user 请求绕过共享 Redis exists 缓存（防 VIP 结果交叉），直探 MinIO 且不回写

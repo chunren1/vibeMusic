@@ -2,6 +2,7 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.CoverUrlUtils;
+import com.vibemusic.common.utils.SongIdUtils;
 import com.vibemusic.dto.SearchResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.service.*;
@@ -92,39 +93,48 @@ public class SongController {
     private static final java.time.Duration LYRIC_TTL = java.time.Duration.ofDays(365);
 
     @GetMapping("/lyric")
-    @Operation(summary = "获取歌曲歌词（自动识别网易云/QQ平台）")
-    @SuppressWarnings("unchecked")
+    @Operation(summary = "获取歌曲歌词（按 ID 形态识别平台：酷狗/网易云/QQ；B站无歌词源）")
     public Result<List<Map<String, Object>>> lyric(@RequestParam String sourceId) {
         String cacheKey = LYRIC_CACHE_PREFIX + sourceId;
         List<Map<String, Object>> cached = cache.getAsList(cacheKey);
         if (cached != null) return Result.ok(cached);
 
+        // 平台判定统一走 SongIdUtils（此前用「含字母即 QQ」，32 位酷狗 hex 会被误判成 QQ）
+        String platform = SongIdUtils.guessPlatform(sourceId);
         try {
-            boolean isQQ = sourceId.matches(".*[a-zA-Z]+.*");
-            Map<String, Object> result;
-            String lyricStr;
-            if (isQQ) {
-                result = neteaseApiService.getQQLyric(sourceId);
-                if (result == null) { cache.setEmpty(cacheKey, java.time.Duration.ofHours(1)); return Result.ok(List.of()); }
-                Map<String, Object> data = (Map<String, Object>) result.get("data");
-                if (data == null) { cache.setEmpty(cacheKey, java.time.Duration.ofHours(1)); return Result.ok(List.of()); }
-                lyricStr = (String) data.get("lyric");
-            } else {
-                result = neteaseApiService.getLyric(sourceId);
-                if (result == null) { cache.setEmpty(cacheKey, java.time.Duration.ofHours(1)); return Result.ok(List.of()); }
-                Map<String, Object> lrc = (Map<String, Object>) result.get("lrc");
-                if (lrc == null) { cache.setEmpty(cacheKey, java.time.Duration.ofHours(1)); return Result.ok(List.of()); }
-                lyricStr = (String) lrc.get("lyric");
+            if ("bilibili".equals(platform)) {
+                // B站：视频字幕需登录，无歌词源 → 直接空结果（不再徒劳请求 QQ 歌词）
+                cache.setEmpty(cacheKey, EMPTY_LYRIC_TTL);
+                return Result.ok(List.of());
             }
-            if (lyricStr == null || lyricStr.isEmpty()) { cache.setEmpty(cacheKey, java.time.Duration.ofHours(1)); return Result.ok(List.of()); }
+            String lyricStr = switch (platform) {
+                case "kugou" -> extractLyric(neteaseApiService.getKugouLyric(sourceId, null), "data");
+                case "netease" -> extractLyric(neteaseApiService.getLyric(sourceId), "lrc");
+                default -> extractLyric(neteaseApiService.getQQLyric(sourceId), "data");
+            };
+            if (lyricStr == null || lyricStr.isEmpty()) {
+                cache.setEmpty(cacheKey, EMPTY_LYRIC_TTL);
+                return Result.ok(List.of());
+            }
             List<Map<String, Object>> lines = parseLrc(lyricStr);
-            log.info("歌词解析: sourceId={} platform={} lines={}", sourceId, isQQ ? "QQ" : "Netease", lines.size());
+            log.info("歌词解析: sourceId={} platform={} lines={}", sourceId, platform, lines.size());
             cache.set(cacheKey, lines, LYRIC_TTL);
             return Result.ok(lines);
         } catch (Exception e) {
             log.error("获取歌词失败: {}", e.getMessage());
             return Result.ok(List.of());
         }
+    }
+
+    /** 空歌词哨兵 TTL（防穿透），与成功结果的长缓存 TTL 区分 */
+    private static final java.time.Duration EMPTY_LYRIC_TTL = java.time.Duration.ofHours(1);
+
+    /** 从各平台同形信封取歌词原文：网易云 {lrc:{lyric}}，QQ/酷狗 {data:{lyric}} */
+    @SuppressWarnings("unchecked")
+    private static String extractLyric(Map<String, Object> result, String wrapperKey) {
+        if (result == null) return null;
+        Map<String, Object> wrapper = (Map<String, Object>) result.get(wrapperKey);
+        return wrapper == null ? null : (String) wrapper.get("lyric");
     }
 
     private static final Pattern LRC_PATTERN =

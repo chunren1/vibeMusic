@@ -123,6 +123,36 @@ class SongControllerUnitTest {
     }
 
     @Test
+    @DisplayName("lyric 酷狗分支：32 位 hex 走 /kugou/lyric，不再被误判为 QQ")
+    void shouldResolveKugouLyric() {
+        String hash = "aabbccddeeff00112233445566778899";
+        when(cache.getAsList("lyric:v3:" + hash)).thenReturn(null);
+        when(neteaseApiService.getKugouLyric(hash, null))
+                .thenReturn(Map.of("data", Map.of("lyric", "[00:03.00]酷狗词")));
+
+        Result<List<Map<String, Object>>> result = controller.lyric(hash);
+
+        assertEquals(1, result.getData().size());
+        assertEquals("酷狗词", result.getData().get(0).get("text"));
+        verify(neteaseApiService, never()).getQQLyric(anyString());
+        verify(cache).set(eq("lyric:v3:" + hash), any(), eq(Duration.ofDays(365)));
+    }
+
+    @Test
+    @DisplayName("lyric B站分支：BV 形直接空结果并写哨兵，不请求 QQ/网易云")
+    void shouldReturnEmptyForBiliWithoutUpstreamCall() {
+        String bvid = "BV1xx411c7mD";
+        when(cache.getAsList("lyric:v3:" + bvid)).thenReturn(null);
+
+        Result<List<Map<String, Object>>> result = controller.lyric(bvid);
+
+        assertTrue(result.getData().isEmpty());
+        verify(neteaseApiService, never()).getQQLyric(anyString());
+        verify(neteaseApiService, never()).getLyric(anyString());
+        verify(cache).setEmpty(eq("lyric:v3:" + bvid), eq(Duration.ofHours(1)));
+    }
+
+    @Test
     @DisplayName("lyric 空结果写哨兵防穿透：null/data 缺失/空串")
     void shouldSetEmptySentinelOnMissingLyric() {
         when(cache.getAsList(anyString())).thenReturn(null);
