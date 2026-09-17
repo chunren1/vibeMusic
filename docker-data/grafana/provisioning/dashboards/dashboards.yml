@@ -8,6 +8,17 @@ providers:
     type: file
     disableDeletion: false
     editable: true
+    updateIntervalSeconds: 10
     options:
       path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: true
+  - name: 'VarLib Dashboards'
+    orgId: 1
+    folder: 'vibeMusic-varlib'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
       foldersFromFilesStructure: true

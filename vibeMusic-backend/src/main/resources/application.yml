@@ -13,8 +13,8 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: 5000
       max-lifetime: 600000
       idle-timeout: 300000
@@ -104,6 +104,9 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      # compose 健康检查用 /actuator/health/liveness（非 K8s 环境需显式开启探针组）
+      probes:
+        enabled: true
   metrics:
     tags:
       application: vibemusic-backend

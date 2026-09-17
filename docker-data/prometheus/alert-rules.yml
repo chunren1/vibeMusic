@@ -24,6 +24,227 @@ groups:
           summary: "musicapi 网关宕机"
           description: "musicapi Express 网关已离线超过 1 分钟"
 
+      # Prometheus 自身宕机
+      - alert: PrometheusDown
+        expr: up{job="prometheus"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus 监控宕机"
+          description: "Prometheus 自身已离线超过 1 分钟"
+
+  # ── 基础设施资源告警 ──
+  - name: infrastructure-alerts
+    rules:
+      # 磁盘空间不足（> 85%）
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "磁盘空间不足"
+          description: "根分区可用空间低于 15%，当前值: {{ $value | humanizePercentage }}"
+
+      # 文件描述符使用率过高（> 80%）
+      - alert: HighFdUsage
+        expr: (process_files_open_files / process_files_max_files) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "文件描述符使用率过高"
+          description: "进程文件描述符使用率超过 80%，当前值: {{ $value | humanizePercentage }}"
+
+      # 容器内存使用率（> 85%）
+      - alert: ContainerMemoryHigh
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "容器内存使用率过高"
+          description: "容器 {{ $labels.container }} 内存使用率超过 85%"
+
+      # 容器 CPU 限流（throttling > 25%）
+      - alert: ContainerCpuThrottling
+        expr: (rate(container_cpu_cfs_throttled_periods_total[5m]) / rate(container_cpu_cfs_periods_total[5m])) * 100 > 25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "容器 CPU 被限流"
+          description: "容器 {{ $labels.container }} CPU throttling 超过 25%"
+
+  # ── JVM 运行时告警 ──
+  - name: jvm-alerts
+    rules:
+      # JVM 堆内存使用率超过 85%
+      - alert: HighJvmMemoryUsage
+        expr: (jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 堆内存使用率过高"
+          description: "JVM 堆内存使用率超过 85%，持续 5 分钟"
+
+      # JVM 非堆内存使用率超过 85%（Metaspace/CodeCache/DirectMemory）
+      - alert: HighJvmNonHeapMemoryUsage
+        expr: (jvm_memory_used_bytes{area="nonheap"} / jvm_memory_max_bytes{area="nonheap"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 非堆内存使用率过高"
+          description: "JVM 非堆内存使用率超过 85%（Metaspace/CodeCache/DirectMemory），可能导致 OOM"
+
+      # GC 频繁（Young GC > 10次/秒 或 Old GC > 1次/秒）
+      - alert: HighGcFrequency
+        expr: rate(jvm_gc_pause_seconds_count{area="heap"}[1m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM GC 频繁"
+          description: "Young GC 频率超过 10次/秒，可能存在内存压力或对象分配过快"
+
+      # Old GC 耗时过长（> 1秒）
+      - alert: LongOldGcDuration
+        expr: histogram_quantile(0.99, rate(jvm_gc_pause_seconds_sum{area="heap"}[5m]) / rate(jvm_gc_pause_seconds_count{area="heap"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM Old GC 耗时过长"
+          description: "Old GC P99 耗时超过 1 秒，可能导致停顿"
+
+      # 线程数过多（> 500）
+      - alert: HighThreadCount
+        expr: jvm_threads_live_threads > 500
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 线程数过多"
+          description: "JVM 存活线程数超过 500，可能存在线程泄漏"
+
+  # ── 数据库连接池告警 ──
+  - name: datasource-alerts
+    rules:
+      # HikariCP 连接池使用率超过 85%
+      - alert: HikariPoolUsageHigh
+        expr: (hikaricp_connections_active / hikaricp_connections_max) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "数据库连接池使用率过高"
+          description: "HikariCP 活跃连接数占比超过 85%，当前活跃: {{ $value | humanizePercentage }}"
+
+      # HikariCP 连接获取等待时间过长（> 1秒）
+      - alert: HikariPoolAcquireSlow
+        expr: histogram_quantile(0.95, rate(hikaricp_connections_acquire_seconds_bucket[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "数据库连接获取耗时过长"
+          description: "HikariCP 连接获取 P95 耗时超过 1 秒，连接池可能不足"
+
+      # 连接泄漏检测
+      - alert: HikariPoolLeakDetected
+        expr: hikaricp_connections_pending > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "数据库连接池疑似泄漏"
+          description: "有连接等待获取超过 leakDetectionThreshold，疑似连接泄漏"
+
+  # ── 线程池告警 ──
+  # NOTE(O6): ThreadPoolConfig registers no executor_queue_size / executor_rejected_tasks_total
+  # meters — SearchThreadPoolQueueBacklog / SearchThreadPoolRejected removed until such
+  # meters exist. No Java code added here.
+  - name: threadpool-alerts
+    rules: []
+
+  # ── 缓存告警 ──
+  - name: cache-alerts
+    rules:
+      # 缓存命中率低于 30%（5分钟内 API 穿透占比过高）
+      - alert: LowCacheHitRate
+        expr: |
+          (rate(cache_miss_api_total[5m]) /
+           (rate(cache_hit_redis_total[5m]) + rate(cache_miss_api_total[5m]))) > 0.7
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "缓存命中率偏低"
+          description: "API 穿透率超过 70%，缓存命中率持续偏低，可能存在缓存失效问题"
+
+      # Redis 连接失败
+      - alert: RedisConnectionFailed
+        expr: rate(redis_connection_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis 连接失败"
+          description: "Redis 连接出现失败，需立即排查"
+
+  # ── 业务 SLA 告警 ──
+  - name: business-sla-alerts
+    rules:
+      # 搜索成功率低于 99%
+      - alert: SearchSuccessRateLow
+        expr: |
+          (rate(http_server_requests_seconds_count{uri="/api/songs/search",status=~"2.."}[5m]) /
+           rate(http_server_requests_seconds_count{uri="/api/songs/search"}[5m])) * 100 < 99
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "搜索接口成功率过低"
+          description: "搜索 API 成功率低于 99%，当前: {{ $value | humanizePercentage }}"
+
+      # 播放失败率超过 1%
+      - alert: PlayFailureRateHigh
+        expr: |
+          (rate(http_server_requests_seconds_count{uri="/api/songs/stream",status=~"5.."}[5m]) /
+           rate(http_server_requests_seconds_count{uri="/api/songs/stream"}[5m])) * 100 > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "音频流播放失败率过高"
+          description: "播放接口 5xx 错误率超过 1%，当前: {{ $value | humanizePercentage }}"
+
+      # 登录失败率异常（> 5%）
+      - alert: LoginFailureRateHigh
+        expr: |
+          (rate(http_server_requests_seconds_count{uri="/api/auth/login",status=~"4.."}[5m]) /
+           rate(http_server_requests_seconds_count{uri="/api/auth/login"}[5m])) * 100 > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "登录失败率异常"
+          description: "登录接口 4xx 错误率超过 5%，可能存在暴力破解或服务异常"
+
+      # API 平均响应时间超过 2 秒
+      - alert: ApiAvgLatencyHigh
+        expr: |
+          histogram_quantile(0.5, rate(http_server_requests_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 平均响应时间过高"
+          description: "整体 API P50 响应时间超过 2 秒"
+
   # ── 性能告警 ──
   - name: performance-alerts
     rules:
@@ -36,28 +257,3 @@ groups:
         annotations:
           summary: "搜索延迟过高"
           description: "搜索 P95 延迟超过 1 秒，持续 5 分钟"
-
-      # JVM 内存使用率超过 85%
-      - alert: HighJvmMemoryUsage
-        expr: (jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}) * 100 > 85
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "JVM 堆内存使用率过高"
-          description: "JVM 堆内存使用率超过 85%，持续 5 分钟"
-
-  # ── 缓存告警 ──
-  - name: cache-alerts
-    rules:
-      # 缓存命中率低于 30%（5分钟内 API 穿透占比过高）
-      - alert: LowCacheHitRate
-        expr: |
-          (rate(cache_miss_api_total[5m]) /
-           (rate(cache_hit_redis_total[5m]) + rate(cache_hit_es_total[5m]) + rate(cache_miss_api_total[5m]))) > 0.7
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "缓存命中率偏低"
-          description: "API 穿透率超过 70%，缓存命中率持续偏低，可能存在缓存失效问题"

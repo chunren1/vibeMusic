@@ -23,4 +23,6 @@ EXPOSE 8080
 # 切换到非 root 用户
 USER app
 
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75.0", "-XX:+UseG1GC", "-jar", "app.jar"]
+# JVM 参数可被 JAVA_OPTS 覆盖（compose/云环境注入）；exec 使 java 成为 PID 1，正确接收 SIGTERM
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
