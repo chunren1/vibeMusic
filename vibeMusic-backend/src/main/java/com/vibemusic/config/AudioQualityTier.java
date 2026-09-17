@@ -55,4 +55,16 @@ public enum AudioQualityTier {
             default -> "standard";
         };
     }
+
+    /**
+     * 网易云API参数名 → 枚举（{@link #toNeteaseLevel()} 的逆向，未知级别按 STANDARD 处理）
+     */
+    public static AudioQualityTier fromNeteaseLevel(String level) {
+        return switch (level == null ? "" : level) {
+            case "hires" -> HIRES;
+            case "exhigh" -> EXHIGH;
+            case "higher" -> HIGHER;
+            default -> STANDARD;
+        };
+    }
 }
