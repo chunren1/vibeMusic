@@ -10,6 +10,9 @@ const store = usePlayerStore()
 const favStore = useFavoriteStore()
 const audio = store.audio
 
+// 播放进度定时持久化句柄（挂载时启动、卸载时清理）
+let timeSaver = null
+
 // 收藏
 const isFaved = ref(false)
 favStore.fetchFavIds()

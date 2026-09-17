@@ -191,7 +191,7 @@ onUnmounted(() => {
     <div class="mp-bar">
       <button class="mp-back" @click="router.push('/m')" aria-label="返回"><SvgIcon name="arrow-left" :size="20" /></button>
       <div class="mp-bar-center">
-        <div class="mp-name">{{ store.currentSong.title || '未在播放' }}<span class="mp-quality">{{ store.qualityLabel }}</span></div>
+        <div class="mp-name">{{ store.currentSong.title || '未在播放' }}</div>
         <div class="mp-artist">{{ store.currentSong.artist }}</div>
       </div>
       <div class="mp-spacer"></div>
@@ -329,7 +329,6 @@ onUnmounted(() => {
 }
 .mp-bar-center { flex: 1; text-align: center; min-width: 0; padding-top: 4px; }
 .mp-name { font-size: 17px; font-weight: 700; color: var(--m-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: 0.3px; }
-.mp-quality { font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; background: rgba(46,229,154,0.12); color: var(--m-primary); font-weight: 600; vertical-align: middle; }
 .mp-artist { font-size: 13px; color: var(--m-text-secondary); margin-top: 2px; }
 .mp-spacer { width: 40px; }
 .mp-cover-section {

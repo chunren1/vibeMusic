@@ -24,7 +24,7 @@ function doCreate() {
   creating.value = true
   createPlaylist(newName.value.trim(), newDesc.value.trim()).then(() => {
     showCreate.value = false; newName.value = ''; newDesc.value = ''; loadPlaylists()
-  }).catch(() => {}).finally(() => { creating.value = false })
+  }).catch(() => { window.toast?.('创建失败，请重试', 'error') }).finally(() => { creating.value = false })
 }
 
 function toggleManage() {

@@ -9,6 +9,7 @@ const favStore = useFavoriteStore()
 const songs = ref([])
 const manageMode = ref(false)
 const selectedIds = ref(new Set())
+const loadError = ref(false)
 
 favStore.fetchFavIds()
 
@@ -36,23 +37,29 @@ const removing = ref(false)
 async function doBatchRemove() {
   if (removing.value || !selectedIds.value.size) return
   removing.value = true
+  const ids = [...selectedIds.value]
   try {
-    const ids = [...selectedIds.value]
     await removeFavoritesBatch(ids)
     // 更新本地列表 + store
     songs.value = songs.value.filter(s => !selectedIds.value.has(s.sourceId))
-    ids.forEach(id => favStore.ids.delete(id))
-    selectedIds.value = new Set()
-    manageMode.value = false
+    ids.forEach(id => favStore.favIds.delete(id))
+    favStore.favIds = new Set(favStore.favIds)
     window.toast?.('已移除 ' + ids.length + ' 首', 'success')
   } catch {
     window.toast?.('操作失败', 'error')
-  } finally { removing.value = false }
+  } finally {
+    selectedIds.value = new Set()
+    manageMode.value = false
+    removing.value = false
+  }
 }
 
-onMounted(() => {
-  getFavorites().then(r => { songs.value = r.data || [] }).catch(() => {})
-})
+function loadLikes() {
+  loadError.value = false
+  getFavorites().then(r => { songs.value = r.data || [] }).catch(() => { loadError.value = true })
+}
+
+onMounted(loadLikes)
 </script>
 
 <template>
@@ -96,7 +103,13 @@ onMounted(() => {
       </button>
     </div>
 
-    <div v-if="!songs.length" class="m-empty">还没有收藏歌曲</div>
+    <div v-if="!songs.length" class="m-empty">
+      <template v-if="loadError">
+        <p>加载失败，请检查网络后重试</p>
+        <p><button class="m-retry-btn" @click="loadLikes">重试</button></p>
+      </template>
+      <template v-else>还没有收藏歌曲</template>
+    </div>
   </div>
 </template>
 
@@ -137,6 +150,11 @@ onMounted(() => {
 }
 .m-item button.faved { color: #ffc107; }
 .m-empty { text-align: center; padding: 60px 0; color: #666; font-size: 14px; }
+.m-retry-btn {
+  margin-top: 10px; padding: 6px 24px; border-radius: 16px;
+  border: 1px solid #31c27c; background: transparent;
+  color: #31c27c; font-size: 13px; cursor: pointer;
+}
 
 /* 批量操作底栏 */
 .m-batch-bar {

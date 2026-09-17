@@ -12,6 +12,7 @@ const recentSongs = ref([])
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
+const loadError = ref(false)
 
 // 批量管理
 const manageMode = ref(false)
@@ -81,10 +82,15 @@ async function doBatchClear() {
   } catch { window.toast?.('操作失败', 'error') }
 }
 
-onMounted(() => {
+function loadRecent() {
+  loadError.value = false
   getPlayHistory().then(res => {
     recentSongs.value = res.data || []
-  }).catch(() => {})
+  }).catch(() => { loadError.value = true })
+}
+
+onMounted(() => {
+  loadRecent()
 })
 </script>
 
@@ -95,7 +101,7 @@ onMounted(() => {
       <h2 class="page-title">最近播放</h2>
       <button class="btn-manage" @click="toggleManage">{{ manageMode ? '完成' : '管理' }}</button>
     </div>
-    <p class="subtitle">{{ recentSongs.length }} 首歌曲</p>
+    <p class="subtitle">{{ recentSongs.length }} 首歌曲 · 最近 500 条</p>
 
     <div v-if="recentSongs.length > 0" class="song-table">
       <div class="table-header">
@@ -147,8 +153,14 @@ onMounted(() => {
     </div>
 
     <div v-else class="empty">
-      <p>暂无播放记录</p>
-      <p class="hint">去主页听听音乐吧</p>
+      <template v-if="loadError">
+        <p>加载失败，请检查网络后重试</p>
+        <p class="hint"><button class="retry-btn" @click="loadRecent">重试</button></p>
+      </template>
+      <template v-else>
+        <p>暂无播放记录</p>
+        <p class="hint">去主页听听音乐吧</p>
+      </template>
     </div>
   </div>
 
@@ -222,6 +234,12 @@ onMounted(() => {
 
 .empty { text-align: center; padding: 80px 0; color: var(--text-tertiary); }
 .hint { font-size: 13px; margin-top: 8px; }
+.retry-btn {
+  margin-top: 4px; padding: 6px 24px; border-radius: 16px;
+  border: 1px solid #31c27c; background: transparent;
+  color: #31c27c; font-size: 13px; cursor: pointer;
+}
+.retry-btn:hover { background: rgba(49,194,124,.1); }
 
 .batch-bar {
   position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;

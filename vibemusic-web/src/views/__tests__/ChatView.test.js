@@ -34,5 +34,6 @@ describe('ChatView', () => {
     expect(wrapper.vm.messages.length).toBe(200)
     // 最旧的问候与首轮消息已被丢弃，剩余首条为用户消息
     expect(wrapper.vm.messages[0].role).toBe('user')
-  })
+    // 101 轮渲染最多 200 条消息，jsdom 下耗时约 4s；全量并行时 CPU 争用会超过默认 5s 上限
+  }, 15000)
 })

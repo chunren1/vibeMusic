@@ -10,17 +10,15 @@
     <link rel="icon" type="image/png" href="/logo.png">
     <link rel="apple-touch-icon" href="/logo.png">
     <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://vibe.cyk666.top" crossorigin>
+    <link rel="dns-prefetch" href="//p1.music.126.net">
+    <link rel="dns-prefetch" href="//p2.music.126.net">
+    <link rel="dns-prefetch" href="//y.gtimg.cn">
+    <link rel="dns-prefetch" href="//p3.music.126.net">
     <meta name="mobile-web-app-capable" content="yes">
   </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {})
-        })
-      }
-    </script>
   </body>
 </html>

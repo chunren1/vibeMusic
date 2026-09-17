@@ -276,19 +276,27 @@ export function useAudioBackground(audioRef) {
     window.addEventListener('song-change', onSongChange)
     unsubscribes.push(() => window.removeEventListener('song-change', onSongChange))
 
-    // 更新播放状态
+    // 更新播放状态：play/pause 是不冒泡的媒体事件，必须挂在 audio 元素上（挂 window 永不触发）
     const updateState = () => {
-      const a = window.vibeAudio
+      const a = audioRef?.value || window.vibeAudio
       try {
         navigator.mediaSession.playbackState = a?.paused ? 'paused' : 'playing'
       } catch {}
     }
-    window.addEventListener('play', updateState)
-    window.addEventListener('pause', updateState)
-    unsubscribes.push(
-      () => window.removeEventListener('play', updateState),
-      () => window.removeEventListener('pause', updateState),
-    )
+    listenAudioEvent('play', updateState)
+    listenAudioEvent('pause', updateState)
+  }
+
+  // play/pause 不冒泡到 window：优先挂 audio 元素，audio 尚未创建时才回退 window（保持清理结构一致）
+  function listenAudioEvent(event, handler) {
+    const audio = audioRef?.value || window.vibeAudio
+    if (audio?.addEventListener) {
+      audio.addEventListener(event, handler)
+      unsubscribes.push(() => audio.removeEventListener(event, handler))
+    } else {
+      window.addEventListener(event, handler)
+      unsubscribes.push(() => window.removeEventListener(event, handler))
+    }
   }
 
   /**
@@ -439,12 +447,10 @@ export function useAudioBackground(audioRef) {
         audio.play().catch(() => retry(300, 5))
       }, 500)
     }
-    window.addEventListener('pause', onAutoPause)
+    listenAudioEvent('pause', onAutoPause)
     unsubscribes.push(
       () => document.removeEventListener('visibilitychange', onHidden),
-      () => window.removeEventListener('pause', onAutoPause),
     )
-
     const onPlay = () => {
       try { navigator.mediaSession.playbackState = 'playing' } catch {}
       requestWakeLock()
@@ -453,12 +459,8 @@ export function useAudioBackground(audioRef) {
       try { navigator.mediaSession.playbackState = 'paused' } catch {}
       releaseWakeLock()
     }
-    window.addEventListener('play', onPlay)
-    window.addEventListener('pause', onPause)
-    unsubscribes.push(
-      () => window.removeEventListener('play', onPlay),
-      () => window.removeEventListener('pause', onPause),
-    )
+    listenAudioEvent('play', onPlay)
+    listenAudioEvent('pause', onPause)
   })
 
   onUnmounted(() => {

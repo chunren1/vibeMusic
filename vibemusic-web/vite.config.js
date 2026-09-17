@@ -58,7 +58,7 @@ export default defineConfig({
       srcDir: 'public',
       filename: 'sw.js',
       manifest: false,        // 已有 public/manifest.json，不自动生成
-      injectRegister: false,  // index.html 已手动注册 /sw.js，避免重复注册
+      injectRegister: false,  // 由 src/main.js 手动注册 /sw.js（配合严格 CSP，避免内联脚本）
       registerType: 'autoUpdate',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],

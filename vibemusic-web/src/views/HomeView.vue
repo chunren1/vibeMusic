@@ -73,7 +73,7 @@ function downloadViaBackend(song) {
 }
 
 // ===== 用户信息 =====
-const username = computed(() => authStore.user?.nickname || authStore.user?.username || '未登录')
+const username = computed(() => authStore.user?.nickname || authStore.user?.username || `用户${authStore.user?.userId || ''}` || '音乐爱好者')
 
 onMounted(() => { favStore.fetchFavIds() })
 onUnmounted(() => { if (suggestTimer) clearTimeout(suggestTimer) })
@@ -91,6 +91,7 @@ onMounted(() => recommendStore.fetchRecommend())
 const playlistColors = ['#31c27c', '#2a6f97', '#1f4e5f']
 const playlists = ref([])
 const loadingRecommend = ref(false)
+const playlistError = ref(false)
 async function fetchPlaylists() {
   try {
     const res = await request.get('/playlists/recommend')
@@ -101,9 +102,11 @@ async function fetchPlaylists() {
         coverUrl: p.coverUrl, count: p.count,
         color: playlistColors[i % playlistColors.length],
       }))
+      playlistError.value = false
       return
     }
   } catch (e) { /* fallback */ }
+  playlistError.value = true
   // 兜底默认卡片（无真实数据时，点击刷新）
   playlists.value = [
     { name: '华语热门精选', count: 0, _fallback: true },
@@ -420,9 +423,14 @@ function addToQueueDesktop(song) {
             <img v-if="pl.coverUrl" v-lazy-img="pl.coverUrl + '?param=200y200'" class="pl-img" />
             <div v-else class="cover-inner" :style="{ background: pl.color }"><SvgIcon name="equalizer" size="42" /></div>
             <span class="pl-count" v-if="pl.count">{{ pl.count > 10000 ? Math.floor(pl.count/10000)+'万' : pl.count }}</span>
+            <span v-if="pl._fallback" class="pl-demo-tag">示例</span>
           </div>
           <p class="pl-name">{{ pl.name }}</p>
         </div>
+      </div>
+      <div v-if="playlistError && playlists.length > 0" class="playlist-fallback-note">
+        推荐加载失败，当前为示例数据
+        <button class="retry-link" @click="refreshRecommend">{{ loadingRecommend ? '加载中...' : '重试' }}</button>
       </div>
     </section>
     </template>
@@ -826,6 +834,20 @@ function addToQueueDesktop(song) {
   padding: 3px 10px; border-radius: 4px;
   background: rgba(0,0,0,.55); font-size: 13px; color: var(--text-secondary);
 }
+.pl-demo-tag {
+  position: absolute; bottom: 10px; left: 10px;
+  padding: 2px 8px; border-radius: 4px;
+  background: rgba(0,0,0,.55); font-size: 11px; color: var(--text-secondary);
+}
+.playlist-fallback-note {
+  margin-top: 12px; font-size: 13px; color: var(--text-secondary); text-align: center;
+}
+.retry-link, .retry-btn {
+  margin-left: 8px; padding: 4px 16px; border-radius: 14px;
+  border: 1px solid #31c27c; background: transparent;
+  color: #31c27c; font-size: 13px; cursor: pointer;
+}
+.retry-link:hover, .retry-btn:hover { background: rgba(49,194,124,.1); }
 .pl-name {
   font-size: 15px; color: var(--text-primary);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;

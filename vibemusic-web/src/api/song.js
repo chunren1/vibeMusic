@@ -57,8 +57,8 @@ export function downloadSong(sourceId, song) {
   })
 }
 
-/** 最近播放历史 */
-export function getPlayHistory(count = 999) {
+/** 最近播放历史（后端钳制上限 500，默认取满） */
+export function getPlayHistory(count = 500) {
   return request.get('/songs/history', { params: { count } })
 }
 
@@ -110,6 +110,7 @@ export function addToPlaylist(playlistId, song) {
     artist: song.artist || '',
     coverUrl: song.coverUrl || '',
     duration: song.duration || 0,
+    platform: song.platform || 'netease',
   })
 }
 

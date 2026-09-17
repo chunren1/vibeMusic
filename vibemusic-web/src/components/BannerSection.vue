@@ -12,29 +12,21 @@ const activeSlide = ref(0)
 const bannerHover = ref(false)
 let bannerTimer = null
 
-// 首图 LCP 优化：banner 用 CSS background-image，无法直接挂 fetchpriority 属性，
-// 改为动态注入 <link rel="preload" as="image" fetchpriority="high"> 提升首图加载优先级
+// 首图 LCP：改为 <img> 预加载更可靠，CSS background 的 preload 关联弱，易报 invalid href / not used
+// 保留空实现以兼容旧调用，实际预加载由 <img> 的 fetchpriority 高优先级完成
 function preloadFirstBanner(url) {
   if (!url || typeof document === 'undefined') return
-  // 用 URL 构造器校验 + 安全设置 param，避免 coverUrl 已带 query 或含非法字符
-  // 时产生 "invalid href value" 告警（<link rel=preload> 对 href 解析比 CSS url() 严格）
-  let parsed
+  // 校验 URL 合法性，仅用于打点，不再注入 <link rel=preload>（避免 invalid href / not used 告警）
   try {
-    parsed = new URL(url, window.location.origin)
+    const u = new URL(url, window.location.origin)
+    if (!u.hostname) return
+    // 可选：用 Image 预取代替 link preload，更贴合 CSS background 的实际加载
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = u.href + (u.search ? '&' : '?') + 'param=1600y900'
   } catch {
     return
   }
-  parsed.searchParams.set('param', '1600y900')
-  let link = document.querySelector('link[data-banner-preload]')
-  if (!link) {
-    link = document.createElement('link')
-    link.rel = 'preload'
-    link.as = 'image'
-    link.setAttribute('data-banner-preload', '')
-    document.head.appendChild(link)
-  }
-  link.href = parsed.href
-  link.setAttribute('fetchpriority', 'high')
 }
 
 function loadBanners() {

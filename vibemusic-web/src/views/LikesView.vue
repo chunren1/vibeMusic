@@ -12,6 +12,7 @@ const favorites = ref([])
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
+const loadError = ref(false)
 
 // 批量管理
 const manageMode = ref(false)
@@ -46,20 +47,28 @@ function toggleSelect(sourceId) {
 async function doBatchRemove() {
   if (removing.value || !selectedIds.value.size) return
   removing.value = true
+  const ids = [...selectedIds.value]
   try {
-    const ids = [...selectedIds.value]
     await removeFavoritesBatch(ids)
     favorites.value = favorites.value.filter(f => !selectedIds.value.has(f.sourceId))
-    ids.forEach(id => favStore.ids.delete(id))
-    selectedIds.value = new Set()
-    manageMode.value = false
+    ids.forEach(id => favStore.favIds.delete(id))
+    favStore.favIds = new Set(favStore.favIds)
     window.toast?.('已移除', 'success')
   } catch { window.toast?.('操作失败', 'error') }
-  finally { removing.value = false }
+  finally {
+    selectedIds.value = new Set()
+    manageMode.value = false
+    removing.value = false
+  }
+}
+
+function loadLikes() {
+  loadError.value = false
+  getFavorites().then(res => { favorites.value = res.data || [] }).catch(() => { loadError.value = true })
 }
 
 onMounted(() => {
-  getFavorites().then(res => { favorites.value = res.data || [] }).catch(() => {})
+  loadLikes()
 })
 </script>
 
@@ -117,8 +126,14 @@ onMounted(() => {
     </div>
 
     <div v-else class="empty">
-      <p>还没有收藏歌曲</p>
-      <p class="hint">去主页搜索喜欢的音乐吧</p>
+      <template v-if="loadError">
+        <p>加载失败，请检查网络后重试</p>
+        <p class="hint"><button class="retry-btn" @click="loadLikes">重试</button></p>
+      </template>
+      <template v-else>
+        <p>还没有收藏歌曲</p>
+        <p class="hint">去主页搜索喜欢的音乐吧</p>
+      </template>
     </div>
   </div>
 
@@ -193,6 +208,12 @@ onMounted(() => {
 
 .empty { text-align: center; padding: 80px 0; color: var(--text-tertiary); }
 .hint { font-size: 13px; margin-top: 8px; }
+.retry-btn {
+  margin-top: 4px; padding: 6px 24px; border-radius: 16px;
+  border: 1px solid #31c27c; background: transparent;
+  color: #31c27c; font-size: 13px; cursor: pointer;
+}
+.retry-btn:hover { background: rgba(49,194,124,.1); }
 
 .batch-bar {
   position: fixed; bottom: 80px; left: 0; right: 0; z-index: 50;

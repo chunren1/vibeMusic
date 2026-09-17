@@ -7,6 +7,7 @@ import { useFavoriteStore } from '@/stores/favorite'
 const player = usePlayerStore()
 const favStore = useFavoriteStore()
 const songs = ref([])
+const loadError = ref(false)
 
 favStore.fetchFavIds()
 
@@ -23,15 +24,18 @@ function play(song) {
   player.playSongFromApi(song.sourceId, song.songName, song.artist, song.coverUrl || '')
 }
 
-onMounted(() => {
-  getPlayHistory().then(r => { songs.value = r.data || [] }).catch(() => {})
-})
+function loadRecent() {
+  loadError.value = false
+  getPlayHistory().then(r => { songs.value = r.data || [] }).catch(() => { loadError.value = true })
+}
+
+onMounted(loadRecent)
 </script>
 
 <template>
   <div class="m-page">
     <h2 class="m-title"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:6px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>最近播放</h2>
-    <p class="m-sub">{{ songs.length }} 首</p>
+    <p class="m-sub">{{ songs.length }} 首 · 最近 500 条</p>
 
     <div class="m-list">
       <div v-for="(s, i) in songs" :key="s.sourceId + '-' + s.playedAt"
@@ -49,7 +53,13 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="!songs.length" class="m-empty">还没有播放记录</div>
+    <div v-if="!songs.length" class="m-empty">
+      <template v-if="loadError">
+        <p>加载失败，请检查网络后重试</p>
+        <p><button class="m-retry-btn" @click="loadRecent">重试</button></p>
+      </template>
+      <template v-else>还没有播放记录</template>
+    </div>
   </div>
 </template>
 
@@ -82,4 +92,9 @@ onMounted(() => {
 }
 .m-item button.faved { color: #ffc107; }
 .m-empty { text-align: center; padding: 60px 0; color: #666; font-size: 14px; }
+.m-retry-btn {
+  margin-top: 10px; padding: 6px 24px; border-radius: 16px;
+  border: 1px solid #31c27c; background: transparent;
+  color: #31c27c; font-size: 13px; cursor: pointer;
+}
 </style>

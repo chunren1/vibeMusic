@@ -43,7 +43,7 @@ async function onSearch() {
   page.value = 1
   try {
     const res = await searchSongs(keyword.value.trim(), 1, totalPageSize)
-    results.value = res.data || []
+    results.value = res.data?.list ?? []
   } catch (e) {
     console.error('搜索失败:', e)
     results.value = []
