@@ -45,3 +45,7 @@ scrape_configs:
   - job_name: 'redis'
     static_configs:
       - targets: ['redis-exporter:9121']
+
+  # NOTE：宿主机指标（node-exporter）与站点黑盒探活（blackbox-exporter）由本机
+  # monitoring/ 栈负责（云服务器 1.6G 内存，跑不了 Prometheus/Grafana，见 RUNBOOK）。
+  # 本文件在云上不会被执行（云上不启动 prometheus 服务），仅在本地开发栈生效。

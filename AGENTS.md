@@ -28,7 +28,7 @@ vibeMusic/
 ├── musicapi/             # Express BFF 网关 (3000)，源码在 src/（server.js 仅装配）
 ├── scripts/              # 运维脚本（Python/JS/sh 混合）
 ├── nginx/                # 生产反代 (80/443)
-├── docker-compose.yml    # 12 服务编排（full.yml 为含 OTel 的可选变体）
+├── docker-compose.yml    # 12 服务编排（full.yml 为含 OTel 的可选变体；监控中心=本机 monitoring/ 栈）
 ├── docs/                 # 各类报告 + postman 集合
 └── docker-data/          # 运行时数据卷（已提交，建议勿动）
 ```

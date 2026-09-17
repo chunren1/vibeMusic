@@ -136,7 +136,9 @@ docker compose up -d
 
 **12 服务**：Nginx · Spring Boot · Express BFF · MySQL 8.0 · Redis 7 · MinIO · Prometheus · Grafana · MinIO Init · MySQL Backup · Redis Exporter · MinIO Backup
 
-**监控链路**：Micrometer 埋点 → Prometheus 采集 → Grafana 可视化（告警规则在 Prometheus/Grafana 界面可见）
+**监控中心**：独立 `monitoring/` 栈（本机 3 容器：Prometheus/Grafana/Blackbox）抓取应用指标（SSH 隧道）、宿主机 node-exporter 与站点黑盒探活，并评估 22 条告警规则——云服务器仅 1.6G 内存，不跑监控重组件。
+
+**监控链路**：Micrometer 埋点 + node-exporter + 黑盒探活 → 本机监控栈 Prometheus 采集 → Grafana 可视化（22 条告警规则在本机栈评估）
 
 ---
 
@@ -208,16 +210,16 @@ docker compose logs otel-collector | tail -n 50
 Collector 配置样例：`otlp:4317/4318` → `memory_limiter` → `batch` → `resource` → `tail_sampling` → `prometheus` + `logging`。
 CI 中的 infra-lint job 会对该 YAML 做语法与 `tail_sampling` 策略校验，保证样例不腐化。
 
-### 告警规则（19 条，按实际抓取指标校准）
+### 告警规则（22 条，按实际抓取指标校准）
 
 > 源文件：`docker-data/prometheus/alert-rules.yml`（Prometheus `rule_files` 引用，经 `promtool check rules` 校验）
-> 说明：仅保留主栈实际抓取到的指标（backend/musicapi/prometheus/redis 四个 job）；
-> 依赖 node-exporter/cAdvisor 的磁盘与容器类规则已移除（未部署对应 exporter，保留会永不触发）。
+> 说明：规则由本机 monitoring/ 栈的 Prometheus 加载评估（backend/musicapi 经 SSH 隧道抓取，
+> node-exporter 与 blackbox 探活同栈）；container_*（cAdvisor）类规则仍不收录。
 
 | 组 | 数量 | 告警 | 触发条件 |
 |----|------|------|----------|
-| `service-alerts` | 3 | `BackendDown` / `MusicApiDown` / `PrometheusDown` | `up{job=...}==0` 超 1m |
-| `infrastructure-alerts` | 1 | `HighFdUsage` | 文件描述符 >80% (5m) |
+| `service-alerts` | 5 | `BackendDown` / `MusicApiDown` / `PrometheusDown` / `SiteDown` / `SslCertExpiringSoon` | `up==0` 超 1m / 黑盒探活失败 2m / 证书 14 天内到期 |
+| `infrastructure-alerts` | 2 | `DiskSpaceCritical` / `HighFdUsage` | 根分区可用 <15% / 文件描述符 >80% (5m) |
 | `jvm-alerts` | 5 | `HighJvmMemoryUsage` / `HighJvmNonHeapMemoryUsage` / `HighGcFrequency` / `LongOldGcDuration` / `HighThreadCount` | 堆 >85% / 非堆 >400MB / GC >10/s / OldGC 单次 >1s / 线程 >500 |
 | `datasource-alerts` | 3 | `HikariPoolUsageHigh` / `HikariPoolAcquireSlow` / `HikariPoolLeakDetected` | 活跃 >85% / 单次获取 >1s / pending >0 持续 3m |
 | `cache-alerts` | 2 | `LowCacheHitRate` / `RedisDown` | 穿透 >70% (10m) / `up{job="redis"}==0` |

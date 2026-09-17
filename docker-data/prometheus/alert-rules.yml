@@ -40,11 +40,41 @@ groups:
           summary: "Prometheus 监控宕机"
           description: "Prometheus 自身已离线超过 1 分钟"
 
+      # 站点黑盒探活失败（blackbox-exporter 从云上内网探测公网入口）
+      - alert: SiteDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "站点不可达"
+          description: "{{ $labels.instance }} 黑盒探活连续 2 分钟失败（nginx/应用/证书异常均会触发）"
+
+      # SSL 证书 14 天内到期
+      - alert: SslCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry{job="blackbox-http"} - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSL 证书即将到期"
+          description: "{{ $labels.instance }} 证书将于 14 天内到期，请及时续签"
+
   # ── 基础设施资源告警 ──
-  # NOTE(最小闭环)：磁盘（node_filesystem_*）与容器内存/CPU（container_*）规则需要
-  # node-exporter / cAdvisor，主栈未部署对应 exporter，保留会永不触发（死规则），故移除。
+  # 磁盘/内存/CPU 类规则的可用性取决于 node-exporter 是否接入主栈（见 prometheus.yml node job 注释）；
+  # container_*（cAdvisor）仍未部署，相关规则不收录。
   - name: infrastructure-alerts
     rules:
+      # 磁盘空间不足（node-exporter 暴露宿主真实文件系统）
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "磁盘空间不足"
+          description: "根分区可用空间低于 15%，当前值: {{ $value | printf \"%.1f\" }}%"
+
       # 文件描述符使用率过高（> 80%）——micrometer FileDescriptorMetrics（Linux 有效）
       - alert: HighFdUsage
         expr: (process_files_open_files / process_files_max_files) * 100 > 80
