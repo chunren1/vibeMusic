@@ -49,8 +49,13 @@ public class FavoriteService {
         return false; // unreachable
     }
 
-    /** 实际数据库操作，每个重试创建一个新事务 */
-    @Transactional(rollbackFor = Exception.class)
+    /**
+     * 实际数据库操作。
+     *
+     * <p>刻意**不加** {@code @Transactional}：唯一索引 + 单条自提交 + 外层重试即可保证幂等，
+     * 而本方法由同类 {@code this} 调用（自调用绕过 Spring 代理），加注解只会得到"看起来有事务"
+     * 的假象；将来若确实需要事务，必须把调用挪到另一个 Bean（或自注入代理）再标。
+     */
     protected boolean toggleInternal(Long userId, String sourceId, String songName, String artist, String coverUrl) {
         UserFavorite existing = mapper.selectOne(new LambdaQueryWrapper<UserFavorite>()
                 .eq(UserFavorite::getUserId, userId)

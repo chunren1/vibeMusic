@@ -57,6 +57,9 @@ public class StorageService {
                             .build());
             return true;
         } catch (Exception e) {
+            // MinIO 故障的唯一静默点：StreamController 靠本方法决定直读还是回源，降级为
+            // false 是对的，但必须留痕（debug 级，避免 MinIO 抖动时刷爆日志）。
+            log.debug("MinIO statObject 失败，按未缓存处理: object={}, err={}", objectName, e.getMessage());
             return false;
         }
     }

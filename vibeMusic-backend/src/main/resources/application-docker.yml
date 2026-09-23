@@ -2,6 +2,13 @@
 # 激活方式: SPRING_PROFILES_ACTIVE=docker
 # 由 docker-compose 自动设置
 
+# Flyway 在云端从未启用：schema 手工管理（UNMANAGED，见 docs/BYOC-RUNBOOK.md）。
+# 这里显式关闭，避免 application.yml 的 enabled:true 一旦生效就因迁移目录里
+# 版本重复/与既有 schema 冲突而启动失败。迁移文件仅作归档，不自动执行。
+spring:
+  flyway:
+    enabled: false
+
 logging:
   level:
     com.vibemusic: info

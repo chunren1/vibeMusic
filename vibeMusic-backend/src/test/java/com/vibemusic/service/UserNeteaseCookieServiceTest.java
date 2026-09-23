@@ -88,6 +88,48 @@ class UserNeteaseCookieServiceTest extends TransactionalServiceTest {
     }
 
     @Nested
+    @DisplayName("当前登录用户 Cookie 解析（单一事实源：播放/搜索共用）")
+    class CurrentUserCookie {
+
+        private void loginAs(Long userId) {
+            User u = new User();
+            u.setId(userId);
+            var auth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                    new com.vibemusic.security.CustomUserDetails(u), null, java.util.List.of());
+            org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
+        }
+
+        @Test
+        @DisplayName("未登录 → null（绝不抛错，调用方继续走匿名链路）")
+        void returnsNullWhenAnonymous() {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            assertThat(userService.resolveCurrentNeteaseCookie()).isNull();
+        }
+
+        @Test
+        @DisplayName("已登录但未绑定 → null")
+        void returnsNullWhenNotBound() {
+            loginAs(1L);
+            assertThat(userService.resolveCurrentNeteaseCookie()).isNull();
+        }
+
+        @Test
+        @DisplayName("已登录且已绑定 → 返回解密后的明文 Cookie")
+        void returnsDecryptedCookie() {
+            loginAs(1L);
+            userService.saveNeteaseCookie(1L, COOKIE);
+            assertThat(userService.resolveCurrentNeteaseCookie()).isEqualTo(COOKIE);
+        }
+
+        @Test
+        @DisplayName("登录态指向已删除用户 → null 且不抛错")
+        void returnsNullWhenUserMissing() {
+            loginAs(9_999_999L);
+            assertThat(userService.resolveCurrentNeteaseCookie()).isNull();
+        }
+    }
+
+    @Nested
     @DisplayName("多用户隔离")
     class Isolation {
         @Test

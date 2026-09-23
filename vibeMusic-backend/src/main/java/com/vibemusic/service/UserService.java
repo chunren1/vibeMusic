@@ -205,4 +205,23 @@ public class UserService implements UserDetailsService {
             return Optional.empty();
         }
     }
+
+    /**
+     * 当前登录用户的网易云 Cookie（匿名 / 未绑定 / 解密失败一律返回 null，绝不抛错）。
+     *
+     * <p>收敛点：SongSearchService 与 SongPlayService 历史上各有一份逐行相同的
+     * 私有实现（含同一个静默 catch），此处收敛为单一事实源。
+     */
+    public String resolveCurrentNeteaseCookie() {
+        Long userId = getCurrentUserId();
+        if (userId == null) return null;
+        try {
+            String cookie = resolveNeteaseCookie(userId).orElse(null);
+            return (cookie == null || cookie.isBlank()) ? null : cookie;
+        } catch (Exception e) {
+            // 用户不存在 / 加解密异常都按"未绑定"处理：播放与搜索继续走匿名链路
+            log.debug("解析当前用户网易云 Cookie 失败: userId={}, err={}", userId, e.getMessage());
+            return null;
+        }
+    }
 }

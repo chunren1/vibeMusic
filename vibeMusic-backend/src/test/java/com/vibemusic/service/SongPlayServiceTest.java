@@ -176,46 +176,17 @@ class SongPlayServiceTest {
         assertEquals("https://ne-cdn.example/x.mp3", url);
     }
 
-    @Test @DisplayName("getPlayInfo 酷狗 hash 显式走酷狗分支并标 platform=kugou")
-    void getPlayInfoKugouHashUsesKugouBranch() {
-        when(neteaseApiService.getKugouSongUrl("45f763d7beb1fd000af890eb6c70b9a2", null, "standard"))
-                .thenReturn(Map.of("data", List.of(
-                        Map.of("url", "https://kg-cdn.example/x.mp3"))));
-
-        Map<String, Object> info = songPlayService.getPlayInfo("45f763d7beb1fd000af890eb6c70b9a2", "安静", "周杰伦");
-
-        assertEquals("https://kg-cdn.example/x.mp3", info.get("url"));
-        assertEquals("kugou", info.get("platform"));
-        assertEquals("HIGHER", info.get("quality"));
-        assertEquals(false, info.get("degraded"));
-        verify(neteaseApiService, never()).getQQSongUrl(anyString());
-    }
-
-    @Test @DisplayName("getPlayInfo 全数字 32 位按酷狗 hash 优先于网易云分支")
-    void getPlayInfoNumeric32CharPrefersKugou() {
+    @Test @DisplayName("全数字 32 位 ID 按酷狗 hash 优先于网易云分支（路由顺序）")
+    void kugouNumeric32CharPreferredOverNetease() {
         String numericHash = "12345678901234567890123456789012";
         when(neteaseApiService.getKugouSongUrl(numericHash, null, "standard"))
                 .thenReturn(Map.of("data", List.of(
                         Map.of("url", "https://kg-cdn.example/x.mp3"))));
 
-        Map<String, Object> info = songPlayService.getPlayInfo(numericHash, "安静", "周杰伦");
+        String url = songPlayService.getPlayUrl(numericHash, "安静", "周杰伦");
 
-        assertEquals("kugou", info.get("platform"));
-        assertEquals("https://kg-cdn.example/x.mp3", info.get("url"));
+        assertEquals("https://kg-cdn.example/x.mp3", url);
         verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
-    }
-
-    @Test @DisplayName("getPlayInfo 酷狗无链且降级无结果时落到 FALLBACK 并计数")
-    void getPlayInfoKugouNoUrlFallsToFallback() {
-        when(neteaseApiService.getKugouSongUrl(eq("45f763d7beb1fd000af890eb6c70b9a2"), any(), anyString()))
-                .thenReturn(Map.of("data", List.of()));
-        when(songMapper.selectOne(any())).thenReturn(null);
-
-        Map<String, Object> info = songPlayService.getPlayInfo("45f763d7beb1fd000af890eb6c70b9a2");
-
-        assertEquals("FALLBACK", info.get("quality"));
-        assertNull(info.get("url"));
-        assertTrue(songPlayService.getDegradationCount() >= 1);
     }
 
     @Test @DisplayName("platform=bilibili 经B站取链返回 URL，不碰 QQ/网易云分支")
@@ -282,79 +253,6 @@ class SongPlayServiceTest {
                 assertNull(songPlayService.getPlayUrl("BV1De411p77r", "少年", "梦然", "bilibili")));
     }
 
-    @Test @DisplayName("getPlayInfo BV 显式走B站分支并标 platform=bilibili")
-    void getPlayInfoBiliIdUsesBiliBranch() {
-        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
-                .thenReturn(Map.of("data", List.of(
-                        Map.of("url", "https://xy.bilivideo.com/x.m4s"))));
-
-        Map<String, Object> info = songPlayService.getPlayInfo("BV1De411p77r", "少年", "梦然");
-
-        assertEquals("https://xy.bilivideo.com/x.m4s", info.get("url"));
-        assertEquals("bilibili", info.get("platform"));
-        assertEquals("HIGHER", info.get("quality"));
-        assertEquals(false, info.get("degraded"));
-        verify(neteaseApiService, never()).getQQSongUrl(anyString());
-    }
-
-    @Test @DisplayName("getPlayInfo B站无链且降级无结果时落到 FALLBACK 并计数")
-    void getPlayInfoBiliNoUrlFallsToFallback() {
-        when(neteaseApiService.getBiliSongUrl("BV1De411p77r"))
-                .thenReturn(Map.of("data", List.of()));
-        when(songMapper.selectOne(any())).thenReturn(null);
-
-        Map<String, Object> info = songPlayService.getPlayInfo("BV1De411p77r");
-
-        assertEquals("FALLBACK", info.get("quality"));
-        assertNull(info.get("url"));
-        assertTrue(songPlayService.getDegradationCount() >= 1);
-    }
-
-    @Test @DisplayName("getPlayInfo 高优命中后排队的低优任务被取消，不再消耗线程与上游配额")
-    void getPlayInfoCancelsLosersOnHit() throws Exception {
-        ThreadPoolTaskExecutor single = new ThreadPoolTaskExecutor();
-        single.setCorePoolSize(1);
-        single.setMaxPoolSize(1);
-        single.setQueueCapacity(10);
-        single.initialize();
-        CountDownLatch gate = new CountDownLatch(1);
-        AtomicBoolean higherRan = new AtomicBoolean(false);
-        AtomicBoolean standardRan = new AtomicBoolean(false);
-        try {
-            SongPlayService svc = new SongPlayService(songMapper, neteaseApiService,
-                    storageService, stringRedisTemplate, single);
-            when(neteaseApiService.getSongUrl("12345", "hires"))
-                    .thenReturn(Map.of("data", List.of(
-                            Map.of("url", "https://cdn.example/hires.mp3", "time", 240000))));
-            when(neteaseApiService.getSongUrl("12345", "exhigh")).thenAnswer(inv -> {
-                gate.await(30, TimeUnit.SECONDS);
-                return null;
-            });
-            when(neteaseApiService.getSongUrl("12345", "higher")).thenAnswer(inv -> {
-                higherRan.set(true);
-                return null;
-            });
-            when(neteaseApiService.getSongUrl("12345", "standard")).thenAnswer(inv -> {
-                standardRan.set(true);
-                return null;
-            });
-
-            Map<String, Object> info = svc.getPlayInfo("12345");
-
-            assertEquals("https://cdn.example/hires.mp3", info.get("url"));
-            assertEquals("HIRES", info.get("quality"));
-            gate.countDown();
-            Thread.sleep(500);
-            assertFalse(higherRan.get(), "排队中的 higher 任务命中后应被取消不再执行");
-            assertFalse(standardRan.get(), "排队中的 standard 任务命中后应被取消不再执行");
-            verify(neteaseApiService, never()).getSongUrl("12345", "higher");
-            verify(neteaseApiService, never()).getSongUrl("12345", "standard");
-        } finally {
-            gate.countDown();
-            single.shutdown();
-        }
-    }
-
     @Test @DisplayName("getPlayUrl 高优命中后排队的低优任务被取消，不再消耗线程与上游配额")
     void getPlayUrlCancelsLosersOnHit() throws Exception {
         ThreadPoolTaskExecutor single = new ThreadPoolTaskExecutor();
@@ -392,21 +290,7 @@ class SongPlayServiceTest {
         }
     }
 
-    @Test @DisplayName("全试听时复用并行探测的 standard 结果，不再补发第二次 standard 请求")
-    void allTrialReusesStandardProbe() {
-        Map<String, Object> trial = Map.of("data", List.of(
-                Map.of("url", "https://cdn.example/trial.mp3", "time", 15000)));
-        when(neteaseApiService.getSongUrl(eq("88888"), anyString())).thenReturn(trial);
-
-        Map<String, Object> info = songPlayService.getPlayInfo("88888");
-
-        assertEquals("FALLBACK", info.get("quality"));
-        assertEquals(true, info.get("isTrial"));
-        assertEquals("https://cdn.example/trial.mp3", info.get("url"));
-        verify(neteaseApiService, times(1)).getSongUrl("88888", "standard");
-    }
-
-    @Test @DisplayName("预算耗尽时跳过 standard 试听兜底，不多等 45s")
+    @Test @DisplayName("预算耗尽时跳过 QQ 降级兜底，不多等 45s")
     void budgetExhaustedSkipsStandardFallback() {
         when(neteaseApiService.getSongUrl(eq("99999"), anyString())).thenAnswer(inv -> {
             Thread.sleep(8500);
@@ -414,11 +298,10 @@ class SongPlayServiceTest {
         });
 
         long start = System.currentTimeMillis();
-        Map<String, Object> info = songPlayService.getPlayInfo("99999");
+        String url = songPlayService.getPlayUrl("99999");
         long elapsed = System.currentTimeMillis() - start;
 
-        assertEquals("FALLBACK", info.get("quality"));
-        assertNull(info.get("url"));
+        assertNull(url);
         assertTrue(elapsed < 20000, "预算耗尽后兜底应跳过，总耗时应远小于 8s+45s，实际=" + elapsed + "ms");
         verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
     }
@@ -432,54 +315,19 @@ class SongPlayServiceTest {
         return vo;
     }
 
-    @Test @DisplayName("getPlayInfo 命中 MinIO 缓存直接返回 LOCAL，不碰 API")
-    void getPlayInfoHitsMinioCache() {
-        stubMinioFlag("12345", "1");
-        when(storageService.getDirectUrl("songs/12345.mp3")).thenReturn("https://minio/x.mp3");
+    @Test @DisplayName("getPlayUrl 全试听后 QQ 降级命中同名歌曲")
+    void getPlayUrlAllTrialFallsBackToQq() {
+        Map<String, Object> trial = Map.of("data", List.of(
+                Map.of("url", "https://cdn.example/trial.mp3", "time", 15000)));
+        when(neteaseApiService.getSongUrl(eq("77777"), anyString())).thenReturn(trial);
+        when(neteaseApiService.searchQQ(eq("青花瓷 周杰伦"), anyInt())).thenReturn(Map.of("data", List.of(
+                Map.of("id", "qq777", "name", "青花瓷", "artists", "周杰伦", "duration", 240000))));
+        when(neteaseApiService.getQQSongUrl("qq777")).thenReturn(Map.of("data", List.of(
+                Map.of("url", "https://qq-cdn.example/qq777.mp3"))));
 
-        Map<String, Object> info = songPlayService.getPlayInfo("12345");
+        String url = songPlayService.getPlayUrl("77777", "青花瓷", "周杰伦");
 
-        assertEquals("https://minio/x.mp3", info.get("url"));
-        assertEquals("LOCAL", info.get("quality"));
-        assertEquals(true, info.get("fromCache"));
-        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
-        assertEquals(0, songPlayService.getDegradationCount());
-    }
-
-    @Test @DisplayName("getPlayInfo QQ 源站有链直接返回 HIGHER")
-    void getPlayInfoReturnsQqUrl() {
-        Map<String, Object> qq = Map.of("data", List.of(Map.of("url", "https://qq-cdn.example/x.mp3")));
-        when(neteaseApiService.getQQSongUrl("qqabc123")).thenReturn(qq);
-
-        Map<String, Object> info = songPlayService.getPlayInfo("qqabc123", "晴天", "周杰伦");
-
-        assertEquals("https://qq-cdn.example/x.mp3", info.get("url"));
-        assertEquals("HIGHER", info.get("quality"));
-        assertEquals(false, info.get("degraded"));
-    }
-
-    @Test @DisplayName("getPlayInfo QQ 无链且降级无结果时落到 FALLBACK 并计数")
-    void getPlayInfoQqNoUrlFallsToFallback() {
-        when(neteaseApiService.getQQSongUrl("qqzzz")).thenReturn(Map.of("data", List.of()));
-        when(songMapper.selectOne(any())).thenReturn(null);
-
-        Map<String, Object> info = songPlayService.getPlayInfo("qqzzz");
-
-        assertEquals("FALLBACK", info.get("quality"));
-        assertNull(info.get("url"));
-        assertTrue(songPlayService.getDegradationCount() >= 1);
-    }
-
-    @Test @DisplayName("getPlayInfo API 全挂时用 DB 历史 URL 兜底")
-    void getPlayInfoFallsBackToDbUrl() {
-        when(neteaseApiService.getQQSongUrl("qqdb1")).thenThrow(new RuntimeException("api down"));
-        when(songMapper.selectOne(any()))
-                .thenReturn(Song.builder().sourceId("qqdb1").url("https://db/history.mp3").build());
-
-        Map<String, Object> info = songPlayService.getPlayInfo("qqdb1", "晴天", "周杰伦");
-
-        assertEquals("https://db/history.mp3", info.get("url"));
-        assertEquals(true, info.get("fromCache"));
+        assertEquals("https://qq-cdn.example/qq777.mp3", url);
     }
 
     @Test @DisplayName("getPlayUrl 一参/三参重载透传到四参，不抛错")
@@ -490,13 +338,15 @@ class SongPlayServiceTest {
         assertDoesNotThrow(() -> songPlayService.getPlayUrl("12345", "晴天", "周杰伦"));
     }
 
-    @Test @DisplayName("getPlayUrl 命中 MinIO 缓存直接返回")
+    @Test @DisplayName("getPlayUrl 命中 MinIO 缓存直接返回且不碰 API/不计数降级")
     void getPlayUrlHitsMinioCache() {
         stubMinioFlag("12345", "1");
         when(storageService.getDirectUrl("songs/12345.mp3")).thenReturn("https://minio/x.mp3");
 
         assertEquals("https://minio/x.mp3", songPlayService.getPlayUrl("12345"));
         verify(neteaseApiService, never()).getQQSongUrl(anyString());
+        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
+        assertEquals(0, songPlayService.getDegradationCount());
     }
 
     @Test @DisplayName("getPlayUrl QQ 分支有链直接返回")
@@ -523,22 +373,5 @@ class SongPlayServiceTest {
                 .thenReturn(Song.builder().sourceId("55555").url("https://db/ne.mp3").build());
 
         assertEquals("https://db/ne.mp3", songPlayService.getPlayUrl("55555", "晴天", "周杰伦"));
-    }
-
-    @Test @DisplayName("getPlayInfo 全试听后 QQ 降级命中同名歌曲")
-    void getPlayInfoAllTrialFallsBackToQq() {
-        Map<String, Object> trial = Map.of("data", List.of(
-                Map.of("url", "https://cdn.example/trial.mp3", "time", 15000)));
-        when(neteaseApiService.getSongUrl(eq("77777"), anyString())).thenReturn(trial);
-        when(neteaseApiService.searchQQ(eq("青花瓷 周杰伦"), anyInt())).thenReturn(Map.of("data", List.of(
-                Map.of("id", "qq777", "name", "青花瓷", "artists", "周杰伦", "duration", 240000))));
-        when(neteaseApiService.getQQSongUrl("qq777")).thenReturn(Map.of("data", List.of(
-                Map.of("url", "https://qq-cdn.example/qq777.mp3"))));
-
-        Map<String, Object> info = songPlayService.getPlayInfo("77777", "青花瓷", "周杰伦");
-
-        assertEquals("https://qq-cdn.example/qq777.mp3", info.get("url"));
-        assertEquals("qq", info.get("platform"));
-        assertEquals(true, info.get("degraded"));
     }
 }

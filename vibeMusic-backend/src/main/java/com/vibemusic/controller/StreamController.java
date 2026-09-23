@@ -75,10 +75,8 @@ public class StreamController {
     static final String BILIBILI_REFERER = "https://www.bilibili.com/";
 
     static boolean isBilibiliCdnHost(String host) {
-        if (host == null) return false;
-        String h = host.toLowerCase(Locale.ROOT);
-        return h.equals("bilivideo.com") || h.endsWith(".bilivideo.com")
-                || h.equals("hdslb.com") || h.endsWith(".hdslb.com");
+        // 判定逻辑单一事实源：common/utils/BiliCdnHosts（原先三处镜像实现已收敛）
+        return com.vibemusic.common.utils.BiliCdnHosts.isAudioCdnHost(host);
     }
 
     /** 代理请求头构造：仅 B 站 CDN 附加 Referer，其他域行为不变。 */
@@ -98,9 +96,8 @@ public class StreamController {
         Long userId = UserService.getCurrentUserId();
         if (userId != null) {
             playHistoryService.record(userId, sourceId, name, artist, coverUrl);
-            CompletableFuture.runAsync(() -> {
-                try { recommendService.evictUserCache(userId); } catch (Exception ignored) {}
-            }, ASYNC_CACHE_EXECUTOR);
+            // evictUserCache 内部自带 try/catch + 日志，这里不再重复吞异常
+            CompletableFuture.runAsync(() -> recommendService.evictUserCache(userId), ASYNC_CACHE_EXECUTOR);
         }
         Map<String, Object> result = new HashMap<>();
         result.put("sourceId", sourceId);
@@ -158,15 +155,32 @@ public class StreamController {
         streamFromRemote(sourceId, name, artist, platform, request, response);
     }
 
+    /** 单次音频流代理的总预算：每次 getPlayUrl 自带 8s 内部预算，串行 5 次最坏 40s
+     *  会把 Tomcat 工作线程占死。这里给整个重试循环一个总闸，超预算即终止。 */
+    static final long STREAM_TOTAL_BUDGET_MS = 12_000L;
+
+    /** 纯函数：是否还允许下一次尝试（预算未耗尽且未超过次数上限）。 */
+    static boolean canRetryStream(int attempt, int maxAttempts, long deadlineMs, long nowMs) {
+        return attempt < maxAttempts && nowMs <= deadlineMs;
+    }
+
     private void streamFromRemote(String sourceId, String name, String artist,
                                   String platform, HttpServletRequest request,
                                   HttpServletResponse response) {
-        for (int attempt = 1; attempt <= 5; attempt++) {
+        final int MAX_ATTEMPTS = 5;
+        final long deadline = System.currentTimeMillis() + STREAM_TOTAL_BUDGET_MS;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 String audioUrl = songPlayService.getPlayUrl(sourceId, name, artist, platform);
                 if (audioUrl == null) {
-                    if (attempt < 5) { log.info("streamFromRemote: playUrl=null, retry {}/5: sourceId={}", attempt, sourceId); continue; }
-                    response.setStatus(404); return;
+                    if (canRetryStream(attempt, MAX_ATTEMPTS, deadline, System.currentTimeMillis())) {
+                        log.info("streamFromRemote: playUrl=null, retry {}/{}: sourceId={}",
+                                attempt, MAX_ATTEMPTS, sourceId);
+                        continue;
+                    }
+                    log.info("streamFromRemote: playUrl=null 且预算耗尽/次数用尽 → 404: sourceId={}", sourceId);
+                    if (!response.isCommitted()) response.setStatus(404);
+                    return;
                 }
                 String host = URI.create(audioUrl).getHost();
                 if (!isCdnWhitelisted(host)) {
@@ -201,9 +215,9 @@ public class StreamController {
                 });
                 return;
             } catch (Exception e) {
-                boolean last = (attempt == 5);
+                boolean last = !canRetryStream(attempt, MAX_ATTEMPTS, deadline, System.currentTimeMillis());
                 if (!last && !response.isCommitted()) {
-                    log.warn("音频流代理重试 ({}/5) sourceId={}: {}", attempt, sourceId, e.getMessage());
+                    log.warn("音频流代理重试 ({}/{}) sourceId={}: {}", attempt, MAX_ATTEMPTS, sourceId, e.getMessage());
                 } else {
                     if (!response.isCommitted()) {
                         response.setStatus(500);

@@ -18,11 +18,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * 网易→QQ 降级链一致性测试（Q2d 收敛）。
+ * 网易→QQ 降级链测试（Q2d 收敛）。
  *
- * <p>生产路径 {@code getPlayUrl} 与元信息路径 {@code getPlayInfo} 共用
- * {@code degradeNeteaseToQq} 唯一入口；本类锁定两者在网易云全挂时
- * 落到同一 QQ 降级链接、顺序一致。
+ * <p>生产路径 {@code getPlayUrl} 经 {@code degradeNeteaseToQq} 唯一入口降级到 QQ；
+ * 本类锁定"网易云全挂时落到 QQ 降级链接"与降级计数口径。
  */
 @DisplayName("网易→QQ 降级链一致性测试")
 class SongPlayDegradeChainTest {
@@ -76,18 +75,13 @@ class SongPlayDegradeChainTest {
     }
 
     @Test
-    @DisplayName("网易云全挂时两条链路一致落到同一 QQ 降级链接")
-    void bothChainsFallToSameQqUrl() {
+    @DisplayName("网易云全挂时降级落到 QQ 链接")
+    void neteaseDownFallsToQqUrl() {
         stubNeteaseDownAndQqFallback();
 
         String url = songPlayService.getPlayUrl("12345", "青花瓷", "周杰伦");
-        Map<String, Object> info = songPlayService.getPlayInfo("12345", "青花瓷", "周杰伦");
 
         assertEquals("https://qq-cdn.example/x.mp3", url);
-        assertEquals("https://qq-cdn.example/x.mp3", info.get("url"));
-        assertEquals(url, info.get("url"), "两条链路必须解析到同一降级链接");
-        assertEquals("qq", info.get("platform"));
-        assertEquals(true, info.get("degraded"));
     }
 
     @Test

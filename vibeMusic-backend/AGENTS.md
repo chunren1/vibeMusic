@@ -26,7 +26,7 @@ Spring Boot 4.0.6 + Java 17 + MyBatis-Plus 3.5.9 + jjwt 0.12.6 + MinIO 8.5.17 + 
 - Redis Key 版本化前缀：song:search:v4:、recommend:v3:、lyric:v2:、banner:v2:、playlist:v2:、chat:session:、ratelimit:、idempotent:、token:blacklist:、user:auth:、minio:exists:v1:。
 - 共享 Apache HttpClient5 连接池（RestTemplateConfig），禁止自建独立 HTTP 客户端。
 - 错误：抛 BusinessException(code,msg) → GlobalExceptionHandler → Result<T> 信封；500 内嵌 traceId（TraceIdFilter MDC）。
-- 配置：密钥只走环境变量（DotenvLoader 读 ../.env）；application.yml 默认 dev profile；Flyway 迁移在 db/migration（**注意**：两个 V3 文件 V3__add_indexes + V3__add_playlist_fields，已知冲突）。
+- 配置：密钥只走环境变量（DotenvLoader 读 ../.env）；application.yml 默认 dev profile；Flyway 迁移在 db/migration（**迁移仅归档、不自动执行**：`application-docker.yml` 已显式 `flyway.enabled:false`，版本号唯一——原重复的 `V3__add_indexes` 已改 `V3_1__add_indexes`）。
 
 ## ANTI-PATTERNS
 - PlaylistMapper.listPlaylistsWithStats 同时有 @Select 注解和 XML，MyBatis 以 XML 为准，注解是死代码。

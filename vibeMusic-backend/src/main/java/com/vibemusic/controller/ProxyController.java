@@ -26,14 +26,16 @@ import java.util.List;
 @RequestMapping("/api")
 public class ProxyController {
 
-    private static final List<String> ALLOWED_HOSTS = Arrays.asList(
+    private static final List<String> ALLOWED_HOSTS = new java.util.ArrayList<>(List.of(
             "music.126.net", "p1.music.126.net", "p2.music.126.net",
             "p3.music.126.net", "p4.music.126.net",
             // QQ 音乐封面 CDN：浏览器直连在部分网络下会 408/CORS，统一走后端代理
-            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn",
-            // B 站封面 CDN（i0/i1/i2.hdslb.com）：搜索结果封面走代理，防混合内容
-            "i0.hdslb.com", "i1.hdslb.com", "i2.hdslb.com"
-    );
+            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn"
+    ));
+    static {
+        // B 站封面 CDN（i0/i1/i2.hdslb.com）：单一事实源在 BiliCdnHosts
+        ALLOWED_HOSTS.addAll(com.vibemusic.common.utils.BiliCdnHosts.COVER_HOSTS);
+    }
 
     private static final int TIMEOUT_MS = 8000;
     private static final int MAX_SIZE = 5 * 1024 * 1024; // 5MB 上限

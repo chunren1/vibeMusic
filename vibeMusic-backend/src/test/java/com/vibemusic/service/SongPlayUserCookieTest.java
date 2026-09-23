@@ -21,7 +21,6 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -112,7 +111,7 @@ class SongPlayUserCookieTest {
     @DisplayName("登录用户取链：3 参数透传 Cookie，且不走匿名签名")
     void loggedInUserAttachesCookie() {
         loginAs(1L);
-        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE);
         when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
                 .thenReturn(urlPayload("https://ne-cdn.example/user.mp3"));
 
@@ -128,7 +127,6 @@ class SongPlayUserCookieTest {
     @DisplayName("登录但未绑定 Cookie：回落匿名签名")
     void loggedInWithoutCookieFallsBackToAnonymous() {
         loginAs(1L);
-        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.empty());
         when(neteaseApiService.getSongUrl(eq("123456"), anyString()))
                 .thenReturn(urlPayload("https://ne-cdn.example/shared.mp3"));
 
@@ -153,7 +151,7 @@ class SongPlayUserCookieTest {
         svc.setUserService(userService);
 
         loginAs(1L);
-        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE);
 
         String url = svc.getPlayUrl("123456");
 
@@ -172,7 +170,7 @@ class SongPlayUserCookieTest {
     @DisplayName("per-user 取链命中上游 301：标记该用户 Cookie 失效（透传上游 code）")
     void perUserNeedLoginMarksCookieInvalid() {
         loginAs(1L);
-        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE);
         when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
                 .thenReturn(needLoginPayload(301));
         when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -200,7 +198,7 @@ class SongPlayUserCookieTest {
     @DisplayName("per-user 取链无版权（code200+空链）：永不误标")
     void perUserNoCopyrightNeverMarks() {
         loginAs(1L);
-        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE);
         when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
                 .thenReturn(needLoginPayload(200));
         when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -215,7 +213,7 @@ class SongPlayUserCookieTest {
     @DisplayName("失效标记抛错：不干扰播放链路（吞错降级，不向上传播）")
     void markFailureDoesNotBreakPlayback() {
         loginAs(1L);
-        when(userService.resolveNeteaseCookie(1L)).thenReturn(Optional.of(COOKIE));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE);
         when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
                 .thenReturn(needLoginPayload(301));
         when(neteaseApiService.searchQQ(anyString(), anyInt()))

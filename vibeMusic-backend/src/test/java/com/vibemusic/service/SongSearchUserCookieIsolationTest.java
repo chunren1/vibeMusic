@@ -18,7 +18,6 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -115,7 +114,7 @@ class SongSearchUserCookieIsolationTest {
     @DisplayName("per-user：绕过 Redis 读与写，直查上游并透传 Cookie")
     void perUserBypassesSharedCacheReadsAndWrites() {
         loginAs(2L);
-        when(userService.resolveNeteaseCookie(2L)).thenReturn(Optional.of(COOKIE_B));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
         when(cacheService.getSearchCache(anyString()))
                 .thenReturn(List.of(song("shared-1", "共享旧结果")));
         stubOtherPlatformsEmpty();
@@ -157,7 +156,7 @@ class SongSearchUserCookieIsolationTest {
                 .thenReturn(List.of(song("shared-a", "夜曲")));
 
         loginAs(2L);
-        when(userService.resolveNeteaseCookie(2L)).thenReturn(Optional.of(COOKIE_B));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
 
         SearchResult bResult = songSearchService.search("夜曲", 1, 20);
 
@@ -198,7 +197,7 @@ class SongSearchUserCookieIsolationTest {
     @DisplayName("单平台 netease + per-user：透传 Cookie 且不写单平台缓存")
     void singlePlatformNeteasePerUserNoWrite() {
         loginAs(2L);
-        when(userService.resolveNeteaseCookie(2L)).thenReturn(Optional.of(COOKIE_B));
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
         when(neteaseApiService.searchNetease(eq("七里香"), eq(40), eq(COOKIE_B)))
                 .thenReturn(apiPayload("vip-7", "七里香VIP版"));
 

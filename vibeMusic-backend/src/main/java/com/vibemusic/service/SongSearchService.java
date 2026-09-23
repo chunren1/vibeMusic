@@ -55,15 +55,9 @@ public class SongSearchService {
         this.userService = userService;
     }
 
+    /** 当前用户的网易云 Cookie；解析逻辑收敛在 UserService（单一事实源）。 */
     private String resolveUserCookie() {
-        try {
-            Long userId = UserService.getCurrentUserId();
-            if (userId == null || userService == null) return null;
-            String cookie = userService.resolveNeteaseCookie(userId).orElse(null);
-            return (cookie == null || cookie.isBlank()) ? null : cookie;
-        } catch (Exception e) {
-            return null;
-        }
+        return userService == null ? null : userService.resolveCurrentNeteaseCookie();
     }
 
     // 缓存命中率仪表盘
@@ -169,11 +163,11 @@ public class SongSearchService {
     static final int TITLE_LENGTH_FREE = 30;
     static final double TITLE_LENGTH_PENALTY_PER_CHAR = 0.05;
     static final double TITLE_LENGTH_PENALTY_MAX = 2.0;
-    // 未获单飞锁时的 bounded 短轮询：持锁者仍在搜索中，立即重读必 miss；
+    // 未获单飞锁时的 bounded 退避轮询：持锁者仍在搜索中，立即重读必 miss；
     // 短暂等待让持锁者回写缓存，并发同关键词请求共享结果而非各自穿透上游。
-    // 上限 5 x 80ms = 400ms，远小于 SEARCH_TIMEOUT_SEC=4s 预算，不拖慢兜底路径。
-    private static final int LOCK_WAIT_ROUNDS = 5;
-    private static final long LOCK_WAIT_SLEEP_MS = 80;
+    // 退避序列 150/300/600/1200ms（累计 2.25s），仍 < SEARCH_TIMEOUT_SEC=4s 预算，
+    // 既能真正等到持锁者回写，也不会拖慢"持锁者已挂"时的兜底直查。
+    private static final long[] LOCK_WAIT_BACKOFF_MS = {150L, 300L, 600L, 1200L};
     // QQ 熔断器阈值：连续失败/超时达此次数开路；开路时长 5 分钟。
     static final int QQ_BREAKER_FAILURE_THRESHOLD = 3;
     static final long QQ_BREAKER_OPEN_MS = 5 * 60 * 1000L;
@@ -266,21 +260,27 @@ public class SongSearchService {
         String allCacheKey = kw + ":" + cacheExtra;
         List<SongDTO> resultList;
         if (perUser) {
-            resultList = doApiSearch(kw, cacheExtra, allCacheKey, userCk);
+            resultList = doApiSearch(kw, cacheExtra, allCacheKey, userCk, searchStart);
         } else {
         String lockValue = cacheService.tryLock(allCacheKey);
         if (lockValue == null) {
             List<SongDTO> retried = null;
-            for (int round = 0; round < LOCK_WAIT_ROUNDS; round++) {
+            for (int round = 0; round < LOCK_WAIT_BACKOFF_MS.length; round++) {
+                // 指数退避：持锁者通常 1-2s 内回写，早轮重读注定 miss 且空耗 CPU/Redis
+                long backoff = LOCK_WAIT_BACKOFF_MS[round];
+                if (System.currentTimeMillis() - searchStart + backoff > SEARCH_TIMEOUT_SEC * 1000L) {
+                    log.info("[API-LAYER] 单飞退避超出搜索预算，提前兜底直查: keyword='{}'", kw);
+                    break;
+                }
                 try {
-                    Thread.sleep(LOCK_WAIT_SLEEP_MS);
+                    Thread.sleep(backoff);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     break;
                 }
                 retried = cacheService.getSearchCache(allCacheKey);
                 if (retried != null) {
-                    log.info("[CACHE-LAYER] 等待后命中单飞结果: keyword='{}', round={}", kw, round + 1);
+                    log.info("[CACHE-LAYER] 等待后命中单飞结果: keyword='{}', round={}, waited={}ms", kw, round + 1, backoff);
                     int from = (page - 1) * size;
                     int to = Math.min(from + size, retried.size());
                     if (from >= retried.size()) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis");
@@ -288,10 +288,10 @@ public class SongSearchService {
                 }
             }
             log.info("[API-LAYER] 单飞等待超时仍无缓存，兜底直查: keyword='{}', 原因=持锁者未及时回写", kw);
-            resultList = doApiSearch(kw, cacheExtra, allCacheKey, null);
+            resultList = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
         } else {
             try {
-                resultList = doApiSearch(kw, cacheExtra, allCacheKey, null);
+                resultList = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
             } finally {
                 cacheService.releaseLock(allCacheKey, lockValue);
             }
@@ -311,7 +311,8 @@ public class SongSearchService {
      * 执行第三方 API 搜索（单平台或双平台合并去重），并回写 Redis 缓存。
      * 调用方负责单飞锁的获取与释放。
      */
-    private List<SongDTO> doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie) {
+    private List<SongDTO> doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie,
+                                       long searchStart) {
         apiCallCounter.increment();
         log.info("[API-LAYER] 触发实时搜索(单飞): keyword='{}', 原因=Redis未命中", kw);
         long apiStart = System.currentTimeMillis();
@@ -404,7 +405,7 @@ public class SongSearchService {
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty() || miguSongs.isEmpty() || kugouSongs.isEmpty() || biliSongs.isEmpty();
         log.info("[API-LAYER] 搜索完成: keyword='{}', 网易云={}首, QQ={}首, 咪咕={}首, 酷狗={}首, B站={}首, 去重后={}首, API-cost={}ms, totalCost={}ms",
                 kw, neteaseSongs.size(), qqSongs.size(), miguSongs.size(), kugouSongs.size(), biliSongs.size(), merged.size(),
-                System.currentTimeMillis() - apiStart, System.currentTimeMillis());
+                System.currentTimeMillis() - apiStart, System.currentTimeMillis() - searchStart);
         if (merged.isEmpty() && allUpstreamFailed(qqF == null, neFailed, qqFailed, mgFailed, kgFailed, biFailed)) {
             upstreamAllFailedCounter.increment();
             log.warn("[API-LAYER] 五平台上游全部失败，不写空哨兵: keyword='{}'", kw);
@@ -953,9 +954,7 @@ public class SongSearchService {
         if (coverUrl == null) return false;
         try {
             String host = java.net.URI.create(coverUrl).getHost();
-            if (host == null) return false;
-            String h = host.toLowerCase(java.util.Locale.ROOT);
-            return h.equals("i0.hdslb.com") || h.equals("i1.hdslb.com") || h.equals("i2.hdslb.com");
+            return com.vibemusic.common.utils.BiliCdnHosts.isCoverHost(host);
         } catch (Exception e) {
             return false;
         }

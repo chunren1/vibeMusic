@@ -206,10 +206,30 @@ class AssistantControllerTest {
                     .andExpect(status().isOk());
 
             var rateKeyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-            verify(rateLimitService, times(2)).tryAcquire(rateKeyCaptor.capture(), anyInt(), any(Duration.class));
+            // 每请求两次限流：身份桶（anon:xxx）+ 按 IP 的兜底桶
+            verify(rateLimitService, times(4)).tryAcquire(rateKeyCaptor.capture(), anyInt(), any(Duration.class));
             java.util.List<String> keys = rateKeyCaptor.getAllValues();
-            org.junit.jupiter.api.Assertions.assertEquals("assistant:anon:device-A", keys.get(0));
-            org.junit.jupiter.api.Assertions.assertEquals("assistant:anon:device-B", keys.get(1));
+            java.util.List<String> anonKeys = keys.stream()
+                    .filter(k -> k.startsWith("assistant:anon:"))
+                    .collect(java.util.stream.Collectors.toList());
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    java.util.List.of("assistant:anon:device-A", "assistant:anon:device-B"), anonKeys);
+            org.junit.jupiter.api.Assertions.assertEquals(2, keys.stream()
+                    .filter(k -> k.startsWith("assistant:ip:")).count());
+        }
+
+        @Test @DisplayName("同一 IP 的兜底桶耗尽时应拒绝（防伪造 deviceId 换桶）")
+        void shouldRejectWhenIpBucketExhausted() throws Exception {
+            // 身份桶放行、IP 桶拒绝：模拟攻击者不断更换 deviceId 刷配额
+            when(rateLimitService.tryAcquire(anyString(), anyInt(), any(Duration.class)))
+                    .thenAnswer(inv -> !((String) inv.getArgument(0)).startsWith("assistant:ip:"));
+
+            mockMvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("X-Device-Id", "rotating-" + System.nanoTime())
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(429));
         }
 
         @Test @DisplayName("不同匿名设备应读写隔离的对话历史")
@@ -260,6 +280,55 @@ class AssistantControllerTest {
 
             verify(rateLimitService).tryAcquire(eq("assistant:anon:param-device"), anyInt(), any(Duration.class));
             verify(chatMemoryService).getHistory(isNull(), eq("param-device"));
+        }
+    }
+
+    @Nested
+    @DisplayName("流式落库守卫与客户端 IP 判定（纯函数）")
+    class PureHelpers {
+
+        @Test @DisplayName("流结束只落库一次（[DONE] 与 onComplete 双触发不再双写）")
+        void shouldPersistOnlyOnce() {
+            var flag = new java.util.concurrent.atomic.AtomicBoolean(false);
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.markPersistedOnce(flag, 5));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.markPersistedOnce(flag, 5));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.markPersistedOnce(flag, 99));
+        }
+
+        @Test @DisplayName("空回复不落库（也不占用一次性守卫）")
+        void shouldNotPersistEmptyReply() {
+            var flag = new java.util.concurrent.atomic.AtomicBoolean(false);
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.markPersistedOnce(flag, 0));
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.markPersistedOnce(flag, 1));
+        }
+
+        @Test @DisplayName("内网对端才信任 X-Real-IP，公网对端忽略伪造头")
+        void shouldTrustRealIpOnlyFromPrivatePeer() {
+            // 内网对端（nginx 容器）→ 采信 X-Real-IP
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "203.0.113.9", AssistantController.clientIp("172.18.0.5", "203.0.113.9"));
+            // 公网对端 → 忽略伪造的 X-Real-IP，用 TCP 对端地址
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "198.51.100.7", AssistantController.clientIp("198.51.100.7", "203.0.113.9"));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "127.0.0.1", AssistantController.clientIp("127.0.0.1", "  "));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "198.51.100.7", AssistantController.clientIp("198.51.100.7", null));
+            org.junit.jupiter.api.Assertions.assertEquals(
+                    "unknown", AssistantController.clientIp(null, "203.0.113.9"));
+        }
+
+        @Test @DisplayName("内网网段判定覆盖 10/172.16-31/192.168/回环")
+        void shouldDetectPrivatePeers() {
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.isPrivatePeer("10.0.0.1"));
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.isPrivatePeer("172.16.0.1"));
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.isPrivatePeer("172.31.255.254"));
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.isPrivatePeer("192.168.1.1"));
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.isPrivatePeer("::1"));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isPrivatePeer("172.32.0.1"));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isPrivatePeer("172.15.0.1"));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isPrivatePeer("8.8.8.8"));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isPrivatePeer(null));
         }
     }
 }

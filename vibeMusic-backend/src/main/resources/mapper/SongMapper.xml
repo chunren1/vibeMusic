@@ -6,9 +6,12 @@
         随机获取 N 首已下载歌曲（基于 MAX(id) 随机起点）
         避免 ORDER BY RAND() 的全表排序，也避免深 OFFSET 的扫描退化。
         随机起点后不足 N 首时由调用方用 findFirstSongs 从头补足。
+        显式列：跳过 lyric(TEXT) 与时间戳——调用方只用播放/展示字段，避免白读大列。
     -->
+    <sql id="songPlayColumns">id, source_id, name, artist, album, cover_url, duration, url</sql>
+
     <select id="findRandomSongs" resultType="com.vibemusic.entity.Song">
-        SELECT * FROM song
+        SELECT <include refid="songPlayColumns"/> FROM song
         WHERE id >= (SELECT FLOOR(RAND() * (SELECT MAX(id) FROM song)))
         ORDER BY id
         LIMIT #{count}
@@ -16,7 +19,7 @@
 
     <!-- 从头获取 N 首歌曲（随机起点不足时补足用） -->
     <select id="findFirstSongs" resultType="com.vibemusic.entity.Song">
-        SELECT * FROM song ORDER BY id LIMIT #{count}
+        SELECT <include refid="songPlayColumns"/> FROM song ORDER BY id LIMIT #{count}
     </select>
 
     <!--

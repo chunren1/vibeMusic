@@ -9,6 +9,7 @@ import com.vibemusic.service.RateLimitService;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -21,6 +22,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 /**
  * AI 音乐助手 — Function Calling + 多轮对话记忆 + 真正 SSE 流式
@@ -51,6 +54,13 @@ public class AssistantController {
     private final String thinkingMode;
     private final String apiUrl;
     private static final int AI_RATE_LIMIT = 10;
+    /**
+     * 按 IP 的粗粒度兜底限流（防伪造 deviceId 换桶无限刷）。
+     * 放宽到远高于单人配额，正常 NAT 出口用户不会触达。
+     */
+    private static final int AI_IP_RATE_LIMIT = 30;
+    /** 172.16.0.0/12（docker 网段） */
+    private static final Pattern PRIVATE_172 = Pattern.compile("^172\\.(1[6-9]|2\\d|3[01])\\..*");
 
     public AssistantController(RestTemplate restTemplate,
                                WebClient.Builder webClientBuilder,
@@ -80,7 +90,8 @@ public class AssistantController {
     @Operation(summary = "AI 音乐聊天（Function Calling + 多轮记忆）")
     public Result<Map<String, Object>> chat(@RequestBody Map<String, Object> body,
                                             @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
-                                            @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
+                                            @RequestParam(value = "deviceId", required = false) String paramDeviceId,
+                                            HttpServletRequest request) {
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
         String songContext = (String) body.getOrDefault("context", "");
 
@@ -97,6 +108,8 @@ public class AssistantController {
         String rateKey = "assistant:" + (userId != null ? "user:" + userId : "anon:" + anonymousId);
         if (!rateLimitService.tryAcquire(rateKey, AI_RATE_LIMIT, java.time.Duration.ofMinutes(1)))
             return Result.error(429, "请求太频繁，请稍后再试（每分钟最多 " + AI_RATE_LIMIT + " 次）");
+        if (!rateLimitService.tryAcquire(ipRateKey(request), AI_IP_RATE_LIMIT, java.time.Duration.ofMinutes(1)))
+            return Result.error(429, "请求太频繁，请稍后再试");
 
         try {
             // 构建带历史记忆的消息列表
@@ -165,7 +178,8 @@ public class AssistantController {
     @Operation(summary = "AI 流式聊天（WebClient 真正流式 + 逐 token 输出）")
     public SseEmitter streamChat(@RequestBody Map<String, Object> body,
                                  @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
-                                 @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
+                                 @RequestParam(value = "deviceId", required = false) String paramDeviceId,
+                                 HttpServletRequest request) {
         SseEmitter emitter = new SseEmitter(60_000L);
         String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
         String songContext = (String) body.getOrDefault("context", "");
@@ -191,12 +205,25 @@ public class AssistantController {
             emitter.complete();
             return emitter;
         }
+        if (!rateLimitService.tryAcquire(ipRateKey(request), AI_IP_RATE_LIMIT, java.time.Duration.ofMinutes(1))) {
+            sendEvent(emitter, "error", Map.of("message", "请求太频繁，请稍后再试"));
+            emitter.complete();
+            return emitter;
+        }
 
         List<Map<String, Object>> messages = buildMessagesWithHistory(userId, anonymousId, userMessage, songContext);
 
         // 使用 WebClient 流式消费 LLM SSE 响应
         final Disposable[] disposableHolder = new Disposable[1];
         StringBuilder fullReply = new StringBuilder();
+        // [DONE] 分支与 onComplete 都会到达「流结束」语义：守卫只允许落库一次，
+        // 否则每轮对话在会话记忆里存两份（历史翻倍、token 成本翻倍）。
+        final AtomicBoolean persisted = new AtomicBoolean(false);
+        final Runnable persistOnce = () -> {
+            if (!markPersistedOnce(persisted, fullReply.length())) return;
+            chatMemoryService.appendMessage(userId, "user", userMessage, anonymousId);
+            chatMemoryService.appendMessage(userId, "assistant", fullReply.toString(), anonymousId);
+        };
 
         disposableHolder[0] = webClient.post()
             .header("Authorization", "Bearer " + apiKey)
@@ -209,8 +236,7 @@ public class AssistantController {
                     String data = sse.data();
                     if (data == null || "[DONE]".equals(data.trim())) {
                         // 流结束
-                        chatMemoryService.appendMessage(userId, "user", userMessage, anonymousId);
-                        chatMemoryService.appendMessage(userId, "assistant", fullReply.toString(), anonymousId);
+                        persistOnce.run();
                         sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", aiModel));
                         emitter.complete();
                         return;
@@ -242,10 +268,7 @@ public class AssistantController {
                     emitter.complete();
                 },
                 () -> {
-                    if (fullReply.length() > 0) {
-                        chatMemoryService.appendMessage(userId, "user", userMessage, anonymousId);
-                        chatMemoryService.appendMessage(userId, "assistant", fullReply.toString(), anonymousId);
-                    }
+                    persistOnce.run();
                     sendEvent(emitter, "done", Map.of("full", fullReply.toString(), "model", aiModel));
                     emitter.complete();
                 }
@@ -256,6 +279,42 @@ public class AssistantController {
         emitter.onError(e -> { if (disposableHolder[0] != null) disposableHolder[0].dispose(); });
 
         return emitter;
+    }
+
+    /**
+     * 纯函数：流式会话落库守卫。[DONE] 分支与 onComplete 都会触发"流结束"，
+     * 只有「回复非空」且「首次进入」才落库——防止每轮对话在会话记忆里存两份。
+     */
+    static boolean markPersistedOnce(AtomicBoolean persisted, int replyLength) {
+        if (replyLength <= 0) return false;
+        return persisted.compareAndSet(false, true);
+    }
+
+    /**
+     * 粗粒度按 IP 的匿名兜底限流键来源：仅当直连对端是内网（nginx 容器 / 回环）时
+     * 才信任 {@code X-Real-IP}（nginx 用 {@code $remote_addr} 覆写，客户端无法伪造），
+     * 否则直接用 TCP 对端地址——防止伪造头绕过按 IP 的限流。
+     */
+    static String clientIp(String remoteAddr, String realIpHeader) {
+        if (remoteAddr == null) return "unknown";
+        if (isPrivatePeer(remoteAddr) && realIpHeader != null && !realIpHeader.isBlank()) {
+            String cleaned = realIpHeader.strip().replaceAll("[^0-9A-Fa-f:.]", "");
+            if (!cleaned.isEmpty() && cleaned.length() <= 45) return cleaned;
+        }
+        return remoteAddr;
+    }
+
+    /** 纯函数：是否内网/回环对端（10/8、172.16-31、192.168/16、127.0.0.1、::1）。 */
+    static boolean isPrivatePeer(String ip) {
+        if (ip == null) return false;
+        return ip.equals("127.0.0.1") || ip.equals("::1")
+                || ip.startsWith("10.") || ip.startsWith("192.168.")
+                || PRIVATE_172.matcher(ip).matches();
+    }
+
+    /** 按 IP 兜底限流的 Redis 键（键内只留 IP 允许字符）。 */
+    private static String ipRateKey(HttpServletRequest request) {
+        return "assistant:ip:" + clientIp(request.getRemoteAddr(), request.getHeader("X-Real-IP"));
     }
 
     // ========================== 清除对话记忆 ==========================

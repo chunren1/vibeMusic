@@ -62,8 +62,13 @@ public class PlaylistController {
         List<Map<String, Object>> songs = new ArrayList<>();
         if (tracks != null) {
             for (Map<String, Object> t : tracks) {
+                // 坏行防御：上游缺 id 时 String.valueOf 会产出字面量 "null" 当作 sourceId，
+                // 客户端点它就会去播一首不存在的歌
+                Object rawId = t.get("id");
+                String trackId = rawId == null ? "" : String.valueOf(rawId).trim();
+                if (trackId.isEmpty() || "null".equalsIgnoreCase(trackId)) continue;
                 Map<String, Object> s = new HashMap<>();
-                s.put("id", String.valueOf(t.get("id")));
+                s.put("id", trackId);
                 s.put("name", t.getOrDefault("name", ""));
                 List<Map<String, Object>> ar = (List<Map<String, Object>>) t.get("ar");
                 s.put("artist", ar != null ? ar.stream().map(a -> String.valueOf(a.get("name"))).collect(Collectors.joining("/")) : "");

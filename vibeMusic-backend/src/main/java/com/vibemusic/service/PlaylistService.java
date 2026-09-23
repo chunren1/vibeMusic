@@ -312,9 +312,17 @@ public class PlaylistService {
         // 2. 批量添加歌曲（先批量查询存在的 sourceId，再分批插入）
         int added = 0;
         if (songs.isEmpty()) return added;
+        // 2.0 坏行防御：上游 id 缺失时会经 String.valueOf 变成字面量 "null" 落库成 sourceId
+        List<Map<String, Object>> validSongs = songs.stream()
+                .filter(PlaylistService::hasValidSongId)
+                .collect(Collectors.toList());
+        if (validSongs.size() < songs.size()) {
+            log.info("导入歌单跳过 {} 行无有效 id 的歌曲: playlistId={}", songs.size() - validSongs.size(), pl.getId());
+        }
+        if (validSongs.isEmpty()) return added;
 
         // 2.1 批量查询已存在的 sourceId（1 次 SQL 替代 N 次 DuplicateKeyException）
-        List<String> sourceIds = songs.stream()
+        List<String> sourceIds = validSongs.stream()
                 .map(s -> String.valueOf(s.get("id")))
                 .distinct().collect(Collectors.toList());
         Set<String> existingIds = new HashSet<>(songMapper.selectList(
@@ -325,7 +333,7 @@ public class PlaylistService {
 
         // 2.2 过滤出新歌，分批插入（每批 50，防止大事务锁表）
         String resolvedPlatform = normalizePlatform(source);
-        List<PlaylistSong> toInsert = songs.stream()
+        List<PlaylistSong> toInsert = validSongs.stream()
                 .filter(s -> !existingIds.contains(String.valueOf(s.get("id"))))
                 .map(s -> PlaylistSong.builder()
                         .playlistId(pl.getId())
@@ -346,6 +354,14 @@ public class PlaylistService {
         }
         log.info("用户 {} 导入歌单 [{}] ({} 首歌曲)", userId, name, added);
         return added;
+    }
+
+    /** 纯函数：上游歌曲行是否带有效 id（缺失 / 空白 / 字面量 "null" 一律判无效）。 */
+    static boolean hasValidSongId(Map<String, Object> song) {
+        Object id = song == null ? null : song.get("id");
+        if (id == null) return false;
+        String s = String.valueOf(id).trim();
+        return !s.isEmpty() && !"null".equalsIgnoreCase(s);
     }
 
     /** 归一化平台标识：仅接受 netease/qq/migu/kugou/bilibili，其余回落 netease（与 DB 默认一致） */
