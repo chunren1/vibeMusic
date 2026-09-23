@@ -131,17 +131,10 @@ public class SongSearchService {
     // 成熟音乐投稿播放量 10万–1700万、低质搬运/广告混剪 <5万(如 vivo 广告 2.5万)，
     // 弹幕 36–8万；MV 类投稿常低弹幕(如 98万播放/95弹幕)，故双信号取 OR。
     // 强行 = 有封面 + 标题成形 + (播放>=10万 OR 弹幕>=1000)；弱行(纯 B 站来源)封顶沉底。
-    static final long BILI_MIN_PLAYS = 100_000L;
-    static final long BILI_MIN_DANMAKU = 1_000L;
     // 弱 B 站行封顶 0.5：严格低于 QQ 首名基准分(0.6/1=0.6)，保证弱行永远排不过
     // 任何平台的头名；相关性加成照常计算后再封顶(标题再贴切也不得越线)。
-    static final double BILI_WEAK_SCORE_CAP = 0.5;
     private static final double CROSS_PLATFORM_BONUS = 0.3;
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
-    private static final double RELEVANCE_EXACT_NAME_BONUS = 2.0;
-    private static final double RELEVANCE_NAME_CONTAINS_BONUS = 1.0;
-    private static final double RELEVANCE_ARTIST_BONUS = 1.0;
-    private static final double RELEVANCE_NAME_AND_ARTIST_BONUS = 1.0;
     private static final int PER_PLATFORM_FETCH = 40;
     private static final int SEARCH_TIMEOUT_SEC = 4;
     /** 搜索 keyword 最大长度：超长截断，防上游/缓存键膨胀（与 size<=100 同属入参校验层）。 */
@@ -149,7 +142,6 @@ public class SongSearchService {
     /** 随机推荐 count 上限：直通 DB LIMIT（含 lyric TEXT），必须封顶。 */
     public static final int MAX_RANDOM_COUNT = 50;
     // 非 VIP 加权：用户侧无 VIP，适度降权付费内容（见 applyNonVipBonus 注释）。
-    static final double NON_VIP_BONUS = 0.5;
     /**
      * 标题长度罚分：超过阈值的标题按超出字数线性扣分并封顶。
      * 阈值 30 字：正常单曲中文名多为 1–10 字，即使带 "(Live版)" / "feat. X" 等
@@ -160,9 +152,6 @@ public class SongSearchService {
      * 不超过最大相关性信号；扣分后下限钳制 0，保证排序分非负、返回结构不变。
      * 按码点计数：emoji 堆砌标题按一个可见字符计，不因 UTF-16 代理对被双倍惩罚。
      */
-    static final int TITLE_LENGTH_FREE = 30;
-    static final double TITLE_LENGTH_PENALTY_PER_CHAR = 0.05;
-    static final double TITLE_LENGTH_PENALTY_MAX = 2.0;
     // 未获单飞锁时的 bounded 退避轮询：持锁者仍在搜索中，立即重读必 miss；
     // 短暂等待让持锁者回写缓存，并发同关键词请求共享结果而非各自穿透上游。
     // 退避序列 150/300/600/1200ms（累计 2.25s），仍 < SEARCH_TIMEOUT_SEC=4s 预算，
@@ -179,7 +168,6 @@ public class SongSearchService {
     static final String QQ_BREAKER_REDIS_KEY = "circuit:qq:v1";
     private static final String QQ_BREAKER_F_FAILURES = "failures";
     private static final String QQ_BREAKER_F_OPENED_AT = "openedAt";
-    private static final Pattern NON_ALPHANUM = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
     // ======== QQ 熔断器状态（进程内内存；单实例部署假设，多实例需 Redis 共享，此处从简） ========
     // service 为单例，状态变更统一在 qqBreakerLock 下，计数器用 AtomicInteger，时钟 volatile 可注入（测试用）。
@@ -431,10 +419,10 @@ public class SongSearchService {
 
         List<SongDTO> merged = new ArrayList<>(mergedMap.values());
         long relevanceStart = System.currentTimeMillis();
-        applyRelevanceBonus(merged, keyword);
-        applyNonVipBonus(merged);
-        applyTitleLengthPenalty(merged);
-        applyBiliPlayGate(merged);
+        SongRanking.applyRelevanceBonus(merged, keyword);
+        SongRanking.applyNonVipBonus(merged);
+        SongRanking.applyTitleLengthPenalty(merged);
+        SongRanking.applyBiliPlayGate(merged);
         log.info("[SEARCH-RANK] 相关性重排: keyword='{}', count={}, relevance-cost={}ms",
                 keyword, merged.size(), System.currentTimeMillis() - relevanceStart);
         merged.sort((a, b) -> Double.compare(
@@ -449,14 +437,14 @@ public class SongSearchService {
             SongDTO song = songs.get(i);
             song.setPlatform(platform);
             song.setAvailableSources(new ArrayList<>(List.of(platform)));
-            song.setFinalScore(computeScore(i + 1, weight));
-            String key = normalizeKey(song.getName(), song.getArtist());
+            song.setFinalScore(SongRanking.computeScore(i + 1, weight));
+            String key = SongRanking.normalizeKey(song.getName(), song.getArtist());
             SongDTO existing = mergedMap.get(key);
 
             if (existing != null && mergeOnDuplicate) {
                 List<String> allSources = new ArrayList<>(existing.getAvailableSources());
                 if (!allSources.contains(platform)) allSources.add(platform);
-                SongDTO winner = pickBest(existing, song);
+                SongDTO winner = SongRanking.pickBest(existing, song);
                 winner.setAvailableSources(allSources);
                 winner.setFinalScore(Math.max(existing.getFinalScore(), song.getFinalScore()) + CROSS_PLATFORM_BONUS);
                 mergedMap.put(key, winner);
@@ -507,173 +495,6 @@ public class SongSearchService {
             songs.addAll(dbDtos);
         }
         return songs;
-    }
-
-    // ==================== 私有辅助方法 ====================
-
-    private double computeScore(int rank, double platformWeight) {
-        return (1.0 / rank) * platformWeight;
-    }
-
-    private SongDTO pickBest(SongDTO a, SongDTO b) {
-        boolean aTrial = a.getDuration() != null && a.getDuration() <= 30;
-        boolean bTrial = b.getDuration() != null && b.getDuration() <= 30;
-        if (aTrial && !bTrial) return b;
-        if (!aTrial && bTrial) return a;
-        double aQ = qualityScore(a);
-        double bQ = qualityScore(b);
-        if (aQ != bQ) return aQ > bQ ? a : b;
-        double aS = a.getFinalScore() != null ? a.getFinalScore() : 0;
-        double bS = b.getFinalScore() != null ? b.getFinalScore() : 0;
-        return aS >= bS ? a : b;
-    }
-
-    private double qualityScore(SongDTO song) {
-        double score = 0;
-        if (song.getAlbum() != null && !song.getAlbum().isEmpty()) score += 0.5;
-        if (song.getCoverUrl() != null && !song.getCoverUrl().isEmpty()) score += 0.5;
-        return score;
-    }
-
-    private String normalizeKey(String name, String artist) {
-        return normalizeText((name != null ? name : "") + "|" + (artist != null ? artist : ""));
-    }
-
-    private String normalizeText(String s) {
-        if (s == null) return "";
-        return NON_ALPHANUM.matcher(s.toLowerCase().replaceAll("\\s+", "")).replaceAll("");
-    }
-
-    private List<String> tokenizeQuery(String keyword) {
-        if (keyword == null) return List.of();
-        return Arrays.stream(keyword.trim().split("\\s+"))
-                .map(this::normalizeText)
-                .filter(t -> !t.isEmpty())
-                .collect(Collectors.toList());
-    }
-
-    private void applyRelevanceBonus(List<SongDTO> merged, String keyword) {
-        if (merged.isEmpty()) return;
-        List<String> tokens = tokenizeQuery(keyword);
-        if (tokens.isEmpty()) return;
-        String normQuery = normalizeText(keyword);
-        for (SongDTO song : merged) {
-            double bonus = computeRelevanceBonus(song, tokens, normQuery);
-            if (bonus > 0) {
-                double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
-                song.setFinalScore(base + bonus);
-            }
-        }
-    }
-
-    private double computeRelevanceBonus(SongDTO song, List<String> normTokens, String normQuery) {
-        String normName = normalizeText(song.getName());
-        if (normName.isEmpty()) return 0;
-        String normArtist = normalizeText(song.getArtist());
-        double bonus = 0;
-        boolean nameMatch = false;
-        if (!normQuery.isEmpty() && normName.equals(normQuery)) {
-            bonus += RELEVANCE_EXACT_NAME_BONUS;
-            nameMatch = true;
-        } else {
-            for (String t : normTokens) {
-                if (normName.equals(t)) {
-                    bonus += RELEVANCE_EXACT_NAME_BONUS;
-                    nameMatch = true;
-                    break;
-                }
-            }
-            if (!nameMatch) {
-                for (String t : normTokens) {
-                    if (normName.contains(t) || t.contains(normName)) {
-                        bonus += RELEVANCE_NAME_CONTAINS_BONUS;
-                        nameMatch = true;
-                        break;
-                    }
-                }
-            }
-        }
-        boolean artistMatch = false;
-        if (!normArtist.isEmpty()) {
-            for (String t : normTokens) {
-                if (normArtist.contains(t) || t.contains(normArtist)) {
-                    bonus += RELEVANCE_ARTIST_BONUS;
-                    artistMatch = true;
-                    break;
-                }
-            }
-        }
-        if (nameMatch && artistMatch) bonus += RELEVANCE_NAME_AND_ARTIST_BONUS;
-        return bonus;
-    }
-
-    /**
-     * B 站播放量门控：纯 B 站来源行必须同时满足歌曲形态(有封面 + 标题成形)与
-     * 热度(播放量或弹幕任一达标)，否则封顶至 {@link #BILI_WEAK_SCORE_CAP} 沉底。
-     * 跨平台合并行(availableSources 含其他平台)不封顶：该行有多源可用性背书，
-     * 质量由 pickBest 的专辑/封面完整度决定，不再受单源热度惩罚。
-     */
-    private void applyBiliPlayGate(List<SongDTO> merged) {
-        for (SongDTO song : merged) {
-            if (!"bilibili".equals(song.getPlatform())) continue;
-            List<String> sources = song.getAvailableSources();
-            if (sources != null && !(sources.size() == 1 && sources.contains("bilibili"))) continue;
-            if (isBiliStrong(song)) continue;
-            double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
-            if (base > BILI_WEAK_SCORE_CAP) {
-                song.setFinalScore(BILI_WEAK_SCORE_CAP);
-                log.debug("[BILI-GATE] 弱行沉底: name='{}', cover={}, plays={}, danmaku={}",
-                        song.getName(), song.getCoverUrl() != null && !song.getCoverUrl().isBlank(),
-                        song.getPlayCount(), song.getDanmakuCount());
-            }
-        }
-    }
-
-    /**
-     * 强 B 站行判定：有封面(经 image-proxy 代取后恒非空，空=上游缺图) +
-     * 标题成形(非空、≤60字、无残留视频标题括号【】，即网关解析成功或本就干净) +
-     * (播放量达标 OR 弹幕达标；缺失(null，老缓存/ES回填)按 0 计→弱行)。
-     */
-    static boolean isBiliStrong(SongDTO song) {
-        if (song.getCoverUrl() == null || song.getCoverUrl().isBlank()) return false;
-        String name = song.getName();
-        if (name == null || name.isBlank() || name.length() > 60) return false;
-        if (name.contains("【") || name.contains("】")) return false;
-        long plays = song.getPlayCount() != null ? song.getPlayCount() : 0L;
-        long danmaku = song.getDanmakuCount() != null ? song.getDanmakuCount() : 0L;
-        return plays >= BILI_MIN_PLAYS || danmaku >= BILI_MIN_DANMAKU;
-    }
-
-    /**
-     * 非 VIP 加权（merge 后统一追加，不碰 pickBest 试听版逻辑）。
-     * vip == false（上游明确非付费）→ +0.5；vip == true → +0；
-     * vip == null（上游未知，ES/DB 回填结果亦无此字段）→ +0：未知不得排到已知可用之前。
-     */
-    private void applyNonVipBonus(List<SongDTO> merged) {
-        for (SongDTO song : merged) {
-            if (Boolean.FALSE.equals(song.getVip())) {
-                double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
-                song.setFinalScore(base + NON_VIP_BONUS);
-            }
-        }
-    }
-
-    static double titleLengthPenalty(String name) {
-        if (name == null || name.isEmpty()) return 0;
-        int len = name.codePointCount(0, name.length());
-        if (len <= TITLE_LENGTH_FREE) return 0;
-        return Math.min(TITLE_LENGTH_PENALTY_MAX,
-                (len - TITLE_LENGTH_FREE) * TITLE_LENGTH_PENALTY_PER_CHAR);
-    }
-
-    private void applyTitleLengthPenalty(List<SongDTO> merged) {
-        for (SongDTO song : merged) {
-            double penalty = titleLengthPenalty(song.getName());
-            if (penalty > 0) {
-                double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
-                song.setFinalScore(Math.max(0, base - penalty));
-            }
-        }
     }
 
     // ==================== QQ 熔断器状态机 ====================

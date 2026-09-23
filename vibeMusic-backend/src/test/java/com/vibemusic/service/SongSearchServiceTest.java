@@ -1014,26 +1014,26 @@ class SongSearchServiceTest {
                     .coverUrl("https://i0.hdslb.com/x.jpg").build();
             SongDTO playsOk = SongDTO.builder().name("晴天").artist("周杰伦")
                     .coverUrl("https://i0.hdslb.com/x.jpg").playCount(100_000L).danmakuCount(0L).build();
-            assertTrue(SongSearchService.isBiliStrong(playsOk));
+            assertTrue(SongRanking.isBiliStrong(playsOk));
             SongDTO playsShort = SongDTO.builder().name("晴天").artist("周杰伦")
                     .coverUrl("https://i0.hdslb.com/x.jpg").playCount(99_999L).danmakuCount(999L).build();
-            assertFalse(SongSearchService.isBiliStrong(playsShort));
+            assertFalse(SongRanking.isBiliStrong(playsShort));
             SongDTO danmakuOk = SongDTO.builder().name("晴天").artist("周杰伦")
                     .coverUrl("https://i0.hdslb.com/x.jpg").playCount(50_000L).danmakuCount(1_000L).build();
-            assertTrue(SongSearchService.isBiliStrong(danmakuOk));
+            assertTrue(SongRanking.isBiliStrong(danmakuOk));
             // 无封面：播放再高也弱
             SongDTO noCover = SongDTO.builder().name("晴天").artist("周杰伦")
                     .coverUrl("").playCount(9_000_000L).danmakuCount(80_000L).build();
-            assertFalse(SongSearchService.isBiliStrong(noCover));
+            assertFalse(SongRanking.isBiliStrong(noCover));
             // 热度未知(null，老缓存形态)：按 0 计→弱
-            assertFalse(SongSearchService.isBiliStrong(base));
+            assertFalse(SongRanking.isBiliStrong(base));
             // 超长标题/残留括号→弱
             SongDTO longName = SongDTO.builder().name("晴".repeat(61)).artist("周杰伦")
                     .coverUrl("https://i0.hdslb.com/x.jpg").playCount(9_000_000L).build();
-            assertFalse(SongSearchService.isBiliStrong(longName));
+            assertFalse(SongRanking.isBiliStrong(longName));
             SongDTO rawTitle = SongDTO.builder().name("【4K】晴天").artist("周杰伦")
                     .coverUrl("https://i0.hdslb.com/x.jpg").playCount(9_000_000L).build();
-            assertFalse(SongSearchService.isBiliStrong(rawTitle));
+            assertFalse(SongRanking.isBiliStrong(rawTitle));
         }
 
         @Test @DisplayName("B站封面走 image-proxy 代取：hdslb 代理、他站 https 原样")
@@ -1407,26 +1407,26 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("阈值内不扣分：30字恰好免罚，31字起罚")
         void boundaryAtThirtyChars() {
-            assertEquals(0, SongSearchService.titleLengthPenalty("晴".repeat(30)), 1e-9);
-            assertEquals(0, SongSearchService.titleLengthPenalty("晴天"), 1e-9);
-            assertEquals(0.05, SongSearchService.titleLengthPenalty("晴".repeat(31)), 1e-9);
+            assertEquals(0, SongRanking.titleLengthPenalty("晴".repeat(30)), 1e-9);
+            assertEquals(0, SongRanking.titleLengthPenalty("晴天"), 1e-9);
+            assertEquals(0.05, SongRanking.titleLengthPenalty("晴".repeat(31)), 1e-9);
         }
 
         @Test @DisplayName("罚分渐进：越长扣得越多，封顶2.0")
         void penaltyProgressiveAndCapped() {
-            double p40 = SongSearchService.titleLengthPenalty("晴".repeat(40));
-            double p50 = SongSearchService.titleLengthPenalty("晴".repeat(50));
+            double p40 = SongRanking.titleLengthPenalty("晴".repeat(40));
+            double p50 = SongRanking.titleLengthPenalty("晴".repeat(50));
             assertEquals(0.5, p40, 1e-9);
             assertEquals(1.0, p50, 1e-9);
             assertTrue(p50 > p40, "更长标题罚分应更大");
-            assertEquals(2.0, SongSearchService.titleLengthPenalty("晴".repeat(70)), 1e-9);
-            assertEquals(2.0, SongSearchService.titleLengthPenalty("晴".repeat(200)), 1e-9);
+            assertEquals(2.0, SongRanking.titleLengthPenalty("晴".repeat(70)), 1e-9);
+            assertEquals(2.0, SongRanking.titleLengthPenalty("晴".repeat(200)), 1e-9);
         }
 
         @Test @DisplayName("空标题与null不扣分不抛异常")
         void nullAndEmptyTitleNoPenalty() {
-            assertEquals(0, SongSearchService.titleLengthPenalty(null), 1e-9);
-            assertEquals(0, SongSearchService.titleLengthPenalty(""), 1e-9);
+            assertEquals(0, SongRanking.titleLengthPenalty(null), 1e-9);
+            assertEquals(0, SongRanking.titleLengthPenalty(""), 1e-9);
         }
 
         @Test @DisplayName("超长拼盘标题沉到正常单曲之下")
