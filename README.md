@@ -7,11 +7,11 @@
 
 <p align="center">
   <a href="https://vibe.cyk666.top"><img src="https://img.shields.io/badge/Live%20Demo-vibe.cyk666.top-ff6b6b?style=for-the-badge&logo=vercel" alt="Live Demo"></a>
-  <a href="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml"><img src="https://github.com/chunren1/vibeMusic/actions/workflows/test.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/chunren1/vibeMusic/actions/workflows/ci.yml"><img src="https://github.com/chunren1/vibeMusic/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/chunren1/vibeMusic"><img src="https://img.shields.io/badge/coverage-60%25%2B%20gate-brightgreen" alt="Coverage"></a>
   <a href="https://adoptium.net/"><img src="https://img.shields.io/badge/Java-17-orange" alt="Java"></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3.5-4FC08D" alt="Vue"></a>
-  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-14_Services-2496ED" alt="Docker"></a>
+  <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/Docker-12_Services-2496ED" alt="Docker"></a>
 </p>
 
 ---
@@ -36,7 +36,7 @@
 - **缓存**：Redis（TTL 6h）→ 直调 API 两级链路，保障搜索 SLA
 - **BYOC（用户自带凭证）**：多租户凭证隔离架构——用户级密钥 AES-GCM 加密存储、请求级透传、缓存级隔离（个人结果永不落入共享缓存），附带过期检测与重绑引导
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
-- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions CI/CD + 703 条测试（后端 415 · 网关 121 · 前端 167）
+- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions CI/CD + 711 条测试（后端 420 · 网关 121 · 前端 170）
 
 ---
 
@@ -58,16 +58,17 @@ git clone https://github.com/chunren1/vibeMusic.git
 npm run install:all
 npm run dev
 
-# Docker 全栈部署
+# Docker 全栈部署（后端镜像 COPY target/*.jar，必须先打包，否则构建失败）
 npm run build
+cd vibeMusic-backend && ./mvnw package -DskipTests && cd ..
 docker compose up -d
 ```
 
 | 服务 | 地址 |
 |------|------|
 | Web | http://localhost |
-| API 文档 | http://localhost:8080/swagger-ui.html |
-| Grafana | http://localhost:3001 |
+| API 文档 | http://localhost:8080/swagger-ui.html（仅 dev profile；docker profile 已关闭 swagger） |
+| 监控 | 本机 `monitoring/` 栈（Grafana 127.0.0.1:3001）；主栈 compose 不映射 Prometheus/Grafana 端口 |
 
 ---
 
@@ -124,7 +125,7 @@ docker compose up -d
 <table>
   <tr>
     <td width="50%" align="center">
-      <strong>14 服务编排</strong><br/>
+      <strong>12 服务编排</strong><br/>
       <img src="image/docker.png" alt="Docker" width="100%" />
     </td>
     <td width="50%" align="center">
@@ -297,7 +298,7 @@ CI 中的 infra-lint job 会对该 YAML 做语法与 `tail_sampling` 策略校�
 | ✅ **v2** | AI 助手 · 双源聚合 · 推荐引擎 · 歌单导入 |
 | ✅ **v3** | 缓存降级 · 幂等守卫 · 限流 · 连接池 |
 | ✅ **v4** | 654 测试（后端 392 · 网关 105 · 前端 157）· JaCoCo 60% · GitHub CI |
-| ✅ **v5** | Docker 14 服务 · Prometheus · Grafana · 告警 |
+| ✅ **v5** | Docker 编排 · Prometheus · Grafana · 告警 |
 | ✅ **v6** | K6 压测达标 · 音频并行降级 · 收藏重试 |
 | ⬜ **v7** | Kubernetes 部署 · ArgoCD · OpenTelemetry（未建设） |
 | ✅ **v8** | 多源聚合搜索（统一归一化 / 指纹去重 / 故障自动降级）· 缓存架构简化为 Redis 两级 |

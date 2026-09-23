@@ -10,8 +10,12 @@ on:
       - 'vibeMusic-backend/**'
       - 'vibemusic-web/**'
       - 'musicapi/**'
-      - 'docker-compose.yml'
+      - 'docker-compose*.yml'
       - 'docker-data/**'
+      # nginx / monitoring / scripts 改动此前不触发任何 job（改坏反代配置无人发现）
+      - 'nginx/**'
+      - 'monitoring/**'
+      - 'scripts/**'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [main, master]
@@ -19,8 +23,11 @@ on:
       - 'vibeMusic-backend/**'
       - 'vibemusic-web/**'
       - 'musicapi/**'
-      - 'docker-compose.yml'
+      - 'docker-compose*.yml'
       - 'docker-data/**'
+      - 'nginx/**'
+      - 'monitoring/**'
+      - 'scripts/**'
 
 permissions:
   contents: read
@@ -182,6 +189,44 @@ jobs:
           # CI 无 .env，这里给占位值让语法校验可通过
           JWT_SECRET: ci-lint-placeholder
           GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
+
+      - name: Check nginx config syntax
+        run: |
+          # dummy 证书 + host 映射，跑真 nginx 做 -t（此前改坏 nginx.conf 不触发任何校验）
+          mkdir -p /tmp/nginx-t/certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout /tmp/nginx-t/certs/privkey.pem \
+            -out /tmp/nginx-t/certs/fullchain.pem \
+            -subj "/CN=ci.local" >/dev/null 2>&1
+          # nginx/nginx.conf 是完整配置（含 user/events/http），要替换主配置而非放进 conf.d
+          # upstream 主机名在 CI 里不存在 → 用 --add-host 指向回环，只校验语法
+          docker run --rm \
+            --add-host backend:127.0.0.1 --add-host musicapi:127.0.0.1 \
+            -v "$PWD/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v /tmp/nginx-t/certs:/etc/nginx/certs:ro \
+            nginx:1.27-alpine nginx -t
+
+      - name: Check npm docker scripts reference real compose services
+        run: |
+          python3 << 'PY'
+          import json, re, subprocess, sys
+          services = set(subprocess.run(
+              ['docker', 'compose', '-f', 'docker-compose.yml', 'config', '--services'],
+              capture_output=True, text=True, check=True).stdout.split())
+          scripts = json.load(open('package.json'))['scripts']
+          bad = []
+          for name, cmd in scripts.items():
+              for m in re.finditer(r'docker compose up -d ([\w\- ]+)', cmd):
+                  for svc in m.group(1).split():
+                      if svc.startswith('-'):
+                          continue  # 跳过 --build 之类的参数
+                      if svc not in services:
+                          bad.append(f"{name} -> {svc}")
+          if bad:
+              print("::error::npm docker 脚本引用了不存在的服务: " + ", ".join(bad))
+              sys.exit(1)
+          print(f"npm docker 脚本引用的服务全部存在（compose 共 {len(services)} 个）")
+          PY
 
       - name: Validate otel-collector config YAML syntax
         run: |

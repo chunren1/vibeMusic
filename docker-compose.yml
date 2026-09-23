@@ -118,7 +118,8 @@ services:
   # MinIO 对象存储
   # ==========================
   minio:
-    image: minio/minio:latest
+    # 摘要钉版（=RELEASE.2025-09-07T16-13-09Z，本机长期验证过的镜像）：latest 重建会漂移
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     container_name: vibemusic-minio
     restart: unless-stopped
     logging: *default-logging
@@ -254,7 +255,8 @@ services:
       retries: 3
 
   minio-init:
-    image: minio/mc:latest
+    # 摘要钉版（与本机 minio RELEASE 配套验证过）；latest 重建会漂移
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     container_name: vibemusic-minio-init
     logging: *default-logging
     <<: *resources-small
@@ -275,7 +277,8 @@ services:
   # Prometheus — 指标采集与存储
   # ==========================
   prometheus:
-    image: prom/prometheus:latest
+    # 摘要钉版（=v2.53.1，与本机 monitoring 栈一致）
+    image: prom/prometheus@sha256:f20d3127bf2876f4a1df76246fca576b41ddf1125ed1c546fbd8b16ea55117e6
     container_name: vibemusic-prometheus
     restart: unless-stopped
     logging: *default-logging
@@ -381,7 +384,8 @@ services:
   # Redis Exporter — 将 Redis 指标暴露为 Prometheus 格式
   # ==========================
   redis-exporter:
-    image: oliver006/redis_exporter:latest
+    # 摘要钉版（=v1.89.0）
+    image: oliver006/redis_exporter@sha256:fed773ffd2bb2eac706e0ed9cc2fff41651193ee4977e2a4f6919658ad2313f4
     container_name: vibemusic-redis-exporter
     restart: unless-stopped
     logging: *default-logging
@@ -399,7 +403,8 @@ services:
   # MinIO 每日备份（将对象存储同步到本地备份目录）
   # ==========================
   minio-backup:
-    image: minio/mc:latest
+    # 摘要钉版（与本机 minio RELEASE 配套验证过）；latest 重建会漂移
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     container_name: vibemusic-minio-backup
     restart: unless-stopped
     logging: *default-logging

@@ -197,17 +197,23 @@ curl -k https://localhost/api/songs/search?keyword=test  # API 正常
 | 服务 | 端口 | 说明 |
 |------|------|------|
 | Nginx (HTTPS) | 80, 443 | 统一入口，自动 HTTP→HTTPS 跳转 |
-| Spring Boot | 8080 | 后端 API |
-| MySQL | 3306 | 关系数据库 |
-| Redis | 6379 | 缓存 |
-| MinIO | 9000, 9001 | 对象存储（API + 控制台） |
-| Elasticsearch | 9201 | 搜索缓存 |
-| musicapi | 3000 | 网易云 + QQ 音乐 API 代理 |
-| Prometheus | 9090 | 指标采集 |
-| Grafana | 3001 | 可视化仪表盘 |
-| Alertmanager | 9093 | 告警管理 |
+| Spring Boot | 8080（仅回环） | 后端 API |
+| musicapi | 3000（仅回环） | 网易云 + QQ + 酷狗 + 咪咕 + B站 API 代理 |
+| MySQL | 3306（仅回环） | 关系数据库 |
+| Redis | 6379（仅回环） | 缓存 |
+| MinIO | 9000, 9001（仅回环） | 对象存储（API + 控制台） |
+| minio-init | — | 一次性初始化 bucket |
+| MySQL Backup | — | 每日备份（含校验和与 flock 互斥） |
+| MinIO Backup | — | 每日对象存储备份 |
+| Redis Exporter | 9121（仅回环） | Redis 指标 |
+| Prometheus | 9090（默认不映射） | 指标采集——云上 1.6G 内存不启动；监控中心在本机 `monitoring/` 栈 |
+| Grafana | 3000/3001 | 同上：主栈不映射端口，见 `monitoring/` |
 
-**自动备份**：MySQL 每天凌晨 2 点备份到 `docker-data/backups/mysql/`，保留 30 天。
+> 删除了历史文档中的 Elasticsearch（已下线）与 Alertmanager（已删除）——改动前请以
+> `docker compose config --services` 的输出为准（CI 已加服务名对账）。
+
+**自动备份**：MySQL 每天凌晨 2 点备份到 `docker-data/backups/mysql/`，保留 30 天；MinIO 同理；
+两份备份目前与数据同机同盘（异地副本待建，见 round6 审查）。
 
 ---
 
@@ -326,8 +332,11 @@ docker compose up -d --build backend nginx
 ### 扩容（多实例）
 
 ```bash
-docker compose up -d --scale backend=3
-# 3 个后端实例，Nginx 自动负载均衡
+# 注意：主 compose 的 backend 带固定 container_name 与固定端口映射，
+# 直接 --scale 会因名字/端口冲突失败。要横向扩容需先去掉 container_name
+# 与 ports 映射（改成仅走 compose 内部网络），示例：
+#   docker compose -f docker-compose.scale.yml up -d --scale backend=3
+# 当前单机 1.6G 内存的部署形态不支持多实例，此处仅留说明。
 ```
 
 ---
