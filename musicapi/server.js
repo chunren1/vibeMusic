@@ -11,7 +11,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const express = require('express');
 const cors = require('cors');
 
-const { writeLog } = require('./src/logger');
+const { writeLog, logManager } = require('./src/logger');
 const { globalLimiter } = require('./src/rate-limiters');
 const { register, metricsMiddleware } = require('./src/metrics');
 const { canReadMetrics, clientIp } = require('./src/access');
@@ -91,10 +91,43 @@ app.get('/metrics', async (req, res) => {
 // favicon 占位（避免 404 日志）
 app.get('/favicon.ico', (req, res) => res.status(204).end());
 
-// 防止 qq-music-api 内部未捕获异常导致进程崩溃
+// 未捕获 Promise 拒绝：记录后继续（保持现状语义——单个请求失败不该杀进程）
 process.on('unhandledRejection', (reason) => {
   writeLog('api', 'ERROR', `[unhandledRejection] ${reason?.message || reason}`);
 });
+
+// 同步异常兜底：记录后优雅退出。未知状态继续服务比重启更危险（容器 restart 策略会拉起）。
+process.on('uncaughtException', (err) => {
+  writeLog('api', 'ERROR', `[uncaughtException] ${err?.stack || err?.message || err}`);
+  gracefulShutdown('uncaughtException', 1);
+});
+
+// SIGTERM/SIGINT 收尾：停止接受新连接 → 等在飞日志落盘 → 退出。
+// 此前没有收尾逻辑，docker stop 会直接 SIGKILL，在飞的 appendFile 被截断。
+let shuttingDown = false;
+function gracefulShutdown(reason, exitCode) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  writeLog('api', 'INFO', `[shutdown] 收到 ${reason}，停止接受新连接并 flush 日志`);
+  const finish = async (code) => {
+    try {
+      await logManager.flush(2000);
+    } catch (e) {
+      console.error('[shutdown] flush 日志失败:', e.message);
+    }
+    process.exit(code);
+  };
+  try {
+    server.close(() => finish(exitCode));
+  } catch (e) {
+    writeLog('api', 'WARN', `[shutdown] server.close 异常: ${e.message}`);
+    finish(exitCode);
+  }
+  // 兜底：5s 内没关干净就强退（unref 不阻塞正常退出）
+  setTimeout(() => finish(exitCode), 5000).unref();
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM', 0));
+process.on('SIGINT', () => gracefulShutdown('SIGINT', 0));
 
 // 启动时检查一次（容错：即使崩溃也不影响启动），之后每 15 分钟检查
 (async () => { try { await cookie.checkCookies(); } catch (e) { writeLog('cookie', 'ERROR', `Cookie check crashed: ${e.message}`); } })();

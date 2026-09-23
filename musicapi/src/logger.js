@@ -10,6 +10,7 @@ class LogManager {
     this.retentionDays = retentionDays;
     this.streams = {};
     this.currentDate = '';
+    this._pending = 0; // 在飞 appendFile 计数（flush 用）
     this._rotate();
     this._scheduleMidnightRotation();
   }
@@ -81,9 +82,25 @@ class LogManager {
     if (stream) {
       const timestamp = new Date().toISOString();
       const line = `[${timestamp}] [${level}] ${message}\n`;
-      // 使用异步写入避免阻塞事件循环
-      fs.appendFile(path.join(LOG_DIR, `${category}.${this.currentDate}.log`), line, () => {});
+      // 异步写入避免阻塞事件循环；失败必须留痕（此前回调用空函数，写失败完全静默）
+      this._pending++;
+      fs.appendFile(path.join(LOG_DIR, `${category}.${this.currentDate}.log`), line, (err) => {
+        this._pending--;
+        if (err) console.error(`[LogManager] 写入失败 ${category}: ${err.message}`);
+      });
     }
+  }
+
+  /**
+   * 等待在飞写入落盘（优雅退出用），最多等 ms 毫秒。
+   * 返回值：true=已全部落盘，false=超时仍有未完成写入。
+   */
+  async flush(ms = 2000) {
+    const deadline = Date.now() + ms;
+    while (this._pending > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return this._pending === 0;
   }
 }
 

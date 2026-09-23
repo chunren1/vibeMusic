@@ -89,6 +89,13 @@ function scrubSecrets(value, depth = 0) {
   return value;
 }
 
+// 上游响应统一出口：一律经 scrubSecrets 剥离回显的登录态再返回调用方。
+// 收敛前 /lyric、/song/url/v1、/personalized 直接 res.json(result.body)，与 680 行通配路由
+// 两套口径——同一上游的响应不该有的脱敏有的不脱敏。
+function sendUpstreamBody(res, body) {
+  res.json(scrubSecrets(body));
+}
+
 // /refresh-qq-cookie 日志脱敏：只记长度 + 失败时 scrubbed stderr 尾部（≤200 字符）。
 // 遵循 cookie.js「日志只打长度、绝不打值」规范；凭证原文绝不进日志文件。
 // 敏感键清单与 scripts/get_qq_cookie.mjs 的 NEEDED 保持一致（psrf_qqaccess_token/psrf_qqopenid
@@ -442,7 +449,7 @@ function registerRoutes(app) {
         NeteaseCloudMusicApi.lyric(cookie.withNeteaseCookie({ id }, req)),
         UPSTREAM_TIMEOUT, 'netease/lyric'
       );
-      res.json(result.body);
+      sendUpstreamBody(res, result.body);
     } catch (error) {
       writeLog('api', 'ERROR', `[/lyric] ${error.message}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
@@ -459,7 +466,7 @@ function registerRoutes(app) {
         NeteaseCloudMusicApi.song_url_v1(cookie.withNeteaseCookie({ id, level }, req)),
         UPSTREAM_TIMEOUT, 'netease/song_url_v1'
       );
-      res.json(result.body);
+      sendUpstreamBody(res, result.body);
     } catch (error) {
       writeLog('api', 'ERROR', `[/song/url/v1] ${error.message}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
@@ -473,7 +480,7 @@ function registerRoutes(app) {
         NeteaseCloudMusicApi.personalized(cookie.withNeteaseCookie({ limit }, req)),
         UPSTREAM_TIMEOUT, 'netease/personalized'
       );
-      res.json(result.body);
+      sendUpstreamBody(res, result.body);
     } catch (error) {
       writeLog('api', 'ERROR', `[/personalized] ${error.message}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
@@ -677,7 +684,7 @@ function registerRoutes(app) {
           NeteaseCloudMusicApi[apiName](params),
           UPSTREAM_TIMEOUT, `netease/${apiName}`
         );
-        res.json(scrubSecrets(result.body));
+        sendUpstreamBody(res, result.body);
       } else {
         res.status(404).json({ code: 404, message: `API ${apiName} not found` });
       }
