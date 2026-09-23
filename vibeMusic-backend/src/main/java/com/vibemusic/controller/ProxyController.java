@@ -44,9 +44,19 @@ public class ProxyController {
 
     @Operation(summary = "图片代理：拉取网易云/QQ 封面 CDN 图片并回传（仅白名单域名，防 SSRF）")
     @GetMapping("/image-proxy")
-    public void proxyImage(@RequestParam String url, HttpServletResponse response) {
+    public void proxyImage(@RequestParam String url, HttpServletResponse response,
+                           jakarta.servlet.http.HttpServletRequest request) {
         if (url == null || url.isEmpty()) {
             response.setStatus(400);
+            return;
+        }
+
+        // ETag 协商（round6 体验优化）：封面 URL 内容不变，客户端带 If-None-Match 直接 304，
+        // 不出网拉图——重复浏览同一封面零带宽、零延迟。
+        String etag = "\"" + url.hashCode() + "\"";
+        String inm = request.getHeader(HttpHeaders.IF_NONE_MATCH);
+        if (etag.equals(inm)) {
+            response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
 
@@ -77,9 +87,10 @@ public class ProxyController {
                     return;
                 }
 
-                // 缓存 1 小时（网易云封面基本不变）
-                response.setHeader(HttpHeaders.CACHE_CONTROL, "public, max-age=3600");
-                response.setHeader(HttpHeaders.ETAG, "\"" + url.hashCode() + "\"");
+                // 缓存 24 小时（封面 URL 内容寻址、基本不变；round6 由 1h 延长，
+                // App/Web 端 Coil 与浏览器缓存命中后封面秒开）
+                response.setHeader(HttpHeaders.CACHE_CONTROL, "public, max-age=86400");
+                response.setHeader(HttpHeaders.ETAG, etag);
 
                 try (InputStream in = conn.getInputStream();
                      OutputStream out = response.getOutputStream()) {

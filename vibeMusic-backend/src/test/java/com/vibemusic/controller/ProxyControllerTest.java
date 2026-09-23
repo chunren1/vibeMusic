@@ -28,6 +28,15 @@ class ProxyControllerTest extends BaseTest {
         mockMvc = MockMvcBuilders.webAppContextSetup(wac).build();
     }
 
+    @Test
+    @DisplayName("GET /api/image-proxy 带 If-None-Match 匹配 ETag 时返回 304（不出网）")
+    void imageProxyReturns304OnMatchingEtag() throws Exception {
+        String url = "https://p2.music.126.net/abc.jpg";
+        String etag = "\"" + url.hashCode() + "\"";
+        mockMvc.perform(get("/api/image-proxy").param("url", url).header("If-None-Match", etag))
+                .andExpect(status().isNotModified());
+    }
+
     @Nested
     @DisplayName("静态校验方法 isAllowedHost / isAllowedUrl")
     class HostValidation {
