@@ -92,7 +92,9 @@ export function useAudioBackground(audioRef) {
 
   /**
    * 1. Page Visibility API — 前后台切换
-   *    关键改动：进后台不暂停，继续播放；回前台不自动播放
+   *    关键改动：进后台不暂停，继续播放；回前台只恢复"进后台时本来在播"的那次
+   *    （用户主动暂停过的不许被自动续播——此前只要 paused 就 resume，
+   *    wasPausedByBg 是只写不读的死状态，round6 W2）
    */
   function handleVisibilityChange() {
     const hidden = document.hidden || document.visibilityState === 'hidden'
@@ -102,12 +104,15 @@ export function useAudioBackground(audioRef) {
       isBackground.value = true
       bgSince.value = Date.now()
       // IMPORTANT: Don't pause! Keep playing in background
-      wasPausedByBg.value = false
+      // 只记录"当时是否在播"，供回前台时判断是否需要恢复
+      wasPausedByBg.value = !!(audio && !audio.paused)
     } else {
       isBackground.value = false
       bgSince.value = null
-      // 回到前台如果因某些原因暂停了，尝试恢复
-      if (audio?.src && audio.paused && audio.readyState >= 2) {
+      const shouldResume = wasPausedByBg.value
+      wasPausedByBg.value = false
+      // 回到前台：仅当进后台时在播、且现在确实被动暂停了，才尝试恢复
+      if (shouldResume && audio?.src && audio.paused && audio.readyState >= 2) {
         resumePlayback(audio)
       }
     }

@@ -380,13 +380,17 @@ async function fetchLyric(sourceId) {
   if (!sourceId) { lyrics.value = []; loadedForId.value = ''; return }
   // 切歌时保留旧歌词直到新歌词就绪，避免"加载中"闪烁（主流播放器同策略）
   loadingLyric.value = true
+  // 代际守卫：快速连切多首时，先发出的旧请求可能后到达并覆盖新歌歌词
+  const requestedId = sourceId
   try {
     const res = await getLyric(sourceId)
+    if (requestedId !== props.currentSong.id) return
     lyrics.value = res.data || []
     loadedForId.value = sourceId
     currentLyricIndex.value = 0
     setTimeout(() => scrollToCurrent(), 200)
   } catch {
+    if (requestedId !== props.currentSong.id) return
     lyrics.value = []
   }
   finally { loadingLyric.value = false }

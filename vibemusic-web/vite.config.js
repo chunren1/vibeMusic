@@ -76,6 +76,8 @@ export default defineConfig({
     target: 'es2020',
     cssCodeSplit: true,
     assetsInlineLimit: 8192,
+    // 500KB 警告线（原先误写在 rollupOptions.output 下，Vite 不识别，等于没设）
+    chunkSizeWarningLimit: 500,
     minify: 'terser',
     terserOptions: {
       compress: {
@@ -88,7 +90,6 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        chunkSizeWarningLimit: 500,
         manualChunks(id) {
           if (!id.includes('node_modules')) return
           if (id.includes('@sentry')) return 'sentry'

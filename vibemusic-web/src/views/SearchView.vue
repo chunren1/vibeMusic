@@ -21,15 +21,16 @@ const totalPageSize = 40
 const showPlaylistPopup = ref(false)
 const playlistTargetSong = ref(null)
 
-// 输入自动搜索（300ms 防抖）
+// 输入自动搜索（300ms 防抖）——唯一的搜索触发入口，重复触发由 clearTimeout 去重
 let debounceTimer = null
-watch(keyword, () => {
+function scheduleSearch() {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     if (!keyword.value.trim()) { results.value = []; return }
     onSearch()
   }, 300)
-})
+}
+watch(keyword, scheduleSearch)
 
 function fmtSec(s) {
   if (!s) return ''
@@ -74,10 +75,14 @@ function openPlaylistPopup(song) {
 
 favStore.fetchFavIds()
 
-watch(() => route.query.keyword, (val, oldVal) => {
-  // 首次挂载时带关键词直接搜索，后续变化时重新搜索
+watch(() => route.query.keyword, (val) => {
+  // 只同步输入框 + 触发同一条防抖搜索：
+  // 首屏 keyword 已在 setup 里用 route 初始化（值相同不会触发 keyword watcher），
+  // 所以这里必须显式 scheduleSearch，否则带 ?keyword= 进入页面不会搜索。
+  // 不再直接 onSearch：旧实现直搜 + 400ms 后防抖再搜一次，先发的请求被 abort 后
+  // 把结果清空、闪一下"未找到结果"（round6 W5）。
   keyword.value = val || ''
-  if (val && val !== oldVal) onSearch()
+  scheduleSearch()
 }, { immediate: true })
 </script>
 

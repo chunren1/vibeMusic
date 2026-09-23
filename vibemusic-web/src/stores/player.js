@@ -15,6 +15,17 @@ function tryParse(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) || fallback } catch { return fallback }
 }
 
+/**
+ * 音频流 URL 单一构造点（三个调用点共用，避免某处漏传 platform）。
+ * 后端 getPlayUrl 按 platform 选分支；缺失时按 id 猜平台——咪咕数字 id 会被
+ * 当成网易云探测、酷狗 hash 会落 QQ 分支，可能播成另一首歌（round6 W1）。
+ */
+export function buildStreamUrl(sourceId, name, artist, platform) {
+  const base = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}`
+    + `&name=${encodeURIComponent(name || '')}&artist=${encodeURIComponent(artist || '')}`
+  return platform ? `${base}&platform=${encodeURIComponent(platform)}` : base
+}
+
 // ===== 全局快捷键（Spotify 范式：Space 播放/暂停，←/→ 切歌）=====
 // 模块级单例：window 监听只绑定一次，避免 store 重建时监听器累积泄漏
 let _shortcutsBound = false
@@ -132,9 +143,11 @@ export const usePlayerStore = defineStore('player', () => {
   // 音频流断流/错误时自动重试
   let _retryCount = 0
   let _errorLocked = false  // 防止无限重试死循环
+  let _playToken = 0        // 每次 playBySourceId 自增：剔除过期的重试/切歌定时器
   audio.addEventListener('error', () => {
     const err = audio.error
     if (_errorLocked) return  // 已确认无法播放，不再重试
+    const token = _playToken
     if (err && _retryCount < 2 && audio.src) {
       _retryCount++
       const savedTime = audio.currentTime
@@ -142,6 +155,8 @@ export const usePlayerStore = defineStore('player', () => {
       console.warn(`[Player] 音频错误 code=${err.code}, 重试 (${_retryCount}/2)`)
       audio.src = ''
       setTimeout(() => {
+        // 期间用户已切歌/重新播放：这次重试作废，别把旧 src 覆盖回新歌
+        if (token !== _playToken) return
         audio.src = src
         audio.load()
         if (savedTime > 0) audio.currentTime = savedTime
@@ -153,7 +168,13 @@ export const usePlayerStore = defineStore('player', () => {
       isPlaying.value = false
       audio.src = ''
       console.warn('[Player] 重试耗尽，自动切歌')
-      setTimeout(() => { _errorLocked = false; _retryCount = 0; next() }, 500)
+      setTimeout(() => {
+        _errorLocked = false
+        _retryCount = 0
+        // 同上：用户已经换歌就不该再自动 next 跳过新歌
+        if (token !== _playToken) return
+        next()
+      }, 500)
     }
   })
   audio.volume = volume.value / 100
@@ -166,6 +187,7 @@ export const usePlayerStore = defineStore('player', () => {
     if (!sourceId) return
     _retryCount = 0
     _errorLocked = false
+    _playToken++          // 新一轮播放：作废在飞的重试/切歌定时器
     pendingRestore.value = null
     addToQueue({ sourceId, name, artist, coverUrl, duration, platform })
     const idx = queue.value.findIndex(s => s.sourceId === sourceId)
@@ -173,7 +195,7 @@ export const usePlayerStore = defineStore('player', () => {
 
     currentSong.value = { id: sourceId, title: name || '', artist: artist || '', coverUrl: coverUrl || '', duration }
     const plat = platform || (queue.value[idx]?.platform || '')
-    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(sourceId)}&name=${encodeURIComponent(name||'')}&artist=${encodeURIComponent(artist||'')}${plat ? '&platform=' + plat : ''}`
+    audio.src = buildStreamUrl(sourceId, name, artist, plat)
     audio.loop = playMode.value === 'single'
     resumeAudioContext()
     audio.play().catch(err => {
@@ -367,7 +389,8 @@ export const usePlayerStore = defineStore('player', () => {
     const name = currentSong.value.title || ''
     const artist = currentSong.value.artist || ''
     const cachedTime = audio.currentTime || 0
-    audio.src = `${API_HOST}/api/songs/stream?sourceId=${encodeURIComponent(currentSong.value.id)}&name=${encodeURIComponent(name)}&artist=${encodeURIComponent(artist)}`
+    const plat = queue.value[currentIdx.value]?.platform || ''
+    audio.src = buildStreamUrl(currentSong.value.id, name, artist, plat)
     audio.loop = playMode.value === 'single'
     const onMeta = () => {
       if (cachedTime > 0 && audio.duration > 0) {

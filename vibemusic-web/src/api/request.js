@@ -222,7 +222,10 @@ request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res.code !== 200) {
-      if ((res.code === 401 || res.code === 403) && !response.config._isRefresh) {
+      // 只有 401（登录态失效）才进续签/登出流程。
+      // 403 是业务语义（如"无权操作此歌单"、下载白名单外），把它当鉴权失败会让用户
+      // 在无权限场景被静默续签+强制登出——这里按业务错误直接抛给调用方。
+      if ((res.code === 401 || res.code === '401') && !response.config._isRefresh) {
         return onUnauthorized(response.config, new Error(res.message || '请求失败'))
       }
       return Promise.reject(new Error(res.message || '请求失败'))
@@ -232,7 +235,8 @@ request.interceptors.response.use(
   },
   (error) => {
     const status = error.response?.status
-    if ((status === 401 || status === 403) && !error.config?._isRefresh) {
+    // 同上：仅 401 触发登出；403 原样 reject，由调用方决定提示
+    if (status === 401 && !error.config?._isRefresh) {
       return onUnauthorized(error.config, error)
     }
     return Promise.reject(error)

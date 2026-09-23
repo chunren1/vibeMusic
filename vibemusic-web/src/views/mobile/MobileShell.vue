@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { usePlayerStore } from '@/stores/player'
 import MBottomPlayer from '@/components/mobile/MBottomPlayer.vue'
@@ -14,27 +14,44 @@ const showBottomPlayer = computed(() => !isPlayerPage.value)
 
 // 全局播放列表弹窗
 const showQueue = ref(false)
+// 监听器引用提到 setup 作用域：App.vue 在 768px 断点用 v-if 整树切换桌面/移动视图，
+// 不清理会在反复切换时叠加监听器与 window 钩子（round6 W6）
+let flush = null
+let visibilityFlush = null
+let visibilityReset = null
 onMounted(() => {
   window._openQueuePopup = () => { showQueue.value = true }
 
   // 页面关闭/隐藏时强制保存（beforeunload 在移动端不可靠，pagehide 兜底）
-  const flush = () => store.flushSave()
+  flush = () => store.flushSave()
   window.addEventListener('beforeunload', flush)
   window.addEventListener('pagehide', flush)
-  document.addEventListener('visibilitychange', () => {
+  visibilityFlush = () => {
     if (document.hidden) store.flushSave()
-  })
+  }
+  document.addEventListener('visibilitychange', visibilityFlush)
 
   // 防止后台切回时浏览器自动刷新页面
   let wasHidden = false
-  document.addEventListener('visibilitychange', () => {
+  visibilityReset = () => {
     if (document.hidden) {
       wasHidden = true
     } else if (wasHidden) {
       wasHidden = false
       // 恢复前台时不重新挂载，保留当前页面状态
     }
-  })
+  }
+  document.addEventListener('visibilitychange', visibilityReset)
+})
+
+onUnmounted(() => {
+  if (window._openQueuePopup) delete window._openQueuePopup
+  if (flush) {
+    window.removeEventListener('beforeunload', flush)
+    window.removeEventListener('pagehide', flush)
+  }
+  if (visibilityFlush) document.removeEventListener('visibilitychange', visibilityFlush)
+  if (visibilityReset) document.removeEventListener('visibilitychange', visibilityReset)
 })
 </script>
 

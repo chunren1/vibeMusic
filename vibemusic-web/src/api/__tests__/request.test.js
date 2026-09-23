@@ -150,6 +150,42 @@ describe('响应拦截器', () => {
     expect(authMocks.openLogin).toHaveBeenCalled()
   })
 
+  it('code=403（业务无权限）不续签、不登出，原样 reject 给调用方', async () => {
+    authMocks.logout.mockClear()
+    authMocks.openLogin.mockClear()
+    let refreshCalls = 0
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      if (config.url && config.url.includes('/auth/refresh')) {
+        refreshCalls++
+        return { data: { code: 200, data: { token: 't' } }, status: 200, statusText: 'OK', headers: {}, config }
+      }
+      return { data: { code: 403, message: '无权操作此歌单' }, status: 200, statusText: 'OK', headers: {}, config }
+    }
+    setToken('valid-token')
+
+    await expect(request.post('/playlists/delete-batch')).rejects.toThrow('无权操作此歌单')
+    expect(refreshCalls).toBe(0)
+    expect(authMocks.logout).not.toHaveBeenCalled()
+    expect(authMocks.openLogin).not.toHaveBeenCalled()
+  })
+
+  it('HTTP 403 响应不触发登出（只有 401 才走鉴权流程）', async () => {
+    authMocks.logout.mockClear()
+    authMocks.openLogin.mockClear()
+    request.defaults.adapter = async (config) => {
+      captured.push(config)
+      const err = new Error('Request failed with status code 403')
+      err.response = { status: 403, data: { code: 403, message: '无权操作此歌单' }, config }
+      throw err
+    }
+    setToken('valid-token')
+
+    await expect(request.post('/playlists/delete-batch')).rejects.toThrow()
+    expect(authMocks.logout).not.toHaveBeenCalled()
+    expect(authMocks.openLogin).not.toHaveBeenCalled()
+  })
+
   it('code=401 时先静默续签，成功则重发原请求且不登出', async () => {
     let refreshCalls = 0
     request.defaults.adapter = async (config) => {
