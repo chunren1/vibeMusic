@@ -8,7 +8,7 @@ export function safeCapture(error, context = "unknown", extra = {}) {
   try {
     const Sentry = window?.__SENTRY__;
     if (Sentry) Sentry.captureException(error, { tags: { context }, extra });
-  } catch (e) {}
+  } catch { /* ignore */ }
 }
 
 export default safeCapture;

@@ -40,7 +40,7 @@ if (Sentry && SENTRY_DSN) {
 // 全局错误处理（Sentry.init({ app }) 已注入原 handler，先链式调用再补充上报，避免覆盖丢失面包屑）
 const _sentryHandler = app.config.errorHandler
 app.config.errorHandler = (err, vm, info) => {
-  try { _sentryHandler?.(err, vm, info) } catch {}
+  try { _sentryHandler?.(err, vm, info) } catch { /* ignore */ }
   console.error('[Vue Error]', err, 'info:', info)
   safeCapture(err, `Vue ErrorHandler [${info}]`)
   if (Sentry) Sentry.captureException(err, { extra: { info } })

@@ -45,7 +45,7 @@ export const useAuthStore = defineStore('auth', () => {
       import('@/stores/favorite').then(({ useFavoriteStore }) => {
         useFavoriteStore().fetchFavIds()
       }).catch(() => {})
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
     return true
   }
 
@@ -55,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const p = apiLogout()
       if (p && typeof p.catch === 'function') p.catch(() => {})
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
     token.value = null
     user.value = null
     redirectPath.value = null
@@ -72,7 +72,7 @@ export const useAuthStore = defineStore('auth', () => {
         fav.loaded = false
         window.vibeFavIds = fav.favIds
       }).catch(() => {})
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   function openLogin() {
@@ -126,15 +126,15 @@ export const useAuthStore = defineStore('auth', () => {
                   if (t) token.value = t
                 }
               }
-            } catch (_) { /* cookie-based auth already works without Bearer token */ }
+            } catch { /* cookie-based auth already works without Bearer token */ }
             // 会话恢复后拉取本账号收藏（keep-alive 页面不重挂载，靠 store 同步）
             try {
               const { useFavoriteStore } = await import('@/stores/favorite')
               await useFavoriteStore().fetchFavIds()
-            } catch (_) { /* 收藏拉取失败不影响登录态 */ }
+            } catch { /* 收藏拉取失败不影响登录态 */ }
           }
         }
-      } catch (_) { /* 未登录 */ }
+      } catch { /* 未登录 */ }
       sessionChecked.value = true
       _restorePending = null
     })()

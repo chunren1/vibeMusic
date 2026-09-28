@@ -1,4 +1,4 @@
-import { ref, watch, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { API_HOST } from '@/api/request'
 import { playSong as apiPlaySong } from '@/api/song'

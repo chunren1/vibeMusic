@@ -31,7 +31,7 @@ async function loadPlaylists() {
     const res = await getPlaylists()
     playlists.value = (res.data || []).map((p, i) => ({ ...p, _sortIndex: i }))
     renderKey.value++
-  } catch (e) { playlists.value = [] }
+  } catch { playlists.value = [] }
 }
 
 async function handleCreate() {
@@ -82,35 +82,6 @@ async function moveToTop(pl, e) {
     const order = reordered.map((p, i) => ({ playlistId: p.id, sortOrder: i }))
     await reorderPlaylists(order)
     window.toast?.('已置顶', 'success')
-    await loadPlaylists()
-  } catch { window.toast?.('操作失败', 'error') }
-}
-
-async function moveUp(pl, e) {
-  e.stopPropagation()
-  const idx = playlists.value.findIndex(p => p.id === pl.id)
-  if (idx <= 0) { window.toast?.('已在最前', 'info'); return }
-  // 交换目标与前一个的 sortOrder
-  const order = playlists.value.map((p, i) => ({
-    playlistId: p.id,
-    sortOrder: i === idx ? idx - 1 : i === idx - 1 ? idx : i
-  }))
-  try {
-    await reorderPlaylists(order)
-    await loadPlaylists()
-  } catch { window.toast?.('操作失败', 'error') }
-}
-
-async function moveDown(pl, e) {
-  e.stopPropagation()
-  const idx = playlists.value.findIndex(p => p.id === pl.id)
-  if (idx >= playlists.value.length - 1) { window.toast?.('已在最后', 'info'); return }
-  const order = playlists.value.map((p, i) => ({
-    playlistId: p.id,
-    sortOrder: i === idx ? idx + 1 : i === idx + 1 ? idx : i
-  }))
-  try {
-    await reorderPlaylists(order)
     await loadPlaylists()
   } catch { window.toast?.('操作失败', 'error') }
 }

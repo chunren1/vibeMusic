@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import vLazyImg from '@/directives/vLazyImg'
 
 // jsdom 无 IntersectionObserver，mock 之

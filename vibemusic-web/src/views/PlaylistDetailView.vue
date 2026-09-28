@@ -28,7 +28,7 @@ async function load() {
     })
     info.value = res.data
     songs.value = res.data.songs || []
-  } catch (e) {
+  } catch {
     loadError.value = true
   } finally {
     loading.value = false

@@ -15,12 +15,6 @@ const info = ref(null)
 const loading = ref(true)
 const loadError = ref(false)
 
-function formatDuration(s) {
-  if (!s) return ''
-  const m = Math.floor(s / 60)
-  return m + ':' + String(s % 60).padStart(2, '0')
-}
-
 async function loadSongs() {
   if (!playlistId.value) return
   loading.value = true; loadError.value = false
@@ -44,7 +38,7 @@ async function loadSongs() {
       coverUrl: s.coverUrl || '',
       duration: s.duration || 0,
     }))
-  } catch (e) {
+  } catch {
     loadError.value = true
   } finally {
     loading.value = false

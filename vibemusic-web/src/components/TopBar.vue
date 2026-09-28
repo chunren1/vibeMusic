@@ -62,7 +62,7 @@ function formatDuration(s) {
           <div v-else-if="searchResults.length === 0" class="drop-empty">未找到相关歌曲</div>
           <div v-else class="drop-list">
             <div
-              v-for="(song, idx) in searchResults.slice(0, 5)"
+              v-for="song in searchResults.slice(0, 5)"
               :key="song.sourceId"
               class="drop-item"
               @mousedown.prevent="playSong(song); router.push('/')"

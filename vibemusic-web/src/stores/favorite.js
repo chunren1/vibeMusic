@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { getFavoriteIds, toggleFavorite } from '@/api/song'
 import { useAuthStore } from '@/stores/auth'
 

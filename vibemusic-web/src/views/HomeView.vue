@@ -110,7 +110,7 @@ async function fetchPlaylists() {
       playlistError.value = false
       return
     }
-  } catch (e) { /* fallback */ }
+  } catch { /* fallback */ }
   playlistError.value = true
   // 兜底默认卡片（无真实数据时，点击刷新）
   playlists.value = [
@@ -163,7 +163,7 @@ async function doSearch(reset = true) {
       searchResults.value = [...searchResults.value, ...data]
     }
     hasMoreResults.value = data.length >= SEARCH_PAGE_SIZE
-  } catch (e) {
+  } catch {
     if (reset) searchResults.value = []
   } finally {
     searchLoading.value = false
@@ -201,7 +201,7 @@ async function doSearchSuggest() {
   try {
     const res = await searchSongs(keyword, 1, 8)
     searchResults.value = res.data?.list || []
-  } catch (e) {
+  } catch {
     searchResults.value = []
   } finally {
     searchLoading.value = false

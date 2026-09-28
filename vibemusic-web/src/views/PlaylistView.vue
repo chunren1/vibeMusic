@@ -41,7 +41,7 @@ async function loadSongs() {
       coverUrl: s.coverUrl || '',
       duration: s.duration || 0,
     }))
-  } catch (e) {
+  } catch {
     loadError.value = true
   } finally {
     loading.value = false
@@ -74,7 +74,7 @@ async function removeSong(song) {
     await removeFromPlaylist(playlistId.value, song.sourceId)
     songs.value = songs.value.filter(s => s.sourceId !== song.sourceId)
     window.toast?.('已从歌单移除', 'success')
-  } catch (e) {
+  } catch {
     window.toast?.('移除失败', 'error')
   }
 }

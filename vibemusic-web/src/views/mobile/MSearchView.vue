@@ -173,7 +173,7 @@ onMounted(() => {
     <div v-if="loading && !results.length" class="m-loading">搜索中...</div>
 
     <div v-if="results.length" class="m-result-list">
-      <div v-for="(song, idx) in results" :key="song.sourceId"
+      <div v-for="song in results" :key="song.sourceId"
         class="m-song-item"         :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
         @click="playSong(song)"
         v-memo="[song.sourceId, player.currentSong.id === song.sourceId, player.isPlaying, favStore.isFav(song.sourceId)]">

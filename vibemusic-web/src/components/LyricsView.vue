@@ -257,7 +257,7 @@ function drawSpectrum() {
   const h = cvs.height / dpr  // 64px
 
   // 获取数据: 真实 > 回退
-  let bars = null
+  let bars
   const rd = getRealData()
   if (rd) {
     bars = rd
@@ -562,7 +562,7 @@ watch(() => currentLyricIndex.value, () => scrollToCurrent())
 
 async function toggleFullscreen() {
   if (!isFullscreen.value) {
-    try { await lyricsViewEl.value?.requestFullscreen(); isFullscreen.value = true } catch {}
+    try { await lyricsViewEl.value?.requestFullscreen(); isFullscreen.value = true } catch { /* ignore */ }
   } else { exitFullscreen() }
 }
 function exitFullscreen() {

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import TopBar from '@/components/TopBar.vue'
 import PlaylistPopup from '@/components/PlaylistPopup.vue'
 import { searchSongs } from '@/api/song'
@@ -8,7 +8,6 @@ import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
 
 const route = useRoute()
-const router = useRouter()
 const player = usePlayerStore()
 const favStore = useFavoriteStore()
 

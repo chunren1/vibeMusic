@@ -38,7 +38,7 @@ onMounted(loadRecent)
     <p class="m-sub">{{ songs.length }} 首 · 最近 500 条</p>
 
     <div class="m-list">
-      <div v-for="(s, i) in songs" :key="s.sourceId + '-' + s.playedAt"
+      <div v-for="s in songs" :key="s.sourceId + '-' + s.playedAt"
         class="m-item" :class="{ playing: player.currentSong.id === s.sourceId && player.isPlaying }" @click="play(s)">
         <div class="m-cover" :style="s.coverUrl ? { backgroundImage: `url(${s.coverUrl}?param=80y80)` } : { background: '#1a1a2e' }">
           <span v-if="player.currentSong.id === s.sourceId && player.isPlaying" class="m-eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>

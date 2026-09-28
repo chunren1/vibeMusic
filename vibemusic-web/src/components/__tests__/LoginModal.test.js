@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
-import { useAuthStore } from '@/stores/auth'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -22,7 +21,7 @@ describe('LoginModal', () => {
   })
 
   it('登录验证: 空格用户名和密码应显示错误', async () => {
-    const wrapper = mount(LoginModal, { props: { visible: true }, attachTo: document.body })
+    mount(LoginModal, { props: { visible: true }, attachTo: document.body })
     // Teleport 渲染到 body，但 wrapper 仍能通过 find 找到 Teleport 内的元素
     const btns = document.body.querySelectorAll('.submit-btn')
     if (btns.length > 0) {

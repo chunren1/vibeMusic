@@ -54,7 +54,7 @@ function getWorker() {
     // Worker 线程的 setTimeout 不受后台标签页定时器节流影响，
     // 消息投递到主线程同样不被节流 —— 这是第三层结束检测的根基。
     workerInstance.onmessage = () => {
-      tickHandlers.forEach(fn => { try { fn() } catch {} })
+      tickHandlers.forEach(fn => { try { fn() } catch { /* ignore */ } })
     }
   }
   workerRefs++
@@ -124,7 +124,7 @@ export function useAudioBackground(audioRef) {
     if (window._vibeAudioCtx?.state === 'suspended') {
       window._vibeAudioCtx.resume().catch(() => {})
     }
-    audio.play().catch(err => {
+    audio.play().catch(() => {
       if (retries > 0) {
         setTimeout(() => resumePlayback(audio, retries - 1), 800)
       }
@@ -259,7 +259,7 @@ export function useAudioBackground(audioRef) {
 
     // 注册动作处理器
     for (const [action, handler] of Object.entries(actionHandlers)) {
-      try { navigator.mediaSession.setActionHandler(action, handler) } catch {}
+      try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
     }
 
     // 监听元数据更新
@@ -275,7 +275,7 @@ export function useAudioBackground(audioRef) {
             ? [{ src: d.coverUrl + '?param=200y200', sizes: '200x200', type: 'image/png' }]
             : [],
         })
-      } catch {}
+      } catch { /* ignore */ }
     }
 
     window.addEventListener('song-change', onSongChange)
@@ -286,7 +286,7 @@ export function useAudioBackground(audioRef) {
       const a = audioRef?.value || window.vibeAudio
       try {
         navigator.mediaSession.playbackState = a?.paused ? 'paused' : 'playing'
-      } catch {}
+      } catch { /* ignore */ }
     }
     listenAudioEvent('play', updateState)
     listenAudioEvent('pause', updateState)
@@ -358,7 +358,7 @@ export function useAudioBackground(audioRef) {
       w.postMessage(ms)
       // 'start' 在 Worker 侧幂等（running 标志），重复调用安全
       w.postMessage('start')
-    } catch (e) {
+    } catch {
       console.warn('[AudioBG] Worker 不可用，回退到 RAF')
       fallbackRaf()
     }
@@ -394,12 +394,12 @@ export function useAudioBackground(audioRef) {
     try {
       wakeLock = await navigator.wakeLock.request('screen')
       wakeLock.addEventListener('release', () => { wakeLock = null })
-    } catch {}
+    } catch { /* ignore */ }
   }
 
   async function releaseWakeLock() {
     if (wakeLock) {
-      try { await wakeLock.release() } catch {}
+      try { await wakeLock.release() } catch { /* ignore */ }
       wakeLock = null
     }
   }
@@ -457,11 +457,11 @@ export function useAudioBackground(audioRef) {
       () => document.removeEventListener('visibilitychange', onHidden),
     )
     const onPlay = () => {
-      try { navigator.mediaSession.playbackState = 'playing' } catch {}
+      try { navigator.mediaSession.playbackState = 'playing' } catch { /* ignore */ }
       requestWakeLock()
     }
     const onPause = () => {
-      try { navigator.mediaSession.playbackState = 'paused' } catch {}
+      try { navigator.mediaSession.playbackState = 'paused' } catch { /* ignore */ }
       releaseWakeLock()
     }
     listenAudioEvent('play', onPlay)
@@ -474,7 +474,7 @@ export function useAudioBackground(audioRef) {
     stopBgEndedCheck()
     releaseWorker()
     releaseWakeLock()
-    unsubscribes.forEach(fn => { try { fn() } catch {} })
+    unsubscribes.forEach(fn => { try { fn() } catch { /* ignore */ } })
   })
 
   return {

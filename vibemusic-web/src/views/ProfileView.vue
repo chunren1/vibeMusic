@@ -82,21 +82,6 @@ const avatarInitial = computed(() => {
   return (auth.user?.nickname || auth.user?.username || '?')[0]?.toUpperCase()
 })
 
-// ===== 生日格式化 + 星座 =====
-function formatBirthday(dateStr) {
-  if (!dateStr) return '未设置'
-  const [y, m, d] = dateStr.split('-')
-  if (!m || !d) return dateStr
-  const zodiac = getZodiac(parseInt(m), parseInt(d))
-  return `${parseInt(m)}月${parseInt(d)}日 · ${zodiac}`
-}
-
-function getZodiac(month, day) {
-  const dates = [20, 19, 21, 20, 21, 22, 23, 23, 23, 24, 23, 22]
-  const signs = ['水瓶座', '双鱼座', '白羊座', '金牛座', '双子座', '巨蟹座', '狮子座', '处女座', '天秤座', '天蝎座', '射手座', '摩羯座']
-  return day < dates[month - 1] ? signs[month - 1] : signs[month % 12]
-}
-
 // ===== 保存资料 =====
 async function saveProfile() {
   formLoading.value = true
@@ -157,9 +142,6 @@ async function onBgChange(e) {
   finally { bgLoading.value = false }
 }
 
-function genderLabel(v) {
-  return { '男': '♂ 男', '女': '♀ 女', '保密': '保密' }[v] || '保密'
-}
 </script>
 
 <template>

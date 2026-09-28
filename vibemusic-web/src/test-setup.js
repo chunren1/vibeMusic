@@ -14,7 +14,7 @@ class MockAudio {
     this._listeners = {}
   }
   addEventListener(event, fn) { this._listeners[event] = fn }
-  removeEventListener(event, fn) { delete this._listeners[event] }
+  removeEventListener(event) { delete this._listeners[event] }
   play() { this.paused = false; return Promise.resolve() }
   pause() { this.paused = true; return Promise.resolve() }
   load() {}

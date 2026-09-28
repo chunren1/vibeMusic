@@ -74,7 +74,7 @@ onMounted(loadLikes)
     <p class="m-sub">{{ songs.length }} 首</p>
 
     <div class="m-list">
-      <div v-for="(s, i) in songs" :key="s.sourceId"
+      <div v-for="s in songs" :key="s.sourceId"
         class="m-item" :class="{
           playing: !manageMode && player.currentSong.id === s.sourceId && player.isPlaying,
           selected: manageMode && selectedIds.has(s.sourceId)

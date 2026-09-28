@@ -24,27 +24,12 @@ function playSong(song) {
   router.push('/m/player')
 }
 
-function addToQueueFn(song) {
-  player.addToQueue({
-    sourceId: song.sourceId, name: song.name || '', artist: song.artist || '',
-    coverUrl: song.coverUrl || '', duration: song.duration || 0, platform: song.platform || '',
-  })
-}
-
 function openPlaylistPopup(song) {
   playlistTargetSong.value = { ...song, sourceId: song.sourceId, name: song.name, artist: song.artist, coverUrl: song.coverUrl, duration: song.duration || 0 }
   showPlaylistPopup.value = true
 }
 
 // ===== Search =====
-const searchKeyword = ref('')
-
-function doSearch() {
-  const kw = searchKeyword.value.trim()
-  if (!kw) return
-  router.push({ name: 'm-search', query: { q: kw } })
-}
-
 function focusSearch() {
   // 跳转到搜索页，由搜索页的 autofocus 自动聚焦输入框
   router.push('/m/search')
