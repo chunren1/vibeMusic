@@ -2,12 +2,16 @@
 # 激活方式: SPRING_PROFILES_ACTIVE=docker
 # 由 docker-compose 自动设置
 
-# Flyway 在云端从未启用：schema 手工管理（UNMANAGED，见 docs/BYOC-RUNBOOK.md）。
-# 这里显式关闭，避免 application.yml 的 enabled:true 一旦生效就因迁移目录里
-# 版本重复/与既有 schema 冲突而启动失败。迁移文件仅作归档，不自动执行。
+# Flyway 云端接管（2026-09-28）：V1–V7 已全部幂等化，
+# 云库实测仅缺 V2/V3_1 的 3 个 song 索引 + url 扩容，其余皆是空操作；
+# 首次启动以 baseline-version=1 建基线并补齐缺失项，此后 V8+ 正常版本化。
+# validate 保持关闭（历史手管期无 checksum 可对）。
 spring:
   flyway:
-    enabled: false
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 1
+    validate-on-migrate: false
 
 logging:
   level:

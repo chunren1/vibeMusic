@@ -51,10 +51,11 @@
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
-        <!-- Flyway 数据库版本控制 -->
+        <!-- Flyway 数据库版本控制（Boot 4 起自启配置在 spring-boot-flyway 模块，
+            必须用 starter；裸 flyway-core 无自启、静默不跑） -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
