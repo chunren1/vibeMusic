@@ -97,6 +97,16 @@ groups:
         annotations:
           summary: "JVM 堆内存使用率过高"
           description: "JVM 堆内存使用率超过 85%，持续 5 分钟，当前值: {{ $value | printf \"%.1f\" }}%"
+      # 元空间使用率超过 80%（2026-09-24 Metaspace OOM 事故后补：
+      # 96M 上限时首次用到 AI/reactor 一次性加载 ~6MB 类即顶满，应用降级 10 小时无人知晓）
+      - alert: MetaspaceHigh
+        expr: (jvm_memory_used_bytes{job="vibemusic-backend", id="Metaspace"} / jvm_memory_max_bytes{job="vibemusic-backend", id="Metaspace"}) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "后端 Metaspace 使用率过高"
+          description: "Metaspace 超过上限 80%（当前 160M 的 80%≈128M），持续 10 分钟，当前值: {{ $value | printf \"%.1f\" }}%"
 
       # JVM 非堆内存占用过高（Metaspace/CodeCache/DirectMemory）
       # 注：nonheap 的 jvm_memory_max_bytes 多为 -1（无上限），用比值恒不触发，故改用绝对阈值
