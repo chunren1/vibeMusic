@@ -4,7 +4,8 @@
 //
 // 环境变量：
 //   MUSIC_QQ_COOKIE      — QQ音乐 Cookie JSON 对象
-//   MUSIC_NETEASE_COOKIE  — 网易云音乐 Cookie 字符串
+//   MUSIC_NETEASE_COOKIE  — 网易云音乐 Cookie 字符串（主）
+//   MUSIC_NETEASE_COOKIE_BACKUP — 网易云音乐 Cookie 字符串（备，主失效时自动切换）
 
 let localConfig = {};
 try {
@@ -29,6 +30,9 @@ module.exports = {
 
   // 网易云 Cookie（字符串）
   netease: localConfig.netease || process.env.MUSIC_NETEASE_COOKIE || '',
+
+  // 网易云备用 Cookie（字符串，主失效时自动切换；未配置则保持单 Cookie 行为）
+  neteaseBackup: localConfig.neteaseBackup || process.env.MUSIC_NETEASE_COOKIE_BACKUP || '',
 
   // 允许的网易云 API 方法白名单
   neteaseApis: localConfig.neteaseApis || [

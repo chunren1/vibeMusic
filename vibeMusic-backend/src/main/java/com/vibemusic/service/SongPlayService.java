@@ -66,6 +66,15 @@ public class SongPlayService {
                 ? neteaseApiService.getSongUrl(sourceId, level, userCookie)
                 : neteaseApiService.getSongUrl(sourceId, level);
         observeNeteaseUrlPayload(body, userCookie, userId);
+        if (userCookie == null && NeteaseApiService.isNeedLoginPayload(body)) {
+            try {
+                if (neteaseApiService.rotateSharedCookie()) {
+                    return neteaseApiService.getSongUrl(sourceId, level);
+                }
+            } catch (Exception e) {
+                log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", e.getMessage());
+            }
+        }
         return body;
     }
 

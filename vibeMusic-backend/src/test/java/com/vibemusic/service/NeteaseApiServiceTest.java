@@ -236,4 +236,28 @@ class NeteaseApiServiceTest {
         assertThrows(BusinessException.class,
                 () -> apiService.downloadSongToFile("not a url at all ://"));
     }
+
+    @Test
+    @DisplayName("rotateSharedCookie POST 网关 rotate 端点，成功返回 true")
+    void shouldPostRotateEndpointAndReturnTrue() {
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.POST),
+                        any(HttpEntity.class), eq(Map.class)))
+                .thenReturn(new ResponseEntity<Map>(
+                        Map.of("data", Map.of("switched", true)), HttpStatus.OK));
+
+        assertTrue(apiService.rotateSharedCookie());
+        verify(restTemplate).exchange(argThat(uri ->
+                        uri.toString().contains("/internal/netease-rotate")),
+                eq(HttpMethod.POST), any(HttpEntity.class), eq(Map.class));
+    }
+
+    @Test
+    @DisplayName("rotateSharedCookie 网关异常时返回 false 永不抛错")
+    void shouldReturnFalseOnRotateFailure() {
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.POST),
+                        any(HttpEntity.class), eq(Map.class)))
+                .thenThrow(new RuntimeException("gateway down"));
+
+        assertFalse(apiService.rotateSharedCookie());
+    }
 }

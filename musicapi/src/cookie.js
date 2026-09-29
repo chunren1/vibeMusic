@@ -15,13 +15,20 @@ if (hasQQCookie()) {
 }
 
 // 网易云 Cookie（注入到每次 API 调用的请求参数中）
+// 主备容灾：主失效且备有效时自动切备，主恢复后自动切回；未配备份保持单 Cookie 行为
 const NETEASE_COOKIE = config.netease;
-writeLog('cookie', 'INFO', `网易云 Cookie 已加载 (长度: ${NETEASE_COOKIE ? NETEASE_COOKIE.length : 0})`);
+const NETEASE_COOKIE_BACKUP = config.neteaseBackup || '';
+writeLog('cookie', 'INFO', `网易云 Cookie 已加载 (主长度: ${NETEASE_COOKIE ? NETEASE_COOKIE.length : 0}, 备长度: ${NETEASE_COOKIE_BACKUP ? NETEASE_COOKIE_BACKUP.length : 0})`);
+
+// 当前生效的共享 Cookie 槽位：primary 优先，备仅在主失效时接管
+let neteaseActive = 'primary';
 
 // Cookie 存活状态（随 API 启动自动运行）
-let cookieStatus = { netease: true, qq: true };
+let cookieStatus = { netease: true, neteasePrimary: true, neteaseBackup: !!NETEASE_COOKIE_BACKUP, neteaseActive: 'primary', qq: true };
 // Prometheus gauge 初始值：假设 Cookie 可用，checkCookies 会更新为实际值
 cookieStatusGauge.set({ platform: 'netease' }, 1);
+cookieStatusGauge.set({ platform: 'netease-primary' }, 1);
+cookieStatusGauge.set({ platform: 'netease-backup' }, NETEASE_COOKIE_BACKUP ? 1 : 0);
 cookieStatusGauge.set({ platform: 'qq' }, 1);
 
 /** 是否配置了 QQ Cookie（无 Cookie = 正常无登录模式，不视为异常） */
@@ -36,7 +43,53 @@ function withNeteaseCookie(extra = {}, req) {
   return { ...extra, cookie: effective };
 }
 
-// ==================== per-request 用户 Cookie 覆盖（内部 BYOC） ====================
+// ==================== 共享 Cookie 主备槽位 ====================
+// 优先级（网关侧执行）：per-request header > 当前生效槽位（主/备）> ''（匿名）。
+// decideActiveSlot 为纯函数：主有效恒选主；主失效且备有效切备；双失效保持现状（降级链不变）。
+function decideActiveSlot({ primaryOk, backupOk, current }) {
+  if (primaryOk) return 'primary';
+  if (backupOk) return 'backup';
+  return current === 'backup' ? 'backup' : 'primary';
+}
+
+function sharedCookieFor(slot) {
+  if (slot === 'backup') return effectiveBackup();
+  return effectivePrimary();
+}
+
+function resolveSharedCookie() {
+  const active = neteaseActive === 'backup' && effectiveBackup() ? 'backup' : 'primary';
+  return { cookie: sharedCookieFor(active), slot: active };
+}
+
+function getNeteaseActive() {
+  return neteaseActive;
+}
+
+/** 测试缝：覆盖共享槽位（仅单测使用，生产路径只经 checkCookies/rotate 变更）。 */
+function _setSharedForTest({ primary, backup, active } = {}) {
+  _testShared = {
+    primary: typeof primary === 'string' ? primary : undefined,
+    backup: typeof backup === 'string' ? backup : undefined,
+    active,
+  };
+  if (active === 'primary' || active === 'backup') neteaseActive = active;
+}
+
+let _testShared = null;
+
+function effectivePrimary() {
+  return _testShared && typeof _testShared.primary === 'string' ? _testShared.primary : (NETEASE_COOKIE || '');
+}
+
+function effectiveBackup() {
+  return _testShared && typeof _testShared.backup === 'string' ? _testShared.backup : (NETEASE_COOKIE_BACKUP || '');
+}
+
+function _resetSharedForTest() {
+  _testShared = null;
+  neteaseActive = 'primary';
+}
 // 信任边界：唯一调用方是内网后端（vibeMusic-backend 经本网关代理），
 // X-Vibe-User-Cookie 仅在 localhost/内网可信网络中予以采信；公网绝不能直调本网关。
 // 公网 query/body 中的 cookie 参数仍由 sanitizeNeteaseParams 一律剥离，此处不动。
@@ -58,32 +111,94 @@ function resolveNeteaseCookie(req) {
       return value;
     }
   }
-  return NETEASE_COOKIE || '';
+  return resolveSharedCookie().cookie;
+}
+
+/** 探活单个共享 Cookie：cloudsearch 200+有结果即有效；空串直接判无效，异常判无效，绝不抛错。 */
+async function probeNeteaseCookie(cookieStr) {
+  if (!cookieStr) return false;
+  try {
+    const res = await NeteaseCloudMusicApi.cloudsearch({ keywords: '周杰伦', limit: 1, type: 1, cookie: cookieStr });
+    return !!(res && res.body && res.body.code === 200 && res.body.result);
+  } catch (e) {
+    return false;
+  }
+}
+
+function setSlotGauges(primaryOk, backupOk, hasBackup) {
+  cookieStatus.neteasePrimary = primaryOk;
+  cookieStatus.neteaseBackup = hasBackup ? backupOk : true;
+  cookieStatusGauge.set({ platform: 'netease-primary' }, primaryOk ? 1 : 0);
+  cookieStatusGauge.set({ platform: 'netease-backup' }, hasBackup ? (backupOk ? 1 : 0) : 0);
+}
+
+function applyActiveSlot(next, reason) {
+  const prev = neteaseActive;
+  neteaseActive = next;
+  cookieStatus.neteaseActive = next;
+  const effectiveOk = next === 'primary' ? cookieStatus.neteasePrimary : cookieStatus.neteaseBackup;
+  cookieStatus.netease = effectiveOk;
+  cookieStatusGauge.set({ platform: 'netease' }, effectiveOk ? 1 : 0);
+  if (prev !== next) {
+    writeLog('cookie', next === 'primary' ? 'INFO' : 'WARN', `网易云共享 Cookie 切换: ${prev} -> ${next} (${reason})`);
+  }
+  return { switched: prev !== next, active: next };
 }
 
 async function checkCookies() {
   writeLog('cookie', 'INFO', '🔄 Cookie 存活检查开始...');
 
-  // 检查网易云
+  // 检查网易云主备：双探针 + 主优先自动切换/回切
+  const primary = effectivePrimary();
+  const backup = effectiveBackup();
+  const hasBackup = !!backup;
+  let primaryOk = false;
+  let backupOk = false;
   try {
-    const neRes = await NeteaseCloudMusicApi.cloudsearch(withNeteaseCookie({ keywords: '周杰伦', limit: 1, type: 1 }));
-    if (neRes.body.code === 200 && neRes.body.result) {
-      cookieStatus.netease = true;
-      cookieStatusGauge.set({ platform: 'netease' }, 1);
-      writeLog('cookie', 'INFO', '✅ 网易云 Cookie 正常');
+    primaryOk = await probeNeteaseCookie(primary);
+    if (primaryOk) {
+      writeLog('cookie', 'INFO', '✅ 网易云主 Cookie 正常');
     } else {
-      cookieStatus.netease = false;
-      cookieStatusGauge.set({ platform: 'netease' }, 0);
-      writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 异常: ${JSON.stringify(neRes.body).slice(0, 200)}`);
+      writeLog('cookie', 'ERROR', '❌ 网易云主 Cookie 异常');
     }
   } catch (e) {
-    cookieStatus.netease = false;
-    cookieStatusGauge.set({ platform: 'netease' }, 0);
-    writeLog('cookie', 'ERROR', `❌ 网易云 Cookie 检查失败: ${e.message}`);
+    writeLog('cookie', 'ERROR', `❌ 网易云主 Cookie 检查失败: ${e.message}`);
   }
+  try {
+    if (hasBackup) {
+      backupOk = await probeNeteaseCookie(backup);
+      writeLog('cookie', backupOk ? 'INFO' : 'ERROR', backupOk ? '✅ 网易云备 Cookie 正常' : '❌ 网易云备 Cookie 异常');
+    }
+  } catch (e) {
+    writeLog('cookie', 'ERROR', `❌ 网易云备 Cookie 检查失败: ${e.message}`);
+  }
+  setSlotGauges(primaryOk, backupOk, hasBackup);
+  const next = decideActiveSlot({ primaryOk, backupOk, current: neteaseActive });
+  applyActiveSlot(next, 'checkCookies');
 
   // 检查QQ（含自动恢复）
   await checkQQCookie();
+}
+
+/**
+ * 按需快切（供后端共享链路 need-login 时调用）：先复探当前槽位，
+ * 健康则不切换（防误切）；否则备有效即切备。返回 {switched, active}，绝不含凭证。
+ */
+async function rotateNeteaseActive() {
+  const current = neteaseActive === 'backup' && effectiveBackup() ? 'backup' : 'primary';
+  if (await probeNeteaseCookie(sharedCookieFor(current))) {
+    setSlotGauges(current === 'primary', current === 'backup' ? true : await probeNeteaseCookie(effectiveBackup()), !!effectiveBackup());
+    applyActiveSlot(current, 'rotate-noop');
+    return { switched: false, active: current };
+  }
+  const other = current === 'primary' ? 'backup' : 'primary';
+  if (await probeNeteaseCookie(sharedCookieFor(other))) {
+    setSlotGauges(other === 'primary', other === 'backup', !!effectiveBackup());
+    return applyActiveSlot(other, 'rotate-on-need-login');
+  }
+  setSlotGauges(await probeNeteaseCookie(effectivePrimary()), false, !!effectiveBackup());
+  applyActiveSlot(current, 'rotate-both-unhealthy');
+  return { switched: false, active: current, reason: 'both-unhealthy' };
 }
 
 // ==================== QQ Cookie 检查 + 手动恢复引导 ====================
@@ -179,9 +294,16 @@ module.exports = {
   hasQQCookie,
   withNeteaseCookie,
   resolveNeteaseCookie,
+  resolveSharedCookie,
+  getNeteaseActive,
+  decideActiveSlot,
+  probeNeteaseCookie,
+  rotateNeteaseActive,
   checkCookies,
   checkQQCookie,
   failQQCookie,
   reloadQQCookie,
   getQQCookieString,
+  _setSharedForTest,
+  _resetSharedForTest,
 };

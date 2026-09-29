@@ -438,6 +438,22 @@ function registerRoutes(app) {
     });
   });
 
+  // 网易共享 Cookie 按需快切（内网调用：后端共享链路 need-login 时触发）。
+  // 同门禁（令牌或无令牌本机）；先复探当前槽位，健康不切换；响应只含 switched/active，绝不含凭证。
+  app.post('/internal/netease-rotate', async (req, res) => {
+    if (!canRefreshCookie(req)) {
+      writeLog('access', 'WARN', `[/internal/netease-rotate] 拒绝非授权访问: ${clientIp(req)}`);
+      return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
+    }
+    try {
+      const out = await cookie.rotateNeteaseActive();
+      return res.json({ code: 200, message: 'ok', data: out });
+    } catch (e) {
+      writeLog('cookie', 'ERROR', `[/internal/netease-rotate] 失败: ${e.message}`);
+      return res.status(500).json({ code: 500, message: GENERIC_500, data: null });
+    }
+  });
+
   // ==================== 兼容旧 API 路由 (不变) ====================
 
   app.get('/lyric', async (req, res) => {

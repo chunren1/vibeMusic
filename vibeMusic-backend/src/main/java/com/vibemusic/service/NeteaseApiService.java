@@ -130,6 +130,26 @@ public class NeteaseApiService {
         return response.getBody();
     }
 
+    /**
+     * 触发网关共享 Cookie 快切（容灾）：仅共享链路 need-login 时由调用方触发。
+     * 网关侧先复探当前槽位，健康不切换；本方法永不抛错（失败返回 false，降级链不变）。
+     *
+     * @return true=网关已处理（无论是否实际切换，调用方可重试一次）；false=快切失败，用原响应继续降级
+     */
+    public boolean rotateSharedCookie() {
+        try {
+            URI uri = URI.create(config.getBaseUrl() + "/internal/netease-rotate");
+            ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.POST, buildHeaders(), Map.class);
+            Map<?, ?> body = response.getBody();
+            Object switched = body == null ? null : body.get("data") instanceof Map<?, ?> data ? data.get("switched") : null;
+            log.info("网易云共享 Cookie 快切: switched={}", switched);
+            return true;
+        } catch (Exception e) {
+            log.warn("网易云共享 Cookie 快切失败（降级链不变）: {}", e.getMessage());
+            return false;
+        }
+    }
+
     public Map<String, Object> personalizedPlaylists(int limit) {
         URI uri = buildUri("/personalized", "limit", String.valueOf(limit));
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);

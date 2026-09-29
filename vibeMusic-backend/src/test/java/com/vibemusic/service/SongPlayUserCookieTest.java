@@ -21,6 +21,7 @@ import org.springframework.test.context.TestPropertySource;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -222,6 +223,54 @@ class SongPlayUserCookieTest {
                 .when(userService).markNeteaseCookieInvalid(eq(1L), eq(301));
 
         assertDoesNotThrow(() -> songPlayService.getPlayUrl("123456", "晴天", "周杰伦", "netease"));
+        verify(userService, atLeastOnce()).markNeteaseCookieInvalid(eq(1L), eq(301));
+    }
+
+    @Test
+    @DisplayName("共享链路 301：快切成功后重试一次并恢复取链")
+    void sharedNeedLoginRotatesAndRetries() {
+        AtomicBoolean first = new AtomicBoolean(true);
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString()))
+                .thenAnswer(inv -> first.getAndSet(false)
+                        ? needLoginPayload(301)
+                        : urlPayload("https://ne-cdn.example/retried.mp3"));
+        when(neteaseApiService.rotateSharedCookie()).thenReturn(true);
+
+        String url = songPlayService.getPlayUrl("123456");
+
+        assertEquals("https://ne-cdn.example/retried.mp3", url);
+        verify(neteaseApiService, times(1)).rotateSharedCookie();
+        verify(neteaseApiService, atLeast(2)).getSongUrl(eq("123456"), anyString());
+        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("共享链路 301 且快切失败：用原响应降级，不抛错不翻倍重试")
+    void sharedNeedLoginRotateFailureDegrades() {
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString()))
+                .thenReturn(needLoginPayload(301));
+        when(neteaseApiService.rotateSharedCookie()).thenReturn(false);
+        when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                .thenReturn(Map.of("data", List.of()));
+
+        assertDoesNotThrow(() -> songPlayService.getPlayUrl("123456"));
+        verify(neteaseApiService, atLeastOnce()).rotateSharedCookie();
+        verify(neteaseApiService, never()).getSongUrl(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("per-user 301：只标失效不快切（共享快切永不参与 per-user 路径）")
+    void perUserNeedLoginNeverRotates() {
+        loginAs(1L);
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE);
+        when(neteaseApiService.getSongUrl(eq("123456"), anyString(), eq(COOKIE)))
+                .thenReturn(needLoginPayload(301));
+        when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                .thenReturn(Map.of("data", List.of()));
+
+        songPlayService.getPlayUrl("123456", "晴天", "周杰伦", "netease");
+
+        verify(neteaseApiService, never()).rotateSharedCookie();
         verify(userService, atLeastOnce()).markNeteaseCookieInvalid(eq(1L), eq(301));
     }
 }
