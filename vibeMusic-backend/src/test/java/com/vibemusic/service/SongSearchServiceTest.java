@@ -14,16 +14,19 @@ import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -388,6 +391,27 @@ class SongSearchServiceTest {
             fakeNow.addAndGet(60 * 1000L);
             assertFalse(songSearchService.shouldSkipQq());
             assertTrue(songSearchService.shouldSkipQq());
+        }
+
+        @Test @DisplayName("QQ 超时预算 2s：3s 才回的上游被截断并计失败")
+        void qqTimeoutBudgetIsTwoSeconds() {
+            CompletableFuture<java.util.List<SongDTO>> slow = CompletableFuture.supplyAsync(() -> {
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return java.util.List.of(createSong("1", "慢歌", "歌手"));
+            });
+            AtomicBoolean claimed = new AtomicBoolean(false);
+            long start = System.currentTimeMillis();
+            Object out = ReflectionTestUtils.invokeMethod(
+                    songSearchService, "getQqWithTimeout", slow, claimed);
+            long elapsed = System.currentTimeMillis() - start;
+            assertTrue(((java.util.List<?>) out).isEmpty());
+            assertTrue(elapsed < 3500, "elapsed=" + elapsed);
+            assertTrue(slow.isCancelled());
+            assertTrue(claimed.get());
         }
 
         @Test @DisplayName("探针成功闭路，探针失败重开并重置计时")

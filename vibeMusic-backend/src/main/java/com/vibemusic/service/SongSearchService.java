@@ -137,6 +137,9 @@ public class SongSearchService {
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
     private static final int PER_PLATFORM_FETCH = 40;
     private static final int SEARCH_TIMEOUT_SEC = 4;
+    // QQ 专属预算 2s（2026-09-29 实测：QQ 仅 25% 搜索有贡献，权重又最低 0.6；
+    // 4s 预算下它是常见的尾部拖慢者，减半只截长尾，健康时 2s 内必回）
+    static final int QQ_TIMEOUT_SEC = 2;
     /** 搜索 keyword 最大长度：超长截断，防上游/缓存键膨胀（与 size<=100 同属入参校验层）。 */
     public static final int MAX_KEYWORD_LENGTH = 200;
     /** 随机推荐 count 上限：直通 DB LIMIT（含 lyric TEXT），必须封顶。 */
@@ -856,9 +859,9 @@ public class SongSearchService {
     /** QQ 专属超时等待：超时/异常计失败（与任务内计数互斥，单次搜索恰好计数一次）。 */
     private List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed, AtomicBoolean failed) {
         try {
-            return future.get(SEARCH_TIMEOUT_SEC, TimeUnit.SECONDS);
+            return future.get(QQ_TIMEOUT_SEC, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            log.warn("QQ search timed out after {}s", SEARCH_TIMEOUT_SEC);
+            log.warn("QQ search timed out after {}s", QQ_TIMEOUT_SEC);
             future.cancel(true);
             recordQqOutcomeOnce(claimed, false);
             if (failed != null) failed.set(true);
