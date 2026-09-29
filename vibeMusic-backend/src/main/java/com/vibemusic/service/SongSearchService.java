@@ -386,11 +386,14 @@ public class SongSearchService {
             log.warn("[SEARCH-POOL] 搜索线程池过载，快速失败: keyword='{}', error={}", kw, rex.getMessage());
             throw new BusinessException(503, "搜索服务繁忙，请稍后重试");
         }
-        List<SongDTO> neteaseSongs = getWithTimeout(neF, SEARCH_TIMEOUT_SEC, "Netease", neFailed);
-        List<SongDTO> qqSongs = (qqF == null) ? Collections.emptyList() : getQqWithTimeout(qqF, qqOutcomeClaimed, qqFailed);
-        List<SongDTO> miguSongs = getWithTimeout(mgF, SEARCH_TIMEOUT_SEC, "Migu", mgFailed);
-        List<SongDTO> kugouSongs = getWithTimeout(kgF, SEARCH_TIMEOUT_SEC, "Kugou", kgFailed);
-        List<SongDTO> biliSongs = getWithTimeout(biF, SEARCH_TIMEOUT_SEC, "Bili", biFailed);
+        // 全局 fanout deadline：5 路并行提交后串行 get，若每路各等 4s，最坏叠加 4+2+4+4+4=18s
+        //（17s 毛刺根因）。此处以 SEARCH_TIMEOUT_SEC 为总预算，后到的源只等剩余时间。
+        long fanoutDeadlineMs = System.currentTimeMillis() + SEARCH_TIMEOUT_SEC * 1000L;
+        List<SongDTO> neteaseSongs = getWithTimeout(neF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Netease", neFailed);
+        List<SongDTO> qqSongs = (qqF == null) ? Collections.emptyList() : getQqWithTimeout(qqF, qqOutcomeClaimed, qqFailed, remainingSec(fanoutDeadlineMs, QQ_TIMEOUT_SEC));
+        List<SongDTO> miguSongs = getWithTimeout(mgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Migu", mgFailed);
+        List<SongDTO> kugouSongs = getWithTimeout(kgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Kugou", kgFailed);
+        List<SongDTO> biliSongs = getWithTimeout(biF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Bili", biFailed);
         List<SongDTO> merged = mergePlatformResults(neteaseSongs, qqSongs, miguSongs, kugouSongs, biliSongs, kw);
 
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty() || miguSongs.isEmpty() || kugouSongs.isEmpty() || biliSongs.isEmpty();
@@ -858,10 +861,20 @@ public class SongSearchService {
 
     /** QQ 专属超时等待：超时/异常计失败（与任务内计数互斥，单次搜索恰好计数一次）。 */
     private List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed, AtomicBoolean failed) {
+        return getQqWithTimeout(future, claimed, failed, QQ_TIMEOUT_SEC);
+    }
+
+    static int remainingSec(long deadlineMs, int capSec) {
+        long remainMs = deadlineMs - System.currentTimeMillis();
+        if (remainMs <= 0) return 1;
+        return (int) Math.min(capSec, (remainMs + 999) / 1000);
+    }
+
+    private List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed, AtomicBoolean failed, int seconds) {
         try {
-            return future.get(QQ_TIMEOUT_SEC, TimeUnit.SECONDS);
+            return future.get(seconds, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            log.warn("QQ search timed out after {}s", QQ_TIMEOUT_SEC);
+            log.warn("QQ search timed out after {}s", seconds);
             future.cancel(true);
             recordQqOutcomeOnce(claimed, false);
             if (failed != null) failed.set(true);

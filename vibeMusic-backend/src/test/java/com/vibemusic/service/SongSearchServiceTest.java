@@ -469,6 +469,15 @@ class SongSearchServiceTest {
             assertTrue(skipped.getList().isEmpty());
             verify(neteaseApiService, times(3)).searchQQ(anyString(), anyInt());
         }
+
+        @Test @DisplayName("全局 deadline：剩余时间不足时截断等待，不叠加超时")
+        void remainingSecClampsToDeadline() {
+            long now = System.currentTimeMillis();
+            assertEquals(4, SongSearchService.remainingSec(now + 10_000L, 4));
+            assertEquals(2, SongSearchService.remainingSec(now + 1_500L, 4));
+            assertEquals(1, SongSearchService.remainingSec(now - 100L, 4));
+            assertEquals(1, SongSearchService.remainingSec(now + 500L, 4));
+        }
     }
 
     @Nested @DisplayName("QQ 熔断器 Redis 持久化")
