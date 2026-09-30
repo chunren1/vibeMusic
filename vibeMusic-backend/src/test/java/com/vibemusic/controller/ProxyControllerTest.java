@@ -48,6 +48,8 @@ class ProxyControllerTest extends BaseTest {
             assertTrue(ProxyController.isAllowedHost("y.gtimg.cn"));
             assertTrue(ProxyController.isAllowedHost("i.gtimg.cn"));
             assertTrue(ProxyController.isAllowedHost("music.gtimg.cn"));
+            assertTrue(ProxyController.isAllowedHost("imge.kugou.com"));
+            assertTrue(ProxyController.isAllowedHost("singerimg.kugou.com"));
         }
 
         @Test

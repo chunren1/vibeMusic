@@ -30,7 +30,10 @@ public class ProxyController {
             "music.126.net", "p1.music.126.net", "p2.music.126.net",
             "p3.music.126.net", "p4.music.126.net",
             // QQ 音乐封面 CDN：浏览器直连在部分网络下会 408/CORS，统一走后端代理
-            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn"
+            "y.gtimg.cn", "i.gtimg.cn", "music.gtimg.cn",
+            // 酷狗封面 CDN（2026-09-30 日志实锤：imge.kugou.com 被拦 42 次/小时，
+            // 酷狗行封面经 image-proxy 全部 403，只能显示缺省图）
+            "imge.kugou.com", "singerimg.kugou.com"
     ));
     static {
         // B 站封面 CDN（i0/i1/i2.hdslb.com）：单一事实源在 BiliCdnHosts

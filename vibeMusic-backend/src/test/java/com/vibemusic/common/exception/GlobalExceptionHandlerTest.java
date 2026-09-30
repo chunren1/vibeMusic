@@ -131,4 +131,13 @@ class GlobalExceptionHandlerTest {
         assertThat(result.getCode()).isEqualTo(404);
         assertThat(result.getMessage()).isEqualTo("歌曲不存在");
     }
+
+    @Test
+    @DisplayName("NoResourceFoundException（缺失头像等静态资源）应返回 404 而非 500")
+    void handleNoResourceFound() {
+        var ex = new org.springframework.web.servlet.resource.NoResourceFoundException(
+                org.springframework.http.HttpMethod.GET, "/uploads/avatars/missing.png", "not found");
+        Result<Void> result = handler.handleNoResourceFound(ex);
+        assertThat(result.getCode()).isEqualTo(404);
+    }
 }

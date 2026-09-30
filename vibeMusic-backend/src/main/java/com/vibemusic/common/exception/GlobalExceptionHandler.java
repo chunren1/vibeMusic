@@ -117,7 +117,16 @@ public class GlobalExceptionHandler {
 
     // ==================== 业务异常 ====================
 
-    @ExceptionHandler(BusinessException.class)
+    /**
+     * 静态资源缺失（/uploads 头像/背景等）：文件早已不在盘上是已知事实，
+     * 按 404 WARN 处理，不进"未知异常" ERROR 通道（此前每小时几十条 ERROR 噪音）。
+     */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Result<Void> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException ex) {
+        log.warn("静态资源不存在: {}", ex.getResourcePath());
+        return Result.error(404, "资源不存在");
+    }    @ExceptionHandler(BusinessException.class)
     public Result<Void> handleBusinessException(BusinessException ex, HttpServletResponse response) {
         response.setStatus(ex.getCode());
         return Result.error(ex.getCode(), ex.getMessage());
