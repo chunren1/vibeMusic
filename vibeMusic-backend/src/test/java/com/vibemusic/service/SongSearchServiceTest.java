@@ -286,8 +286,8 @@ class SongSearchServiceTest {
             assertEquals(240, result.getList().get(0).getDuration());
             assertTrue(result.getList().get(0).getAvailableSources().contains("netease"));
             assertTrue(result.getList().get(0).getAvailableSources().contains("qq"));
-            // 去重胜者为 QQ 完整版（明确非 VIP）：平台分 1.5 + 跨平台 0.3 + 精确歌名 2.0 + 非 VIP 0.5
-            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            // 去重胜者为 QQ 完整版（明确非 VIP）：网易头名 2.0（含头名加成） + 跨平台 0.5 + 精确歌名 2.0 + 非 VIP 0.5
+            assertEquals(2.0 + 0.5 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
         }
     }
 
@@ -313,8 +313,8 @@ class SongSearchServiceTest {
         @Test @DisplayName("同等相关性下非 VIP 版本排到 VIP 版本之前")
         void nonVipOutranksIdenticalVip() {
             mockCacheMiss();
-            // 网易云第 2 名 VIP：0.75 + 精确歌名 2.0 = 2.75（无加成）
-            // QQ 第 1 名非 VIP：0.6 + 精确歌名 2.0 + 非 VIP 0.5 = 3.1
+            // 网易云第 2 名 VIP：0.75 + 精确歌名 2.0 = 2.75（无加成；头名加成仅第 1 名）
+            // QQ 第 1 名非 VIP：0.8 + 精确歌名 2.0 + 非 VIP 0.5 = 3.3
             when(neteaseApiService.searchNetease("来不及爱你", 40)).thenReturn(Map.of("data", List.of(
                     apiSong("ne0", "无关歌", "路人", 200000, false),
                     apiSong("ne1", "来不及爱你", "歌手甲", 240000, true))));
@@ -325,7 +325,7 @@ class SongSearchServiceTest {
 
             assertEquals(3, result.getList().size());
             assertEquals("歌手乙", result.getList().get(0).getArtist());
-            assertEquals(0.6 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(0.8 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
             assertEquals("歌手甲", result.getList().get(1).getArtist());
             assertEquals(0.75 + 2.0, result.getList().get(1).getFinalScore(), 1e-9);
         }
@@ -333,7 +333,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("vip 未知（null）不得分：不反超已知可用版本")
         void nullVipGetsNoBonus() {
             mockCacheMiss();
-            // 网易云第 1 名未知 vip：1.5 + 精确歌名 2.0 + 0 = 3.5，仍凭上游排名第一
+            // 网易云第 1 名未知 vip：2.0（含头名加成 0.5） + 精确歌名 2.0 + 0 = 4.0，仍凭上游排名第一
             // 网易云第 2 名明确非 VIP：0.75 + 精确歌名 2.0 + 0.5 = 3.25
             when(neteaseApiService.searchNetease("来不及爱你", 40)).thenReturn(Map.of("data", List.of(
                     apiSong("ne1", "来不及爱你", "歌手甲", 240000, null),
@@ -345,9 +345,66 @@ class SongSearchServiceTest {
 
             assertEquals(2, result.getList().size());
             assertEquals("歌手甲", result.getList().get(0).getArtist());
-            assertEquals(1.5 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(2.0 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
             assertEquals("歌手乙", result.getList().get(1).getArtist());
             assertEquals(0.75 + 2.0 + 0.5, result.getList().get(1).getFinalScore(), 1e-9);
+        }
+    }
+
+    @Nested @DisplayName("热度代理：合并加成与网易头名")
+    class HeatProxyTest {
+
+        private void mockCacheMiss() {
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
+        }
+
+        private Map<String, Object> apiSong(String id, String name, String artist, int durationMs, Boolean vip) {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("id", id);
+            m.put("name", name);
+            m.put("artists", artist);
+            m.put("album", "专辑");
+            m.put("cover", "https://cover.example/x.jpg");
+            m.put("duration", durationMs);
+            if (vip != null) m.put("vip", vip);
+            return m;
+        }
+
+        @Test @DisplayName("同曲四源合并加成封顶 +1.0（不随源数无限涨）")
+        void fourSourceMergeBonusCapped() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchQQ("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("qq1", "晴天", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchMigu("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("mg1", "晴天", "周杰伦", 240000, false))));
+            when(neteaseApiService.searchKugou("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("kg1", "晴天", "周杰伦", 240000, false))));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(1, result.getList().size());
+            // 网易基座 2.0（含头名）→ 三次合并后加成封顶 +1.0：2.0 + 1.0 + 精确 2.0 + 非 VIP 0.5
+            assertEquals(2.0 + 1.0 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(4, result.getList().get(0).getAvailableSources().size());
+        }
+
+        @Test @DisplayName("网易头名加成只给第 1 名：头名与第 2 名差 1.25")
+        void neteaseHeadBonusRankOneOnly() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("zzzqqq不存在", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne1", "晴天", "周杰伦", 240000, null),
+                    apiSong("ne2", "夜曲", "周杰伦", 240000, null))));
+            when(neteaseApiService.searchQQ("zzzqqq不存在", 40))
+                    .thenReturn(Map.of("data", List.of()));
+
+            SearchResult result = songSearchService.search("zzzqqq不存在", 1, 20);
+
+            assertEquals(2, result.getList().size());
+            assertEquals("晴天", result.getList().get(0).getName());
+            assertEquals(2.0, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(0.75, result.getList().get(1).getFinalScore(), 1e-9);
         }
     }
 
@@ -691,9 +748,9 @@ class SongSearchServiceTest {
             SearchResult result = songSearchService.search("青花瓷", 1, 20);
 
             assertEquals(2, result.getList().size());
-            // 网易云第1名：1.5 + 精确歌名 2.0 = 3.5；咪咕第1名：1.4 + 2.0 = 3.4
+            // 网易云第1名：2.0（含头名加成） + 精确歌名 2.0 = 4.0；咪咕第1名：1.4 + 2.0 = 3.4
             assertEquals("netease", result.getList().get(0).getPlatform());
-            assertEquals(1.5 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(2.0 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
             assertEquals("migu", result.getList().get(1).getPlatform());
             assertEquals(1.4 + 2.0, result.getList().get(1).getFinalScore(), 1e-9);
         }
@@ -713,8 +770,8 @@ class SongSearchServiceTest {
             assertEquals(1, result.getList().size());
             assertTrue(result.getList().get(0).getAvailableSources().contains("netease"));
             assertTrue(result.getList().get(0).getAvailableSources().contains("migu"));
-            // 胜者为网易云完整版（咪咕 duration=0 视为试听片段）：1.5 + 跨平台 0.3 + 精确歌名 2.0 + 非 VIP 0.5
-            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            // 胜者为网易云完整版（咪咕 duration=0 视为试听片段）：2.0（含头名加成） + 跨平台 0.5 + 精确歌名 2.0 + 非 VIP 0.5
+            assertEquals(2.0 + 0.5 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
         }
 
         @Test @DisplayName("咪咕异常不影响网易云/QQ结果")
@@ -814,8 +871,8 @@ class SongSearchServiceTest {
             assertEquals(1, result.getList().size());
             assertTrue(result.getList().get(0).getAvailableSources().contains("netease"));
             assertTrue(result.getList().get(0).getAvailableSources().contains("kugou"));
-            // 胜者为网易云（先入）：1.5 + 跨平台 0.3 + 精确歌名 2.0 + 非 VIP 0.5
-            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            // 胜者为网易云（先入）：2.0（含头名加成） + 跨平台 0.5 + 精确歌名 2.0 + 非 VIP 0.5
+            assertEquals(2.0 + 0.5 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
         }
 
         @Test @DisplayName("仅酷狗失败不计全失败：有结果仍写缓存且不计数")
@@ -1038,7 +1095,7 @@ class SongSearchServiceTest {
 
             assertEquals(1, result.getList().size());
             assertTrue(result.getList().get(0).getAvailableSources().contains("bilibili"));
-            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(2.0 + 0.5 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
         }
 
         @Test @DisplayName("isBiliStrong 边界：播放10万/弹幕1000恰好放行，差一即拦")
@@ -1109,8 +1166,8 @@ class SongSearchServiceTest {
             assertEquals(1, result.getList().size());
             assertTrue(result.getList().get(0).getAvailableSources().contains("netease"));
             assertTrue(result.getList().get(0).getAvailableSources().contains("bilibili"));
-            // 胜者为网易云（先入）：1.5 + 跨平台 0.3 + 精确歌名 2.0 + 非 VIP 0.5
-            assertEquals(1.5 + 0.3 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
+            // 胜者为网易云（先入）：2.0（含头名加成） + 跨平台 0.5 + 精确歌名 2.0 + 非 VIP 0.5
+            assertEquals(2.0 + 0.5 + 2.0 + 0.5, result.getList().get(0).getFinalScore(), 1e-9);
         }
 
         @Test @DisplayName("仅B站失败不计全失败：有结果仍写缓存且不计数")
@@ -1491,7 +1548,7 @@ class SongSearchServiceTest {
             SearchResult result = songSearchService.search("晴天", 1, 20);
 
             assertEquals(1, result.getList().size());
-            assertEquals(1.5 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
+            assertEquals(2.0 + 2.0, result.getList().get(0).getFinalScore(), 1e-9);
         }
     }
 

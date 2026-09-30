@@ -75,12 +75,12 @@ class SourceWeightAdjustTest {
     }
 
     @Test
-    @DisplayName("baseWeightFor 保持网易>咪咕>酷狗>B站>QQ 排序，未知平台中性 1.0")
+    @DisplayName("baseWeightFor 保持网易>咪咕>酷狗>QQ>B站 排序，未知平台中性 1.0")
     void baseWeightOrder() {
         assertTrue(SongSearchService.baseWeightFor("netease") > SongSearchService.baseWeightFor("migu"));
         assertTrue(SongSearchService.baseWeightFor("migu") > SongSearchService.baseWeightFor("kugou"));
-        assertTrue(SongSearchService.baseWeightFor("kugou") > SongSearchService.baseWeightFor("bilibili"));
-        assertTrue(SongSearchService.baseWeightFor("bilibili") > SongSearchService.baseWeightFor("qq"));
+        assertTrue(SongSearchService.baseWeightFor("kugou") > SongSearchService.baseWeightFor("qq"));
+        assertTrue(SongSearchService.baseWeightFor("qq") > SongSearchService.baseWeightFor("bilibili"));
         assertEquals(1.0, SongSearchService.baseWeightFor("unknown"));
     }
 
@@ -129,6 +129,6 @@ class SourceWeightAdjustTest {
         assertEquals(1.4, service.effectiveWeight("migu", 1.4), 1e-9);
         assertEquals(1.0, service.effectiveWeight("kugou", 1.0), 1e-9);
         assertEquals(0.7, service.effectiveWeight("bilibili", 0.7), 1e-9);
-        assertEquals(0.6, service.effectiveWeight("qq", 0.6), 1e-9);
+        assertEquals(0.8, service.effectiveWeight("qq", 0.8), 1e-9);
     }
 }

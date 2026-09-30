@@ -130,29 +130,38 @@ public class SongSearchService {
 
     private static final double NET_WEIGHT = 1.5;
     private static final double MIGU_WEIGHT = 1.4;
-    // 酷狗权重 1.0：介于咪咕(1.4)与 QQ(0.6)之间。phase 1 匿名仅 128k/320k，
+    // 酷狗权重 1.0：介于咪咕(1.4)与 QQ(0.8)之间。phase 1 匿名仅 128k/320k，
     // 覆盖与元数据完整度不及咪咕签名的 PQ 链路，但优于无 Cookie 的 QQ(且不受熔断器降权)，
     // 故取中点，保持 netease > migu > kugou > qq 排序。
     private static final double KUGOU_WEIGHT = 1.0;
     // B 站权重 0.7：guest 132–192k AAC 实测可播，翻唱/古风/Live/OST 覆盖独特；
-    // 但视频标题元数据噪音大(网关已做标题解析仍残留歧义回退)，故置于酷狗(1.0)之下、
-    // QQ(0.6)之上，保持 netease > migu > kugou > bilibili > qq 排序。
+    // 但视频标题元数据噪音大(网关已做标题解析仍残留歧义回退)，故置于 QQ(0.8)之下、
+    // 保持 netease > migu > kugou > qq > bilibili 排序（2026-09-30 实测 QQ 链路已健康，
+    // QQ 回正版音源曲库行，排位回到酷狗之下、B站之上）。
     // (2026-09 质量 pass 由 0.8 下调：质量区分改由播放量门控承担，权重只定基准档；
-    // 降 0.1 使无相关性加成时的 B 站首名(0.7)不再天然压过 QQ 首名(0.6)太多，
+    // 降 0.1 使无相关性加成时的 B 站首名(0.7)不再天然压过 QQ 首名太多，
     // 强 B 站行仍可靠精确歌名 +2.0 加成上浮，弱行则由门控封顶沉底。)
     private static final double BILI_WEIGHT = 0.7;
-    private static final double QQ_WEIGHT = 0.6;
+    // QQ 权重 0.8（2026-09-30 由 0.6 上调：QQ 链路实测已健康，不再是"双死"备源；
+    // 0.6 会把 QQ 独家原唱在结构上埋掉——同名精确匹配下永远追不上咪咕/网易头名。
+    // 仍在酷狗 1.0 之下、B站 0.7 之上，只收窄差距。
+    private static final double QQ_WEIGHT = 0.8;
     // B 站播放量门控(2026-09 质量 pass)：网关 search/type 实测(热词'晴天' top10)：
     // 成熟音乐投稿播放量 10万–1700万、低质搬运/广告混剪 <5万(如 vivo 广告 2.5万)，
     // 弹幕 36–8万；MV 类投稿常低弹幕(如 98万播放/95弹幕)，故双信号取 OR。
     // 强行 = 有封面 + 标题成形 + (播放>=10万 OR 弹幕>=1000)；弱行(纯 B 站来源)封顶沉底。
-    // 弱 B 站行封顶 0.5：严格低于 QQ 首名基准分(0.6/1=0.6)，保证弱行永远排不过
-    // 任何平台的头名；相关性加成照常计算后再封顶(标题再贴切也不得越线)。
-    private static final double CROSS_PLATFORM_BONUS = 0.3;
+    // 弱 B 站行封顶 0.5：严格低于 QQ 首名基准分(0.8/1=0.8)，保证弱行永远排不过
+    // 任何平台的头名；相关性加成照常计算后再封顶(标题再贴切也不得越线）。
+    // 同曲多源合并加成：同一首歌每多一个可播平台 +0.5（多源≈正版/热门版本，
+    // 这是网易/QQ/咪咕/酷狗不带播放量字段下唯一可用的热度代理），总额封顶 +1.0。
+    // 网易头名加成 +0.5：网易排序≈C-pop 热度排序，头名即热度第一的强信号。
+    private static final double MERGE_BONUS_PER_SOURCE = 0.5;
+    private static final double MERGE_BONUS_MAX = 1.0;
+    private static final double NETEASE_HEAD_BONUS = 0.5;
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
     private static final int PER_PLATFORM_FETCH = 40;
     private static final int SEARCH_TIMEOUT_SEC = 4;
-    // QQ 专属预算 2s（2026-09-29 实测：QQ 仅 25% 搜索有贡献，权重又最低 0.6；
+    // QQ 专属预算 2s（2026-09-29 实测：QQ 仅 25% 搜索有贡献，权重又最低；
     // 4s 预算下它是常见的尾部拖慢者，减半只截长尾，健康时 2s 内必回）
     static final int QQ_TIMEOUT_SEC = 2;
     /** 搜索 keyword 最大长度：超长截断，防上游/缓存键膨胀（与 size<=100 同属入参校验层）。 */
@@ -495,12 +504,13 @@ public class SongSearchService {
                                                List<SongDTO> miguSongs, List<SongDTO> kugouSongs,
                                                List<SongDTO> biliSongs, String keyword) {
         Map<String, SongDTO> mergedMap = new LinkedHashMap<>();
+        Map<String, Integer> mergeCounts = new java.util.HashMap<>();
 
-        addPlatformSongs(mergedMap, neteaseSongs, effectiveWeight("netease", NET_WEIGHT), "netease", false);
-        addPlatformSongs(mergedMap, qqSongs, effectiveWeight("qq", QQ_WEIGHT), "qq", true);
-        addPlatformSongs(mergedMap, miguSongs, effectiveWeight("migu", MIGU_WEIGHT), "migu", true);
-        addPlatformSongs(mergedMap, kugouSongs, effectiveWeight("kugou", KUGOU_WEIGHT), "kugou", true);
-        addPlatformSongs(mergedMap, biliSongs, effectiveWeight("bilibili", BILI_WEIGHT), "bilibili", true);
+        addPlatformSongs(mergedMap, mergeCounts, neteaseSongs, effectiveWeight("netease", NET_WEIGHT), "netease", false);
+        addPlatformSongs(mergedMap, mergeCounts, qqSongs, effectiveWeight("qq", QQ_WEIGHT), "qq", true);
+        addPlatformSongs(mergedMap, mergeCounts, miguSongs, effectiveWeight("migu", MIGU_WEIGHT), "migu", true);
+        addPlatformSongs(mergedMap, mergeCounts, kugouSongs, effectiveWeight("kugou", KUGOU_WEIGHT), "kugou", true);
+        addPlatformSongs(mergedMap, mergeCounts, biliSongs, effectiveWeight("bilibili", BILI_WEIGHT), "bilibili", true);
 
         List<SongDTO> merged = new ArrayList<>(mergedMap.values());
         long relevanceStart = System.currentTimeMillis();
@@ -516,13 +526,15 @@ public class SongSearchService {
         return merged;
     }
 
-    private void addPlatformSongs(Map<String, SongDTO> mergedMap, List<SongDTO> songs,
-                                  double weight, String platform, boolean mergeOnDuplicate) {
+    private void addPlatformSongs(Map<String, SongDTO> mergedMap, Map<String, Integer> mergeCounts,
+                                  List<SongDTO> songs, double weight, String platform, boolean mergeOnDuplicate) {
         for (int i = 0; i < songs.size(); i++) {
             SongDTO song = songs.get(i);
             song.setPlatform(platform);
             song.setAvailableSources(new ArrayList<>(List.of(platform)));
-            song.setFinalScore(SongRanking.computeScore(i + 1, weight));
+            double base = SongRanking.computeScore(i + 1, weight);
+            if ("netease".equals(platform) && i == 0) base += NETEASE_HEAD_BONUS;
+            song.setFinalScore(base);
             String key = SongRanking.normalizeKey(song.getName(), song.getArtist());
             SongDTO existing = mergedMap.get(key);
 
@@ -531,7 +543,11 @@ public class SongSearchService {
                 if (!allSources.contains(platform)) allSources.add(platform);
                 SongDTO winner = SongRanking.pickBest(existing, song);
                 winner.setAvailableSources(allSources);
-                winner.setFinalScore(Math.max(existing.getFinalScore(), song.getFinalScore()) + CROSS_PLATFORM_BONUS);
+                int merges = mergeCounts.merge(key, 1, Integer::sum);
+                double prevBonus = Math.min(MERGE_BONUS_PER_SOURCE * (merges - 1), MERGE_BONUS_MAX);
+                double bonus = Math.min(MERGE_BONUS_PER_SOURCE * merges, MERGE_BONUS_MAX);
+                double baseExisting = existing.getFinalScore() - prevBonus;
+                winner.setFinalScore(Math.max(baseExisting, song.getFinalScore()) + bonus);
                 mergedMap.put(key, winner);
             } else {
                 mergedMap.put(key, song);
