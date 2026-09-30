@@ -4,7 +4,7 @@ const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const config = require('./config-loader');
 const { writeLog } = require('./logger');
-const { cookieStatusGauge } = require('./metrics');
+const { cookieStatusGauge, vipHealthGauge, cookieProbeTotal } = require('./metrics');
 
 // QQ音乐 Cookie（进程级全局设置；Cookie 为可选项，无 Cookie 即无登录模式，属正常情况）
 qqMusic.setCookie(config.qq || {});
@@ -130,6 +130,32 @@ function setSlotGauges(primaryOk, backupOk, hasBackup) {
   cookieStatus.neteaseBackup = hasBackup ? backupOk : true;
   cookieStatusGauge.set({ platform: 'netease-primary' }, primaryOk ? 1 : 0);
   cookieStatusGauge.set({ platform: 'netease-backup' }, hasBackup ? (backupOk ? 1 : 0) : 0);
+  const vip = vipHealthState(primaryOk, backupOk, hasBackup);
+  vipHealthGauge.set({ slot: 'primary' }, vip.primary);
+  vipHealthGauge.set({ slot: 'backup' }, vip.backup);
+  cookieProbeTotal.inc({ slot: 'primary', result: primaryOk ? 'ok' : 'fail' });
+  if (hasBackup) cookieProbeTotal.inc({ slot: 'backup', result: backupOk ? 'ok' : 'fail' });
+}
+
+/**
+ * VIP 健康纯函数：主槽如实反映探活；备槽未配置时报 1（无失效对象，
+ * 与 cookieStatus.neteaseBackup 口径一致），配了才反映探活。
+ * 返回 gauge 值（1/0），便于单测与告警口径对齐。
+ */
+function vipHealthState(primaryOk, backupOk, hasBackup) {
+  return {
+    primary: primaryOk ? 1 : 0,
+    backup: hasBackup ? (backupOk ? 1 : 0) : 1,
+  };
+}
+
+/** 当前 VIP 健康快照（与落盘 gauge 同值，只含 1/0，绝不含凭证）。 */
+function getVipHealth() {
+  return {
+    primary: cookieStatus.neteasePrimary ? 1 : 0,
+    backup: cookieStatus.neteaseBackup ? 1 : 0,
+    active: neteaseActive,
+  };
 }
 
 function applyActiveSlot(next, reason) {
@@ -297,6 +323,9 @@ module.exports = {
   resolveSharedCookie,
   getNeteaseActive,
   decideActiveSlot,
+  vipHealthState,
+  getVipHealth,
+  setSlotGauges,
   probeNeteaseCookie,
   rotateNeteaseActive,
   checkCookies,

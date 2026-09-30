@@ -79,6 +79,13 @@ public class SongController {
         return Result.ok(songSearchService.search(keyword, page, size, platform));
     }
 
+    /** 热门搜索关键词（App 热搜云端同步用；静态表，与搜索预热/纠错共用同一份） */
+    @GetMapping("/hotwords")
+    @Operation(summary = "热门搜索关键词（静态表，App 热搜云端同步用）")
+    public Result<List<String>> hotwords() {
+        return Result.ok(SongSearchService.hotKeywords());
+    }
+
     /** 随机推荐 */
     @GetMapping("/random")
     @Operation(summary = "随机推荐歌曲")

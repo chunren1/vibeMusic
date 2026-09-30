@@ -7,6 +7,7 @@ import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
@@ -79,6 +80,12 @@ public class SongSearchService {
                 .description("五平台上游全部失败次数").register(meterRegistry);
         searchTimer = Timer.builder("search.latency")
                 .description("搜索总耗时").register(meterRegistry);
+        for (String source : WEIGHTED_SOURCES) {
+            final String platform = source;
+            Gauge.builder("search.source.weight", () -> effectiveWeight(platform, baseWeightFor(platform)))
+                    .tag("platform", platform)
+                    .description("搜索源动态权重（含连续失败降权）").register(meterRegistry);
+        }
     }
 
     // ==================== 热门关键词预热 ====================
@@ -87,6 +94,14 @@ public class SongSearchService {
             "周杰伦", "晴天", "陈奕迅", "告白气球",
             "稻香", "夜曲", "七里香", "热歌"
     );
+
+    /**
+     * 热门搜索关键词（App 热搜云端同步与空结果纠错共用同一份表）。
+     * 返回副本，调用方不可修改内部表。
+     */
+    public static List<String> hotKeywords() {
+        return List.copyOf(HOT_KEYWORDS);
+    }
 
     /**
      * 启动时异步预热热门搜索词到 Redis 缓存，
@@ -163,8 +178,48 @@ public class SongSearchService {
     // QQ 熔断器阈值：连续失败/超时达此次数开路；开路时长 5 分钟。
     static final int QQ_BREAKER_FAILURE_THRESHOLD = 3;
     static final long QQ_BREAKER_OPEN_MS = 5 * 60 * 1000L;
+    // 动态源权重：各平台连续失败（异常/超时；空结果属健康应答，不计）自动降权，
+    // 成功一次即复权。档位 1 → 1/2 → 1/4 → 1/8 封顶，健康时因子恒为 1（排序与旧权重逐分一致）。
+    static final int SOURCE_DEWEIGHT_MAX_STEPS = 3;
+    private static final List<String> WEIGHTED_SOURCES = List.of("netease", "migu", "kugou", "bilibili", "qq");
+    private final ConcurrentHashMap<String, AtomicInteger> sourceFailures = new ConcurrentHashMap<>();
+
+    static double deweightFactor(int consecutiveFailures) {
+        int steps = Math.max(0, Math.min(consecutiveFailures, SOURCE_DEWEIGHT_MAX_STEPS));
+        return Math.pow(0.5, steps);
+    }
+
+    static double baseWeightFor(String platform) {
+        if ("netease".equals(platform)) return NET_WEIGHT;
+        if ("migu".equals(platform)) return MIGU_WEIGHT;
+        if ("kugou".equals(platform)) return KUGOU_WEIGHT;
+        if ("bilibili".equals(platform)) return BILI_WEIGHT;
+        if ("qq".equals(platform)) return QQ_WEIGHT;
+        return 1.0;
+    }
+
+    double effectiveWeight(String platform, double base) {
+        AtomicInteger c = sourceFailures.get(platform);
+        return base * deweightFactor(c == null ? 0 : c.get());
+    }
+
+    void recordSourceOutcome(String platform, boolean success) {
+        if (platform == null) return;
+        if (success) {
+            AtomicInteger c = sourceFailures.get(platform);
+            if (c != null) c.set(0);
+        } else {
+            sourceFailures.computeIfAbsent(platform, k -> new AtomicInteger(0)).incrementAndGet();
+        }
+    }
+
+    int getSourceFailures(String platform) {
+        AtomicInteger c = sourceFailures.get(platform);
+        return c == null ? 0 : c.get();
+    }
+
     /**
-     * QQ 熔断器 Redis 持久化键（Hash）：failures=连续失败计数，openedAt=开路时刻毫秒（-1=闭路）。
+      * QQ 熔断器 Redis 持久化键（Hash）：failures=连续失败计数，openedAt=开路时刻毫秒（-1=闭路）。
      * TTL 恒等于开路窗口；键过期即视为闭路（与内存语义一致：窗口过后进入半开探针）。
      * 半开探针占用标记仅保存在进程内（qqHalfOpenProbeInFlight + qqBreakerLock），跨实例重复探针无害（恰好计数一次）。
      */
@@ -215,7 +270,9 @@ public class SongSearchService {
         if (userCookie != null && userCookie.isBlank()) userCookie = null;
         final String userCk = userCookie;
         final boolean perUser = userCk != null;
-        String rawKw = keyword.trim();
+        String rawKw = SearchQueryHints.normalizeQuery(keyword);
+        if (rawKw.isEmpty())
+            return SearchResult.of(Collections.emptyList(), 0, page, size, "none");
         if (rawKw.length() > MAX_KEYWORD_LENGTH) rawKw = rawKw.substring(0, MAX_KEYWORD_LENGTH);
         final String kw = rawKw;
         final boolean searchBoth = (platform == null || platform.trim().isEmpty());
@@ -239,7 +296,8 @@ public class SongSearchService {
                     kw, page, redisCost);
             int from = (page - 1) * size;
             int to = Math.min(from + size, cached.size());
-            if (from >= cached.size()) return SearchResult.of(Collections.emptyList(), cached.size(), page, size, "redis");
+            if (from >= cached.size()) return SearchResult.of(Collections.emptyList(), cached.size(), page, size, "redis",
+                    cached.isEmpty() ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, false) : null);
             return SearchResult.of(cached.subList(from, to), cached.size(), page, size, "redis");
         }
         long redisCost = System.currentTimeMillis() - redisStart;
@@ -249,9 +307,9 @@ public class SongSearchService {
         // 分布式锁单飞：持锁者执行搜索并回写缓存；未获锁者短暂等待后重试读缓存，
         // 仍无缓存则兜底直接执行（锁持有者异常/过慢时不阻塞请求）
         String allCacheKey = kw + ":" + cacheExtra;
-        List<SongDTO> resultList;
+        ApiSearchOutcome outcome;
         if (perUser) {
-            resultList = doApiSearch(kw, cacheExtra, allCacheKey, userCk, searchStart);
+            outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, searchStart);
         } else {
         String lockValue = cacheService.tryLock(allCacheKey);
         if (lockValue == null) {
@@ -274,26 +332,31 @@ public class SongSearchService {
                     log.info("[CACHE-LAYER] 等待后命中单飞结果: keyword='{}', round={}, waited={}ms", kw, round + 1, backoff);
                     int from = (page - 1) * size;
                     int to = Math.min(from + size, retried.size());
-                    if (from >= retried.size()) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis");
+                    if (from >= retried.size()) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis",
+                            retried.isEmpty() ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, false) : null);
                     return SearchResult.of(retried.subList(from, to), retried.size(), page, size, "redis");
                 }
             }
             log.info("[API-LAYER] 单飞等待超时仍无缓存，兜底直查: keyword='{}', 原因=持锁者未及时回写", kw);
-            resultList = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+            outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
         } else {
             try {
-                resultList = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+                outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
             } finally {
                 cacheService.releaseLock(allCacheKey, lockValue);
             }
         }
         }
+        List<SongDTO> resultList = outcome.songs();
 
-        // 处理分页返回
+        // 处理分页返回（空结果带回退建议：别名/纠错；全上游失败时无建议、仅重试）
+        String suggestion = resultList.isEmpty()
+                ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, outcome.allUpstreamFailed())
+                : null;
         int from = (page - 1) * size;
         int to = Math.min(from + size, resultList.size());
         if (from >= resultList.size())
-            return SearchResult.of(Collections.emptyList(), resultList.size(), page, size, "api");
+            return SearchResult.of(Collections.emptyList(), resultList.size(), page, size, "api", suggestion);
         searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
         return SearchResult.of(resultList.subList(from, to), resultList.size(), page, size, "api");
     }
@@ -302,46 +365,57 @@ public class SongSearchService {
      * 执行第三方 API 搜索（单平台或双平台合并去重），并回写 Redis 缓存。
      * 调用方负责单飞锁的获取与释放。
      */
-    private List<SongDTO> doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie,
-                                       long searchStart) {
+    /** 上游搜索结果 + 是否全上游失败（决定空结果写哨兵与否、以及是否给改写建议）。 */
+    private record ApiSearchOutcome(List<SongDTO> songs, boolean allUpstreamFailed) {}
+
+    private ApiSearchOutcome doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie,
+                                        long searchStart) {
         apiCallCounter.increment();
         log.info("[API-LAYER] 触发实时搜索(单飞): keyword='{}', 原因=Redis未命中", kw);
         long apiStart = System.currentTimeMillis();
         final boolean perUser = userCookie != null;
 
         if ("netease".equals(cacheExtra)) {
-            List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw, null, userCookie));
+            AtomicBoolean neFailedOnce = new AtomicBoolean(false);
+            List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw, neFailedOnce, userCookie));
+            recordSourceOutcome("netease", !neFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("netease");
             if (!songs.isEmpty() && !perUser) cacheService.setSearchCache(kw + ":netease", songs, true);
-            return songs;
+            return new ApiSearchOutcome(songs, false);
         }
         if ("qq".equals(cacheExtra)) {
             if (shouldSkipQq()) {
                 log.warn("[QQ-BREAKER] 熔断中跳过QQ: keyword='{}'", kw);
-                return Collections.emptyList();
+                return new ApiSearchOutcome(Collections.emptyList(), false);
             }
             List<SongDTO> songs = new ArrayList<>(safeSearchQQ(kw));
             for (SongDTO s : songs) s.setPlatform("qq");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", songs, true);
-            return songs;
+            return new ApiSearchOutcome(songs, false);
         }
         if ("migu".equals(cacheExtra)) {
-            List<SongDTO> songs = new ArrayList<>(safeSearchMigu(kw));
+            AtomicBoolean mgFailedOnce = new AtomicBoolean(false);
+            List<SongDTO> songs = new ArrayList<>(safeSearchMigu(kw, mgFailedOnce));
+            recordSourceOutcome("migu", !mgFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("migu");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":migu", songs, true);
-            return songs;
+            return new ApiSearchOutcome(songs, false);
         }
         if ("kugou".equals(cacheExtra)) {
-            List<SongDTO> songs = new ArrayList<>(safeSearchKugou(kw));
+            AtomicBoolean kgFailedOnce = new AtomicBoolean(false);
+            List<SongDTO> songs = new ArrayList<>(safeSearchKugou(kw, kgFailedOnce));
+            recordSourceOutcome("kugou", !kgFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("kugou");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":kugou", songs, true);
-            return songs;
+            return new ApiSearchOutcome(songs, false);
         }
         if ("bilibili".equals(cacheExtra)) {
-            List<SongDTO> songs = new ArrayList<>(safeSearchBili(kw));
+            AtomicBoolean biFailedOnce = new AtomicBoolean(false);
+            List<SongDTO> songs = new ArrayList<>(safeSearchBili(kw, biFailedOnce));
+            recordSourceOutcome("bilibili", !biFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("bilibili");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":bilibili", songs, true);
-            return songs;
+            return new ApiSearchOutcome(songs, false);
         }
 
         // 合并搜索（复用 Spring 托管线程池）；熔断开路时跳过 QQ 分支，不再吃 4s 超时。
@@ -394,6 +468,11 @@ public class SongSearchService {
         List<SongDTO> miguSongs = getWithTimeout(mgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Migu", mgFailed);
         List<SongDTO> kugouSongs = getWithTimeout(kgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Kugou", kgFailed);
         List<SongDTO> biliSongs = getWithTimeout(biF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Bili", biFailed);
+        recordSourceOutcome("netease", !neFailed.get());
+        if (qqF != null) recordSourceOutcome("qq", !qqFailed.get());
+        recordSourceOutcome("migu", !mgFailed.get());
+        recordSourceOutcome("kugou", !kgFailed.get());
+        recordSourceOutcome("bilibili", !biFailed.get());
         List<SongDTO> merged = mergePlatformResults(neteaseSongs, qqSongs, miguSongs, kugouSongs, biliSongs, kw);
 
         boolean incomplete = neteaseSongs.isEmpty() || qqSongs.isEmpty() || miguSongs.isEmpty() || kugouSongs.isEmpty() || biliSongs.isEmpty();
@@ -403,12 +482,12 @@ public class SongSearchService {
         if (merged.isEmpty() && allUpstreamFailed(qqF == null, neFailed, qqFailed, mgFailed, kgFailed, biFailed)) {
             upstreamAllFailedCounter.increment();
             log.warn("[API-LAYER] 五平台上游全部失败，不写空哨兵: keyword='{}'", kw);
-            return merged;
+            return new ApiSearchOutcome(merged, true);
         }
         if (!perUser) {
             cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
         }
-        return merged;
+        return new ApiSearchOutcome(merged, false);
     }
 
     /** 合并五平台结果：归一化去重、跨平台加分、查询相关性加分、按最终分排序 */
@@ -417,11 +496,11 @@ public class SongSearchService {
                                                List<SongDTO> biliSongs, String keyword) {
         Map<String, SongDTO> mergedMap = new LinkedHashMap<>();
 
-        addPlatformSongs(mergedMap, neteaseSongs, NET_WEIGHT, "netease", false);
-        addPlatformSongs(mergedMap, qqSongs, QQ_WEIGHT, "qq", true);
-        addPlatformSongs(mergedMap, miguSongs, MIGU_WEIGHT, "migu", true);
-        addPlatformSongs(mergedMap, kugouSongs, KUGOU_WEIGHT, "kugou", true);
-        addPlatformSongs(mergedMap, biliSongs, BILI_WEIGHT, "bilibili", true);
+        addPlatformSongs(mergedMap, neteaseSongs, effectiveWeight("netease", NET_WEIGHT), "netease", false);
+        addPlatformSongs(mergedMap, qqSongs, effectiveWeight("qq", QQ_WEIGHT), "qq", true);
+        addPlatformSongs(mergedMap, miguSongs, effectiveWeight("migu", MIGU_WEIGHT), "migu", true);
+        addPlatformSongs(mergedMap, kugouSongs, effectiveWeight("kugou", KUGOU_WEIGHT), "kugou", true);
+        addPlatformSongs(mergedMap, biliSongs, effectiveWeight("bilibili", BILI_WEIGHT), "bilibili", true);
 
         List<SongDTO> merged = new ArrayList<>(mergedMap.values());
         long relevanceStart = System.currentTimeMillis();
@@ -680,9 +759,11 @@ public class SongSearchService {
         try {
             List<SongDTO> songs = fetchQQ(keyword);
             recordQqSuccess();
+            recordSourceOutcome("qq", true);
             return songs;
         } catch (Exception e) {
             recordQqFailure();
+            recordSourceOutcome("qq", false);
             log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
             return Collections.emptyList();
         }

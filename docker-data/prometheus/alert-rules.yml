@@ -269,6 +269,52 @@ groups:
           summary: "API 平均响应时间过高"
           description: "整体 API 平均响应时间超过 2 秒"
 
+  # ── VIP Cookie 健康告警（audio-source batch）──
+  # 指标来源：musicapi 网关 musicapi_cookie_vip_health{slot="primary"|"backup"}
+  # （src/metrics.js + src/cookie.js setSlotGauges 维护；备语义：未配备份恒为 1，
+  # 故 backup==0 只在"配了备份但探活失败"时成立，无备份部署不会误报）。
+  - name: cookie-vip-alerts
+    rules:
+      # 主 Cookie 失效（备已接管或整体降级前兆）
+      - alert: NeteaseVipPrimaryDown
+        expr: musicapi_cookie_vip_health{slot="primary"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "网易云主 Cookie 失效"
+          description: "主 Cookie 探活连续 5 分钟失败（value={{ $value }}），已切备或降级；请检查主 Cookie 是否过期"
+
+      # 主备双失效（共享链路无可用登录态）
+      - alert: NeteaseVipBothDown
+        expr: musicapi_cookie_vip_health{slot="primary"} == 0 and musicapi_cookie_vip_health{slot="backup"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "网易云主备 Cookie 双失效"
+          description: "主备 Cookie 探活均失败超过 2 分钟，共享链路已退化为匿名；VIP 内容不可播，需立即更换 Cookie"
+
+      # 主失效备接管中（有效登录态仍在，但处于容灾状态）
+      - alert: NeteaseVipFailoverActive
+        expr: musicapi_cookie_status{platform="netease-primary"} == 0 and musicapi_cookie_status{platform="netease"} == 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "网易云 Cookie 处于备接管状态"
+          description: "主 Cookie 失效、备接管已超过 10 分钟（仍可播但无冗余）；请尽快恢复主 Cookie"
+
+      # QQ Cookie 失效（无 Cookie 模式下 gauge 恒为 1，不会误报）
+      - alert: QqCookieDown
+        expr: musicapi_cookie_status{platform="qq"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "QQ Cookie 失效"
+          description: "QQ Cookie 探活连续 10 分钟失败；无 Cookie 部署不受影响，配了 Cookie 的请运行 node scripts/get_qq_cookie.mjs"
+
   # ── 性能告警 ──
   - name: performance-alerts
     rules:

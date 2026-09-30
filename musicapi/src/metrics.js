@@ -41,6 +41,27 @@ const upGauge = new promClient.Gauge({
 });
 upGauge.set(1);
 
+// VIP 健康：主/备共享 Cookie 各自探活结果（1=可用, 0=失效）。
+// 备语义：未配置备份时恒为 1（无失效对象，视为健康），与 cookie.js
+// cookieStatus.neteaseBackup 口径一致；配置了备份才反映真实探活。
+const vipHealthGauge = new promClient.Gauge({
+  name: 'musicapi_cookie_vip_health',
+  help: 'VIP Cookie 健康 (1=可用, 0=失效；未配备份的 backup 槽恒为 1)',
+  labelNames: ['slot'],
+  registers: [register],
+});
+vipHealthGauge.set({ slot: 'primary' }, 1);
+vipHealthGauge.set({ slot: 'backup' }, 1);
+
+// 探针计数：每次 checkCookies/rotate 对各槽位的探活结果各计一次，
+// 供告警计算失败率；result=ok|fail。
+const cookieProbeTotal = new promClient.Counter({
+  name: 'musicapi_cookie_probe_total',
+  help: 'Cookie 探针次数',
+  labelNames: ['slot', 'result'],
+  registers: [register],
+});
+
 // 标签在 finish 时确定：中间件挂在路由之前，入口处 req.route 恒为 undefined；
 // 未匹配路由（404/通配未命中）统一归到 path="unmatched"，防止任意路径推高基数。
 function metricsMiddleware(req, res, next) {
@@ -60,6 +81,8 @@ module.exports = {
   httpRequestDuration,
   cacheHitTotal,
   cookieStatusGauge,
+  vipHealthGauge,
+  cookieProbeTotal,
   upGauge,
   metricsMiddleware,
 };

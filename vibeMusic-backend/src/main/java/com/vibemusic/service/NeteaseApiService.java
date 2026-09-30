@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -99,6 +100,50 @@ public class NeteaseApiService {
      */
     public static Object extractUpstreamCode(Map<String, Object> body) {
         return body == null ? null : body.get("code");
+    }
+
+    /** 取链响应版权预检结果：调用方据此决定是否跳过昂贵的跨平台降级链。 */
+    public enum CopyrightPrecheck {
+        PLAYABLE,
+        NO_COPYRIGHT,
+        NEED_LOGIN,
+        UNKNOWN
+    }
+
+    /**
+     * 版权预检（纯函数，供播放降级链 fast-fail）。
+     *
+     * <p>判定口径（与 {@link SongPlayService} 探针语义对齐）：
+     * <ul>
+     *   <li>need-login 信号（301/-101/需登录文案/匿名态）→ NEED_LOGIN（可快切重试，不属版权拦截）；</li>
+     *   <li>{@code data} 非空且全部条目 url 为空、又无试听信息 → NO_COPYRIGHT（硬拦截）；</li>
+     *   <li>任一条目有可用 url → PLAYABLE（含试听版，试听判定仍由探针负责）；</li>
+     *   <li>其余（null/空 data/咪咕 200000 非标形除外）→ UNKNOWN（保守走完整降级链）。</li>
+     * </ul>
+     * 明确的非信号：{@code data} 为空只代表 transient 空结果，不判拦截，避免误杀。
+     */
+    public static CopyrightPrecheck precheckUrlPayload(Map<String, Object> body) {
+        if (body == null) return CopyrightPrecheck.UNKNOWN;
+        if (isNeedLoginPayload(body)) return CopyrightPrecheck.NEED_LOGIN;
+        Object data = body.get("data");
+        if (data instanceof List<?> list) {
+            if (list.isEmpty()) return CopyrightPrecheck.UNKNOWN;
+            boolean allBlocked = true;
+            for (Object item : list) {
+                if (!(item instanceof Map<?, ?> m)) {
+                    allBlocked = false;
+                    break;
+                }
+                Object url = m.get("url");
+                if (url instanceof String s && !s.isBlank()) return CopyrightPrecheck.PLAYABLE;
+                if (m.get("freeTrialInfo") != null) allBlocked = false;
+            }
+            return allBlocked ? CopyrightPrecheck.NO_COPYRIGHT : CopyrightPrecheck.UNKNOWN;
+        }
+        Object code = body.get("code");
+        if (code instanceof Number n && n.intValue() == 200000) return CopyrightPrecheck.NO_COPYRIGHT;
+        if ("200000".equals(String.valueOf(code)) && data == null) return CopyrightPrecheck.NO_COPYRIGHT;
+        return CopyrightPrecheck.UNKNOWN;
     }
 
     private static boolean isNeedLoginCode(Object code) {

@@ -6,6 +6,7 @@ import com.vibemusic.common.utils.SongIdUtils;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +54,10 @@ public class SongPlayService {
     public void setMeterRegistry(MeterRegistry meterRegistry) {
         if (meterRegistry != null) {
             meterRegistry.gauge("play.degradation.count", degradationCount, AtomicInteger::get);
+            needLoginCounter = Counter.builder("play.netease.need_login")
+                    .description("网易云取链 need-login 信号次数").register(meterRegistry);
+            rotateCounter = Counter.builder("play.netease.cookie_rotate")
+                    .description("共享 Cookie 快切触发次数").register(meterRegistry);
         }
     }
 
@@ -67,7 +72,9 @@ public class SongPlayService {
                 : neteaseApiService.getSongUrl(sourceId, level);
         observeNeteaseUrlPayload(body, userCookie, userId);
         if (userCookie == null && NeteaseApiService.isNeedLoginPayload(body)) {
+            if (needLoginCounter != null) needLoginCounter.increment();
             try {
+                if (rotateCounter != null) rotateCounter.increment();
                 if (neteaseApiService.rotateSharedCookie()) {
                     return neteaseApiService.getSongUrl(sourceId, level);
                 }
@@ -110,6 +117,8 @@ public class SongPlayService {
     /** 试听片段判定阈值（毫秒）：时长 ≤ 30 秒视为试听片段 */
     private static final int TRIAL_DURATION_MS = 30000;
     private final AtomicInteger degradationCount = new AtomicInteger(0);
+    private volatile Counter needLoginCounter;
+    private volatile Counter rotateCounter;
 
     public int getDegradationCount() { return degradationCount.get(); }
 
@@ -260,9 +269,16 @@ public class SongPlayService {
                 String[] levels = {"exhigh", "higher", "standard"};
                 NeteaseProbe probe = probeNeteaseParallel(sourceId, levels, DEADLINE, userCookie, callerUserId);
                 if (probe.url != null) return probe.url;
-                // 网易云无可用链接（全失败或全试听）→ QQ 降级（Q2d 收敛）
-                String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
-                if (qqUrl != null) return qqUrl;
+                // 版权预检 fast-fail：standard 明确硬拦截（url 空且无试听信息）时跳过 QQ 降级、
+                // 直落 DB 兜底；need-login/试听/空响应一律走完整降级链（行为不变）
+                if (NeteaseApiService.precheckUrlPayload(probe.standardProbe)
+                        == NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT) {
+                    log.info("版权预检硬拦截: {} 无可用版权，跳过QQ降级直落DB兜底", sourceId);
+                } else {
+                    // 网易云无可用链接（全失败或全试听）→ QQ 降级（Q2d 收敛）
+                    String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
+                    if (qqUrl != null) return qqUrl;
+                }
                 log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
             }
         } catch (Exception e) {
