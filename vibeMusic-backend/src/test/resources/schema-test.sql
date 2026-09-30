@@ -84,3 +84,13 @@ CREATE TABLE IF NOT EXISTS play_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_played ON play_history(user_id, played_at);
+
+CREATE TABLE IF NOT EXISTS user_search_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    keyword VARCHAR(200) NOT NULL,
+    searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, keyword)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_searched ON user_search_history(user_id, searched_at);
