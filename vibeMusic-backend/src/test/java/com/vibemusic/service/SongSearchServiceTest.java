@@ -665,16 +665,45 @@ class SongSearchServiceTest {
 
         @Test @DisplayName("API 歌曲足够时随机打乱返回")
         void shouldShuffleApiResults() {
-            when(cacheService.getSearchCache(eq("热歌:all"))).thenReturn(null);
+            // 关键词现为随机池抽取，缓存与上游一律按任意关键词打桩。
+            when(cacheService.getSearchCache(anyString())).thenReturn(null);
 
             var song = Map.of("id", "6", "name", "热歌", "artists", "歌手", "duration", 240000);
-            when(neteaseApiService.searchNetease("热歌", 40)).thenReturn(Map.of("data", List.of(song)));
-            when(neteaseApiService.searchQQ("热歌", 40)).thenReturn(Map.of("data", List.of()));
+            when(neteaseApiService.searchNetease(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of(song)));
+            when(neteaseApiService.searchQQ(anyString(), anyInt()))
+                    .thenReturn(Map.of("data", List.of()));
 
             List<SongDTO> result = songSearchService.getRandomSongs(1);
 
             assertFalse(result.isEmpty());
             assertEquals("热歌", result.get(0).getName());
+        }
+
+        @Test @DisplayName("多次调用搜索关键词来自随机池而非固定热歌")
+        void shouldUseVariedKeywordsAcrossCalls() {
+            SongSearchService spySvc = spy(songSearchService);
+            SearchResult empty = SearchResult.of(List.of(), 0, 1, 30, "api");
+            doReturn(empty).when(spySvc).search(anyString(), anyInt(), anyInt(), isNull());
+
+            int calls = 10;
+            for (int i = 0; i < calls; i++) {
+                spySvc.getRandomSongs(5);
+            }
+
+            org.mockito.ArgumentCaptor<String> keywordCaptor =
+                    org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(spySvc, times(calls)).search(keywordCaptor.capture(), eq(1), eq(30), isNull());
+            List<String> pool = List.of("热歌", "新歌", "流行", "华语", "民谣",
+                    "摇滚", "电子", "轻音乐", "经典", "影视原声");
+            List<String> used = keywordCaptor.getAllValues();
+            assertEquals(calls, used.size());
+            for (String kw : used) {
+                assertTrue(pool.contains(kw), "搜索关键词应在随机池内，实际=" + kw);
+            }
+            assertTrue(used.stream().distinct().count() > 1
+                            || !used.stream().allMatch("热歌"::equals),
+                    "10 次调用关键词不应恒为固定热歌，实际=" + used);
         }
     }
 

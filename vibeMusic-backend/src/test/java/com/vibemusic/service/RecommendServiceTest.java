@@ -16,10 +16,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -369,6 +371,165 @@ class RecommendServiceTest {
             recommendService.evictUserCache(1L);
 
             verify(stringRedisTemplate).delete("recommend:v3:user:1");
+        }
+    }
+
+    @Nested @DisplayName("已推荐记忆去重（seen-set）")
+    class SeenDedupTest {
+
+        private SetOperations<String, String> setOps;
+
+        private void stubHistory(String artist) {
+            PlayHistory history = new PlayHistory();
+            history.setUserId(1L);
+            history.setSourceId("h1");
+            history.setSongName("历史歌");
+            history.setArtist(artist);
+            history.setPlayedAt(LocalDateTime.now());
+            when(playHistoryMapper.selectPage(any(), any(LambdaQueryWrapper.class)))
+                    .thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<PlayHistory>()
+                            .setRecords(List.of(history)));
+        }
+
+        private void stubCommon() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            setOps = mock(SetOperations.class);
+            when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        }
+
+        @Test @DisplayName("seen 中的歌曲应从个性化结果中过滤")
+        void shouldFilterSeenIds() {
+            stubCommon();
+            stubHistory("周杰伦");
+            when(setOps.members("recommend:seen:v3:user:1"))
+                    .thenReturn(new HashSet<>(Set.of("seen1", "seen2")));
+            List<SongDTO> base = List.of(
+                    createSong("seen1", "已推1", "歌手A", "netease"),
+                    createSong("f1", "新鲜1", "歌手B", "qq"),
+                    createSong("f2", "新鲜2", "歌手C", "migu"),
+                    createSong("f3", "新鲜3", "歌手D", "netease"));
+            List<SongDTO> supplement = List.of(
+                    createSong("seen2", "已推2", "歌手E", "qq"),
+                    createSong("f4", "新鲜4", "歌手F", "netease"),
+                    createSong("f5", "新鲜5", "歌手G", "qq"),
+                    createSong("f6", "新鲜6", "歌手H", "migu"),
+                    createSong("f7", "新鲜7", "歌手I", "netease"),
+                    createSong("f8", "新鲜8", "歌手J", "qq"));
+            when(songSearchService.getRandomSongs(anyInt())).thenAnswer(invocation -> {
+                int n = invocation.getArgument(0);
+                return n == 4 ? base : supplement;
+            });
+            when(songSearchService.search(eq("周杰伦"), eq(1), eq(10), any()))
+                    .thenReturn(SearchResult.of(List.of(), 0, 1, 10, "api"));
+
+            RecommendResult result = recommendService.getPersonalized(1L, "device-123", true);
+
+            assertNotNull(result);
+            assertEquals("personalized", result.getType());
+            List<String> ids = result.getSongs().stream().map(SongDTO::getSourceId).toList();
+            assertFalse(ids.contains("seen1"), "seen1 应被过滤");
+            assertFalse(ids.contains("seen2"), "seen2 应被过滤");
+            assertTrue(ids.contains("f1") && ids.contains("f4"), "新鲜歌曲应保留");
+            verify(setOps).add(eq("recommend:seen:v3:user:1"), any(String[].class));
+        }
+
+        @Test @DisplayName("候选池耗尽时应忽略 seen 回填凑满 8 首")
+        void shouldFallbackToSeenWhenPoolExhausted() {
+            stubCommon();
+            stubHistory("歌手X");
+            when(setOps.members(anyString()))
+                    .thenReturn(new HashSet<>(Set.of("o1", "o2", "o3", "o4")));
+            List<SongDTO> base = List.of(
+                    createSong("o1", "旧1", "歌手O1", "netease"),
+                    createSong("o2", "旧2", "歌手O2", "qq"),
+                    createSong("f1", "新1", "歌手F1", "migu"),
+                    createSong("f2", "新2", "歌手F2", "netease"));
+            List<SongDTO> supplement = List.of(
+                    createSong("o3", "旧3", "歌手O3", "qq"),
+                    createSong("o4", "旧4", "歌手O4", "migu"),
+                    createSong("f3", "新3", "歌手F3", "netease"),
+                    createSong("f4", "新4", "歌手F4", "qq"));
+            when(songSearchService.getRandomSongs(anyInt())).thenAnswer(invocation -> {
+                int n = invocation.getArgument(0);
+                return n == 4 ? base : supplement;
+            });
+            when(songSearchService.search(eq("歌手X"), eq(1), eq(10), any()))
+                    .thenReturn(SearchResult.of(List.of(), 0, 1, 10, "api"));
+
+            RecommendResult result = recommendService.getPersonalized(1L, "device-123", true);
+
+            assertNotNull(result);
+            assertEquals(8, result.getSongs().size(), "回填后应凑满 8 首");
+        }
+
+        @Test @DisplayName("Redis seen 异常应降级为不过滤且不抛异常")
+        void shouldDegradeWhenRedisFails() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            when(stringRedisTemplate.opsForSet()).thenThrow(new RuntimeException("Redis挂了"));
+            stubHistory("周杰伦");
+            List<SongDTO> base = List.of(
+                    createSong("r1", "歌1", "歌手A", "netease"),
+                    createSong("r2", "歌2", "歌手B", "qq"));
+            when(songSearchService.getRandomSongs(anyInt())).thenReturn(base);
+            when(songSearchService.search(eq("周杰伦"), eq(1), eq(10), any()))
+                    .thenReturn(SearchResult.of(List.of(), 0, 1, 10, "api"));
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+
+            assertDoesNotThrow(() -> {
+                RecommendResult result = recommendService.getPersonalized(1L, "device-123", true);
+                assertNotNull(result);
+                assertFalse(result.getSongs().isEmpty(), "降级后仍应返回未过滤的结果");
+            });
+        }
+    }
+
+    @Nested @DisplayName("单歌手上限（每歌手最多 2 首/8 首）")
+    class ArtistCapTest {
+
+        private void stubCommon() {
+            when(stringRedisTemplate.opsForValue()).thenReturn(valueOps);
+            when(valueOps.get(anyString())).thenReturn(null);
+            SetOperations<String, String> setOps = mock(SetOperations.class);
+            when(stringRedisTemplate.opsForSet()).thenReturn(setOps);
+            when(songMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        }
+
+        @Test @DisplayName("同一歌手候选超过 2 首时，结果中该歌手不超过 2 首且凑满 8 首")
+        void shouldCapPerArtist() {
+            stubCommon();
+            // 无历史 → 不走 Top 歌手 fan-out，验证随机打底/补足路径的全局上限
+            when(playHistoryMapper.selectPage(any(), any(LambdaQueryWrapper.class)))
+                    .thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<PlayHistory>()
+                            .setRecords(List.of()));
+            List<SongDTO> base = List.of(
+                    createSong("z1", "周1", "周杰伦", "netease"),
+                    createSong("z2", "周2", "周杰伦", "qq"),
+                    createSong("z3", "周3", "周杰伦", "migu"),
+                    createSong("z4", "周4", "周杰伦", "netease"),
+                    createSong("z5", "周5", "周杰伦", "kugou"),
+                    createSong("o1", "他1", "歌手B", "qq"),
+                    createSong("o2", "他2", "歌手C", "netease"),
+                    createSong("o3", "他3", "歌手D", "migu"));
+            List<SongDTO> supplement = List.of(
+                    createSong("s1", "补1", "歌手E", "qq"),
+                    createSong("s2", "补2", "歌手F", "netease"),
+                    createSong("s3", "补3", "歌手G", "migu"),
+                    createSong("s4", "补4", "歌手H", "qq"));
+            when(songSearchService.getRandomSongs(anyInt())).thenAnswer(invocation -> {
+                int n = invocation.getArgument(0);
+                return n == 4 ? base : supplement;
+            });
+
+            RecommendResult result = recommendService.getPersonalized(1L, "device-1", true);
+
+            assertNotNull(result);
+            long zhou = result.getSongs().stream()
+                    .filter(s -> "周杰伦".equals(s.getArtist())).count();
+            assertEquals(2, zhou, "同歌手最多 2 首（5 首候选应只取 2）");
+            assertEquals(8, result.getSongs().size(), "应凑满 8 首");
         }
     }
 }

@@ -12,6 +12,7 @@ import com.vibemusic.mapper.PlayHistoryMapper;
 import com.vibemusic.mapper.SongMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.SetOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -47,6 +48,11 @@ public class RecommendService {
     private static final Duration USER_CACHE_TTL = Duration.ofMinutes(30); // 30min，推荐更及时
     private static final Duration GUEST_CACHE_TTL = Duration.ofMinutes(10);
     private static final long ARTIST_FANOUT_DEADLINE_MS = 5000; // Top歌手并行搜索总deadline
+    private static final String SEEN_KEY_PREFIX = "recommend:seen:v3:";
+    private static final int SEEN_MAX = 200;
+    private static final Duration SEEN_TTL = Duration.ofDays(7);
+    private static final int MAX_PER_ARTIST = 2;
+    private static final int TOP_ARTIST_LIMIT = 5;
 
     /**
      * 个性化推荐入口
@@ -71,9 +77,11 @@ public class RecommendService {
         // 执行推荐
         RecommendResult result;
         Duration ttl;
+        // 已推荐记忆键：个性化路径使用（guest 路径保持原有行为，不使用 seen，避免扩散游客键）
+        String seenKey = seenKeyFor(userId, deviceId);
         try {
             if (userId != null) {
-                result = buildPersonalized(userId);
+                result = buildPersonalized(userId, seenKey);
                 ttl = USER_CACHE_TTL;
             } else {
                 result = buildGuest();
@@ -111,8 +119,9 @@ public class RecommendService {
 
     /**
      * 已登录用户个性化推荐（v3: 随机打底 + 兴趣扩展，保证多样性）
+     * @param seenKey 已推荐记忆键（可为 null，Redis 异常时降级为空集）
      */
-    private RecommendResult buildPersonalized(Long userId) {
+    private RecommendResult buildPersonalized(Long userId, String seenKey) {
         // 获取近30天播放记录
         LocalDateTime since = LocalDateTime.now().minusDays(HISTORY_DAYS);
         List<PlayHistory> history = playHistoryMapper.selectPage(new Page<>(1, HISTORY_SAMPLE),
@@ -130,16 +139,30 @@ public class RecommendService {
                 artistWeight.merge(h.getArtist(), 1L, Long::sum);
             }
         }
+        // 已推荐记忆 ∪ 已播放 = 本次去重集合。连续"换一批"(refresh=true)时过滤近期已推过的歌。
+        Set<String> seenIds = readSeenIds(seenKey);
         Set<String> seenSourceIds = new HashSet<>(playedIds);
+        seenSourceIds.addAll(seenIds);
 
         List<SongDTO> result = new ArrayList<>();
+        Map<String, Integer> artistCount = new HashMap<>();
+        // seen 命中的溢出缓冲：候选池耗尽时忽略 seen 回填，保证数量不比原来少
+        List<SongDTO> seenSkipped = new ArrayList<>();
+        Set<String> skippedIds = new HashSet<>();
 
         // ① 随机打底：保证多样性
         try {
             List<SongDTO> random = songSearchService.getRandomSongs(RANDOM_BASE);
             for (SongDTO s : random) {
-                if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
-                    if (s.getDuration() == null || s.getDuration() > 30) {
+                if (s.getSourceId() == null) continue;
+                if (playedIds.contains(s.getSourceId())) continue;
+                if (seenIds.contains(s.getSourceId())) {
+                    if (skippedIds.add(s.getSourceId())) seenSkipped.add(s);
+                    continue;
+                }
+                if (!seenSourceIds.add(s.getSourceId())) continue;
+                if (s.getDuration() == null || s.getDuration() > 30) {
+                    if (tryCountArtist(artistCount, s.getArtist())) {
                         result.add(s);
                     }
                 }
@@ -150,11 +173,12 @@ public class RecommendService {
         if (result.size() < RECOMMEND_COUNT && !history.isEmpty()) {
             List<String> topArtists = artistWeight.entrySet().stream()
                     .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                    .limit(3)
+                    .limit(TOP_ARTIST_LIMIT)
                     .map(Map.Entry::getKey)
                     .collect(Collectors.toList());
 
-            searchTopArtistsParallel(topArtists, result, seenSourceIds);
+            searchTopArtistsParallel(topArtists, result, seenSourceIds, playedIds, seenIds,
+                    artistCount, seenSkipped, skippedIds);
         }
 
         // ③ 仍有空缺 → 补随机
@@ -163,13 +187,37 @@ public class RecommendService {
                 List<SongDTO> supplement = songSearchService.getRandomSongs(RECOMMEND_COUNT - result.size());
                 for (SongDTO s : supplement) {
                     if (result.size() >= RECOMMEND_COUNT) break;
-                    if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
-                        if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                        result.add(s);
+                    if (s.getSourceId() == null) continue;
+                    if (playedIds.contains(s.getSourceId())) continue;
+                    if (seenIds.contains(s.getSourceId())) {
+                        if (skippedIds.add(s.getSourceId())) seenSkipped.add(s);
+                        continue;
                     }
+                    if (!seenSourceIds.add(s.getSourceId())) continue;
+                    if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                    if (!tryCountArtist(artistCount, s.getArtist())) continue;
+                    result.add(s);
                 }
             } catch (Exception e) { log.warn("补充随机歌曲失败", e); }
         }
+
+        // ③′ 候选池耗尽回填：忽略 seen（仅保留 played 去重 + 时长 + 每歌手上限），把数量补满 8
+        if (result.size() < RECOMMEND_COUNT && !seenSkipped.isEmpty()) {
+            Set<String> resultIds = new HashSet<>(playedIds);
+            for (SongDTO s : result) {
+                if (s.getSourceId() != null) resultIds.add(s.getSourceId());
+            }
+            for (SongDTO s : seenSkipped) {
+                if (result.size() >= RECOMMEND_COUNT) break;
+                if (s.getSourceId() == null || !resultIds.add(s.getSourceId())) continue;
+                if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                if (!tryCountArtist(artistCount, s.getArtist())) continue;
+                result.add(s);
+            }
+        }
+
+        // 写回已推荐记忆（best-effort，Redis 失败不影响本次结果）
+        writeSeenIds(seenKey, result);
 
         // ④ 多样性加权随机打乱 + 多样性保障：至少保留 1 首非 TopArtist 的歌
         if (result.size() >= 3) {
@@ -209,7 +257,9 @@ public class RecommendService {
      * 后续随机补足兜底保证数量。
      */
     private void searchTopArtistsParallel(List<String> topArtists, List<SongDTO> result,
-                                          Set<String> seenSourceIds) {
+                                           Set<String> seenSourceIds, Set<String> playedIds,
+                                           Set<String> seenIds, Map<String, Integer> artistCount,
+                                           List<SongDTO> seenSkipped, Set<String> skippedIds) {
         List<Future<List<SongDTO>>> futures = new ArrayList<>(topArtists.size());
         try {
             for (String artist : topArtists) {
@@ -248,15 +298,91 @@ public class RecommendService {
             if (songs == null) continue;
             for (SongDTO s : songs) {
                 if (result.size() >= RECOMMEND_COUNT) break;
-                if (s.getSourceId() != null && seenSourceIds.add(s.getSourceId())) {
-                    if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                    result.add(s);
+                if (s.getSourceId() == null) continue;
+                if (playedIds.contains(s.getSourceId())) continue;
+                if (seenIds.contains(s.getSourceId())) {
+                    if (skippedIds.add(s.getSourceId())) seenSkipped.add(s);
+                    continue;
                 }
+                if (!seenSourceIds.add(s.getSourceId())) continue;
+                if (s.getDuration() != null && s.getDuration() <= 30) continue;
+                if (!tryCountArtist(artistCount, s.getArtist())) continue;
+                result.add(s);
             }
         }
         for (Future<List<SongDTO>> f : futures) {
             if (!f.isDone()) f.cancel(true);
         }
+    }
+
+    private String seenKeyFor(Long userId, String deviceId) {
+        if (userId != null) {
+            return SEEN_KEY_PREFIX + "user:" + userId;
+        }
+        return SEEN_KEY_PREFIX + "guest:" + AnonymousIdentityUtils.sanitize(deviceId);
+    }
+
+    private Set<String> readSeenIds(String key) {
+        if (key == null) {
+            return Collections.emptySet();
+        }
+        try {
+            SetOperations<String, String> ops = stringRedisTemplate.opsForSet();
+            if (ops == null) {
+                return Collections.emptySet();
+            }
+            Set<String> members = ops.members(key);
+            return members != null ? members : Collections.emptySet();
+        } catch (Exception e) {
+            log.debug("读取已推荐记忆失败，降级为空集: {}", key, e);
+            return Collections.emptySet();
+        }
+    }
+
+    private void writeSeenIds(String key, List<SongDTO> songs) {
+        if (key == null || songs == null || songs.isEmpty()) {
+            return;
+        }
+        try {
+            SetOperations<String, String> ops = stringRedisTemplate.opsForSet();
+            if (ops == null) {
+                return;
+            }
+            String[] ids = songs.stream()
+                    .map(SongDTO::getSourceId)
+                    .filter(Objects::nonNull)
+                    .toArray(String[]::new);
+            if (ids.length == 0) {
+                return;
+            }
+            ops.add(key, ids);
+            stringRedisTemplate.expire(key, SEEN_TTL);
+            Long size = ops.size(key);
+            if (size != null && size > SEEN_MAX) {
+                long overflow = size - SEEN_MAX;
+                for (long i = 0; i < overflow; i++) {
+                    if (ops.pop(key) == null) {
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("写回已推荐记忆失败: {}", key, e);
+        }
+    }
+
+    private static String artistBucket(String artist) {
+        return (artist == null || artist.isEmpty()) ? "" : artist;
+    }
+
+    private static boolean tryCountArtist(Map<String, Integer> artistCount, String artist) {
+        String bucket = artistBucket(artist);
+        int used = artistCount.getOrDefault(bucket, 0);
+        if (used >= MAX_PER_ARTIST) {
+            return false;
+        }
+        artistCount.put(bucket, used + 1);
+        return true;
     }
 
     /**
@@ -265,7 +391,6 @@ public class RecommendService {
     private RecommendResult buildGuest() {
         return buildGuestResult("登录后享受个性化推荐~");
     }
-
     private RecommendResult buildGuestResult(String greeting) {
         try {
             List<SongDTO> songs = songSearchService.getRandomSongs(RECOMMEND_COUNT);

@@ -96,6 +96,15 @@ public class SongSearchService {
     );
 
     /**
+     * 随机推荐关键词池：getRandomSongs() 每次调用从中随机挑一个词做单次上游搜索，
+     * 避免固定搜"热歌"导致候选池恒为 top-30。预热时与 HOT_KEYWORDS 取并集。
+     */
+    private static final List<String> RANDOM_KEYWORDS = List.of(
+            "热歌", "新歌", "流行", "华语", "民谣",
+            "摇滚", "电子", "轻音乐", "经典", "影视原声"
+    );
+
+    /**
      * 热门搜索关键词（App 热搜云端同步与空结果纠错共用同一份表）。
      * 返回副本，调用方不可修改内部表。
      */
@@ -111,8 +120,11 @@ public class SongSearchService {
     @PostConstruct
     void preWarmHotKeywords() {
         warmExecutor.submit(() -> {
-            log.info("[PREWARM] 开始预热 {} 个热门搜索关键词 ...", HOT_KEYWORDS.size());
-            for (String kw : HOT_KEYWORDS) {
+            // 预热 HOT_KEYWORDS 与 RANDOM_KEYWORDS 的并集（去重），随机池命中时同样走缓存。
+            Set<String> warmKeywords = new LinkedHashSet<>(HOT_KEYWORDS);
+            warmKeywords.addAll(RANDOM_KEYWORDS);
+            log.info("[PREWARM] 开始预热 {} 个热门搜索关键词 ...", warmKeywords.size());
+            for (String kw : warmKeywords) {
                 try {
                     search(kw, 1, 20);
                     log.info("[PREWARM] '{}' 预热完成 (缓存已回写 Redis)", kw);
@@ -559,9 +571,11 @@ public class SongSearchService {
         count = Math.max(1, Math.min(count, MAX_RANDOM_COUNT));
         List<SongDTO> songs;
         try {
-            songs = new ArrayList<>(search("热歌", 1, 30, null).getList());
+            // 每次随机挑一个关键词，单次上游搜索，多次调用自然覆盖更大曲库。
+            String keyword = RANDOM_KEYWORDS.get(ThreadLocalRandom.current().nextInt(RANDOM_KEYWORDS.size()));
+            songs = new ArrayList<>(search(keyword, 1, 30, null).getList());
         } catch (Exception e) {
-            log.warn("[RANDOM] 搜索热歌失败，降级到 DB 随机: {}", e.getMessage());
+            log.warn("[RANDOM] 搜索随机关键词失败，降级到 DB 随机: {}", e.getMessage());
             songs = new ArrayList<>();
         }
         songs = songs.stream()
