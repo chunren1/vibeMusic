@@ -138,7 +138,7 @@ public class PlaylistController {
     @PostMapping("/create")
     public Result<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         String name = (String) body.get("name");
         String description = (String) body.getOrDefault("description", "");
         String coverUrl = (String) body.getOrDefault("coverUrl", "");
@@ -151,7 +151,7 @@ public class PlaylistController {
     @PostMapping("/add-song")
     public Result<Boolean> addSong(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         Long playlistId = body.get("playlistId") instanceof Number n ? n.longValue() : null;
         String sourceId = (String) body.get("sourceId");
         String songName = (String) body.get("songName");
@@ -179,7 +179,7 @@ public class PlaylistController {
     public Result<Void> removeSong(@RequestParam Long playlistId,
                                    @RequestParam String sourceId) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         playlistService.removeSong(userId, playlistId, sourceId);
         return Result.ok();
     }
@@ -188,7 +188,7 @@ public class PlaylistController {
     @PostMapping("/update")
     public Result<Void> update(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         Long playlistId = body.get("playlistId") instanceof Number n ? n.longValue() : null;
         if (playlistId == null) return Result.error("缺少 playlistId");
         String name = (String) body.get("name");
@@ -202,7 +202,7 @@ public class PlaylistController {
     @PostMapping("/reorder")
     public Result<Void> reorder(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> order = (List<Map<String, Object>>) body.get("order");
         if (order == null || order.isEmpty()) return Result.error("缺少 order");
@@ -222,7 +222,7 @@ public class PlaylistController {
     @DeleteMapping("/delete")
     public Result<Void> delete(@RequestParam Long playlistId) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         playlistService.delete(userId, playlistId);
         return Result.ok();
     }
@@ -231,7 +231,7 @@ public class PlaylistController {
     @PostMapping("/delete-batch")
     public Result<Integer> deleteBatch(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         @SuppressWarnings("unchecked")
         List<Integer> ids = (List<Integer>) body.get("ids");
         if (ids == null || ids.isEmpty()) return Result.ok(0);
@@ -245,7 +245,7 @@ public class PlaylistController {
     @SuppressWarnings("unchecked")
     public Result<Map<String, Object>> importPlaylist(@RequestBody Map<String, Object> body) {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.ok();
+        if (userId == null) return Result.error(401, "请先登录");
         String source = (String) body.get("source");
         Object rawId = body.get("id");
         if (source == null || rawId == null) return Result.error("缺少 source 或 id 参数");

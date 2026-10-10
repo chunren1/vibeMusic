@@ -18,6 +18,17 @@ import static org.junit.jupiter.api.Assertions.*;
 class PlaylistControllerTest {
 
     @Test
+    @DisplayName("未登录调用写操作应返回 401（不再静默假成功）")
+    void guestMutationsReturn401() {
+        SecurityContextHolder.clearContext();
+        PlaylistController controller = new PlaylistController(null, null, null);
+
+        assertEquals(401, controller.create(Map.of("name", "x")).getCode());
+        assertEquals(401, controller.addSong(Map.of("playlistId", 1L, "sourceId", "s1")).getCode());
+        assertEquals(401, controller.removeSong(1L, "s1").getCode());
+    }
+
+    @Test
     @DisplayName("未登录访问 songs 应返回 200 空结果（guest-ok 文件约定），且不触碰 Service")
     void guestSongsReturnsEmptyOkWithoutTouchingService() {
         SecurityContextHolder.clearContext();
