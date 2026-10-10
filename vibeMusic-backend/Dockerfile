@@ -8,8 +8,9 @@ RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 
-# 安装 curl 用于健康检查
-RUN apk add --no-cache curl
+# 安装 curl 用于健康检查（apk 官方源国内常超时，切阿里云镜像）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories \
+    && apk add --no-cache curl
 
 # 复制构建产物（需先执行 mvn package -DskipTests）
 COPY target/*.jar app.jar
