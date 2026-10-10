@@ -34,7 +34,8 @@
     "k6": "k6 run --vus 50 --duration 60s scripts/k6-test.js",
     "k6:quick": "k6 run --vus 50 --duration 30s scripts/k6-test.js",
     "backup:db": "powershell -ExecutionPolicy Bypass -File scripts/backup-db.ps1",
-    "health": "powershell -ExecutionPolicy Bypass -File scripts/health-check.ps1"
+    "health": "powershell -ExecutionPolicy Bypass -File scripts/health-check.ps1",
+    "deploy:backend": "sh scripts/deploy-backend.sh"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
