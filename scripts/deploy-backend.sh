@@ -41,20 +41,22 @@ $SSH "cd /opt/vibeMusic && docker compose -f $COMPOSE build backend 2>&1 | tail 
 
 echo "== 5/7 启动+等 healthy（最多 8 分钟） =="
 $SSH "cd /opt/vibeMusic && docker compose -f $COMPOSE up -d backend 2>&1 | tail -1"
+echo "  （注意：应用启动需 3-4 分钟——预热 17 个关键词要打外部 API；启动期间 healthcheck 报 unhealthy 属正常，会持续等到 healthy）"
 for i in $(seq 1 16); do
   ST="$($SSH 'docker ps --format "{{.Names}} {{.Status}}" | grep vibemusic-backend' || true)"
   echo "  [$i] $ST"
-  case "$ST" in *healthy*) break;; esac
+  # 必须用 "(healthy)" 精确匹配：*healthy* 会把 "unhealthy" 也匹配上（2026-10-10 踩坑）
+  case "$ST" in *"(healthy)"*) break;; esac
   sleep 30
 done
-case "$ST" in *healthy*) ;; *) echo "backend 未 healthy，回滚见手册"; exit 1;; esac
+case "$ST" in *"(healthy)"*) ;; *) echo "backend 未 healthy（8 分钟超时）；unhealthy 会等待应用跑完预热自动恢复，持续 unhealthy 见手册回滚"; exit 1;; esac
 
 echo "== 6/7 三重验证：容器内 md5 + 启动日志 + 热身 =="
 MD5_RUN="$($SSH 'docker exec vibemusic-backend md5sum /app/app.jar' | awk '{print $1}')"
 [ "$MD5_LOCAL" = "$MD5_RUN" ] || { echo "线上跑的不是新包! $MD5_RUN"; exit 1; }
-$SSH "docker logs vibemusic-backend 2>&1 | grep -c 'Started VibeMusicBackendApplication' | grep -q . && echo 启动日志OK"
+$SSH "docker logs vibemusic-backend 2>&1 | grep -q 'Started VibeMusicBackendApplication' && echo 启动日志OK" || { echo "启动日志异常：未见 Started（理论上 healthy 后必有，请查 docker logs）"; exit 1; }
 $SSH "/bin/sh /opt/vibeMusic/scripts/warmup-backend.sh"
 
 echo "== 7/7 推荐冒烟：同设备连刷 3 次，查重叠 =="
-$SSH 'for i in 1 2 3; do curl -s --noproxy "*" --max-time 30 "http://127.0.0.1:8080/api/recommend/personalized?refresh=true" -H "X-Device-Id: deploy-smoke" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(s[\"sourceId\"] for s in d[\"data\"][\"songs\"]))"; done'
+$SSH 'for i in 1 2 3; do curl -s --noproxy "*" --max-time 30 "http://127.0.0.1:8080/api/recommend/personalized?refresh=true" -H "X-Device-Id: deploy-smoke" | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(s[\"sourceId\"] for s in d[\"data\"][\"songs\"]))"; done' || { echo "冒烟失败：部署已就绪但推荐接口验收未通过，检查上方输出"; exit 1; }
 echo "== 发版完成 =="
