@@ -10,7 +10,8 @@ CREDS="$HOME/.dsh/.credentials.yaml"
 COMPOSE="docker-compose.demo.yml"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "缺命令: $1"; exit 1; }; }
-need mvn; need sshpass; need scp; need ssh
+need sshpass; need scp; need ssh; need java
+[ -x "$BACKEND/mvnw" ] || { echo "缺 mvnw"; exit 1; }
 
 HOST="$(grep '^  VIBEMUSIC_SERVER_HOST:' "$CREDS" | awk '{print $2}')"
 USER="$(grep '^  VIBEMUSIC_SERVER_USER:' "$CREDS" | awk '{print $2}')"
@@ -20,7 +21,7 @@ SSH="sshpass -p $PASS ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 $USER
 SCP="sshpass -p $PASS scp -o StrictHostKeyChecking=no -o ConnectTimeout=30"
 
 echo "== 1/7 本地打包 =="
-cd "$BACKEND" && mvn package -DskipTests -q 2>&1 | tail -2
+cd "$BACKEND" && ./mvnw package -DskipTests -q 2>&1 | tail -2
 JAR="$BACKEND/target/vibeMusic-backend-0.0.1-SNAPSHOT.jar"
 [ -f "$JAR" ] || { echo "jar 未生成"; exit 1; }
 MD5_LOCAL="$(md5sum "$JAR" | awk '{print $1}')"
@@ -52,7 +53,6 @@ echo "== 6/7 三重验证：容器内 md5 + 启动日志 + 热身 =="
 MD5_RUN="$($SSH 'docker exec vibemusic-backend md5sum /app/app.jar' | awk '{print $1}')"
 [ "$MD5_LOCAL" = "$MD5_RUN" ] || { echo "线上跑的不是新包! $MD5_RUN"; exit 1; }
 $SSH "docker logs vibemusic-backend 2>&1 | grep -c 'Started VibeMusicBackendApplication' | grep -q . && echo 启动日志OK"
-/bin/sh "$REPO/scripts/warmup-backend.sh" >/dev/null 2>&1 || true
 $SSH "/bin/sh /opt/vibeMusic/scripts/warmup-backend.sh"
 
 echo "== 7/7 推荐冒烟：同设备连刷 3 次，查重叠 =="
