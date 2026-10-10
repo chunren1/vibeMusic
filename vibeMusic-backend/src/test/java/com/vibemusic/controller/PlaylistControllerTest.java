@@ -26,6 +26,12 @@ class PlaylistControllerTest {
         assertEquals(401, controller.create(Map.of("name", "x")).getCode());
         assertEquals(401, controller.addSong(Map.of("playlistId", 1L, "sourceId", "s1")).getCode());
         assertEquals(401, controller.removeSong(1L, "s1").getCode());
+        // 2026-10-11 审查补齐：剩余 5 处写操作同样不得静默假成功
+        assertEquals(401, controller.update(Map.of("playlistId", 1L, "name", "x")).getCode());
+        assertEquals(401, controller.reorder(Map.of("order", List.of())).getCode());
+        assertEquals(401, controller.delete(1L).getCode());
+        assertEquals(401, controller.deleteBatch(Map.of("ids", List.of(1))).getCode());
+        assertEquals(401, controller.importPlaylist(Map.of("source", "netease", "id", "123")).getCode());
     }
 
     @Test

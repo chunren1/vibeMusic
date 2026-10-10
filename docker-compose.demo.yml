@@ -1,7 +1,7 @@
 # Demo 轻量（体验一致，仅调优看不见的内存，全量代码不动）
 # MinIO 已去掉：下载走 StreamController proxy_cache 直连 p3.music.126.net/y.gtimg.cn
 # MySQL 保留但瘦身：innodb 128M + Hikari 5/2，140M
-# 5 服务：nginx(64M) + backend(512M) + musicapi(128M) + redis(128M) + mysql(140M) = 972M < 1.6G avail 1.1G
+# 5 服务：nginx(64M) + backend(768M) + musicapi(128M) + redis(128M) + mysql(140M) ≈1.2G（2026-10-10 以云为基线回同步后更新）
 services:
   mysql:
     logging:
@@ -114,7 +114,7 @@ services:
       MINIO_ENDPOINT: "http://127.0.0.1:9000" # MinIO已下线:仅StorageService-init占位,空值致启动崩溃,勿改空
       MINIO_ACCESS_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
       MINIO_SECRET_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
-      JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecretKey123!}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET} # 必填fail-fast：缺失直接报错，绝不用默认密钥启动（默认密钥全网皆知=伪造token）
       AI_API_KEY: ${AI_API_KEY:-change-me}
       MUSICAPI_URL: http://musicapi:3000
       CORS_ORIGINS: ${CORS_ORIGINS:-https://vibe.cyk666.top,http://localhost:5173}
