@@ -586,6 +586,10 @@ function onProgressClick(e) {
   if (window.vibeAudio) { window.vibeAudio.currentTime = t; currentTime.value = t }
 }
 
+function seekLyric(time) {
+  if (window.vibeAudio) window.vibeAudio.currentTime = parseFloat(time)
+}
+
 function close() { emit('update:visible', false) }
 </script>
 
@@ -637,7 +641,7 @@ function close() { emit('update:visible', false) }
               <div v-if="!loadedForId" class="empty">{{ loadingLyric ? '加载中...' : '暂无歌词' }}</div>
               <div v-for="(line, i) in lyrics" :key="i"
                 class="lyric-line" :class="{ current: i === currentLyricIndex }"
-                @click="window.vibeAudio && (window.vibeAudio.currentTime = parseFloat(line.time))">
+                @click="seekLyric(line.time)">
                 <!-- 逐字高亮（连续流动）：每字一个 span，亮度 = charAlpha(ci) 线性插值，相邻字之间平滑过渡 -->
                 <span v-for="(c, ci) in (i === currentLyricIndex ? lyricChars : line.text.split(''))" :key="ci"
                   class="ch"

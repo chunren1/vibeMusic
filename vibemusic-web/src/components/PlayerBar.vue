@@ -79,6 +79,11 @@ onUnmounted(() => {
 
 function togglePlay() { store.togglePlay() }
 function toggleMute() { store.toggleMute() }
+function setVolumeFromClick(e) {
+  const el = e.target instanceof HTMLElement ? e.target : e.currentTarget
+  if (!(el instanceof HTMLElement)) return
+  store.volume = Math.round((e.offsetX / el.offsetWidth) * 100)
+}
 const progressTrack = ref(null)
 const isSeeking = ref(false)
 const seekPreviewTime = ref('')
@@ -203,7 +208,7 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
             <button class="act-icon" @click="toggleMute" title="音量">
               <SvgIcon :name="isMuted || volume === 0 ? 'volume-mute' : 'volume'" size="20" />
             </button>
-            <div class="vol-bar" @click="e => store.volume = Math.round((e.offsetX / e.target.offsetWidth) * 100)">
+            <div class="vol-bar" @click="setVolumeFromClick">
               <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
             </div>
           </div>

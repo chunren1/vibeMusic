@@ -37,7 +37,7 @@ async function handleLogin() {
         gender: res.data.gender,
         birthday: res.data.birthday,
       })
-      const redirect = route.query.redirect || '/'
+      const redirect = /** @type {string} */ (route.query.redirect || '/')
       router.push(redirect)
     } else {
       errorMsg.value = res.message || '登录失败'

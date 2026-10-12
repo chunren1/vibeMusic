@@ -11,7 +11,7 @@ const route = useRoute()
 const player = usePlayerStore()
 const favStore = useFavoriteStore()
 
-const keyword = ref(route.query.keyword || '')
+const keyword = ref(/** @type {string} */ (route.query.keyword || ''))
 const results = ref([])
 const loading = ref(false)
 const page = ref(1)
@@ -80,7 +80,7 @@ watch(() => route.query.keyword, (val) => {
   // 所以这里必须显式 scheduleSearch，否则带 ?keyword= 进入页面不会搜索。
   // 不再直接 onSearch：旧实现直搜 + 400ms 后防抖再搜一次，先发的请求被 abort 后
   // 把结果清空、闪一下"未找到结果"（round6 W5）。
-  keyword.value = val || ''
+  keyword.value = /** @type {string} */ (val || '')
   scheduleSearch()
 }, { immediate: true })
 </script>

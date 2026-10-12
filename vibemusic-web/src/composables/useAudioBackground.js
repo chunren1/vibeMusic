@@ -259,7 +259,7 @@ export function useAudioBackground(audioRef) {
 
     // 注册动作处理器
     for (const [action, handler] of Object.entries(actionHandlers)) {
-      try { navigator.mediaSession.setActionHandler(action, handler) } catch { /* ignore */ }
+      try { navigator.mediaSession.setActionHandler(/** @type {MediaSessionAction} */ (action), handler) } catch { /* ignore */ }
     }
 
     // 监听元数据更新

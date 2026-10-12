@@ -187,7 +187,7 @@ async function handleImport() {
             ><SvgIcon :name="favStore.isFav(song.id) ? 'star-fill' : 'star'" :size="14" /></button>
             <button @click.stop="player.addToQueue({
               sourceId: song.id, name: song.name, artist: song.artist || '',
-              coverUrl: song.coverUrl || '', duration: song.duration || 0, platform: source.value,
+              coverUrl: song.coverUrl || '', duration: song.duration || 0, platform: source,
             })" title="加入队列">+</button>
           </div>
         </div>

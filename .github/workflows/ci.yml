@@ -107,6 +107,9 @@ jobs:
             echo "No ESLint config, skipping (project is pure JS without eslint by design)"
           fi
 
+      - name: Typecheck (vue-tsc, 硬门禁；测试文件由 vitest 覆盖故排除在 checkJs 外——checkJs 无法建模 vi.mock)
+        run: npm run typecheck
+
       - name: Build (Vite)
         run: npm run build
 

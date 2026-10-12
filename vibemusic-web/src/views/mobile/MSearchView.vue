@@ -12,7 +12,7 @@ const router = useRouter()
 const player = usePlayerStore()
 const favStore = useFavoriteStore()
 
-const keyword = ref(route.query.q || '')
+const keyword = ref(/** @type {string} */ (route.query.q || ''))
 const results = ref([])
 const loading = ref(false)
 const sourceFilter = ref('all')

@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE — vibemusic-web
 
 **Generated:** 2026-08-13
-**Scope:** Vue 3.5 + Vite 8 + Pinia + Vue Router + Axios 前端（纯 JS，无 TS/无 eslint/无 prettier）。Capacitor Android 打包（android/，appId com.vibemusic.app）。src/ 共 67 文件。
+**Scope:** Vue 3.5 + Vite 8 + Pinia + Vue Router + Axios 前端（纯 JS，有 eslint flat config + Vitest + vue-tsc 类型检查门禁，不做 TS 迁移）。Capacitor Android 打包（android/，appId com.vibemusic.app）。src/ 共 67 文件。
 
 ## STRUCTURE
 ```

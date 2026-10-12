@@ -65,7 +65,7 @@ vibeMusic/
 - **模块系统**：`musicapi/`=CommonJS（require）；`vibemusic-web/`=ESM（import）。根 package.json 仅脚本。
 - **密钥**：仅存 `.env` / `musicapi/config.js`（后者已 gitignore）。禁止硬编码进 Java/yml 兜底值。
 - **JWT**：httpOnly Cookie（VIBE_TOKEN / VIBE_REFRESH），禁止 localStorage。
-- **前端无 TypeScript / 无 eslint / 无 prettier**：纯 JS，`jsconfig.json` 仅提供 `@/*` 别名。
+- **前端纯 JS，有 eslint / Vitest / vue-tsc 类型检查门禁（不做 TS 迁移）**：`jsconfig.json` 仅提供 `@/*` 别名。
 
 ## ANTI-PATTERNS (THIS PROJECT)
 - **容器数量别信旧文档**：实际 compose 定义 **12 services**（`docker-compose.full.yml` 为含 OTel 的可选变体）。

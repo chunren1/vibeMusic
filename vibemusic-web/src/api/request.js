@@ -1,4 +1,23 @@
+/// <reference path="../vibe-globals.d.ts" />
 import axios from 'axios'
+
+/**
+ * 扩展 axios 配置：静默续签单飞标记 + 请求发起时的 token 快照 + 401 重试标记。
+ * @typedef {import('axios').AxiosRequestConfig & {_isRefresh?: boolean, _sentToken?: string | null, _retry?: boolean}} VibeAxiosRequestConfig
+ * @typedef {import('axios').InternalAxiosRequestConfig & {_isRefresh?: boolean, _sentToken?: string | null, _retry?: boolean}} VibeRequestConfig
+ * @typedef {import('axios').AxiosResponse & {config: VibeRequestConfig}} VibeResponse
+ * @typedef {Omit<import('axios').AxiosInstance, 'request' | 'get' | 'post' | 'put' | 'delete' | 'patch' | 'head' | 'options'> & {
+ *   request: (config: any) => Promise<any>,
+ *   get: (url: string, config?: any) => Promise<any>,
+ *   post: (url: string, data?: any, config?: any) => Promise<any>,
+ *   put: (url: string, data?: any, config?: any) => Promise<any>,
+ *   delete: (url: string, config?: any) => Promise<any>,
+ *   patch: (url: string, data?: any, config?: any) => Promise<any>,
+ *   head: (url: string, config?: any) => Promise<any>,
+ *   options: (url: string, config?: any) => Promise<any>
+ * }} VibeAxiosInstance
+ * @typedef {(config: any) => Promise<any>} VibeAxiosCallable
+ */
 
 // 开发环境用 Vite proxy，生产环境用 VITE_API_HOST 环境变量
 export const API_HOST = import.meta.env.VITE_API_HOST || ''
@@ -29,6 +48,7 @@ function generateUUID() {
   })
 }
 
+/** @type {VibeAxiosCallable & VibeAxiosInstance} */
 const request = axios.create({
   baseURL: API_BASE,
   timeout: 15000,
@@ -42,8 +62,12 @@ let _refreshPromise = null
 function trySilentRefresh() {
   if (_refreshPromise) return _refreshPromise
   _refreshPromise = request
-    .post('/auth/refresh', {}, { _isRefresh: true })
-    .then((res) => {
+    .post(
+      '/auth/refresh',
+      {},
+      /** @type {VibeAxiosRequestConfig} */ ({ _isRefresh: true })
+    )
+    .then(/** @param {{code?: any, data?: any, message?: string}} res */ (res) => {
       const token = res && res.data && res.data.token
       if (res && res.code === 200 && token) {
         setToken(token)
@@ -129,7 +153,7 @@ async function onUnauthorized(config, originalError) {
   return request(config)
 }
 
-request.interceptors.request.use((config) => {
+request.interceptors.request.use(/** @param {VibeRequestConfig} config */ (config) => {
   // 记录请求发起时的 token，用于响应阶段判断 401 是否来自"旧 token"
   config._sentToken = _tokenCache
   if (_tokenCache) {
@@ -219,7 +243,7 @@ export function isAuthUrl(url) {
 }
 
 request.interceptors.response.use(
-  (response) => {
+  /** @param {VibeResponse} response */ (response) => {
     const res = response.data
     if (res.code !== 200) {
       // 只有 401（登录态失效）才进续签/登出流程。

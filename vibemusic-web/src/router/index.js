@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
+/** @type {import('vue-router').RouteRecordRaw[]} */
 const routes = [
   // ===== 桌面端路由 =====
   { path: '/', name: 'home', component: () => import('@/views/HomeView.vue') },
