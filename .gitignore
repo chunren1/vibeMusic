@@ -76,6 +76,8 @@ docker-data/nginx/logs/
 *.txt
 .DS_Store
 Thumbs.db
+# 例外：api-test 的依赖清单必须入库（CI pip install -r 要用；被上面的 *.txt 误伤）
+!api-test/requirements.txt
 
 # 大文件 / 二进制工具 / 隧道凭据
 .cloudflared/

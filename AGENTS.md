@@ -95,7 +95,7 @@ npm run docker:dev     # 仅基础设施 mysql redis minio
 npm run health         # PowerShell 健康检查（Windows only）
 npm run backup:db      # mysqldump 备份（Windows only）
 ```
-CI：`.github/workflows/ci.yml`（三并行测试 + infra-lint）、`deploy.yml`（仅构建产物）。
+CI：`.github/workflows/ci.yml`（5 job：backend / frontend / gateway / api-test / infra-lint）、`deploy.yml`（仅构建产物）。
 
 ## NOTES
 - 端口：web 5173 · backend 8080 · musicapi 3000 · MySQL 3306 · Redis 6379 · MinIO 9000/9001 · nginx 80/443（compose 内除 80/443 外均绑 127.0.0.1）。

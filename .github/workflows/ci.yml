@@ -10,6 +10,7 @@ on:
       - 'vibeMusic-backend/**'
       - 'vibemusic-web/**'
       - 'musicapi/**'
+      - 'api-test/**'
       - 'docker-compose*.yml'
       - 'docker-data/**'
       # nginx / monitoring / scripts 改动此前不触发任何 job（改坏反代配置无人发现）
@@ -23,6 +24,7 @@ on:
       - 'vibeMusic-backend/**'
       - 'vibemusic-web/**'
       - 'musicapi/**'
+      - 'api-test/**'
       - 'docker-compose*.yml'
       - 'docker-data/**'
       - 'nginx/**'
@@ -173,6 +175,127 @@ jobs:
             test/search-kugou.test.js \
             test/search-migu.test.js \
             test/search-qq.test.js
+
+  # ---- Job 5: API smoke (pytest vs 实机 backend + mysql + redis + musicapi) ----
+  # push 才跑（省 PR 分钟数）；services 起真 mysql+redis，musicapi 与后端实机启动，
+  # 健康检查放行后才跑 pytest；后端不可达时用例 skip 不爆红。
+  # 必须起 musicapi：不起则五路 fanout 全空 → 搜索/推荐类用例大面积 skip，
+  # job 看着绿但其实没验到搜索链路（无 Cookie 时 QQ 走无 Cookie 正常态、网易降级）。
+  api-test:
+    name: API smoke (pytest vs live backend)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: 123456
+          MYSQL_DATABASE: vibemusic
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -p123456"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: api-test/requirements.txt
+
+      - name: Build backend (skip unit tests; gate lives in backend job)
+        run: mvn -B -DskipTests package
+        working-directory: vibeMusic-backend
+        env:
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+          COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+      - name: Set up Node 20 (musicapi gateway)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: musicapi/package-lock.json
+
+      - name: Start musicapi gateway (no cookies → 上游降级)
+        run: |
+          npm ci
+          nohup node server.js > /tmp/musicapi.log 2>&1 &
+          echo $! > /tmp/musicapi.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null; then
+              echo "musicapi up after ${i}x2s"
+              break
+            fi
+            if [ "$i" = 30 ]; then
+              echo "::error::musicapi 未在 60 秒内就绪"
+              tail -n 80 /tmp/musicapi.log
+              exit 1
+            fi
+            sleep 2
+          done
+        working-directory: musicapi
+
+      - name: Start backend against services
+        run: |
+          nohup java -jar target/*.jar > /tmp/backend.log 2>&1 &
+          echo $! > /tmp/backend.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/auth/health >/dev/null; then
+              echo "backend up after ${i}x5s"
+              break
+            fi
+            if [ "$i" = 60 ]; then
+              echo "::error::backend 未在 5 分钟内就绪"
+              tail -n 100 /tmp/backend.log
+              exit 1
+            fi
+            sleep 5
+          done
+        working-directory: vibeMusic-backend
+        env:
+          SPRING_PROFILES_ACTIVE: docker
+          DB_HOST: 127.0.0.1
+          DB_USERNAME: root
+          DB_PASSWORD: 123456
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: 6379
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+          COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+      - name: Run pytest smoke
+        run: |
+          pip install -r requirements.txt
+          pytest -q
+        working-directory: api-test
+        env:
+          API_BASE_URL: http://127.0.0.1:8080
+
+      - name: Upload pytest-html report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-test-report
+          path: api-test/report.html
+          retention-days: 7
 
   # ---- Job 4: infra-lint (the ONLY `docker compose config` in CI) ----
   infra-lint:

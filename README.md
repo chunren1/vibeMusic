@@ -20,10 +20,10 @@
 
 | 🚀 指标 | 数值 | 🚀 指标 | 数值 |
 |--------|:----:|--------|:----:|
-| 全栈测试 | **703 条** | Docker 服务 | **12 个** |
+| 全栈测试 | **825 条** | Docker 服务 | **12 个** |
 | 代码覆盖率 | **60%+ 门禁** | 缓存策略 | **Redis 两级缓存** |
-| 音源聚合 | **五源聚合** | 测试构成 | **后端 415 · 网关 121 · 前端 167** |
-| AI 助手 | **流式输出** | API 端点 | **45 个** |
+| 音源聚合 | **五源聚合** | 测试构成 | **后端 487 · 网关 138 · 前端 170 · 接口 30** |
+| AI 助手 | **流式输出** | API 端点 | **52 个** |
 
 ---
 
@@ -36,7 +36,7 @@
 - **缓存**：Redis（TTL 6h）→ 直调 API 两级链路，保障搜索 SLA
 - **BYOC（用户自带凭证）**：多租户凭证隔离架构——用户级密钥 AES-GCM 加密存储、请求级透传、缓存级隔离（个人结果永不落入共享缓存），附带过期检测与重绑引导
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
-- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions CI/CD + 711 条测试（后端 420 · 网关 121 · 前端 170）
+- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions 5 job CI/CD（backend / frontend / gateway / api-test / infra-lint）+ 825 条测试（后端 487 · 网关 138 · 前端 170 · 接口 30）
 
 ---
 
@@ -83,6 +83,12 @@ docker compose up -d
 **BYOC 多租户凭证隔离** — 用户级密钥加密存储、请求级透传、缓存级隔离的三层隔离设计：个人权益归属个人，共享缓存零污染，过期自动引导重绑。
 
 **个性化推荐 v3** — 随机种子 + 歌手兴趣扩展 + Redis 缓存（30 分钟刷新）+ 播放可用性批量标记（一次 DB 查询代替逐首远程探测）。
+
+**推荐去重** — 10 词随机池轮换 + Redis seen 记忆集（7 天）+ 单歌手 ≤2 首 + Top5 歌手摊薄；游客同设备 5 连刷重叠仅 1/40。
+
+**搜索高可用治理** — 五路 fanout 全局 deadline 4s（终结串行超时叠加 17s 毛刺）、QQ 单源超时 4s→2s、网易 Cookie 主备容灾（失效自动切备、恢复回切）、搜索历史云同步（V8 `user_search_history`，每用户 50 条）。
+
+**鉴权与配置加固** — PlaylistController 8 处写操作未登录一律 401；prod profile `JWT_SECRET` 必填 fail-fast；后端 Dockerfile 切阿里云 apk 源。
 
 ---
 
@@ -255,19 +261,43 @@ CI 中的 infra-lint job 会对该 YAML 做语法与 `tail_sampling` 策略校�
 
 ---
 
-## 🧪 测试
+## 🧪 测试体系
 
 ```text
-703 条自动化测试
-├── 后端 415 条 (JUnit 5 + Mockito + H2)
-│   └── Service · Controller · JWT · 幂等守卫 · 限流
-├── 网关 121 条 (musicapi Express BFF)
-│   └── 聚合搜索 · Cookie · 降级链路
-├── 前端 167 条 (Vitest + jsdom)
+825 条自动化测试（L1 单测 · L2 接口 · L3 线上巡检）
+├── L1 单测 · 后端 487 条 (JUnit 5 + Mockito + H2；mvn verify + JaCoCo LINE ≥60% 门禁)
+│   └── Service · Controller · JWT · 幂等守卫 · 限流 · 推荐去重
+├── L1 单测 · 网关 138 条 (musicapi node:test，离线 stub)
+│   └── 聚合搜索 · Cookie 主备容灾 · 降级链路
+├── L1 单测 · 前端 170 条 (Vitest + jsdom)；App 侧 JUnit + Robolectric（独立仓库 vibemusic-native）
 │   └── PlayerStore · AuthStore · FavoriteStore · 视图交互
-└── CI/CD (GitHub Actions)
-    └── push / PR → 全量测试 → JaCoCo 60% 覆盖率门禁
+├── L2 接口 · api-test 30 条 (pytest：鉴权 401 / 搜索聚合 / 推荐去重 / 历史 / 信封契约)
+│   └── CI api-test job（push 触发；services 起 mysql+redis，musicapi+后端实机；离线 5 条 + live 25 条）
+└── L3 线上巡检
+    └── Bugly crashreport + PlayDiag 面包屑 + 真机冒烟（播放链路 PB-001~010）
 ```
+
+> 策略与准出标准见 [docs/TEST-STRATEGY.md](docs/TEST-STRATEGY.md)；播放链路用例表见 [docs/TESTCASE-playback-chain.md](docs/TESTCASE-playback-chain.md)。
+
+---
+
+## 📦 部署
+
+**一键发版**（`npm run deploy:backend` → `scripts/deploy-backend.sh`，7 步）：
+
+| 步骤 | 动作 |
+|------|------|
+| 1 | 本地打包（mvnw package） |
+| 2 | 云上备份 + 清 target（防双 jar） |
+| 3 | 传包 + md5 三处对齐（本地 / 传入 / 容器内） |
+| 4 | 云上重建（`docker-compose.demo.yml` 基线 5 服务：mysql · redis · musicapi · backend · nginx） |
+| 5 | 启动 + 等 healthy（最长 8 分钟） |
+| 6 | 三重验证：容器内 md5 + 启动日志 + 热身 |
+| 7 | 推荐冒烟：同设备连刷 3 次查重叠 |
+
+**热身**：`scripts/warmup-backend.sh` 预热 5 个重型只读端点（hotwords / random / personalized / search×2），只读不写生产数据。
+
+**发版报告**：按 [docs/RELEASE-TEMPLATE.md](docs/RELEASE-TEMPLATE.md) 填写（用例统计 · md5 三处一致 · 遗留风险 · 回滚方案）。
 
 ---
 
@@ -303,6 +333,7 @@ CI 中的 infra-lint job 会对该 YAML 做语法与 `tail_sampling` 策略校�
 | ⬜ **v7** | Kubernetes 部署 · ArgoCD · OpenTelemetry（未建设） |
 | ✅ **v8** | 多源聚合搜索（统一归一化 / 指纹去重 / 故障自动降级）· 缓存架构简化为 Redis 两级 |
 | ✅ **v9** | BYOC 多租户凭证隔离（用户级密钥加密存储 / 请求级透传 / 缓存级隔离 / 过期重绑） |
+| ✅ **v10** | 推荐去重 · 搜索历史云同步 · fanout 全局 deadline · 一键发版脚本 + 测试体系分层（详见上文功能与部署章节） |
 
 ---
 
