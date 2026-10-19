@@ -102,9 +102,9 @@
 > （`/assets/**` 7d public、`index.html` 无缓存头、`logo.png` 7d、`sw.js` 双写 Cache-Control）
 > 更新为现版本（`/assets/**` 1 年 `immutable`、`index.html` 及 SPA 兜底 `no-store`、
 > 散装静态文件（logo/favicon）、`/manifest.json` 均 `no-store`、`sw.js` 只留单条头，且各 location 补回安全头）。
-> （散装静态与 `/manifest.json` 上的 `no-store` 是 v3/v4 两次后续修正的结果，原因见下面坑 3、4。）
+> （散装静态、`/manifest.json` 的缓存头与 MIME 是 v3/v4/v5 三次后续修正的结果，原因见下面坑 3、4、5。）
 > 依据：前端产物 **152/152 全部内容哈希命名**（Vite 默认），理论上限就是长缓存。
-> 仓库副本已同步为**逐字节一致**（首轮 md5 `0f3b972b…` → 散装静态修正 v3 `e143fead…` → manifest 修正 **v4 `9954e4bc…`**）；首轮改前备份在云上
+> 仓库副本已同步为**逐字节一致**（首轮 md5 `0f3b972b…` → 散装静态修正 v3 `e143fead…` → manifest 修正 v4 `9954e4bc…` → MIME 修正 **v5 `090317c2…`**）；首轮改前备份在云上
 > `/root/vibemusic-site.conf.bak-20261019-154533`（回滚：覆盖回去 + `nginx -t` + reload）。
 >
 > ⚠️ 三个坑（本次踩到）：
@@ -127,10 +127,17 @@
 >    返回 `401 + application/json`（Spring Security 的响应），而非 nginx 静态 404 的 `text/html` ✓。
 >    ⚠️ 保留的教训：**别把 `json` 塞进那条正则** —— nginx 正则 location 优先级高于前缀 location，
 >    会把 `/api/**.json` 截胡成静态文件查找（=404）。
-> 5.（未做，可选）`/manifest.json` 的 MIME 是 `application/json`（来自 `mime.types`，一直如此；`index.html`
->    里 `rel="manifest"` 指向的就是它）。规范推荐 `application/manifest+json`，现为"能跑但不规范"。要改就在
->    该 location 内加 `types { application/manifest+json json; }`（location 级生效，不影响别处）。
->    ⚠️ 无真机可用于验证"改 MIME 是否真的改善 PWA 装桌面"，故不擅自动生产。
+> 5. `/manifest.json` 原先的 MIME 是 `application/json`（来自 `mime.types`，一直如此；`index.html` 里
+>    `rel="manifest"` 指向的就是它）→ **同日已改（v5，md5 `090317c2…`）**：在该精确匹配 location 内加
+>    `types { application/manifest+json json; }`（location 级覆盖，只作用于这一条）。
+>    依据（可溯源）：W3C Web App Manifest 规范的 **IANA 媒体类型注册**为 `application/manifest+json`；
+>    MDN 原文「the response of the manifest file should return `Content-Type: application/manifest+json`」，
+>    并指出「Browsers generally support manifests with other appropriate extensions like `.json`」。
+>    即原状态是"浏览器认但**不合规范**"，本次属规范符合性提升，不是修 bug。
+>    验证：源站与公网均 `content-type: application/manifest+json`（CF 原样保留），响应体 md5 与磁盘文件
+>    **逐位一致**（`9e5320c0…`）、JSON 可解析；回归确认 `types` 未溢出：`/api/**` 仍 `application/json`、
+>    `/assets/*.js` 仍 `application/javascript`、`/` 仍 `text/html`。备份 `/root/vibemusic-site.conf.bak-20261019-174519`。
+>    ⚠️ 仍未做（也无真机可做）：无法证明该 MIME 对"PWA 装桌面"有可观测改善，本次仅为规范对齐。
 
 ### 3.2 仓库权威 → 云上落后，**不回灌**
 
