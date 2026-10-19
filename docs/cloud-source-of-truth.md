@@ -86,6 +86,22 @@
 > 因此**不收录**（收录只会增加噪音）。真正自定义的只有 `sites-enabled/vibemusic` 与
 > `conf.d/security.conf`。
 
+> **2026-10-19 缓存策略修正（已实弹执行并验证）**：`sites-enabled/vibemusic` 由旧版
+> （`/assets/**` 7d public、`index.html` 无缓存头、`logo.png` 7d、`sw.js` 双写 Cache-Control）
+> 更新为现版本（`/assets/**` 1 年 `immutable`、`index.html` 及 SPA 兜底 `no-store`、
+> 散装静态文件 `no-cache`、`sw.js` 只留单条头，且各 location 补回安全头）。
+> 依据：前端产物 **152/152 全部内容哈希命名**（Vite 默认），理论上限就是长缓存。
+> 仓库副本已同步为**逐字节一致**（md5 `0f3b972b…`）；改前备份在云上
+> `/root/vibemusic-site.conf.bak-20261019-154533`（回滚：覆盖回去 + `nginx -t` + reload）。
+>
+> ⚠️ 三个坑（本次踩到）：
+> 1. 该文件在云上是**真文件，不是软链** → 只改 `sites-available/` 不生效，`sites-enabled/` 也要落。
+> 2. `systemctl reload nginx` 后**旧 worker 仍在收尾**，立刻自测会读到旧响应头（本次因此误判一轮）
+>    → 等 1~2 秒、或核对 worker PID 变了再验。
+> 3. 客户端可见的 `logo.png` 响应头被 **Cloudflare 改写**成 `max-age=604800`（源站已是 `no-cache`）
+>    → 换 logo 仍可能最长 7 天不生效；要彻底解决需 CF 控制台清缓存/改 Browser Cache TTL
+>    （**无 API token，只能人肉操作**，见 §7 不确定项）。
+
 ### 3.2 仓库权威 → 云上落后，**不回灌**
 
 这些文件仓库比云上新（且多数更安全）。**把它们同步到云上属于"发布"动作，本轮不做。**
