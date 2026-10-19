@@ -124,7 +124,12 @@ docs/app-alignment-addendum-*.md
 docs/frontend-walkthrough.html
 
 # 本地观测栈（第二套 Prometheus/Grafana/blackbox）与压测脚本
-monitoring/
+# 注意：monitoring/ 下的**配置**（compose/prometheus/blackbox/provisioning）必须入库，
+#      否则云上那份漂移了仓库无人知（2026-10-19 教训）；这里只忽略运行时数据与本地凭据。
+monitoring/.env
+monitoring/**/data/
+monitoring/**/*.log
+monitoring/**/*.sqlite
 scripts/adversarial-load.js
 scripts/k6-threadpool-cache-test.js
 docker-data/download-otel-javaagent.sh

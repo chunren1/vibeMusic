@@ -1,0 +1,66 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# 本机栈是唯一监控中心（云 1.6G 内存跑不了 Prometheus）：22 条告警规则在这里评估。
+# 规则文件挂载见 docker-compose.yml（主仓 docker-data/prometheus/alert-rules.yml）。
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+scrape_configs:
+  # 自抓（round6 修）：没有这个 job，告警规则里的 PrometheusDown 永远不会触发。
+  # targets 用容器自身地址（Prometheus 抓自己走 localhost:9090）。
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          instance: 'prometheus-local'
+
+  # 云服务器 node-exporter：经 SSH 正向隧道 9101 → 云 127.0.0.1:9100
+  - job_name: 'aliyun-ecs'
+    static_configs:
+      - targets: ['host.docker.internal:9101']
+        labels:
+          instance: 'aliyun-ecs'
+          role: 'web-server'
+
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://cyk666.top
+          - https://vibe.cyk666.top
+        labels:
+          job: 'site-availability'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # ── 云上应用指标（前置：autossh 增加两条隧道 9102→云127.0.0.1:8080、9103→云127.0.0.1:3000）──
+  - job_name: 'vibemusic-backend'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:9102']
+        labels:
+          instance: 'aliyun-ecs'
+
+  - job_name: 'musicapi'
+    static_configs:
+      - targets: ['host.docker.internal:9103']
+        labels:
+          instance: 'aliyun-ecs'
+
+  # Redis 指标（2026-09-24 启用）：云上已起 redis-exporter（--network host，仅回环 9121，
+  # 密码经 REDIS_PASSWORD 注入），本机 autossh 隧道 9104 → 云 127.0.0.1:9121。
+  # 注：job 名必须叫 redis，规则表达式写的是 up{job="redis"}。
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['host.docker.internal:9104']
+        labels:
+          instance: 'aliyun-ecs-redis'
