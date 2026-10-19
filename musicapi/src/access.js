@@ -33,11 +33,15 @@ function hasAdminToken(req) {
   return q === token || bearer === token;
 }
 
-// 刷新端点：有令牌必须对上；无令牌仅本机可调（无自动化调用方，可 fail-closed 到本机）
+// 刷新端点：有令牌必须对上；未配置令牌时放行本机与私网。
+// 私网必须放行：后端容器经 compose 网络调用（源 IP 是 172.x，不是 127.0.0.1），
+// 只判 loopback 会让 /internal/netease-rotate 永远 403、自动快切整条链失效
+// （2026-10-19 线上实测复现：后端容器 curl 到网关 = 403）。
+// 端口仅绑定 127.0.0.1、网关不被 nginx 反代，公网不可达，私网放行等价于"同栈内部调用"。
 function canRefreshCookie(req) {
   if (hasAdminToken(req)) return true;
-  if (!adminTokenConfigured() && isLoopback(clientIp(req))) return true;
-  return false;
+  if (adminTokenConfigured()) return false;
+  return isPrivate(clientIp(req));
 }
 
 // 指标端点：令牌 > 本机/私网放行；公网无令牌拒绝

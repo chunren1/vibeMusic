@@ -191,6 +191,8 @@ test('#1 refresh/metrics 鉴权矩阵：令牌 > 本机/私网 > 公网拒绝', 
   try {
     delete process.env.MUSICAPI_ADMIN_TOKEN;
     assert.equal(access.canRefreshCookie(req('127.0.0.1')), true); // 未配令牌本机可调
+    assert.equal(access.canRefreshCookie(req('172.19.0.2')), true); // 容器网段：后端经 compose 网络调 rotate
+    assert.equal(access.canRefreshCookie(req('10.0.0.7')), true);
     assert.equal(access.canRefreshCookie(req('203.0.113.9')), false); // 公网拒绝
     assert.equal(access.canReadMetrics(req('127.0.0.1')), true);
     assert.equal(access.canReadMetrics(req('172.19.0.2')), true); // 容器网段（Prometheus 抓取）
