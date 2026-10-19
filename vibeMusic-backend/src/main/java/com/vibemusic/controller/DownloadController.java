@@ -82,7 +82,7 @@ public class DownloadController {
             response.setContentType("audio/mpeg");
             response.setHeader("Content-Disposition",
                     "attachment; filename*=UTF-8''" + java.net.URLEncoder.encode(fileName + ".mp3", "UTF-8"));
-            response.setHeader("Cache-Control", "public, max-age=86400");
+            response.setHeader("Cache-Control", "private, max-age=86400");
 
             StreamUtils.copy(in, out);
         } catch (Exception e) {

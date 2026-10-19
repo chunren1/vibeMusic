@@ -123,7 +123,7 @@ public class StreamController {
                     String rangeHeader = request.getHeader("Range");
                     response.setContentType("audio/mpeg");
                     response.setHeader("Accept-Ranges", "bytes");
-                    response.setHeader("Cache-Control", "public, max-age=86400");
+                    response.setHeader("Cache-Control", "private, max-age=86400");
 
                     if (rangeHeader != null && rangeHeader.startsWith("bytes=") && fileSize > 0) {
                         long start = 0, end = fileSize - 1;
@@ -201,7 +201,7 @@ public class StreamController {
                     long cl = clientResp.getHeaders().getContentLength();
                     if (cl > 0) response.setContentLength((int) cl);
                     response.setHeader("Accept-Ranges", "bytes");
-                    response.setHeader("Cache-Control", "public, max-age=3600");
+                    response.setHeader("Cache-Control", "private, max-age=3600");
                     if (clientResp.getStatusCode().is2xxSuccessful()) {
                         response.setStatus(cdnStatus);
                         if (cdnStatus == 206) {
