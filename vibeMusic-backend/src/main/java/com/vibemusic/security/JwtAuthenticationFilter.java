@@ -20,8 +20,6 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 
 @Slf4j
@@ -33,10 +31,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final UserMapper userMapper;
     private final ObjectMapper objectMapper;
     private final StringRedisTemplate stringRedisTemplate;
+    private final TokenBlacklistService tokenBlacklistService;
 
     private static final Duration USER_CACHE_TTL = Duration.ofMinutes(5);
     private static final String USER_CACHE_PREFIX = "user:auth:";
-    private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
 
     @Override
     protected void doFilterInternal(
@@ -48,7 +46,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (StringUtils.hasText(token) && jwtUtils.validateToken(token)) {
             // 检查 token 黑名单（已登出的 token 不可用）
-            if (isBlacklisted(token)) {
+            if (tokenBlacklistService.isRevoked(token)) {
                 log.debug("JWT 已被加入黑名单，跳过认证");
                 filterChain.doFilter(request, response);
                 return;
@@ -59,8 +57,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 filterChain.doFilter(request, response);
                 return;
             }
-            String userIdStr = jwtUtils.getUserIdFromToken(token);
             try {
+                String userIdStr = jwtUtils.getUserIdFromToken(token);
                 Long userId = Long.parseLong(userIdStr);
                 User user = getUserWithCache(userId);
                 if (user != null) {
@@ -76,20 +74,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
-    }
-
-    /** 检查 token 是否在黑名单中（SHA-256 防碰撞） */
-    private boolean isBlacklisted(String token) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(token.getBytes());
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) sb.append(String.format("%02x", b));
-            String key = TOKEN_BLACKLIST_PREFIX + sb.toString().substring(0, 16);
-            return Boolean.TRUE.equals(stringRedisTemplate.hasKey(key));
-        } catch (Exception e) {
-            return false; // Redis 不可用时放行，不阻塞正常请求
-        }
     }
 
     /**

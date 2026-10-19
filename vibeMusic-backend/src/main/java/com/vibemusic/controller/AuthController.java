@@ -5,6 +5,7 @@ import com.vibemusic.common.utils.JwtUtils;
 import com.vibemusic.dto.AuthRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
+import com.vibemusic.security.TokenBlacklistService;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,16 +14,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import com.vibemusic.service.JsonCacheService;
 import jakarta.validation.Valid;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.time.Duration;
 import java.util.*;
 
 @Slf4j
@@ -35,9 +32,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
     private final JwtUtils jwtUtils;
-    private final JsonCacheService cache;
-
-    private static final String TOKEN_BLACKLIST_PREFIX = "token:blacklist:";
+    private final TokenBlacklistService tokenBlacklistService;
 
     @PostMapping("/register")
     @Operation(summary = "用户注册")
@@ -162,15 +157,16 @@ public class AuthController {
     @PostMapping("/logout")
     @Operation(summary = "退出登录")
     public Result<String> logout(HttpServletRequest request, HttpServletResponse response) {
-        // 加入黑名单
+        // 加入黑名单：先落本地表（Redis 抖动时吊销依旧生效），再尽力同步 Redis
         String accessToken = extractTokenFromRequest(request);
         String refreshToken = extractRefreshTokenFromRequest(request);
-        if (accessToken != null) blacklistToken(accessToken);
-        if (refreshToken != null) blacklistToken(refreshToken);
+        if (accessToken != null) tokenBlacklistService.revoke(accessToken);
+        if (refreshToken != null) tokenBlacklistService.revoke(refreshToken);
 
         // 清除 Cookie
         clearCookie(response, "VIBE_TOKEN");
         clearCookie(response, "VIBE_REFRESH");
+        // 保持幂等：即使吊销只落到本地表（Redis 不可用），客户端体验不变
         return Result.ok("已退出");
     }
 
@@ -183,57 +179,32 @@ public class AuthController {
         if (!jwtUtils.validateToken(refreshToken)) return Result.error(401, "refresh token 无效或已过期");
         if (!jwtUtils.isRefreshToken(refreshToken)) return Result.error(401, "非法的 token 类型");
 
-        // 检查黑名单
-        try {
-            String key = TOKEN_BLACKLIST_PREFIX + hashToken(refreshToken);
-            if (cache.exists(key)) {
-                return Result.error(401, "refresh token 已注销");
-            }
-        } catch (Exception e) {
-            log.warn("Redis 不可用，跳过 refresh token 黑名单检查");
+        // 检查黑名单（本地表 + Redis，Redis 不可用时本地表兜底；不再“跳过检查”）
+        if (tokenBlacklistService.isRevoked(refreshToken)) {
+            return Result.error(401, "refresh token 已注销");
         }
 
         // 生成新 token 对
-        String userId = jwtUtils.getUserIdFromToken(refreshToken);
+        String userId;
+        try {
+            userId = jwtUtils.getUserIdFromToken(refreshToken);
+        } catch (Exception e) {
+            // 解析异常（如恰好过期）→ 401，不冒泡成 500
+            log.warn("refresh token 解析失败: {}", e.getMessage());
+            return Result.error(401, "无效的 token");
+        }
         if (userId == null) return Result.error(401, "无效的 token");
         String newAccessToken = jwtUtils.generateAccessToken(userId);
         String newRefreshToken = jwtUtils.generateRefreshToken(userId);
 
         // 旧的 refresh token 加入黑名单（防止重复使用）
-        blacklistToken(refreshToken);
+        tokenBlacklistService.revoke(refreshToken);
 
         setTokenCookies(request, response, newAccessToken, newRefreshToken);
 
         Map<String, Object> data = new HashMap<>();
         data.put("token", newAccessToken);
         return Result.ok(data);
-    }
-
-    // ===== token 黑名单 =====
-
-    /** SHA-256 摘要防 hashCode 碰撞 */
-    private String hashToken(String token) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(token.getBytes());
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) sb.append(String.format("%02x", b));
-            return sb.toString().substring(0, 16); // 16 hex = 64 bit，足够防碰撞
-        } catch (NoSuchAlgorithmException e) {
-            return Integer.toHexString(token.hashCode()); // 降级
-        }
-    }
-
-    private void blacklistToken(String token) {
-        try {
-            long remainMs = jwtUtils.getExpirationFromToken(token) - System.currentTimeMillis();
-            if (remainMs > 0) {
-                String key = TOKEN_BLACKLIST_PREFIX + hashToken(token);
-                cache.setString(key, "1", Duration.ofMillis(remainMs));
-            }
-        } catch (Exception e) {
-            log.warn("token 黑名单写入失败: {}", e.getMessage());
-        }
     }
 
     // ===== 辅助方法 =====
