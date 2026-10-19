@@ -139,7 +139,7 @@ jobs:
   # server on :3000. All other test files are self-contained (node:test stubs)
   # and run per-file explicitly with --test-force-exit.
   gateway:
-    name: Gateway (node --test, 12 files)
+    name: Gateway (node --test, 14 files)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -167,6 +167,7 @@ jobs:
           node --test --test-force-exit test/cookie-endpoints-hardening.test.js \
             test/gateway-top10.test.js \
             test/netease-capability-probe.test.js \
+            test/netease-cookie-failover.test.js \
             test/netease-ssrf.test.js \
             test/netease-user-cookie.test.js \
             test/qq-no-cookie.test.js \
@@ -175,7 +176,8 @@ jobs:
             test/search-cache-regression.test.js \
             test/search-kugou.test.js \
             test/search-migu.test.js \
-            test/search-qq.test.js
+            test/search-qq.test.js \
+            test/vip-health-metrics.test.js
 
   # ---- Job 5: API smoke (pytest vs 实机 backend + mysql + redis + musicapi) ----
   # push 才跑（省 PR 分钟数）；services 起真 mysql+redis，musicapi 与后端实机启动，
