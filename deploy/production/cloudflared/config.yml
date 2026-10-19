@@ -1,0 +1,15 @@
+tunnel: cyk666
+credentials-file: /root/.cloudflared/5065aadd-370e-4525-9b20-fb2f56c0bb1e.json
+
+ingress:
+  - hostname: cyk666.top
+    service: http://localhost:80
+  - hostname: www.cyk666.top
+    service: http://localhost:80
+  - hostname: vibe.cyk666.top
+    service: http://localhost:8081
+  - hostname: monitor.cyk666.top
+    service: http://localhost:3001
+  - hostname: ai.cyk666.top
+    service: http://134.175.113.207:8088
+  - service: http_status:404
