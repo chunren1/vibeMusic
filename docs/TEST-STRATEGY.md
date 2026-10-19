@@ -14,10 +14,10 @@
 | 层级 | 对象与工具 | 规模（~为约数） | 在 CI 中的位置 |
 |---|---|---|---|
 | L1 单测 | 后端 JUnit5+Mockito（`vibeMusic-backend/src/test`，52 个测试类）；Web Vitest（`stores/__tests__/player.test.js` 等）；App JUnit+Robolectric（`vibemusic-native/app/src/test`，~80 个测试文件，~900+ 用例，含 `PlayDiagTest` 20 个 `@Test`） | 后端 ~480+ 用例；App ~900+ 用例 | ci.yml Job1 `mvn verify` / Job2 `vitest run` |
-| L2 接口 | `api-test/`（pytest）：鉴权 401、搜索聚合、推荐去重、换一批重叠率 | 30 例（live 25 + 离线 5） | ci.yml Job5 `api-test`（push 触发，起 musicapi+后端实机）+ 手工触发 |
+| L2 接口 | `api-test/`（pytest）：鉴权 401、搜索聚合、推荐去重、换一批重叠率 | 31 例（live 26 + 离线 5） | ci.yml Job5 `api-test`（push 触发，起 musicapi+后端实机）+ 手工触发 |
 | L3 手工+线上 | 真机（播放/来电/断网/通知/被杀）；Bugly crashreport 4.1.9 + `PlayDiag` 面包屑线上巡检 | 冒烟 20 例/版本 | 发版后 + 每日巡检 |
 
-说明：`musicapi` 网关单测走 Job3 `node --test`（11 个文件，离线 stub，不依赖 :3000 活服务）；`k6-test.js`（50 VUs，p95 search<3000ms/stream<2000ms）为性能下一步，当前只作阈值参考、不卡门。
+说明：`musicapi` 网关单测走 Job3 `node --test`（12 个文件，离线 stub，不依赖 :3000 活服务）；`k6-test.js`（50 VUs，p95 search<3000ms/stream<2000ms）为性能下一步，当前只作阈值参考、不卡门。
 
 ## 3. 准入准出
 
@@ -25,7 +25,7 @@
 
 准出（发版前必须满足）：
 
-- [ ] CI 5 jobs 全绿：backend（`mvn verify`，JaCoCo LINE ≥60%）+ frontend（ESLint/typecheck/build/Vitest）+ gateway（11 文件 node:test）+ api-test（pytest 30 例，vs 实机后端+musicapi）+ infra-lint（compose+nginx+otel）
+- [ ] CI 5 jobs 全绿：backend（`mvn verify`，JaCoCo LINE ≥60%）+ frontend（ESLint/typecheck/build/Vitest）+ gateway（12 文件 node:test）+ api-test（pytest 31 例，vs 实机后端+musicapi）+ infra-lint（compose+nginx+otel）
 - [ ] 冒烟 20 例全过（含播放链路 PB-001~PB-010）
 - [ ] 无 P0/P1 遗留（P2 允许带备注遗留≤3 个）
 - [ ] 发版 7 步走完：本地打包 → 备份 → 传包对 md5 → 重建 → 等 healthy → 容器内 md5+日志+warmup → 推荐冒烟（见 `scripts/deploy-backend.sh`）

@@ -20,9 +20,9 @@
 
 | 🚀 指标 | 数值 | 🚀 指标 | 数值 |
 |--------|:----:|--------|:----:|
-| 全栈测试 | **825 条** | Docker 服务 | **12 个** |
+| 全栈测试 | **837 条** | Docker 服务 | **12 个** |
 | 代码覆盖率 | **60%+ 门禁** | 缓存策略 | **Redis 两级缓存** |
-| 音源聚合 | **五源聚合** | 测试构成 | **后端 487 · 网关 138 · 前端 170 · 接口 30** |
+| 音源聚合 | **五源聚合** | 测试构成 | **后端 498 · 网关 138 · 前端 170 · 接口 31** |
 | AI 助手 | **流式输出** | API 端点 | **52 个** |
 
 ---
@@ -36,7 +36,7 @@
 - **缓存**：Redis（TTL 6h）→ 直调 API 两级链路，保障搜索 SLA
 - **BYOC（用户自带凭证）**：多租户凭证隔离架构——用户级密钥 AES-GCM 加密存储、请求级透传、缓存级隔离（个人结果永不落入共享缓存），附带过期检测与重绑引导
 - **监控可观测**：Micrometer + Prometheus + Grafana，追踪 JVM/缓存/延迟
-- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions 5 job CI/CD（backend / frontend / gateway / api-test / infra-lint）+ 825 条测试（后端 487 · 网关 138 · 前端 170 · 接口 30）
+- **全栈 DevOps**：12 服务 Docker 编排 + GitHub Actions 5 job CI/CD（backend / frontend / gateway / api-test / infra-lint）+ 837 条测试（后端 498 · 网关 138 · 前端 170 · 接口 31）
 
 ---
 
@@ -264,15 +264,15 @@ CI 中的 infra-lint job 会对该 YAML 做语法与 `tail_sampling` 策略校�
 ## 🧪 测试体系
 
 ```text
-825 条自动化测试（L1 单测 · L2 接口 · L3 线上巡检）
-├── L1 单测 · 后端 487 条 (JUnit 5 + Mockito + H2；mvn verify + JaCoCo LINE ≥60% 门禁)
+837 条自动化测试（L1 单测 · L2 接口 · L3 线上巡检）
+├── L1 单测 · 后端 498 条 (JUnit 5 + Mockito + H2；mvn verify + JaCoCo LINE ≥60% 门禁)
 │   └── Service · Controller · JWT · 幂等守卫 · 限流 · 推荐去重
 ├── L1 单测 · 网关 138 条 (musicapi node:test，离线 stub)
 │   └── 聚合搜索 · Cookie 主备容灾 · 降级链路
 ├── L1 单测 · 前端 170 条 (Vitest + jsdom)；App 侧 JUnit + Robolectric（独立仓库 vibemusic-native）
 │   └── PlayerStore · AuthStore · FavoriteStore · 视图交互
-├── L2 接口 · api-test 30 条 (pytest：鉴权 401 / 搜索聚合 / 推荐去重 / 历史 / 信封契约)
-│   └── CI api-test job（push 触发；services 起 mysql+redis，musicapi+后端实机；离线 5 条 + live 25 条）
+├── L2 接口 · api-test 31 条 (pytest：鉴权 401 / 搜索聚合 / 推荐去重 / 历史 / 信封契约)
+│   └── CI api-test job（push 触发；services 起 mysql+redis，musicapi+后端实机；离线 5 条 + live 26 条）
 └── L3 线上巡检
     └── Bugly crashreport + PlayDiag 面包屑 + 真机冒烟（播放链路 PB-001~010）
 ```
