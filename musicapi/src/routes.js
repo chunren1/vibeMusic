@@ -440,13 +440,18 @@ function registerRoutes(app) {
 
   // 网易共享 Cookie 按需快切（内网调用：后端共享链路 need-login 时触发）。
   // 同门禁（令牌或无令牌本机）；先复探当前槽位，健康不切换；响应只含 switched/active，绝不含凭证。
+  // force=true（查询串或 JSON body）走"能力感知"强制快切：重探两槽位的登录 + 播放能力，
+  // 供 VIP 掉档（登录仍有效、仅播放权限丢失）时换槽；不带 force 时行为与旧版完全一致。
   app.post('/internal/netease-rotate', async (req, res) => {
     if (!canRefreshCookie(req)) {
       writeLog('access', 'WARN', `[/internal/netease-rotate] 拒绝非授权访问: ${clientIp(req)}`);
       return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
     }
     try {
-      const out = await cookie.rotateNeteaseActive();
+      const force = /^(1|true|yes)$/i.test(String(
+        firstQuery(req.query.force) ?? (req.body && req.body.force) ?? ''
+      ));
+      const out = await cookie.rotateNeteaseActive({ force });
       return res.json({ code: 200, message: 'ok', data: out });
     } catch (e) {
       writeLog('cookie', 'ERROR', `[/internal/netease-rotate] 失败: ${e.message}`);

@@ -6,6 +6,8 @@
 //   MUSIC_QQ_COOKIE      — QQ音乐 Cookie JSON 对象
 //   MUSIC_NETEASE_COOKIE  — 网易云音乐 Cookie 字符串（主）
 //   MUSIC_NETEASE_COOKIE_BACKUP — 网易云音乐 Cookie 字符串（备，主失效时自动切换）
+//   MUSIC_NETEASE_PROBE_TRACK_ID — VIP 播放能力探针曲目 id（默认 273114《失眠》）
+//   MUSIC_NETEASE_PROBE_ENABLED  — 能力探针开关（'false'/'0'/'off' 关闭，关闭后行为与旧版一致）
 
 let localConfig = {};
 try {
@@ -24,6 +26,12 @@ function parseQQCookie(raw) {
   }
 }
 
+/** 布尔开关解析：只有显式 false/0/off（大小写不敏感）才关闭，缺失/其它值一律视为开启。 */
+function parseBool(raw, defaultValue) {
+  if (raw === undefined || raw === null || raw === '') return defaultValue;
+  return !/^(false|0|off|no)$/i.test(String(raw).trim());
+}
+
 module.exports = {
   // QQ音乐 Cookie（JSON 对象）
   qq: localConfig.qq || parseQQCookie(process.env.MUSIC_QQ_COOKIE),
@@ -33,6 +41,17 @@ module.exports = {
 
   // 网易云备用 Cookie（字符串，主失效时自动切换；未配置则保持单 Cookie 行为）
   neteaseBackup: localConfig.neteaseBackup || process.env.MUSIC_NETEASE_COOKIE_BACKUP || '',
+
+  // VIP 播放能力探针曲目 id（VIP-only 曲目；留空则用探针模块内置默认值）
+  neteaseProbeTrackId: localConfig.neteaseProbeTrackId || process.env.MUSIC_NETEASE_PROBE_TRACK_ID || '',
+
+  // VIP 播放能力探针开关（kill switch：设为 false 时健康判定回退到"仅登录有效性"，行为与旧版一致）
+  neteaseProbeEnabled: parseBool(
+    localConfig.neteaseProbeEnabled !== undefined
+      ? localConfig.neteaseProbeEnabled
+      : process.env.MUSIC_NETEASE_PROBE_ENABLED,
+    true
+  ),
 
   // 允许的网易云 API 方法白名单
   neteaseApis: localConfig.neteaseApis || [

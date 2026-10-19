@@ -1,7 +1,6 @@
 // ==================== Cookie 统一管理 ====================
 const path = require('path');
 const qqMusic = require('qq-music-api');
-const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const config = require('./config-loader');
 const { writeLog } = require('./logger');
 const { cookieStatusGauge, vipHealthGauge, cookieProbeTotal } = require('./metrics');
@@ -114,16 +113,8 @@ function resolveNeteaseCookie(req) {
   return resolveSharedCookie().cookie;
 }
 
-/** 探活单个共享 Cookie：cloudsearch 200+有结果即有效；空串直接判无效，异常判无效，绝不抛错。 */
-async function probeNeteaseCookie(cookieStr) {
-  if (!cookieStr) return false;
-  try {
-    const res = await NeteaseCloudMusicApi.cloudsearch({ keywords: '周杰伦', limit: 1, type: 1, cookie: cookieStr });
-    return !!(res && res.body && res.body.code === 200 && res.body.result);
-  } catch (e) {
-    return false;
-  }
-}
+/** 探活单个共享 Cookie 已移至 cookie-probe.js（登录有效性 + 播放能力组合探针）。 */
+const { probeNeteaseCookie, probeNeteaseLogin, probeNeteasePlayback } = require('./cookie-probe');
 
 function setSlotGauges(primaryOk, backupOk, hasBackup) {
   cookieStatus.neteasePrimary = primaryOk;
@@ -183,9 +174,9 @@ async function checkCookies() {
   try {
     primaryOk = await probeNeteaseCookie(primary);
     if (primaryOk) {
-      writeLog('cookie', 'INFO', '✅ 网易云主 Cookie 正常');
+      writeLog('cookie', 'INFO', '✅ 网易云主 Cookie 正常（登录 + 播放能力）');
     } else {
-      writeLog('cookie', 'ERROR', '❌ 网易云主 Cookie 异常');
+      writeLog('cookie', 'ERROR', '❌ 网易云主 Cookie 异常（登录或播放能力未通过）');
     }
   } catch (e) {
     writeLog('cookie', 'ERROR', `❌ 网易云主 Cookie 检查失败: ${e.message}`);
@@ -193,7 +184,8 @@ async function checkCookies() {
   try {
     if (hasBackup) {
       backupOk = await probeNeteaseCookie(backup);
-      writeLog('cookie', backupOk ? 'INFO' : 'ERROR', backupOk ? '✅ 网易云备 Cookie 正常' : '❌ 网易云备 Cookie 异常');
+      writeLog('cookie', backupOk ? 'INFO' : 'ERROR',
+        backupOk ? '✅ 网易云备 Cookie 正常（登录 + 播放能力）' : '❌ 网易云备 Cookie 异常（登录或播放能力未通过）');
     }
   } catch (e) {
     writeLog('cookie', 'ERROR', `❌ 网易云备 Cookie 检查失败: ${e.message}`);
@@ -209,8 +201,11 @@ async function checkCookies() {
 /**
  * 按需快切（供后端共享链路 need-login 时调用）：先复探当前槽位，
  * 健康则不切换（防误切）；否则备有效即切备。返回 {switched, active}，绝不含凭证。
+ *
+ * @param {{force?: boolean}} [opts] force=true 走"能力感知"强制快切（VIP 掉档用，见下）
  */
-async function rotateNeteaseActive() {
+async function rotateNeteaseActive(opts = {}) {
+  if (opts.force) return rotateNeteaseActiveForced();
   const current = neteaseActive === 'backup' && effectiveBackup() ? 'backup' : 'primary';
   if (await probeNeteaseCookie(sharedCookieFor(current))) {
     setSlotGauges(current === 'primary', current === 'backup' ? true : await probeNeteaseCookie(effectiveBackup()), !!effectiveBackup());
@@ -225,6 +220,36 @@ async function rotateNeteaseActive() {
   setSlotGauges(await probeNeteaseCookie(effectivePrimary()), false, !!effectiveBackup());
   applyActiveSlot(current, 'rotate-both-unhealthy');
   return { switched: false, active: current, reason: 'both-unhealthy' };
+}
+
+/**
+ * 能力感知强制快切（VIP 掉档容灾）：重探<b>两个槽位</b>的"登录 + 播放能力"
+ * （主 Cookie 掉 VIP 时登录/搜索仍正常，只看登录探针永不切换），
+ * 选能通过双探针的槽位；双槽都可用（平局）保持当前槽位；双槽都不可用保持现状。
+ * gauge/探针计数与 checkCookies 同口径；返回体只含 switched/active/探针结果，绝不含凭证。
+ */
+async function rotateNeteaseActiveForced() {
+  const current = neteaseActive === 'backup' && effectiveBackup() ? 'backup' : 'primary';
+  const hasBackup = !!effectiveBackup();
+  const primaryOk = await probeNeteaseCookie(effectivePrimary());
+  const backupOk = hasBackup ? await probeNeteaseCookie(effectiveBackup()) : false;
+  setSlotGauges(primaryOk, backupOk, hasBackup);
+  const next = pickCapableSlot({ primaryOk, backupOk, current });
+  const out = next === current
+    ? Object.assign(applyActiveSlot(current, 'rotate-force-noop'), { forced: true })
+    : Object.assign(applyActiveSlot(next, 'rotate-force-capability'), { forced: true });
+  return Object.assign(out, { primaryOk, backupOk });
+}
+
+/**
+ * 强制快切选槽（纯函数）：能通过双探针的槽位优先；双可用平局保持当前槽位；
+ * 双不可用保持当前（降级链不变，绝不切到更差的槽）。
+ */
+function pickCapableSlot({ primaryOk, backupOk, current }) {
+  if (primaryOk && backupOk) return current;
+  if (primaryOk) return 'primary';
+  if (backupOk) return 'backup';
+  return current;
 }
 
 // ==================== QQ Cookie 检查 + 手动恢复引导 ====================
@@ -327,7 +352,11 @@ module.exports = {
   getVipHealth,
   setSlotGauges,
   probeNeteaseCookie,
+  probeNeteaseLogin,
+  probeNeteasePlayback,
   rotateNeteaseActive,
+  rotateNeteaseActiveForced,
+  pickCapableSlot,
   checkCookies,
   checkQQCookie,
   failQQCookie,

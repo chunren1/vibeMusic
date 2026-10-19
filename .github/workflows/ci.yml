@@ -139,7 +139,7 @@ jobs:
   # server on :3000. All other test files are self-contained (node:test stubs)
   # and run per-file explicitly with --test-force-exit.
   gateway:
-    name: Gateway (node --test, 11 files)
+    name: Gateway (node --test, 12 files)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -166,6 +166,7 @@ jobs:
         run: |
           node --test --test-force-exit test/cookie-endpoints-hardening.test.js \
             test/gateway-top10.test.js \
+            test/netease-capability-probe.test.js \
             test/netease-ssrf.test.js \
             test/netease-user-cookie.test.js \
             test/qq-no-cookie.test.js \

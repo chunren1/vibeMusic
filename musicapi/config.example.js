@@ -28,4 +28,12 @@ module.exports = {
 
   // ---- 网易云 Cookie ----
   netease: 'MUSIC_U=YOUR_MUSIC_U_COOKIE; __csrf=YOUR_CSRF_TOKEN',
+
+  // ---- 网易云备用 Cookie（主失效时自动接管，未配置则保持单 Cookie 行为） ----
+  // neteaseBackup: 'MUSIC_U=YOUR_BACKUP_MUSIC_U; __csrf=YOUR_CSRF',
+
+  // ---- VIP 播放能力探针（15 分钟巡检：健康 = 登录有效性 且 能完整播放探针曲目） ----
+  // 探针曲目须为 VIP-only 曲目（默认 273114《失眠》）；kill switch 置 false 回退旧口径（仅探登录）
+  // neteaseProbeTrackId: '273114',
+  // neteaseProbeEnabled: true,
 };
