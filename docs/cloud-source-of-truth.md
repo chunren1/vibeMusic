@@ -101,9 +101,10 @@
 > **2026-10-19 缓存策略修正（已实弹执行并验证）**：`sites-enabled/vibemusic` 由旧版
 > （`/assets/**` 7d public、`index.html` 无缓存头、`logo.png` 7d、`sw.js` 双写 Cache-Control）
 > 更新为现版本（`/assets/**` 1 年 `immutable`、`index.html` 及 SPA 兜底 `no-store`、
-> 散装静态文件 `no-cache`、`sw.js` 只留单条头，且各 location 补回安全头）。
+> 散装静态文件（logo/favicon）、`/manifest.json` 均 `no-store`、`sw.js` 只留单条头，且各 location 补回安全头）。
+> （散装静态与 `/manifest.json` 上的 `no-store` 是 v3/v4 两次后续修正的结果，原因见下面坑 3、4。）
 > 依据：前端产物 **152/152 全部内容哈希命名**（Vite 默认），理论上限就是长缓存。
-> 仓库副本已同步为**逐字节一致**（首轮 md5 `0f3b972b…` → 二次修正后 v3 md5 `e143fead…`）；首轮改前备份在云上
+> 仓库副本已同步为**逐字节一致**（首轮 md5 `0f3b972b…` → 散装静态修正 v3 `e143fead…` → manifest 修正 **v4 `9954e4bc…`**）；首轮改前备份在云上
 > `/root/vibemusic-site.conf.bak-20261019-154533`（回滚：覆盖回去 + `nginx -t` + reload）。
 >
 > ⚠️ 三个坑（本次踩到）：
@@ -118,10 +119,18 @@
 >    决定性验证：公网**随机查询串**（CF 必 MISS 回源，排除"边缘旧副本"干扰）与原 URL
 >    **均**返回 `no-cache, no-store, must-revalidate` + `cf-cache-status: BYPASS`。
 >    代价：这两类无哈希小文件不再被浏览器/CF 缓存（logo 70KB + favicon 4KB，每次加载重取，可接受）。
-> 4.（未做，待定）`/manifest.json` 不在散装静态那条正则里（正则无 `json`）→ 落到 `location /`，
->    **完全没有任何 Cache-Control**（实测：CF 判 DYNAMIC 不缓存，浏览器启发式缓存）→ PWA 清单改动可能延迟生效。
->    要修就加**精确匹配** location（`location = /manifest.json`）。⚠️ **别把 `json` 塞进那条正则** ——
->    nginx 正则 location 优先级高于前缀 location，会截胡 `location /api/` 把 API 请求当静态文件。
+> 4. `/manifest.json` 不在散装静态那条正则里（正则无 `json`）→ 原先落到 `location /`，**完全没有任何 Cache-Control**
+>    （实测：CF 判 DYNAMIC 不缓存，浏览器启发式缓存）→ PWA 清单改动可能延迟生效。
+>    **同日已修（v4，md5 `9954e4bc…`）**：加**精确匹配** `location = /manifest.json`，策略取
+>    `no-cache, no-store, must-revalidate` 并补回 4 个安全头；备份 `/root/vibemusic-site.conf.bak-20261019-173528`。
+>    验证：源站与公网均返回该头 + `cf-cache-status: DYNAMIC`；**防截胡实测**：`/api/nonexistent.json`
+>    返回 `401 + application/json`（Spring Security 的响应），而非 nginx 静态 404 的 `text/html` ✓。
+>    ⚠️ 保留的教训：**别把 `json` 塞进那条正则** —— nginx 正则 location 优先级高于前缀 location，
+>    会把 `/api/**.json` 截胡成静态文件查找（=404）。
+> 5.（未做，可选）`/manifest.json` 的 MIME 是 `application/json`（来自 `mime.types`，一直如此；`index.html`
+>    里 `rel="manifest"` 指向的就是它）。规范推荐 `application/manifest+json`，现为"能跑但不规范"。要改就在
+>    该 location 内加 `types { application/manifest+json json; }`（location 级生效，不影响别处）。
+>    ⚠️ 无真机可用于验证"改 MIME 是否真的改善 PWA 装桌面"，故不擅自动生产。
 
 ### 3.2 仓库权威 → 云上落后，**不回灌**
 
