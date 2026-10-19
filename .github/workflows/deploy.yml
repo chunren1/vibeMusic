@@ -1,9 +1,31 @@
 # vibeMusic 自动部署流水线
 # 触发: 手动触发 / 推送 tag (v*.*.*)
+#
+# 发版闸门（P1 收紧, 2026-10-19）——"绕过测试发版"在流程上不再可能：
+#   本 job 的步骤严格顺序执行，测试全部前置，产物上传在最后：GitHub Actions 语义为
+#   "job 内任一步骤失败，后续步骤一律不执行"，因此不存在"测试没过还拿到发版产物"的路径。
+#   `-DskipTests` 已从本文件移除（后端改为 `mvn verify`，含 JaCoCo 60% 覆盖率门禁）。
+#
+#   方案取舍（为什么不用 needs / workflow_run）：
+#     - (c) workflow_run 依赖 ci.yml：其 branches 过滤语义是"分支"而非 tag，tag 事件下无法干净
+#       表达；且 workflow_dispatch 手动发版会绕过测试。弃用。
+#     - (b) 同 workflow 内再拆一个测试 job + needs：语义可行，但要额外拆 job、传 artifact 才能
+#       复用产物，收益只有并行几分钟；本 workflow 只在 tag / 手动触发时运行（发版月级低频），
+#       串行更简单，且"步骤顺序"本身就是可审计的门禁证据。
+#     故采用 (a)：本 workflow 内显式跑全量离线测试 + 镜像构建，通过后才构建/上传产物。
+#
+#   与 ci.yml 的分工：
+#     - ci.yml 在 main push / PR / **tag** 上跑（tag 不受 paths 过滤限制），含实机冒烟 api-test、
+#       infra-lint，并有"网关测试清单漂移守卫"保证 ci.yml 与 deploy.yml 两处清单与磁盘一致。
+#     - 本文件的闸门 = 离线全量（后端 verify+JaCoCo、前端 typecheck+Vitest、网关 14 文件）
+#       + Docker 镜像构建（cloud 部署=目标机 compose build，坏 Dockerfile 必须在发版前炸出来）。
+#     - 实机冒烟（api-test）不重复进本闸门：同一次 tag 上 ci.yml 已在跑，重复联调白烧约 20 分钟。
+#       若要求它硬阻塞发布：把本文件拆成 `gate`（本 job 的测试+镜像步骤）与 `publish`，
+#       并让 publish `needs: [gate]`，再把 ci.yml 的 api-test 以 job 形式纳入 gate 即可。
 name: Deploy
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:  # 手动触发（同样被下面的测试步骤拦住，不会绕过闸门）
   push:
     tags:
       - 'v*'          # 推送 tag 如 v1.0.0 时自动部署
@@ -15,12 +37,10 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
-# NOTE: tests live in ci.yml (backend / frontend / gateway / infra-lint).
-# This workflow is artifact-build only; do NOT re-add test or compose-lint jobs here.
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -38,24 +58,62 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: vibemusic-web/package-lock.json
+          cache-dependency-path: |
+            vibemusic-web/package-lock.json
+            musicapi/package-lock.json
 
-      - name: Build Backend JAR
-        run: cd vibeMusic-backend && mvn package -DskipTests -B
+      # ---- 闸门 1/4: 后端全量测试 + JaCoCo 60% 覆盖率门禁（verify 同时产出待发布的 jar）----
+      - name: Gate 1/4 — Backend tests + JaCoCo coverage gate (mvn verify, no -DskipTests)
+        run: cd vibeMusic-backend && mvn -B verify -DskipTests=false
+        env:
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+          # test-only：32 个零字节 base64 假密钥，仅供测试加载 CookieCryptoService
+          COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
+      # ---- 闸门 2/4: 前端类型硬门 + Vitest（与 ci.yml frontend job 同口径）----
+      - name: Gate 2/4 — Frontend typecheck + tests (Vitest)
+        run: |
+          cd vibemusic-web
+          npm ci
+          npm run typecheck
+          npx vitest run --reporter=verbose --coverage
+
+      # ---- 闸门 3/4: 网关 14 个离线测试文件 ----
+      # 清单与 ci.yml gateway job 完全一致（server.test.js 需实机 :3000 故排除）；
+      # 两处清单与磁盘的一致性由 ci.yml 的 "Guard — gateway test list..." 步骤强制。
+      - name: Gate 3/4 — Gateway tests (node --test, 14 files, no live server)
+        run: |
+          cd musicapi
+          npm ci
+          node --check server.js
+          node --test --test-force-exit test/cookie-endpoints-hardening.test.js \
+            test/gateway-top10.test.js \
+            test/netease-capability-probe.test.js \
+            test/netease-cookie-failover.test.js \
+            test/netease-ssrf.test.js \
+            test/netease-user-cookie.test.js \
+            test/qq-no-cookie.test.js \
+            test/search-bili.test.js \
+            test/search-cache-key-isolation.test.js \
+            test/search-cache-regression.test.js \
+            test/search-kugou.test.js \
+            test/search-migu.test.js \
+            test/search-qq.test.js \
+            test/vip-health-metrics.test.js
+
+      # ---- 闸门 4/4: Docker 镜像必须能构建（cloud 部署就是目标机 compose build）----
+      # 此前本 workflow 明确"不执行 docker compose build"，导致坏 Dockerfile 只能等发版才发现。
+      # musicapi/Dockerfile 已修好（COPY server.js src，不再 COPY gitignore 的 config.js）；
+      # backend 镜像用上面 mvn verify 产出的 jar → 镜像内容与通过测试的构建同源。
+      # 不 push 到任何 registry。
+      - name: Gate 4/4 — Docker images must build (musicapi + backend, no push)
+        run: |
+          docker build -t vibemusic-musicapi:ci ./musicapi
+          docker build -t vibemusic-backend:ci ./vibeMusic-backend
+
+      # ---- 闸门全绿，才开始产出发布产物 ----
       - name: Build Frontend
-        run: cd vibemusic-web && npm ci && npm run build
-
-      # 注意：此处不执行 `docker compose build`。
-      # 原因：musicapi/Dockerfile 的 `COPY server.js config.js ./` 依赖 gitignore 的
-      # config.js（Cookie 配置），全新 checkout 下该文件不存在，构建必然失败。
-      # 修复 Dockerfile（改为 COPY config.example.js 或运行时注入）由并行任务负责；
-      # 修复后可在下方恢复 docker compose build 步骤。
-      #
-      # 真实部署需配置目标（SSH 主机 / 镜像仓库 / 云平台），并注入 secrets：
-      #   - 镜像方式：docker build + docker push 到 registry，目标机 docker pull + up
-      #   - 产物方式：将下方 jar + dist artifact 上传到目标机后启动
-      # 当前阶段仅构建并上传产物，供后续部署流程消费。
+        run: cd vibemusic-web && npm run build
 
       - name: Upload Backend JAR
         uses: actions/upload-artifact@v4
@@ -70,6 +128,11 @@ jobs:
           name: frontend-dist
           path: vibemusic-web/dist/
           retention-days: 7
+
+      # 真实部署需配置目标（SSH 主机 / 镜像仓库 / 云平台），并注入 secrets：
+      #   - 镜像方式：docker build + docker push 到 registry，目标机 docker pull + up
+      #   - 产物方式：将上方 jar + dist artifact 上传到目标机后启动
+      # 当前阶段仅构建并上传产物，供后续部署流程消费。
 
       # 示例：镜像推送与远程部署（需配置 secrets.RSA / REGISTRY）
       # - name: Build & push images
