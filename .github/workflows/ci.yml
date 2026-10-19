@@ -1,11 +1,21 @@
 # vibeMusic unified CI — single workflow replacing backend-ci / frontend-ci /
-# musicapi-ci / test.yml (merged Q2b). 3 parallel test jobs + 1 infra-lint.
-# deploy.yml keeps artifact-build only (no test duplication here).
+# musicapi-ci / test.yml (merged Q2b). 4 parallel test jobs + api-test + infra-lint + docker-build.
+#
+# 触发与发版闸门（P1 收紧, 2026-10-19）：
+#   - main/master push、PR：原样（paths 过滤保持）。
+#   - tag v*：本 workflow 也会跑，且**不受 paths 过滤**（GitHub 官方文档：路径过滤对 tag 推送
+#     不生效 "Path filters are not evaluated for pushes of tags"）→ 每个 tag commit 都留下
+#     完整测试记录（backend/frontend/gateway/api-test/infra-lint/docker-build）。
+#   - deploy.yml 内另有硬门禁（测试 + 镜像构建全绿才产出发布产物），tag 上双保险。
+#   - 成本口径：tag 是低频事件（发版月级），故 tag 上跑全量含实机冒烟；PR 上不跑 docker-build
+#     与 api-test，省分钟数。
 name: CI
 
 on:
+  workflow_dispatch:   # 手动跑全量（发 tag 前自查）
   push:
     branches: [main, master]
+    tags: ['v*']       # tag 推送 → 全量测试（paths 对 tag 不生效，见文件头）
     paths:
       - 'vibeMusic-backend/**'
       - 'vibemusic-web/**'
@@ -162,6 +172,39 @@ jobs:
           node --check server.js
           for f in $(find . -name '*.js' -not -path './node_modules/*'); do node --check "$f"; done
 
+      # 清单漂移守卫：新增网关测试文件却忘记接进 CI 时，这里直接红（历史上发生过 12→14 漏接）。
+      # 同时校验 ci.yml / deploy.yml 两处清单与磁盘一致——deploy.yml 的发版门禁复用同一份清单。
+      - name: Guard — gateway test list matches disk and both workflows
+        working-directory: .
+        run: |
+          python3 << 'PY'
+          import glob, os, re, sys
+
+          root = os.environ.get('GITHUB_WORKSPACE', '.')
+          pattern = re.compile(r'test/([\w.\-]+\.test\.js)')
+
+          def listed(rel_path):
+              with open(os.path.join(root, rel_path), encoding='utf-8') as fh:
+                  # 先剔掉 YAML 注释行，避免注释里提到的文件名（如 "test/server.test.js 需实机故排除"）被误判
+                  lines = [ln for ln in fh.read().splitlines() if not ln.lstrip().startswith('#')]
+              return set(pattern.findall('\n'.join(lines)))
+
+          on_disk = {os.path.basename(p) for p in glob.glob(os.path.join(root, 'musicapi/test/*.test.js'))}
+          excluded = {'server.test.js'}          # 需要实机 :3000，故意排除
+          expected = on_disk - excluded
+          errors = []
+          for wf, label in (('.github/workflows/ci.yml', 'ci.yml'),
+                            ('.github/workflows/deploy.yml', 'deploy.yml')):
+              found = listed(wf)
+              if found != expected:
+                  errors.append(f"{label}: 缺 {sorted(expected - found)} / 多 {sorted(found - expected)}")
+          if errors:
+              for msg in errors:
+                  print(f"::error::网关测试清单与磁盘不一致 -> {msg}")
+              sys.exit(1)
+          print(f"清单一致：{len(expected)} 个测试文件（磁盘 {len(on_disk)} 个，排除 {sorted(excluded)}）")
+          PY
+
       - name: Run gateway tests (per-file, no live server)
         run: |
           node --test --test-force-exit test/cookie-endpoints-hardening.test.js \
@@ -180,13 +223,13 @@ jobs:
             test/vip-health-metrics.test.js
 
   # ---- Job 5: API smoke (pytest vs 实机 backend + mysql + redis + musicapi) ----
-  # push 才跑（省 PR 分钟数）；services 起真 mysql+redis，musicapi 与后端实机启动，
+  # 非 PR 才跑（push / tag / 手动；省 PR 分钟数）。services 起真 mysql+redis，musicapi 与后端实机启动，
   # 健康检查放行后才跑 pytest；后端不可达时用例 skip 不爆红。
   # 必须起 musicapi：不起则五路 fanout 全空 → 搜索/推荐类用例大面积 skip，
   # job 看着绿但其实没验到搜索链路（无 Cookie 时 QQ 走无 Cookie 正常态、网易降级）。
   api-test:
     name: API smoke (pytest vs live backend)
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -315,9 +358,16 @@ jobs:
           docker compose -f docker-compose.demo.yml config -q
         env:
           # demo/full 变体对少数变量用 ${VAR:?} 强制必填（防止误用默认口令上线），
-          # CI 无 .env，这里给占位值让语法校验可通过
+          # CI 无 .env，这里给占位值让语法校验可通过（2026-10-19 起口令兜底已全部清除，占位清单随之扩列）
           JWT_SECRET: ci-lint-placeholder
+          GRAFANA_ADMIN_USER: ci-lint-placeholder
           GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
+          MYSQL_ROOT_PASSWORD: ci-lint-placeholder
+          DB_PASSWORD: ci-lint-placeholder
+          MINIO_ROOT_USER: ci-lint-placeholder
+          MINIO_ROOT_PASSWORD: ci-lint-placeholder
+          MINIO_ACCESS_KEY: ci-lint-placeholder
+          MINIO_SECRET_KEY: ci-lint-placeholder
 
       - name: Check nginx config syntax
         run: |
@@ -380,3 +430,83 @@ jobs:
           else:
               print(f"traces processors: {traces_procs}")
           PY
+
+  # ---- Job 6: Docker 镜像构建校验（只 build，绝不 push 到任何 registry）----
+  # 目的：Dockerfile / compose build 配置坏了要在 CI 暴露，而不是等发版在云服务器上才发现
+  #      （cloud 部署 = 在服务器上 compose build，坏 Dockerfile = 坏发版）。
+  # 覆盖 compose 里真正会被 build 的两个镜像（也是本仓仅有的两个在编镜像）：
+  #   musicapi（Express BFF）、backend（Spring Boot，COPY target/*.jar）。
+  # 成本取舍：PR 上不跑（省分钟数），只跑 main push / tag / 手动；tag 上跑=发版前先验镜像。
+  # 不构建 nginx/Dockerfile：三个 compose 的 nginx 服务都用官方镜像 + 挂载 nginx.conf
+  #   （配置语法已由 infra-lint 用真 nginx -t 校验），该文件无任何 compose 引用，且仓库根
+  #   无 .dockerignore → 构建 context 会是整个仓库（含 docker-data/node_modules），白烧几分钟。
+  docker-build:
+    name: Docker images (build-only, no push)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build backend JAR (image payload; unit tests gated by backend job)
+        run: mvn -B -DskipTests package
+        working-directory: vibeMusic-backend
+        env:
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+          COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
+      - name: Check every compose build context / Dockerfile exists
+        env:
+          JWT_SECRET: ci-lint-placeholder
+          GRAFANA_ADMIN_USER: ci-lint-placeholder
+          GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
+          MYSQL_ROOT_PASSWORD: ci-lint-placeholder
+          DB_PASSWORD: ci-lint-placeholder
+          MINIO_ROOT_USER: ci-lint-placeholder
+          MINIO_ROOT_PASSWORD: ci-lint-placeholder
+          MINIO_ACCESS_KEY: ci-lint-placeholder
+          MINIO_SECRET_KEY: ci-lint-placeholder
+        run: |
+          python3 << 'PY'
+          import json, os, subprocess, sys
+
+          missing, builds = [], 0
+          for compose in ('docker-compose.yml', 'docker-compose.full.yml', 'docker-compose.demo.yml'):
+              cfg = json.loads(subprocess.run(
+                  ['docker', 'compose', '-f', compose, 'config', '--format', 'json'],
+                  capture_output=True, text=True, check=True).stdout)
+              for name, svc in cfg.get('services', {}).items():
+                  build = svc.get('build')
+                  if not build:
+                      continue
+                  builds += 1
+                  ctx = build.get('context', '.')
+                  dockerfile = build.get('dockerfile', 'Dockerfile')
+                  if not os.path.isdir(ctx):
+                      missing.append(f"{compose}:{name} context {ctx}")
+                  elif not os.path.isfile(os.path.join(ctx, dockerfile)):
+                      missing.append(f"{compose}:{name} {os.path.join(ctx, dockerfile)}")
+          if missing:
+              print("::error::compose build 指向的 context/Dockerfile 不存在: " + ", ".join(missing))
+              sys.exit(1)
+          print(f"compose 的 {builds} 处 build 定义指向的 context/Dockerfile 全部存在")
+          PY
+
+      - name: Build musicapi image
+        run: docker build -t vibemusic-musicapi:ci ./musicapi
+
+      - name: Build backend image
+        run: docker build -t vibemusic-backend:ci ./vibeMusic-backend
+
+      # 镜像"真的装进了东西"的旁证：网关入口能过 node 语法检查，后端 jar 在镜像里且非空
+      - name: Image payload sanity
+        run: |
+          docker run --rm --entrypoint node vibemusic-musicapi:ci --check server.js
+          docker run --rm --entrypoint sh vibemusic-backend:ci -c 'test -s /app/app.jar'
