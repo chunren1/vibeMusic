@@ -1,6 +1,7 @@
 # vibeMusic 数据库自动备份
 # 用途：mysqldump 导出 → 保留最近 7 天
 # 定时：建议 Windows 任务计划 每天凌晨 4 点运行
+# 前置：必须已设置环境变量 DB_PASSWORD（缺失脚本直接退出，不使用弱默认口令）
 
 param(
     [string]$BackupDir = "$PSScriptRoot\..\docker-data\backups"
@@ -8,7 +9,12 @@ param(
 
 $MYSQL_CONTAINER = "vibemusic-mysql"
 $DB_USER = "root"
-$DB_PASS = if ($env:DB_PASSWORD) { $env:DB_PASSWORD } else { "123456" }
+# fail-fast：缺失 DB_PASSWORD 直接退出，绝不回落弱默认口令（见 .env.example）
+if (-not $env:DB_PASSWORD) {
+    Write-Error "DB_PASSWORD 未设置，拒绝使用弱默认口令。请先设置环境变量 DB_PASSWORD 后重试。"
+    exit 1
+}
+$DB_PASS = $env:DB_PASSWORD
 $DB_NAME = "vibemusic"
 $KEEP_DAYS = 7
 

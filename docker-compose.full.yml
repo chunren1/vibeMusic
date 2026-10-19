@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required see .env.example}
       MYSQL_DATABASE: vibemusic
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
@@ -66,7 +66,7 @@ services:
     networks:
       - vibemusic-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required see .env.example}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -133,8 +133,8 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-rustfsadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ChangeMe456!}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required see .env.example}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required see .env.example}
       TZ: Asia/Shanghai
     # MinIO 暴露到宿主机，供本地开发连接
     ports:
@@ -171,17 +171,17 @@ services:
       # 数据库
       DB_HOST: mysql
       DB_USERNAME: root
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:
       # MinIO
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-rustfsadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-ChangeMe456!}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required see .env.example}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required see .env.example}
       # JWT
-      JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecretKey123!}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required see .env.example}
       # AI 助手
       AI_API_KEY: ${AI_API_KEY:-change-me}
       # musicapi (网易云 API 代理)
@@ -281,7 +281,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-ChangeMe456!};
+      /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required see .env.example} ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required see .env.example};
       /usr/bin/mc mb --ignore-existing minio/vibemusic;
       echo 'Bucket vibemusic ready';
       exit 0;
@@ -327,7 +327,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required see .env.example}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
@@ -384,7 +384,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required see .env.example}
       TZ: Asia/Shanghai
     entrypoint: ["/bin/bash", "-c", "
       trap 'echo \"[BACKUP] 收到信号，正在退出...\"; exit 0' SIGTERM SIGINT;
@@ -446,7 +446,7 @@ services:
       LOCK_FILE=/backup/.backup.lock;
       while true; do
         if flock -w 3600 $$LOCK_FILE; then
-          /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:-rustfsadmin} ${MINIO_ROOT_PASSWORD:-ChangeMe456!};
+          /usr/bin/mc alias set minio http://minio:9000 ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required see .env.example} ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required see .env.example};
           /usr/bin/mc mirror --overwrite minio/vibemusic /backup/vibemusic 2>&1 | head -5;
           # 生成校验清单
           find /backup/vibemusic -type f -exec sha256sum {} + > /backup/vibemusic-$$(date +%Y%m%d-%H%M%S).sha256 2>/dev/null || true;

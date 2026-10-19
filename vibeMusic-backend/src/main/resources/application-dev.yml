@@ -2,8 +2,8 @@
 # 激活方式: spring.profiles.active=dev (默认)
 # 命令行: mvn spring-boot:run -Dspring-boot.run.profiles=dev
 #
-# 注意：DB_PASSWORD / REDIS_PASSWORD 默认值取自 docker-compose 启动的中间件密码
-# 如果 .env 改了密码，需同步修改下面默认值，或通过系统环境变量覆盖
+# 注意：DB_PASSWORD / REDIS_PASSWORD 需与 docker-compose 启动的中间件密码一致
+# 无默认值：必须通过 .env / 系统环境变量显式提供，缺失即启动失败（不再回落到弱口令）
 
 # ── 开发环境专用密钥（仅本地调试） ──
 jwt:
@@ -13,7 +13,8 @@ spring:
   datasource:
     # 本地开发默认连接 Docker MySQL
     # 注意：MySQL 密码以首次初始化时为准，Docker 数据卷存在后不会随 .env 变化
-    password: ${DB_PASSWORD:123456}
+    # 必须显式提供 DB_PASSWORD（缺失即启动失败），不再使用弱默认口令兜底
+    password: ${DB_PASSWORD}
   data:
     redis:
       # 本地开发默认连接 Docker Redis，密码来自 .env 的 REDIS_PASSWORD
