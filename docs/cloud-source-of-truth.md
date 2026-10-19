@@ -78,13 +78,25 @@
 | `/opt/vibeMusic/scripts/backup-mysql.sh` | `scripts/backup-mysql.sh` | MySQL 每日备份，cron 03:30。**逐字节原样收录**（md5 一致，可被对账脚本比对） |
 | `/opt/vibeMusic/scripts/watchdog.sh` | `scripts/watchdog.sh` | 容器 unhealthy 看门狗，cron 每 5 分钟。**逐字节原样收录** |
 | `/etc/nginx/sites-enabled/vibemusic` | `deploy/production/nginx/vibemusic-site.conf` | **真正的生产 vhost**（`vibe.cyk666.top`，8081 → 8080） |
+| `/etc/nginx/nginx.conf` | `deploy/production/nginx/nginx.conf` | **主配置**（2026-10-19 起因启用 gzip 段而纳入纳管；原为 Ubuntu 发行版默认 `cc381056`） |
 | `/etc/nginx/conf.d/security.conf` | `deploy/production/nginx/security.conf` | 生产安全头 + limit_req/limit_conn 共享内存区 |
 | `/etc/cloudflared/config.yml` | `deploy/production/cloudflared/config.yml` | 隧道 ingress 规则 |
 | root crontab | `deploy/production/crontab.txt` | 两条定时任务（对账时按"有效行"归一化比对） |
 
-> 注意：`/etc/nginx/nginx.conf`（主配置，md5 `cc381056`）是 **Ubuntu 发行版默认**，未做改动，
-> 因此**不收录**（收录只会增加噪音）。真正自定义的只有 `sites-enabled/vibemusic` 与
-> `conf.d/security.conf`。
+> 注意：`/etc/nginx/nginx.conf`（主配置）原为 **Ubuntu 发行版默认**（md5 `cc381056`），
+> **2026-10-19 起不再"未做改动"** —— 为开 gzip 改了 gzip 段（见下），因此**已纳入纳管**
+> （`deploy/production/nginx/nginx.conf`，逐字节一致）。
+>
+> **2026-10-19 gzip 修正（已实弹执行并验证）**：只有 `gzip on;` 是有效的，`gzip_types` 等 6 行
+> 全是注释 → **nginx 实际只压 `text/html`**，JS/CSS/JSON 全靠 Cloudflare 边缘压。
+> 现改为：`gzip_vary on` / `gzip_proxied any` / `gzip_comp_level 6` / `gzip_buffers 16 8k` /
+> `gzip_http_version 1.1` / `gzip_min_length 1024` / `gzip_types …（含 application/json、application/javascript、
+> application/manifest+json、image/svg+xml）` / **`gzip_static on`**（模块本已编译进 nginx，vibemusic 产物自带
+> 44 个 `.gz` → 直出预压缩；testweb 实测 0 个 `.gz` 故不受影响）。
+> 验证方式（决定性）：响应字节数 == 磁盘上对应 `.gz` 的字节数（`index-C2E1QOtO.js` 21758B 两侧相等）。
+> ⚠️ **故意不含 `text/event-stream`** —— AI 助手 SSE 若被压缩会被 nginx 缓冲，流式会卡。
+> 回滚：云上 `/root/nginx.conf.bak-20261019-161152`（改 gzip 前）与 `bak-20261019-161xxx`（加 gzip_static 前）
+> 覆盖回去 + `nginx -t` + reload 即可。
 
 > **2026-10-19 缓存策略修正（已实弹执行并验证）**：`sites-enabled/vibemusic` 由旧版
 > （`/assets/**` 7d public、`index.html` 无缓存头、`logo.png` 7d、`sw.js` 双写 Cache-Control）
