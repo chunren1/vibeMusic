@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 /**
@@ -71,7 +72,9 @@ public class SongPlayService {
                 ? neteaseApiService.getSongUrl(sourceId, level, userCookie)
                 : neteaseApiService.getSongUrl(sourceId, level);
         observeNeteaseUrlPayload(body, userCookie, userId);
-        if (userCookie == null && NeteaseApiService.isNeedLoginPayload(body)) {
+        // BYOC（per-user）路径不参与共享快切，语义保持不变
+        if (userCookie != null) return body;
+        if (NeteaseApiService.isNeedLoginPayload(body)) {
             if (needLoginCounter != null) needLoginCounter.increment();
             try {
                 if (rotateCounter != null) rotateCounter.increment();
@@ -82,7 +85,45 @@ public class SongPlayService {
                 log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", e.getMessage());
             }
         }
+        return rotateSharedCookieOnVipBlock(sourceId, level, body);
+    }
+
+    /**
+     * VIP 权限受限（付费曲目但当前共享 Cookie 无播放权限）→ 能力感知快切 + 重试一次。
+     *
+     * <p>与 need-login 分支的区别：上游仍是 {@code code=200}（登录态有效、搜索正常），
+     * 只是 VIP-only 曲目只下发 ≤30s 试听（判定见 {@link NeteaseApiService#isVipBlockedPayload}），
+     * 故必须按条目字段判定，并让网关重探"登录 + 播放能力"后换槽位。
+     *
+     * <p>仅共享链路（userCookie==null）参与；重试结果必须是<b>完整可播</b>才采信，
+     * 否则保留原响应继续降级链（绝不抛错，绝不改变降级链形状）。
+     * 并发取链（多音质并行）共用冷却窗口，避免风暴式快切；
+     * 冷却内命中只跳过快切，不影响本次取链结果的降级处理。
+     */
+    private Map<String, Object> rotateSharedCookieOnVipBlock(String sourceId, String level, Map<String, Object> body) {
+        if (!NeteaseApiService.isVipBlockedPayload(body)) return body;
+        if (!tryAcquireVipRotateWindow()) return body;
+        try {
+            if (rotateCounter != null) rotateCounter.increment();
+            if (!neteaseApiService.rotateSharedCookie(true)) return body;
+            Map<String, Object> retried = neteaseApiService.getSongUrl(sourceId, level);
+            if (NeteaseApiService.isFullPlayablePayload(retried)) {
+                log.info("VIP 权限受限快切成功: {} level={} 已取得完整可播链接", sourceId, level);
+                return retried;
+            }
+            log.info("VIP 权限受限快切后重试仍不可播: {} level={}，保留原响应走降级链", sourceId, level);
+        } catch (Exception e) {
+            log.warn("VIP 权限受限快切重试失败（降级链不变）: {}", e.getMessage());
+        }
         return body;
+    }
+
+    /** 抢占 VIP 能力快切窗口（进程内冷却）：并发/短时重复请求只放行一次，避免快切风暴。 */
+    private boolean tryAcquireVipRotateWindow() {
+        long now = System.currentTimeMillis();
+        long last = lastVipRotateAt.get();
+        if (now - last < VIP_ROTATE_COOLDOWN_MS) return false;
+        return lastVipRotateAt.compareAndSet(last, now);
     }
 
     /**
@@ -116,7 +157,11 @@ public class SongPlayService {
     private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
     /** 试听片段判定阈值（毫秒）：时长 ≤ 30 秒视为试听片段 */
     private static final int TRIAL_DURATION_MS = 30000;
+    /** VIP 能力快切冷却窗口（毫秒）：并发取链与短时重复请求共享，避免快切风暴 */
+    private static final long VIP_ROTATE_COOLDOWN_MS = 30_000;
     private final AtomicInteger degradationCount = new AtomicInteger(0);
+    /** 最近一次 VIP 能力快切时间戳（见 {@link #tryAcquireVipRotateWindow}） */
+    private final AtomicLong lastVipRotateAt = new AtomicLong(0);
     private volatile Counter needLoginCounter;
     private volatile Counter rotateCounter;
 
@@ -269,12 +314,16 @@ public class SongPlayService {
                 String[] levels = {"exhigh", "higher", "standard"};
                 NeteaseProbe probe = probeNeteaseParallel(sourceId, levels, DEADLINE, userCookie, callerUserId);
                 if (probe.url != null) return probe.url;
-                // 版权预检 fast-fail：standard 明确硬拦截（url 空且无试听信息）时跳过 QQ 降级、
-                // 直落 DB 兜底；need-login/试听/空响应一律走完整降级链（行为不变）
-                if (NeteaseApiService.precheckUrlPayload(probe.standardProbe)
-                        == NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT) {
+                // 版权预检 fast-fail：standard 明确硬拦截（url 空、无试听信息且非付费曲目）
+                // 时跳过 QQ 降级、直落 DB 兜底；need-login/试听/VIP 权限受限/空响应一律走完整降级链
+                NeteaseApiService.CopyrightPrecheck precheck =
+                        NeteaseApiService.precheckUrlPayload(probe.standardProbe);
+                if (precheck == NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT) {
                     log.info("版权预检硬拦截: {} 无可用版权，跳过QQ降级直落DB兜底", sourceId);
                 } else {
+                    if (precheck == NeteaseApiService.CopyrightPrecheck.PERMISSION_BLOCKED) {
+                        log.info("VIP 权限受限: {} 付费曲目当前共享 Cookie 无播放权限（非无版权），继续 QQ 降级", sourceId);
+                    }
                     // 网易云无可用链接（全失败或全试听）→ QQ 降级（Q2d 收敛）
                     String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
                     if (qqUrl != null) return qqUrl;

@@ -252,6 +252,20 @@ class NeteaseApiServiceTest {
     }
 
     @Test
+    @DisplayName("rotateSharedCookie(true) 带 force=true 查询参数（能力感知快切）")
+    void shouldPostForcedRotateWithFlag() {
+        when(restTemplate.exchange(argThat(uri -> uri.toString().contains("force=true")),
+                        eq(HttpMethod.POST), any(HttpEntity.class), eq(Map.class)))
+                .thenReturn(new ResponseEntity<Map>(
+                        Map.of("data", Map.of("switched", true)), HttpStatus.OK));
+
+        assertTrue(apiService.rotateSharedCookie(true));
+        verify(restTemplate).exchange(argThat(uri ->
+                        uri.toString().contains("/internal/netease-rotate?force=true")),
+                eq(HttpMethod.POST), any(HttpEntity.class), eq(Map.class));
+    }
+
+    @Test
     @DisplayName("rotateSharedCookie 网关异常时返回 false 永不抛错")
     void shouldReturnFalseOnRotateFailure() {
         when(restTemplate.exchange(any(URI.class), eq(HttpMethod.POST),

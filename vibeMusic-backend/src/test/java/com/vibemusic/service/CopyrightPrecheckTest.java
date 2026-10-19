@@ -87,4 +87,66 @@ class CopyrightPrecheckTest {
         assertEquals(NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT,
                 NeteaseApiService.precheckUrlPayload(Map.of("code", 200000, "info", "暂不提供试听地址")));
     }
+
+    @Test
+    @DisplayName("空链 + 付费曲目未授权（fee=1,payed=0）→ PERMISSION_BLOCKED（VIP 掉档，非无版权）")
+    void paidBlockedIsPermissionBlocked() {
+        assertEquals(NeteaseApiService.CopyrightPrecheck.PERMISSION_BLOCKED,
+                NeteaseApiService.precheckUrlPayload(Map.of("code", 200, "data", List.of(
+                        Map.of("id", "273114", "url", "", "fee", 1, "payed", 0)))));
+        // 字段缺失 url（无 url 键）同样命中
+        assertEquals(NeteaseApiService.CopyrightPrecheck.PERMISSION_BLOCKED,
+                NeteaseApiService.precheckUrlPayload(Map.of("code", 200, "data", List.of(
+                        Map.of("id", "273114", "fee", "1", "payed", "0")))));
+    }
+
+    @Test
+    @DisplayName("空链 + fee=0（真无版权）→ 仍 NO_COPYRIGHT（不误判成权限受限）")
+    void freeBlankIsStillNoCopyright() {
+        assertEquals(NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT,
+                NeteaseApiService.precheckUrlPayload(Map.of("code", 200, "data", List.of(
+                        Map.of("id", "186016", "url", "", "fee", 0)))));
+    }
+
+    @Test
+    @DisplayName("付费曲目已授权（payed=1）但空链 → NO_COPYRIGHT（无权限信号不足，按无版权处理）")
+    void paidButAlreadyPayedBlankIsNoCopyright() {
+        assertEquals(NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT,
+                NeteaseApiService.precheckUrlPayload(Map.of("code", 200, "data", List.of(
+                        Map.of("id", "273114", "url", "", "fee", 1, "payed", 1)))));
+    }
+
+    @Test
+    @DisplayName("付费曲目空链且有试听信息 → PERMISSION_BLOCKED（仍是权限受限，非无版权）")
+    void paidWithTrialInfoIsPermissionBlocked() {
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", "273114");
+        item.put("fee", 1);
+        item.put("payed", 0);
+        item.put("freeTrialInfo", Map.of("start", 0, "end", 30));
+        assertEquals(NeteaseApiService.CopyrightPrecheck.PERMISSION_BLOCKED,
+                NeteaseApiService.precheckUrlPayload(Map.of("code", 200, "data", List.of(item))));
+    }
+
+    @Test
+    @DisplayName("条目级判定：VIP 受限 / 完整可播 / 试听 三态口径")
+    void payloadPredicates() {
+        Map<String, Object> trialItem = Map.of("url", "https://cdn.example/preview.mp3",
+                "fee", 1, "payed", 0, "freeTrialInfo", Map.of("start", 0, "end", 30));
+        Map<String, Object> blankPaidItem = Map.of("url", "", "fee", 1, "payed", 0);
+        Map<String, Object> fullItem = Map.of("url", "https://cdn.example/full.mp3", "fee", 1, "payed", 1);
+        Map<String, Object> freeBlankItem = Map.of("url", "", "fee", 0);
+
+        assertTrue(NeteaseApiService.isVipBlockedPayload(Map.of("data", List.of(trialItem))));
+        assertTrue(NeteaseApiService.isVipBlockedPayload(Map.of("data", List.of(blankPaidItem))));
+        assertFalse(NeteaseApiService.isVipBlockedPayload(Map.of("data", List.of(fullItem))));
+        assertFalse(NeteaseApiService.isVipBlockedPayload(Map.of("data", List.of(freeBlankItem))));
+        assertFalse(NeteaseApiService.isVipBlockedPayload(null));
+        assertFalse(NeteaseApiService.isVipBlockedPayload(Map.of("code", 200)));
+
+        Map<String, Object> playableItem = Map.of("url", "https://cdn.example/full.mp3", "time", 240000);
+        assertTrue(NeteaseApiService.isFullPlayablePayload(Map.of("data", List.of(playableItem))));
+        assertFalse(NeteaseApiService.isFullPlayablePayload(Map.of("data", List.of(trialItem))));
+        assertFalse(NeteaseApiService.isFullPlayablePayload(Map.of("data", List.of(Map.of("url", "")))));
+    }
 }

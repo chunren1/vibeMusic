@@ -102,10 +102,32 @@ public class NeteaseApiService {
         return body == null ? null : body.get("code");
     }
 
+    /**
+     * VIP/权限受限判定（纯函数）：付费曲目 + 当前 Cookie 未取得播放权限 + 拿不到完整可播链接
+     * （空链或试听片段），详见 {@link NeteaseUrlPayloads#isVipBlocked}。
+     *
+     * <p>与 need-login 的区别：need-login 是登录态失效（可 301/-101 直判）；
+     * 本信号是登录态仍有效但 VIP 掉档，上游仍回 {@code code=200}，
+     * 仅凭 code 永远探不到，故需按条目字段判定。
+     */
+    public static boolean isVipBlockedPayload(Map<String, Object> body) {
+        return NeteaseUrlPayloads.isVipBlocked(body);
+    }
+
+    /**
+     * 完整可播判定（纯函数）：{@code data} 中存在 url 非空且无试听信息的条目。
+     * 供共享 Cookie 快切后的"重试结果是否可采信"判定（试听片段不算可播）。
+     */
+    public static boolean isFullPlayablePayload(Map<String, Object> body) {
+        return NeteaseUrlPayloads.isFullPlayable(body);
+    }
+
     /** 取链响应版权预检结果：调用方据此决定是否跳过昂贵的跨平台降级链。 */
     public enum CopyrightPrecheck {
         PLAYABLE,
         NO_COPYRIGHT,
+        /** 付费曲目但当前 Cookie 无播放权限（VIP 掉档）：非无版权，必须继续走完整降级链。 */
+        PERMISSION_BLOCKED,
         NEED_LOGIN,
         UNKNOWN
     }
@@ -116,9 +138,13 @@ public class NeteaseApiService {
      * <p>判定口径（与 {@link SongPlayService} 探针语义对齐）：
      * <ul>
      *   <li>need-login 信号（301/-101/需登录文案/匿名态）→ NEED_LOGIN（可快切重试，不属版权拦截）；</li>
-     *   <li>{@code data} 非空且全部条目 url 为空、又无试听信息 → NO_COPYRIGHT（硬拦截）；</li>
      *   <li>任一条目有可用 url → PLAYABLE（含试听版，试听判定仍由探针负责）；</li>
-     *   <li>其余（null/空 data/咪咕 200000 非标形除外）→ UNKNOWN（保守走完整降级链）。</li>
+     *   <li>{@code data} 非空、全部条目 url 为空，且存在付费曲目（{@code fee!=0}）
+     *       未取得播放权限（{@code payed!=1}）→ PERMISSION_BLOCKED（VIP 掉档，非无版权，
+     *       继续 QQ 降级；带试听信息同样判此项）；实测 track 273114 主 Cookie 掉 VIP 即此形；</li>
+     *   <li>{@code data} 非空且全部条目 url 为空、无试听信息、又非付费曲目 → NO_COPYRIGHT（硬拦截，
+     *       实测 track 186016 三份 Cookie 均 {@code fee=0} + 空链）；</li>
+     *   <li>其余（null/空 data/含试听信息的非付费条目）→ UNKNOWN（保守走完整降级链）。</li>
      * </ul>
      * 明确的非信号：{@code data} 为空只代表 transient 空结果，不判拦截，避免误杀。
      */
@@ -129,15 +155,21 @@ public class NeteaseApiService {
         if (data instanceof List<?> list) {
             if (list.isEmpty()) return CopyrightPrecheck.UNKNOWN;
             boolean allBlocked = true;
+            boolean permissionBlocked = false;
             for (Object item : list) {
                 if (!(item instanceof Map<?, ?> m)) {
                     allBlocked = false;
                     break;
                 }
-                Object url = m.get("url");
-                if (url instanceof String s && !s.isBlank()) return CopyrightPrecheck.PLAYABLE;
+                if (NeteaseUrlPayloads.hasPlayableUrl(m)) return CopyrightPrecheck.PLAYABLE;
                 if (m.get("freeTrialInfo") != null) allBlocked = false;
+                // 付费曲目未授权：非无版权（否则会误跳过 QQ 降级，App 侧 404）
+                if (NeteaseUrlPayloads.isPaidTrack(m) && !NeteaseUrlPayloads.isFullyPayed(m)) {
+                    allBlocked = false;
+                    permissionBlocked = true;
+                }
             }
+            if (permissionBlocked) return CopyrightPrecheck.PERMISSION_BLOCKED;
             return allBlocked ? CopyrightPrecheck.NO_COPYRIGHT : CopyrightPrecheck.UNKNOWN;
         }
         Object code = body.get("code");
@@ -176,18 +208,31 @@ public class NeteaseApiService {
     }
 
     /**
-     * 触发网关共享 Cookie 快切（容灾）：仅共享链路 need-login 时由调用方触发。
-     * 网关侧先复探当前槽位，健康不切换；本方法永不抛错（失败返回 false，降级链不变）。
+     * 触发网关共享 Cookie 快切（容灾）：默认沿用 need-login 口径（网关仅复探登录有效性）。
+     * 本方法永不抛错（失败返回 false，降级链不变）。
      *
      * @return true=网关已处理（无论是否实际切换，调用方可重试一次）；false=快切失败，用原响应继续降级
      */
     public boolean rotateSharedCookie() {
+        return rotateSharedCookie(false);
+    }
+
+    /**
+     * 触发网关共享 Cookie 快切（容灾），可指定是否强制"能力感知"口径。
+     *
+     * @param force true=强制能力感知快切（网关重探两槽位的登录有效性<b>与播放能力</b>，
+     *              用于 VIP 掉档：主 Cookie 仍能登录/搜索，但拿不到完整播放权限，仅看登录探针永不切换）；
+     *              false=沿用 need-login 口径（网关复探当前槽位，健康不切换）
+     * @return true=网关已处理（无论是否实际切换，调用方可重试一次）；false=快切失败，用原响应继续降级
+     */
+    public boolean rotateSharedCookie(boolean force) {
         try {
-            URI uri = URI.create(config.getBaseUrl() + "/internal/netease-rotate");
+            URI uri = URI.create(config.getBaseUrl() + "/internal/netease-rotate"
+                    + (force ? "?force=true" : ""));
             ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.POST, buildHeaders(), Map.class);
             Map<?, ?> body = response.getBody();
             Object switched = body == null ? null : body.get("data") instanceof Map<?, ?> data ? data.get("switched") : null;
-            log.info("网易云共享 Cookie 快切: switched={}", switched);
+            log.info("网易云共享 Cookie 快切: force={}, switched={}", force, switched);
             return true;
         } catch (Exception e) {
             log.warn("网易云共享 Cookie 快切失败（降级链不变）: {}", e.getMessage());
