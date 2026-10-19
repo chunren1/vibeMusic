@@ -348,6 +348,20 @@ jobs:
     name: Infra (compose + otel)
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # 三个 compose 文件对少数变量用 ${VAR:?} 强制必填（防误用默认口令上线）；CI 无 .env，
+    # 故在 **job 级** 给占位值。必须放 job 级：本 job 里有**两处**会执行 `docker compose config`
+    # （下面的 lint 步骤 + 更下面的「npm 脚本引用的服务是否存在」校验步骤），
+    # 若挂在步骤级，后一个步骤拿不到变量 → compose config exit 1（2026-10-19 真实踩到并修）。
+    env:
+      JWT_SECRET: ci-lint-placeholder
+      GRAFANA_ADMIN_USER: ci-lint-placeholder
+      GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
+      MYSQL_ROOT_PASSWORD: ci-lint-placeholder
+      DB_PASSWORD: ci-lint-placeholder
+      MINIO_ROOT_USER: ci-lint-placeholder
+      MINIO_ROOT_PASSWORD: ci-lint-placeholder
+      MINIO_ACCESS_KEY: ci-lint-placeholder
+      MINIO_SECRET_KEY: ci-lint-placeholder
     steps:
       - uses: actions/checkout@v4
 
@@ -356,18 +370,6 @@ jobs:
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.full.yml config -q
           docker compose -f docker-compose.demo.yml config -q
-        env:
-          # demo/full 变体对少数变量用 ${VAR:?} 强制必填（防止误用默认口令上线），
-          # CI 无 .env，这里给占位值让语法校验可通过（2026-10-19 起口令兜底已全部清除，占位清单随之扩列）
-          JWT_SECRET: ci-lint-placeholder
-          GRAFANA_ADMIN_USER: ci-lint-placeholder
-          GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
-          MYSQL_ROOT_PASSWORD: ci-lint-placeholder
-          DB_PASSWORD: ci-lint-placeholder
-          MINIO_ROOT_USER: ci-lint-placeholder
-          MINIO_ROOT_PASSWORD: ci-lint-placeholder
-          MINIO_ACCESS_KEY: ci-lint-placeholder
-          MINIO_SECRET_KEY: ci-lint-placeholder
 
       - name: Check nginx config syntax
         run: |
