@@ -103,7 +103,7 @@
 > 更新为现版本（`/assets/**` 1 年 `immutable`、`index.html` 及 SPA 兜底 `no-store`、
 > 散装静态文件 `no-cache`、`sw.js` 只留单条头，且各 location 补回安全头）。
 > 依据：前端产物 **152/152 全部内容哈希命名**（Vite 默认），理论上限就是长缓存。
-> 仓库副本已同步为**逐字节一致**（md5 `0f3b972b…`）；改前备份在云上
+> 仓库副本已同步为**逐字节一致**（首轮 md5 `0f3b972b…` → 二次修正后 v3 md5 `e143fead…`）；首轮改前备份在云上
 > `/root/vibemusic-site.conf.bak-20261019-154533`（回滚：覆盖回去 + `nginx -t` + reload）。
 >
 > ⚠️ 三个坑（本次踩到）：
@@ -111,8 +111,17 @@
 > 2. `systemctl reload nginx` 后**旧 worker 仍在收尾**，立刻自测会读到旧响应头（本次因此误判一轮）
 >    → 等 1~2 秒、或核对 worker PID 变了再验。
 > 3. 客户端可见的 `logo.png` 响应头被 **Cloudflare 改写**成 `max-age=604800`（源站已是 `no-cache`）
->    → 换 logo 仍可能最长 7 天不生效；要彻底解决需 CF 控制台清缓存/改 Browser Cache TTL
->    （**无 API token，只能人肉操作**，见 §7 不确定项）。
+>    → **同日已就地解决，无需 CF 控制台**：实测 CF 只改写「缺 `no-store` 的可缓存扩展名」，
+>    对带 `no-store` 的响应**原样透传**（对照证据：`index.html`/`sw.js` 一直原样通过）。
+>    故把散装静态 location 由 `no-cache, must-revalidate` 改为 `no-cache, no-store, must-revalidate`
+>    （v3 版，md5 `e143fead…`；备份 `/root/vibemusic-site.conf.bak-20261019-162209`）。
+>    决定性验证：公网**随机查询串**（CF 必 MISS 回源，排除"边缘旧副本"干扰）与原 URL
+>    **均**返回 `no-cache, no-store, must-revalidate` + `cf-cache-status: BYPASS`。
+>    代价：这两类无哈希小文件不再被浏览器/CF 缓存（logo 70KB + favicon 4KB，每次加载重取，可接受）。
+> 4.（未做，待定）`/manifest.json` 不在散装静态那条正则里（正则无 `json`）→ 落到 `location /`，
+>    **完全没有任何 Cache-Control**（实测：CF 判 DYNAMIC 不缓存，浏览器启发式缓存）→ PWA 清单改动可能延迟生效。
+>    要修就加**精确匹配** location（`location = /manifest.json`）。⚠️ **别把 `json` 塞进那条正则** ——
+>    nginx 正则 location 优先级高于前缀 location，会截胡 `location /api/` 把 API 请求当静态文件。
 
 ### 3.2 仓库权威 → 云上落后，**不回灌**
 
