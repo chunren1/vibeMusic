@@ -67,6 +67,16 @@ def test_guest_create_playlist_401(guest):
         f"{BASE_URL}/api/playlists/create", json={"name": name}, timeout=TIMEOUT))
 
 
+def test_guest_session_not_polluted_by_earlier_auth(guest):
+    """回归守护：本文件先前的 register/login 不得污染 guest 会话（CI 曾因此两红）。
+
+    真后端会下发 httpOnly Cookie，若 guest fixture 被 session 级复用，
+    同一 Session 里的后续「游客 401」断言实为登录态请求，会被正常放行。
+    """
+    names = {c.name for c in guest.cookies}
+    assert not (names & {"VIBE_TOKEN", "VIBE_REFRESH"}), f"guest 会话被复用（应每个用例独立）: {names}"
+
+
 def test_refresh_flow(auth_client):
     """等价类：refresh token 换新 access token -> code 200 且回 token。"""
     s = auth_client["session"]

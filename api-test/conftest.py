@@ -71,12 +71,20 @@ def live():
     return True
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def guest(live):
-    """游客 client：无 token 的干净 session。"""
+    """游客 client：无 token 的干净 session。
+
+    **必须是 function scope（每个用例一份）**：本套件有用例借用 guest 去 register/login，
+    而真后端会在这些响应上下发 httpOnly Cookie（VIBE_TOKEN / VIBE_REFRESH，见
+    AuthController.setTokenCookies）。若按 session 复用同一个 Session，
+    其后所有"游客应 401"的断言都会带着登录 Cookie 发出、被后端正常放行——
+    CI 实测：游客建出歌单 id=25、搜索历史返回 {"code":200,...,"data":[]}。
+    """
     _ = live
     with requests.Session() as s:
         yield s
+        s.cookies.clear()
 
 
 @pytest.fixture(scope="function")
