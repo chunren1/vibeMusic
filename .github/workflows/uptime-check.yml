@@ -8,6 +8,13 @@
 #   - 任一失败 → 推 Server酱；恢复 → 推恢复
 #   - 去重：读取「上一次已完成的运行」，如果上次也是失败，则不重复推送（避免每 10 分钟刷屏）
 #
+# 能力边界（2026-10-23 实测后写入，别误解它能做什么）：
+#   GitHub 的 runner 在 Azure 数据中心，CF 对这类 IP 一律下发 managed challenge
+#   （403 + "Just a moment..."，0.1s 返回），换 UA 无效；源站 80/443 只放行 CF 回源，
+#   所以**无法从 GitHub 侧拿到源站的 200**。
+#   本 workflow 实际能发现：DNS 失效 / CF 边缘不可达 / 源站整体故障（CF 回 522/523/524）。
+#   源站内部组件（后端进程、DB、Redis）由服务器上的 scripts/health-alert.sh 每分钟盯。
+#
 # 需要配置（20 秒）：Settings → Secrets and variables → Actions → New repository secret
 #   SERVERCHAN_SENDKEY = SCT...（与服务器 /etc/vibeMusic/serverchan.key 同一个值）
 # 未配置时探活照跑，只是不推送（日志里会 ::warning）。
@@ -39,30 +46,44 @@ jobs:
           BASE="https://vibe.cyk666.top"
           FAILS=""
 
-          # 单次请求同时取状态码与耗时，失败不让整个脚本中断
-          # UA 必须像浏览器：Cloudflare 的 Bot Fight Mode 会把默认 curl/8.x UA 判为机器人直接 403
-          # （2026-10-23 实测：本机 curl 200，GitHub Actions 上默认 UA 403，耗时仅 0.14s）
+          # 单次请求同时取状态码、耗时、响应头与体，失败不让整个脚本中断
+          #
+          # 关于 Cloudflare（2026-10-23 两轮实测）：
+          #   本机 curl → 200；GitHub Actions（Azure 数据中心 IP）→ 403 + 页面标题 "Just a moment..."，
+          #   耗时仅 0.10~0.15s。这是 CF 对数据中心 IP 的 managed challenge，换浏览器 UA 也过不去，
+          #   而且源站 80/443 只允许 CF 回源，GitHub 侧无法绕开 CF 直连。
+          #   所以本探活的真实语义是：**边缘是否可达 + 源站是否被 CF 判为故障**。
+          #   源站整体挂掉时 CF 会返回 522/523/524（5xx），那才是要告警的情况。
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+          CHALLENGED=0
           probe() {
             name="$1"; path="$2"; expect="$3"
-            body=$(mktemp)
+            hdrs=$(mktemp); body=$(mktemp)
             out=$(curl -sS --max-time 25 -A "$UA" \
                     -H 'Accept: text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8' \
                     -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8' \
-                    -o "$body" -w '%{http_code} %{time_total}' \
+                    -D "$hdrs" -o "$body" -w '%{http_code} %{time_total}' \
                     "$BASE$path" 2>/dev/null) || out="000 -"
             code=${out%% *}; t=${out##* }
             echo "  $name  $path -> HTTP $code  ${t}s  (期望 $expect)"
-            if [ "$code" != "$expect" ]; then
-              # 打印响应体前 300 字节：403 时能直接看出是 Cloudflare 拦截页还是源的 nginx 拒绝
-              echo "    ::group::响应体片段 ($name)"
-              head -c 300 "$body" 2>/dev/null | tr -d '\r'
-              echo ""
-              echo "    ::endgroup::"
-              FAILS="${FAILS}- ${name} 返回 HTTP ${code}（期望 ${expect}），耗时 ${t}s\n"
-            elif [ "$t" != "-" ] && awk -v v="$t" 'BEGIN{exit !(v>15)}' 2>/dev/null; then
-              echo "    ::warning::响应偏慢（${t}s）"
+            if [ "$code" = "$expect" ]; then
+              if [ "$t" != "-" ] && awk -v v="$t" 'BEGIN{exit !(v>15)}' 2>/dev/null; then
+                echo "    ::warning::响应偏慢（${t}s）"
+              fi
+              return
             fi
+            # CF 托管挑战：边缘活着，只是拒绝非浏览器客户端
+            if grep -qiE 'just a moment|cf-mitigated|cf_chl_opt|challenge-platform' "$body" "$hdrs"; then
+              echo "    ::notice::Cloudflare 托管挑战——边缘可达；源站健康无法从 GitHub 侧验证（$name）"
+              CHALLENGED=$((CHALLENGED + 1))
+              return
+            fi
+            # 其余一律算失败；把响应体打进日志，便于区分 CF 5xx 与源站 nginx 拒绝
+            echo "    ::group::响应体片段 ($name)"
+            head -c 300 "$body" 2>/dev/null | tr -d '\r'
+            echo ""
+            echo "    ::endgroup::"
+            FAILS="${FAILS}- ${name} 返回 HTTP ${code}（期望 ${expect}），耗时 ${t}s\n"
           }
 
           echo "== 外部探活 $(date -u '+%F %T UTC') =="
@@ -75,8 +96,11 @@ jobs:
             echo "::error::探活失败"
             exit 1
           fi
+          if [ "$CHALLENGED" -gt 0 ]; then
+            echo "::warning::${CHALLENGED}/2 个探测点被 CF 挑战：只验证到边缘可达，源站由服务器 cron 看门狗负责"
+          fi
           echo "failed=false" >> "$GITHUB_OUTPUT"
-          echo "全部正常"
+          echo "全部正常（边缘侧）"
 
       - name: Notify via Server酱 (只在失败边沿 / 恢复时推送)
         if: always()
