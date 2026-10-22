@@ -246,3 +246,101 @@ test('#3 直连路由超时：lyric 挂起 10s 熔断，不长期占连接', { t
   assert.ok(dur >= 9000, `过早返回: ${dur}ms`);
   assert.ok(dur < 20000, `超时保护未生效: ${dur}ms`);
 });
+
+// ---------- 限流计数键（2026-10-22 加固：容器拓扑下单 IP 坍缩 → 全局吞吐上限）----------
+// 背景：后端容器经 172.x 调网关、trust proxy=false → 所有请求共享 req.ip，
+// 100/min 变成全站上限。键优先取可信身份头，其次 trace 哈希，最后才回退 IP。
+
+const express = require('express');
+const rateLimit = require('express-rate-limit');
+const { rateLimitKey, shouldSkip } = require('../src/rate-limiters');
+
+test('限流键：同一 IP + 不同 X-User-Id 分别计数，不再坍缩为单键', () => {
+  const reqA = { ip: '172.18.0.5', headers: { 'x-user-id': '1001' } };
+  const reqB = { ip: '172.18.0.5', headers: { 'x-user-id': '1002' } };
+
+  assert.equal(rateLimitKey(reqA), 'user:1001');
+  assert.equal(rateLimitKey(reqB), 'user:1002');
+  assert.notEqual(rateLimitKey(reqA), rateLimitKey(reqB));
+});
+
+test('限流键：无身份头时同一 IP 合并为同一键', () => {
+  const a = { ip: '172.18.0.5', headers: {} };
+  const b = { ip: '172.18.0.5', headers: { 'x-user-id': '' } };
+  const c = { ip: '172.18.0.6', headers: {} };
+
+  assert.equal(rateLimitKey(a), rateLimitKey(b));
+  assert.match(rateLimitKey(a), /^ip:/);
+  assert.notEqual(rateLimitKey(a), rateLimitKey(c));
+});
+
+test('限流键：X-Trace-Id 走稳定哈希（同值同键 / 异值异键 / 键内不落原文）', () => {
+  const base = { ip: '172.18.0.5', headers: {} };
+  const t1 = rateLimitKey({ ...base, headers: { 'x-trace-id': 'trace-abc-123' } });
+  const t2 = rateLimitKey({ ...base, headers: { 'x-trace-id': 'trace-abc-123' } });
+  const t3 = rateLimitKey({ ...base, headers: { 'x-trace-id': 'trace-abc-456' } });
+
+  assert.equal(t1, t2);
+  assert.notEqual(t1, t3);
+  assert.match(t1, /^trace:[0-9a-f]{16}$/);
+  assert.equal(t1.includes('trace-abc-123'), false, '原始 trace 值不应进入 store 键');
+});
+
+test('限流键：公网伪造 X-User-Id 不采信，仍按 IP 计数（防伪造头绕过限流）', () => {
+  const spoofA = { ip: '203.0.113.9', headers: { 'x-user-id': 'a' } };
+  const spoofB = { ip: '203.0.113.9', headers: { 'x-user-id': 'b' } };
+
+  assert.equal(rateLimitKey(spoofA), rateLimitKey(spoofB));
+  assert.match(rateLimitKey(spoofA), /^ip:/);
+});
+
+test('限流放行端点：/health、/metrics、/reload 不计额度（含查询串/尾斜杠）', () => {
+  for (const url of ['/health', '/health?probe=1', '/metrics/', '/reload?token=t']) {
+    assert.equal(shouldSkip({ originalUrl: url }), true, url);
+  }
+  for (const url of ['/', '/search', '/healthz', '/health/deep']) {
+    assert.equal(shouldSkip({ originalUrl: url }), false, url);
+  }
+});
+
+test('集成：同 IP 两个身份独立配额，无身份头合并计数，/health 不限流', async () => {
+  const app = express();
+  app.use(rateLimit({
+    windowMs: 60 * 1000,
+    max: 2,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: shouldSkip,
+    keyGenerator: rateLimitKey,
+    message: { code: 429 },
+  }));
+  app.get('/ping', (req, res) => res.json({ code: 200 }));
+  app.get('/health', (req, res) => res.json({ code: 200 }));
+
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, () => resolve(s));
+  });
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const hit = async (url, headers = {}) => {
+    const r = await fetch(base + url, { headers });
+    return r.status;
+  };
+
+  try {
+    // 用户 1001：2 次正常，第 3 次 429
+    assert.equal(await hit('/ping', { 'x-user-id': '1001' }), 200);
+    assert.equal(await hit('/ping', { 'x-user-id': '1001' }), 200);
+    assert.equal(await hit('/ping', { 'x-user-id': '1001' }), 429);
+    // 另一身份同 IP：独立配额，不被打满
+    assert.equal(await hit('/ping', { 'x-user-id': '1002' }), 200);
+    // 无身份头：同 IP 合并计数（独立于身份桶）
+    assert.equal(await hit('/ping'), 200);
+    assert.equal(await hit('/ping'), 200);
+    assert.equal(await hit('/ping'), 429);
+    // 放行端点：配额打满后仍可用
+    for (let i = 0; i < 3; i++) assert.equal(await hit('/health'), 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

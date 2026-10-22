@@ -23,11 +23,16 @@ const config = require('../src/config-loader');
 const cookie = require('../src/cookie');
 const {
   DEFAULT_PROBE_TRACK_ID,
+  DEFAULT_PROBE_TIMEOUT_MS,
+  resolveProbeTimeoutMs,
   isCapabilityProbeEnabled,
   probeTrackId,
   isPlayableUrlPayload,
   probeNeteaseLogin,
   probeNeteasePlayback,
+  getProbeState,
+  _resetProbeStateForTest,
+  isTimeoutError,
 } = require('../src/cookie-probe');
 
 const P = 'MUSIC_U=primary-cookie-value; __csrf=p';
@@ -42,8 +47,10 @@ function stub(obj, key, impl) {
 afterEach(() => {
   while (restores.length) restores.pop()();
   cookie._resetSharedForTest();
+  _resetProbeStateForTest();
   delete config.neteaseProbeTrackId;
   delete config.neteaseProbeEnabled;
+  delete process.env.MUSICAPI_PROBE_TIMEOUT_MS;
 });
 
 // ---------- 用例数据 ----------
@@ -300,4 +307,75 @@ test('端点 force 也可走 JSON body（等价于查询串）', async () => {
 
   assert.equal(body.data.forced, true);
   assert.equal(body.data.active, 'backup');
+});
+
+// ---------- 探针硬超时（2026-10-22 加固：上游挂起不得卡死巡检）----------
+
+test('探针超时配置：默认 8s，环境变量可调并在 100ms~30s 内钳制', () => {
+  delete process.env.MUSICAPI_PROBE_TIMEOUT_MS;
+  assert.equal(DEFAULT_PROBE_TIMEOUT_MS, 8000);
+  assert.equal(resolveProbeTimeoutMs(), 8000);
+  process.env.MUSICAPI_PROBE_TIMEOUT_MS = '1500';
+  assert.equal(resolveProbeTimeoutMs(), 1500);
+  process.env.MUSICAPI_PROBE_TIMEOUT_MS = 'abc';
+  assert.equal(resolveProbeTimeoutMs(), DEFAULT_PROBE_TIMEOUT_MS, '非法值回落默认，绝不返回 NaN');
+  assert.equal(resolveProbeTimeoutMs(5), 100, '过小值钳到下限');
+  assert.equal(resolveProbeTimeoutMs(999999), 30000, '过大值钳到上限');
+});
+
+test('登录探针：上游永不返回 → 硬超时返回 false 并标记 failed(timeout)', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', () => new Promise(() => {}));
+  const started = Date.now();
+  const ok = await probeNeteaseLogin(P, { timeoutMs: 60 });
+  const elapsed = Date.now() - started;
+
+  assert.equal(ok, false);
+  assert.ok(elapsed < 1000, `应在硬超时后立即返回，实际 ${elapsed}ms`);
+  const st = getProbeState();
+  assert.equal(st.login.status, 'failed(timeout)');
+  assert.equal(st.login.detail, 'timeout');
+  assert.equal(isTimeoutError(new Error('x')), false);
+});
+
+test('播放能力探针：上游永不返回 → 硬超时标记 failed(timeout)，组合探针判不健康', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', async () => loginOk());
+  stub(NeteaseCloudMusicApi, 'song_url_v1', () => new Promise(() => {}));
+
+  const started = Date.now();
+  const ok = await cookie.probeNeteaseCookie(P, { timeoutMs: 60 });
+  const elapsed = Date.now() - started;
+
+  assert.equal(ok, false);
+  assert.ok(elapsed < 1000, `组合探针应在硬超时后返回，实际 ${elapsed}ms`);
+  assert.equal(getProbeState().login.status, 'ok');
+  assert.equal(getProbeState().playback.status, 'failed(timeout)');
+});
+
+test('探针超时后上游迟到 reject 不产生 unhandledRejection', async () => {
+  let unhandled = 0;
+  const onUnhandled = () => { unhandled++; };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    stub(NeteaseCloudMusicApi, 'cloudsearch', () => new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('late upstream failure')), 40);
+    }));
+    assert.equal(await probeNeteaseLogin(P, { timeoutMs: 10 }), false);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+  }
+  assert.equal(unhandled, 0, '迟到 reject 必须被吞掉，不能泄漏到进程级 unhandledRejection');
+});
+
+test('巡检看门狗：单轮巡检超过上限即强制结束，不切换槽位、不卡死调用方', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', () => new Promise(() => {}));
+  cookie._setSharedForTest({ primary: P, active: 'primary' });
+
+  const started = Date.now();
+  const out = await cookie.checkCookies({ watchdogMs: 1000, probeTimeoutMs: 1500 });
+  const elapsed = Date.now() - started;
+
+  assert.equal(out.timedOut, true);
+  assert.ok(elapsed < 5000, `看门狗应在上限附近返回，实际 ${elapsed}ms`);
+  assert.equal(cookie.getNeteaseActive(), 'primary', '结果未收敛时保持原槽位');
 });

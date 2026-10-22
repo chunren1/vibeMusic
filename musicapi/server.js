@@ -12,7 +12,7 @@ const express = require('express');
 const cors = require('cors');
 
 const { writeLog, logManager } = require('./src/logger');
-const { globalLimiter } = require('./src/rate-limiters');
+const { globalLimiter, parseTrustProxyValue } = require('./src/rate-limiters');
 const { register, metricsMiddleware } = require('./src/metrics');
 const { canReadMetrics, clientIp } = require('./src/access');
 const cookie = require('./src/cookie');
@@ -22,9 +22,22 @@ const registerRoutes = require('./src/routes');
 const app = express();
 const PORT = 3000;
 
-// 部署现状：musicapi 3000 直绑宿主，前面无 nginx 反代（nginx/nginx.conf 无 musicapi 上游），
-// 故保持 trust proxy=false（Express 默认），限流按直连 IP 计数；若日后加反代再改为 'trust proxy', 1。
-app.set('trust proxy', false);
+// ==================== 反代信任（trust proxy）====================
+// 部署现状：musicapi 3000 直绑本机/容器网，前面无 nginx 反代（nginx/nginx.conf 无 musicapi 上游），
+// 故默认 trust proxy=false：req.ip 取 TCP 对端（后端容器即 172.x），不接受 X-Forwarded-For。
+//
+// 只有在**确实有可信反代**且**公网无法直连本网关**时，才设置 MUSICAPI_TRUST_PROXY：
+//   MUSICAPI_TRUST_PROXY=1      # 信任最近 1 跳反代（推荐）
+//   MUSICAPI_TRUST_PROXY=true   # 信任全部跳数（仅限网关完全不可公网直连的场景）
+// 开启后 Express 按 X-Forwarded-For 解析 req.ip，伪造该头即可伪装来源 IP；
+// 同时限流会采信 X-User-Id / X-Trace-Id，**必须**由反代覆写/剥离这两个头，否则可伪造绕过限流。
+// 解析器见 src/rate-limiters.js（parseTrustProxyValue），非法值一律回落 false。
+const trustProxy = parseTrustProxyValue(process.env.MUSICAPI_TRUST_PROXY);
+app.set('trust proxy', trustProxy);
+if (trustProxy !== false) {
+  writeLog('api', 'WARN',
+    `MUSICAPI_TRUST_PROXY 已开启 (${trustProxy})：依赖反代覆写 X-Forwarded-For / X-User-Id / X-Trace-Id，请确认网关不可公网直连`);
+}
 
 // CORS 键名与仓库统一为复数 CORS_ORIGINS（docker-compose.yml:222、.env:53-55 均为复数，
 // 逗号分隔多源）；只改代码一侧，compose/文档不动。
