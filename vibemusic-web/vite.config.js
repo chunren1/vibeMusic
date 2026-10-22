@@ -5,11 +5,25 @@ import compression from 'vite-plugin-compression'
 import { VitePWA } from 'vite-plugin-pwa'
 import { brotliCompress } from 'node:zlib'
 import { promisify } from 'node:util'
+import { execSync } from 'node:child_process'
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const brotli = promisify(brotliCompress)
 const COMPRESS_RE = /\.(js|mjs|css|html)$/i
+
+// 构建版本号：优先 CI 的 GITHUB_SHA（短 sha），其次本地 git short sha，取不到兜底 'dev'
+// 注入 import.meta.env.VITE_APP_RELEASE，随客户端错误上报一起上送，便于按版本定位问题
+function resolveRelease() {
+  const sha = process.env.GITHUB_SHA
+  if (sha) return sha.slice(0, 7)
+  try {
+    const out = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+    return out || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
 
 async function collectFiles(dir) {
   const files = []
@@ -43,6 +57,10 @@ function brotliCompressionPlugin() {
 }
 
 export default defineConfig({
+  // 客户端错误上报的版本号（第一方上报，替代 Sentry）
+  define: {
+    'import.meta.env.VITE_APP_RELEASE': JSON.stringify(resolveRelease()),
+  },
   plugins: [
     vue(),
     // 生产构建预压缩：gzip（插件）+ brotli（内联插件，见 brotliCompressionPlugin），
@@ -92,7 +110,6 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return
-          if (id.includes('@sentry')) return 'sentry'
           if (id.includes('vue') || id.includes('@vue')) return 'vue-core'
           if (id.includes('pinia')) return 'pinia'
           if (id.includes('axios')) return 'axios'
@@ -101,7 +118,7 @@ export default defineConfig({
       },
     },
     reportCompressedSize: true,
-    sourcemap: 'hidden',  // 生成 sourcemap 供 Sentry 上传，但产物不含 //# sourceMappingURL 防泄露
+    sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL，防源码泄露
   },
   css: {
     devSourcemap: false,

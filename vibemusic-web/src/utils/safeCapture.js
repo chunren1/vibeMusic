@@ -1,14 +1,14 @@
 /**
- * 全局安全错误捕获工具
+ * 全局安全错误捕获工具（本地 console 记录 + 第一方上报）
  * 用法: safeCapture(error, "HomeView.search")
+ * 说明：已移除 Sentry 依赖，远程上报统一走 clientErrorReporter（同源 /api/client-errors）
  */
+import { reportClientError } from "./clientErrorReporter";
+
 export function safeCapture(error, context = "unknown", extra = {}) {
   const msg = error?.message || String(error);
   console.error("[safeCapture] " + context, msg, extra);
-  try {
-    const Sentry = window?.__SENTRY__;
-    if (Sentry) Sentry.captureException(error, { tags: { context }, extra });
-  } catch { /* ignore */ }
+  reportClientError({ message: context ? `${msg} [${context}]` : msg, stack: error?.stack || "", kind: "error" });
 }
 
 export default safeCapture;

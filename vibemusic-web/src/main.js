@@ -8,15 +8,7 @@ import App from './App.vue'
 import router from './router'
 import vLazyImg from './directives/vLazyImg'
 import SvgIcon from './components/SvgIcon.vue'
-import { safeCapture } from './utils/safeCapture'
-
-// Sentry 前端错误监控
-// 注册 https://sentry.io → 创建 Vue 项目 → DSN 填入 .env.production 的 VITE_SENTRY_DSN
-const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN
-let Sentry = null
-if (SENTRY_DSN) {
-  Sentry = await import('@sentry/vue')
-}
+import { installErrorHandler, installGlobalErrorReporting } from './utils/clientErrorReporter'
 
 const app = createApp(App)
 app.use(createPinia())
@@ -24,37 +16,12 @@ app.use(router)
 app.directive('lazy-img', vLazyImg)
 app.component('SvgIcon', SvgIcon)
 
-if (Sentry && SENTRY_DSN) {
-  Sentry.init({
-    app,
-    dsn: SENTRY_DSN,
-    integrations: [Sentry.browserTracingIntegration({ router })],
-    tracesSampleRate: 0.1,
-    replaysSessionSampleRate: 0.1,
-    replaysOnErrorSampleRate: 1.0,
-  })
-  // 暴露 Sentry 给 safeCapture 使用
-  window.__SENTRY__ = Sentry
-}
-
-// 全局错误处理（Sentry.init({ app }) 已注入原 handler，先链式调用再补充上报，避免覆盖丢失面包屑）
-const _sentryHandler = app.config.errorHandler
-app.config.errorHandler = (err, vm, info) => {
-  try { _sentryHandler?.(err, vm, info) } catch { /* ignore */ }
-  console.error('[Vue Error]', err, 'info:', info)
-  safeCapture(err, `Vue ErrorHandler [${info}]`)
-  if (Sentry) Sentry.captureException(err, { extra: { info } })
-}
-
-// 全局未捕获 Promise 错误：只上报裁剪后的 message/stack 副本，
-// 避免把 AxiosError 原样上送（可能携带 Authorization 头与请求参数）
-window.addEventListener('unhandledrejection', (event) => {
-  const reason = event.reason
-  const trimmed = reason instanceof Error
-    ? { message: reason.message, stack: reason.stack }
-    : { message: String(reason) }
-  safeCapture(reason, 'Unhandled Promise Rejection', trimmed)
-})
+// 全局错误处理：生产环境不引入第三方监控（无 Sentry、无 DSN、无外部数据外流），
+// 改用第一方极简上报 src/utils/clientErrorReporter.js → 同源 POST /api/client-errors
+// （原生 sendBeacon/fetch，绕开 axios 401 拦截器避免续签风暴；载荷不含 token/cookie/query）。
+// Vue 组件错误走 errorHandler 链式注入，JS 运行时错误 + 资源加载失败 + 未处理 Promise 拒绝走 window 监听。
+installErrorHandler(app)
+installGlobalErrorReporting()
 
 // 性能标记
 app.config.performance = import.meta.env.DEV
