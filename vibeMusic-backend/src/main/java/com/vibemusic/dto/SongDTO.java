@@ -28,6 +28,14 @@ public class SongDTO {
     /** 专辑名 */
     private String album;
 
+    /**
+     * 歌曲别名/译名（网易 tns/alia 透传；其他平台/老缓存为 null）。
+     * 加性字段（2026-10 搜索相关性修复）：仅用于相关性打分，不参与去重键。
+     * 典型场景：中文搜「圣诞快乐劳伦斯先生」，原版曲名是英文，
+     * 靠 tns 译名才能与查询对上，否则会被同名中文翻唱挤出结果集。
+     */
+    private java.util.List<String> alias;
+
     /** 封面图 URL */
     private String coverUrl;
 

@@ -126,6 +126,9 @@ async function getSearch(keyword) {
 const PUBLIC_KEYS = new Set([
   'id', 'name', 'artists', 'album', 'cover',
   'duration', 'vip', 'platform', 'score', 'sourcePlatforms',
+  // 译名/别名（2026-10）：网易 tns/alia 透传给后端做相关性打分，
+  // 属于有意的公开加性字段，不是内部状态泄漏。
+  'alias',
 ]);
 
 function assertPublicShape(list) {

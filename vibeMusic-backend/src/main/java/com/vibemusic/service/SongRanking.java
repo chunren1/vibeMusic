@@ -55,6 +55,22 @@ final class SongRanking {
         return (1.0 / rank) * platformWeight;
     }
 
+    /**
+     * 同平台重复项取舍：分数高者胜（同分再比音质/试听版）。
+     *
+     * <p>修复背景（2026-10）：netease 分支此前对重复键是「后者覆盖前者」，
+     * 而同一首歌常以多个版本同时出现在网易前 40（如 6 条同名的
+     * "Merry Christmas Mr. Lawrence / 坂本龍一"）。覆盖的结果是名次最低的
+     * 那条（分 ≈0.05）顶掉了第 1 名（分 2.0），原版从此消失在前 40 之外，
+     * 用户只能搜到同名中文翻唱。
+     */
+    static SongDTO pickBestByScore(SongDTO a, SongDTO b) {
+        double aS = a.getFinalScore() != null ? a.getFinalScore() : 0;
+        double bS = b.getFinalScore() != null ? b.getFinalScore() : 0;
+        if (aS != bS) return aS > bS ? a : b;
+        return pickBest(a, b);
+    }
+
     static SongDTO pickBest(SongDTO a, SongDTO b) {
         boolean aTrial = a.getDuration() != null && a.getDuration() <= 30;
         boolean bTrial = b.getDuration() != null && b.getDuration() <= 30;
@@ -109,15 +125,20 @@ final class SongRanking {
     private static double computeRelevanceBonus(SongDTO song, List<String> normTokens, String normQuery) {
         String normName = normalizeText(song.getName());
         if (normName.isEmpty()) return 0;
+        List<String> normAliases = normalizeAliases(song.getAlias());
         String normArtist = normalizeText(song.getArtist());
         double bonus = 0;
         boolean nameMatch = false;
-        if (!normQuery.isEmpty() && normName.equals(normQuery)) {
+        // 歌名与译名（alias）同权：译名是上游登记过的同一首歌的名字，
+        // 中文查询打中英文原版的唯一通路（否则原版相关性 0 分，被同名翻唱压死）。
+        boolean exactMatched = !normQuery.isEmpty()
+                && (normName.equals(normQuery) || normAliases.contains(normQuery));
+        if (exactMatched) {
             bonus += RELEVANCE_EXACT_NAME_BONUS;
             nameMatch = true;
         } else {
             for (String t : normTokens) {
-                if (normName.equals(t)) {
+                if (normName.equals(t) || normAliases.contains(t)) {
                     bonus += RELEVANCE_EXACT_NAME_BONUS;
                     nameMatch = true;
                     break;
@@ -125,7 +146,7 @@ final class SongRanking {
             }
             if (!nameMatch) {
                 for (String t : normTokens) {
-                    if (normName.contains(t) || t.contains(normName)) {
+                    if (normName.contains(t) || t.contains(normName) || matchesAnyAlias(normAliases, t)) {
                         bonus += RELEVANCE_NAME_CONTAINS_BONUS;
                         nameMatch = true;
                         break;
@@ -145,6 +166,23 @@ final class SongRanking {
         }
         if (nameMatch && artistMatch) bonus += RELEVANCE_NAME_AND_ARTIST_BONUS;
         return bonus;
+    }
+
+    /** 归一化别名集合（去空/去重；null 安全）。 */
+    private static List<String> normalizeAliases(List<String> alias) {
+        if (alias == null || alias.isEmpty()) return List.of();
+        return alias.stream()
+                .map(SongRanking::normalizeText)
+                .filter(a -> !a.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private static boolean matchesAnyAlias(List<String> normAliases, String token) {
+        for (String a : normAliases) {
+            if (a.contains(token) || token.contains(a)) return true;
+        }
+        return false;
     }
 
     /**

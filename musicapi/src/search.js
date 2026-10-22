@@ -67,6 +67,13 @@ async function searchNetease(keyword, limit, req) {
       if (cover.startsWith('http://')) {
         cover = cover.replace('http://', 'https://')
       }
+      // 译名/别名：网易把中文译名放在 tns（翻译名），alia 多为空。
+      // 不透传会让「中文搜英文歌」彻底失配（原版曲名是英文，中文查询命中不了）。
+      const aliasList = []
+        .concat(Array.isArray(s.tns) ? s.tns : [])
+        .concat(Array.isArray(s.alia) ? s.alia : [])
+        .map(x => String(x == null ? '' : x).trim())
+        .filter(Boolean)
       return {
         id: s.id, name: s.name,
         artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
@@ -74,6 +81,7 @@ async function searchNetease(keyword, limit, req) {
         cover,
         duration: s.dt || 0,
         vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
+        alias: aliasList,
         _raw: { playCount: s.pop || 0 },
       }
     })

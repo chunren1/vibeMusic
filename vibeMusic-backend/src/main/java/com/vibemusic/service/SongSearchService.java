@@ -562,7 +562,8 @@ public class SongSearchService {
                 winner.setFinalScore(Math.max(baseExisting, song.getFinalScore()) + bonus);
                 mergedMap.put(key, winner);
             } else {
-                mergedMap.put(key, song);
+                // 同平台重复键保留分数更高者（见 SongRanking.pickBestByScore 的修复说明）
+                mergedMap.put(key, existing != null ? SongRanking.pickBestByScore(existing, song) : song);
             }
         }
     }
@@ -926,12 +927,32 @@ public class SongSearchService {
             dto.setSourceId(sourceId); dto.setName(name); dto.setArtist(artists);
             dto.setAlbum(album); dto.setCoverUrl(coverUrl); dto.setDuration(duration);
             dto.setVip(vip);
+            dto.setAlias(parseAlias(raw.get("alias")));
             dto.setPlayCount(playCount); dto.setDanmakuCount(danmakuCount);
             return dto;
         } catch (Exception e) {
             log.warn("Failed to parse platform song: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 解析网关透传的译名/别名（`alias` 数组或单字符串）。
+     * 上游缺失、空数组、非字符串条目一律忽略；永不抛异常（老数据/脏数据视为无别名）。
+     */
+    static List<String> parseAlias(Object raw) {
+        if (raw instanceof String s) {
+            String t = s.trim();
+            return t.isEmpty() ? Collections.emptyList() : List.of(t);
+        }
+        if (!(raw instanceof List<?> list)) return Collections.emptyList();
+        List<String> alias = new ArrayList<>(list.size());
+        for (Object o : list) {
+            if (o == null) continue;
+            String t = String.valueOf(o).trim();
+            if (!t.isEmpty() && !alias.contains(t)) alias.add(t);
+        }
+        return alias;
     }
 
     /** 网关 _raw 热度字段宽容转 Long：Number 直接取，数字字符串解析，其他一律 null。 */

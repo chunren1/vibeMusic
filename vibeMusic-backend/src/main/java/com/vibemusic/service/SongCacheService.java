@@ -31,7 +31,9 @@ public class SongCacheService {
 
     // 版本号递增即可自然淘汰旧缓存，无需 KEYS 扫描
     // v6: 合并搜索 payload 由 4 平台变为 5 平台(含 B 站)，旧 v5 :all 条目会遮蔽 B 站结果
-    private static final String SEARCH_PREFIX = "song:search:v6:";
+    // v7: 相关性打分纳入译名/别名（tns）并修复 netease 重复项覆盖，旧 v6 条目
+    //     冻结了「原版被中文翻唱挤掉」的错误排序，必须整体失效
+    private static final String SEARCH_PREFIX = "song:search:v7:";
     private static final String LOCK_PREFIX = "song:search:lock:";
     // ES 已下线（二级缓存 Redis → API），结果 TTL 由 2h 延长至 6h 以覆盖原 ES 6h 清理窗口
     private static final Duration TTL_RESULTS = Duration.ofHours(6);
