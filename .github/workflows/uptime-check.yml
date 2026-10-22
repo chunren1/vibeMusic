@@ -40,13 +40,25 @@ jobs:
           FAILS=""
 
           # 单次请求同时取状态码与耗时，失败不让整个脚本中断
+          # UA 必须像浏览器：Cloudflare 的 Bot Fight Mode 会把默认 curl/8.x UA 判为机器人直接 403
+          # （2026-10-23 实测：本机 curl 200，GitHub Actions 上默认 UA 403，耗时仅 0.14s）
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
           probe() {
             name="$1"; path="$2"; expect="$3"
-            out=$(curl -sS --max-time 25 -o /dev/null -w '%{http_code} %{time_total}' \
+            body=$(mktemp)
+            out=$(curl -sS --max-time 25 -A "$UA" \
+                    -H 'Accept: text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8' \
+                    -H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8' \
+                    -o "$body" -w '%{http_code} %{time_total}' \
                     "$BASE$path" 2>/dev/null) || out="000 -"
             code=${out%% *}; t=${out##* }
             echo "  $name  $path -> HTTP $code  ${t}s  (期望 $expect)"
             if [ "$code" != "$expect" ]; then
+              # 打印响应体前 300 字节：403 时能直接看出是 Cloudflare 拦截页还是源的 nginx 拒绝
+              echo "    ::group::响应体片段 ($name)"
+              head -c 300 "$body" 2>/dev/null | tr -d '\r'
+              echo ""
+              echo "    ::endgroup::"
               FAILS="${FAILS}- ${name} 返回 HTTP ${code}（期望 ${expect}），耗时 ${t}s\n"
             elif [ "$t" != "-" ] && awk -v v="$t" 'BEGIN{exit !(v>15)}' 2>/dev/null; then
               echo "    ::warning::响应偏慢（${t}s）"
