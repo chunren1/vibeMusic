@@ -17,6 +17,8 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 
 @Slf4j
@@ -25,8 +27,31 @@ import org.springframework.beans.factory.annotation.Value;
 public class NeteaseApiService {
 
     private final NeteaseApiConfig config;
-    private final RestTemplate restTemplate; // 注入连接池版 RestTemplate
+    private final RestTemplate restTemplate; // 注入连接池版 RestTemplate（默认 5s 响应超时）
     private final RestClient.Builder restClientBuilder;
+
+    /**
+     * 搜索专用客户端（3s 响应超时，严格小于搜索 fanout 4s 预算）。
+     * Spring 环境下由 {@code searchRestTemplate} bean 注入；单测手工 new 时为 null，回退默认客户端。
+     */
+    private RestTemplate searchRestTemplate;
+    /** 音频字节流专用客户端（30s 读空闲）；单测手工 new 时为 null，回退 restClientBuilder。 */
+    private RestClient streamRestClient;
+
+    @Autowired(required = false)
+    void setSearchRestTemplate(@Qualifier("searchRestTemplate") RestTemplate searchRestTemplate) {
+        this.searchRestTemplate = searchRestTemplate;
+    }
+
+    @Autowired(required = false)
+    void setStreamRestClient(@Qualifier("streamRestClient") RestClient streamRestClient) {
+        this.streamRestClient = streamRestClient;
+    }
+
+    /** 搜索调用统一走 3s 客户端；手工构造（测试）无该 bean 时回退默认客户端。 */
+    private RestTemplate searchClient() {
+        return searchRestTemplate != null ? searchRestTemplate : restTemplate;
+    }
 
     /** 流式下载客户端（复用连接池） */
     private RestClient streamClient;
@@ -50,7 +75,7 @@ public class NeteaseApiService {
 
     @PostConstruct
     void initStreamClient() {
-        this.streamClient = restClientBuilder.build();
+        this.streamClient = streamRestClient != null ? streamRestClient : restClientBuilder.build();
     }
 
     // Cookie 已集中到 musicapi/config.js 统一管理，后端不再持有
@@ -265,19 +290,20 @@ public class NeteaseApiService {
         return searchNetease(keyword, limit, null);
     }
 
+    /** 五平台 search 走 3s 客户端（< 4s fanout 预算），避免慢源占住搜索线程。 */
     public Map<String, Object> searchNetease(String keyword, int limit, String userCookie) {
         URI uri = buildUri("/netease/search", "keyword", keyword, "limit", String.valueOf(limit));
-        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(userCookie), Map.class).getBody();
+        return searchClient().exchange(uri, HttpMethod.GET, buildHeaders(userCookie), Map.class).getBody();
     }
 
     public Map<String, Object> searchQQ(String keyword, int limit) {
         URI uri = buildUri("/qq/search", "keyword", keyword, "limit", String.valueOf(limit));
-        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+        return searchClient().exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
     }
 
     public Map<String, Object> searchMigu(String keyword, int limit) {
         URI uri = buildUri("/migu/search", "keyword", keyword, "limit", String.valueOf(limit));
-        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+        return searchClient().exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
     }
 
     public Map<String, Object> getLyric(String musicId) {
@@ -315,7 +341,7 @@ public class NeteaseApiService {
 
     public Map<String, Object> searchKugou(String keyword, int limit) {
         URI uri = buildUri("/kugou/search", "keyword", keyword, "limit", String.valueOf(limit));
-        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+        return searchClient().exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
     }
 
     /**
@@ -355,7 +381,7 @@ public class NeteaseApiService {
 
     public Map<String, Object> searchBili(String keyword, int limit) {
         URI uri = buildUri("/bili/search", "keyword", keyword, "limit", String.valueOf(limit));
-        return restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
+        return searchClient().exchange(uri, HttpMethod.GET, buildHeaders(), Map.class).getBody();
     }
 
     /**

@@ -11,6 +11,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
@@ -39,9 +41,19 @@ public class StreamController {
 
     private RestClient restClient;
 
+    /**
+     * 音频字节流专用客户端（30s 读空闲）：CDN 传输受手机端背压节流，
+     * 不能套用 JSON 的 5s 响应超时，否则播放中途会被误杀。
+     * Spring 环境下注入 {@code streamRestClient} bean；单测手工构造时为 null，回退 restClientBuilder。
+     */
+    @Autowired(required = false)
+    void setStreamRestClient(@Qualifier("streamRestClient") RestClient streamRestClient) {
+        this.restClient = streamRestClient;
+    }
+
     @PostConstruct
     void initRestClient() {
-        this.restClient = restClientBuilder.build();
+        if (this.restClient == null) this.restClient = restClientBuilder.build();
     }
 
     private static final ExecutorService ASYNC_CACHE_EXECUTOR = new ThreadPoolExecutor(

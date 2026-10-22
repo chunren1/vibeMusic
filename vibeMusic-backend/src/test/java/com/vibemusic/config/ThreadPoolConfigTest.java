@@ -2,6 +2,11 @@ package com.vibemusic.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.CountDownLatch;
@@ -19,9 +24,9 @@ class ThreadPoolConfigTest {
         ThreadPoolConfig config = new ThreadPoolConfig();
         ThreadPoolTaskExecutor executor = config.searchExecutor();
         assertNotNull(executor);
-        assertEquals(20, executor.getCorePoolSize());
-        assertEquals(40, executor.getMaxPoolSize());
-        assertEquals(100, executor.getQueueCapacity());
+        assertEquals(8, executor.getCorePoolSize());
+        assertEquals(12, executor.getMaxPoolSize());
+        assertEquals(32, executor.getQueueCapacity());
         assertTrue(executor.getThreadNamePrefix().contains("search-worker"));
         executor.shutdown();
     }
@@ -34,7 +39,7 @@ class ThreadPoolConfigTest {
         assertNotNull(executor);
         assertEquals(1, executor.getCorePoolSize());
         assertEquals(1, executor.getMaxPoolSize());
-        assertEquals(20, executor.getQueueCapacity());
+        assertEquals(2, executor.getQueueCapacity());
         executor.shutdown();
     }
 
@@ -43,16 +48,22 @@ class ThreadPoolConfigTest {
     void shouldCreateGetUrlExecutor() {
         ThreadPoolConfig config = new ThreadPoolConfig();
         ThreadPoolTaskExecutor executor = config.getUrlExecutor();
-        assertNotNull(executor);
-        assertEquals(3, executor.getCorePoolSize());
-        assertEquals(3, executor.getMaxPoolSize());
-        executor.shutdown();
+        try {
+            assertEquals(8, executor.getCorePoolSize());
+            assertEquals(8, executor.getMaxPoolSize());
+        } finally {
+            executor.shutdown();
+        }
     }
 
     @Test
     @DisplayName("getUrlExecutor 过载时快速失败抛异常，不静默丢弃")
     void shouldRejectFastOnSaturation() {
         ThreadPoolConfig config = new ThreadPoolConfig();
+        // 显式钉住小尺寸，使饱和测试不依赖生产默认值（默认值变化不应让本测试失去意义）
+        config.setGetUrlCore(3);
+        config.setGetUrlMax(3);
+        config.setGetUrlQueue(10);
         ThreadPoolTaskExecutor executor = config.getUrlExecutor();
         try {
             assertTrue(executor.getThreadPoolExecutor().getRejectedExecutionHandler()
@@ -184,5 +195,124 @@ class ThreadPoolConfigTest {
         } finally {
             executor.shutdown();
         }
+    }
+
+    // ==================== 资源预算不变量（2026-10-22 线程/连接池重排） ====================
+
+    @Test
+    @DisplayName("资源预算：core ≤ max、队列有界、三池总任务上限 ≤ 96（768MB 容器）")
+    void shouldKeepPoolsWithinContainerBudget() {
+        ThreadPoolConfig config = new ThreadPoolConfig();
+        ThreadPoolTaskExecutor search = config.searchExecutor();
+        ThreadPoolTaskExecutor warm = config.warmExecutor();
+        ThreadPoolTaskExecutor getUrl = config.getUrlExecutor();
+        try {
+            // core 不得超过 max（ThreadPoolExecutor 会直接抛 IllegalArgumentException，这里提前断言给出可读信息）
+            assertTrue(search.getCorePoolSize() <= search.getMaxPoolSize(),
+                    "search 池 core 必须 ≤ max");
+            assertTrue(getUrl.getCorePoolSize() <= getUrl.getMaxPoolSize(),
+                    "getUrl 池 core 必须 ≤ max");
+            assertEquals(getUrl.getCorePoolSize(), getUrl.getMaxPoolSize(),
+                    "getUrl 池定为固定尺寸，避免扩容抖动");
+
+            // 队列必须有界（无界队列 = 内存泄漏 + 放弃拒绝语义）
+            for (ThreadPoolTaskExecutor e : new ThreadPoolTaskExecutor[]{search, warm, getUrl}) {
+                assertTrue(e.getQueueCapacity() > 0 && e.getQueueCapacity() <= 64,
+                        "队列必须有界且不超过 64: " + e.getThreadNamePrefix() + "=" + e.getQueueCapacity());
+            }
+
+            // 容器 limit 768MB；给「线程栈 + 栈上对象」的预算按 96MB 计（每任务 1MB 栈）。
+            // 若有人把池改回 200 线程 / 无界队列，这条会先于 OOMKilled 报出来。
+            int totalTasks = search.getMaxPoolSize() + search.getQueueCapacity()
+                    + warm.getMaxPoolSize() + warm.getQueueCapacity()
+                    + getUrl.getMaxPoolSize() + getUrl.getQueueCapacity();
+            assertTrue(totalTasks <= 96, "三池总任务上限 " + totalTasks + " 超过 768MB 容器预算（96）");
+        } finally {
+            search.shutdown();
+            warm.shutdown();
+            getUrl.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("@ConfigurationProperties 绑定生效：threadpool.* 覆盖值能透传到各池")
+    void shouldBindThreadpoolOverrides() {
+        MockEnvironment env = new MockEnvironment();
+        env.setProperty("threadpool.search-core", "2");
+        env.setProperty("threadpool.search-max", "3");
+        env.setProperty("threadpool.search-queue", "4");
+        env.setProperty("threadpool.warm-core", "1");
+        env.setProperty("threadpool.warm-max", "1");
+        env.setProperty("threadpool.warm-queue", "1");
+        env.setProperty("threadpool.get-url-core", "5");
+        env.setProperty("threadpool.get-url-max", "6");
+        env.setProperty("threadpool.get-url-queue", "7");
+
+        ThreadPoolConfig config = Binder.get(env).bindOrCreate("threadpool", ThreadPoolConfig.class);
+        ThreadPoolTaskExecutor search = config.searchExecutor();
+        ThreadPoolTaskExecutor warm = config.warmExecutor();
+        ThreadPoolTaskExecutor getUrl = config.getUrlExecutor();
+        try {
+            assertEquals(2, search.getCorePoolSize());
+            assertEquals(3, search.getMaxPoolSize());
+            assertEquals(4, search.getQueueCapacity());
+            assertEquals(1, warm.getQueueCapacity());
+            assertEquals(5, getUrl.getCorePoolSize(), "kebab-case get-url-core 必须绑定到 getUrlCore");
+            assertEquals(6, getUrl.getMaxPoolSize());
+            assertEquals(7, getUrl.getQueueCapacity());
+        } finally {
+            search.shutdown();
+            warm.shutdown();
+            getUrl.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("application.yml 与 Java 兜底一致：threadpool / tomcat / hikari 取值不漂移")
+    void shouldKeepYamlInSyncWithJavaDefaults() throws Exception {
+        PropertySource<?> yml = new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml")).get(0);
+
+        ThreadPoolConfig config = new ThreadPoolConfig();
+        ThreadPoolTaskExecutor search = config.searchExecutor();
+        ThreadPoolTaskExecutor warm = config.warmExecutor();
+        ThreadPoolTaskExecutor getUrl = config.getUrlExecutor();
+        try {
+            // yml 是可覆盖的单一事实源，Java 只是兜底；两者不一致说明有人只改了一边。
+            assertEquals(search.getCorePoolSize(), intFromYaml(yml, "threadpool.search-core"));
+            assertEquals(search.getMaxPoolSize(), intFromYaml(yml, "threadpool.search-max"));
+            assertEquals(search.getQueueCapacity(), intFromYaml(yml, "threadpool.search-queue"));
+            assertEquals(warm.getCorePoolSize(), intFromYaml(yml, "threadpool.warm-core"));
+            assertEquals(warm.getMaxPoolSize(), intFromYaml(yml, "threadpool.warm-max"));
+            assertEquals(warm.getQueueCapacity(), intFromYaml(yml, "threadpool.warm-queue"));
+            assertEquals(getUrl.getCorePoolSize(), intFromYaml(yml, "threadpool.get-url-core"));
+            assertEquals(getUrl.getMaxPoolSize(), intFromYaml(yml, "threadpool.get-url-max"));
+            assertEquals(getUrl.getQueueCapacity(), intFromYaml(yml, "threadpool.get-url-queue"));
+        } finally {
+            search.shutdown();
+            warm.shutdown();
+            getUrl.shutdown();
+        }
+
+        // Tomcat 收敛与 Hikari 收敛：防止有人回退成 Spring Boot 默认 200 线程 / 20 连接
+        assertEquals(40, intFromYaml(yml, "server.tomcat.threads.max"));
+        assertEquals(50, intFromYaml(yml, "server.tomcat.accept-count"));
+        assertEquals(200, intFromYaml(yml, "server.tomcat.max-connections"));
+        assertEquals(8, intFromYaml(yml, "spring.datasource.hikari.maximum-pool-size"));
+    }
+
+    /** 取 yml 标量；支持带默认值的占位符 ${ENV:40}。 */
+    private static int intFromYaml(PropertySource<?> source, String key) {
+        Object raw = source.getProperty(key);
+        assertNotNull(raw, "application.yml 缺少配置项: " + key);
+        String value = String.valueOf(raw).trim();
+        if (value.startsWith("${") && value.endsWith("}")) {
+            value = value.substring(2, value.length() - 1);
+            int sep = value.lastIndexOf(':');
+            if (sep >= 0) {
+                value = value.substring(sep + 1);
+            }
+        }
+        return Integer.parseInt(value.trim());
     }
 }

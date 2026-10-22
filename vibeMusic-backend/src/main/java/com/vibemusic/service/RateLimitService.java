@@ -6,6 +6,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 简易限流器（Redis INCR + TTL）
@@ -34,6 +35,23 @@ public class RateLimitService {
             end
             return count
             """;
+
+    /**
+     * 剩余窗口秒数（用于 429 的 {@code Retry-After}）。
+     * <p>TTL 已过期/键不存在/Redis 返回异常值时回落到调用方给的默认窗口——
+     * 该值只影响提示精度，不影响正确性，故不额外打日志。</p>
+     *
+     * @return 严格大于 0 的秒数
+     */
+    public long remainingSeconds(String key, long fallback) {
+        try {
+            Long ttl = stringRedisTemplate.getExpire(PREFIX + key, TimeUnit.SECONDS);
+            return (ttl == null || ttl <= 0) ? fallback : ttl;
+        } catch (RuntimeException e) {
+            log.warn("[RateLimit] 读取 TTL 失败，回落默认窗口 {}s: {}", fallback, e.toString());
+            return fallback;
+        }
+    }
 
     public boolean tryAcquire(String key, int max, Duration window) {
         String redisKey = PREFIX + key;

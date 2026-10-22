@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -62,7 +63,7 @@ public class AssistantController {
     /** 172.16.0.0/12（docker 网段） */
     private static final Pattern PRIVATE_172 = Pattern.compile("^172\\.(1[6-9]|2\\d|3[01])\\..*");
 
-    public AssistantController(RestTemplate restTemplate,
+    public AssistantController(@Qualifier("aiRestTemplate") RestTemplate restTemplate,
                                WebClient.Builder webClientBuilder,
                                AiToolService aiToolService,
                                ChatMemoryService chatMemoryService,

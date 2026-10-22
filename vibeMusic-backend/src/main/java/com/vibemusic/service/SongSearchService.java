@@ -172,7 +172,12 @@ public class SongSearchService {
     private static final double NETEASE_HEAD_BONUS = 0.5;
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
     private static final int PER_PLATFORM_FETCH = 40;
-    private static final int SEARCH_TIMEOUT_SEC = 4;
+    /**
+     * 搜索 fanout 总预算（外层）。必须严格大于内层 HTTP 响应超时
+     * {@link com.vibemusic.config.RestTemplateConfig#SEARCH_RESPONSE_TIMEOUT}（3s），
+     * 留 1s 给线程池调度与结果合并；包内可见以便超时预算自洽测试断言。
+     */
+    static final int SEARCH_TIMEOUT_SEC = 4;
     // QQ 专属预算 2s（2026-09-29 实测：QQ 仅 25% 搜索有贡献，权重又最低；
     // 4s 预算下它是常见的尾部拖慢者，减半只截长尾，健康时 2s 内必回）
     static final int QQ_TIMEOUT_SEC = 2;

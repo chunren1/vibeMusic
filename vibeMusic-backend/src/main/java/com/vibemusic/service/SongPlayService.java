@@ -192,7 +192,7 @@ public class SongPlayService {
      *   <li>排队中尚未开始的任务：cancel 后不再执行，不消耗线程与上游配额；</li>
      *   <li>已开始执行的任务：无法被中断，会执行至返回/超时，但其结果会被调用方丢弃。</li>
      * </ul>
-     * loser 并发被天然限制在 getUrl 池大小（3 线程 + 10 队列，AbortPolicy 快速失败）
+     * loser 并发被天然限制在 getUrl 池大小（8 线程 + 16 队列，AbortPolicy 快速失败）
      * 与整体 8s DEADLINE 之内，不会 wedge 线程池。
      */
     private static void cancelUnfinished(Collection<CompletableFuture<Map<String, Object>>> futures) {
@@ -255,12 +255,19 @@ public class SongPlayService {
         return getPlayUrl(sourceId, songName, artist, platform, resolveUserCookie());
     }
 
+    /**
+     * 取链外层总预算（8s）。必须严格大于内层 HTTP 响应超时
+     * {@link com.vibemusic.config.RestTemplateConfig#RESPONSE_TIMEOUT}（5s），
+     * 否则单次上游调用就会吃穿整条链路；包内可见以便超时预算自洽测试断言。
+     */
+    static final long PLAY_BUDGET_MS = 8000;
+
     @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
         // 请求线程捕获 userId（异步取链线程读不到 SecurityContext）。
         final Long callerUserId = UserService.getCurrentUserId();
-        // 生产链路整体 8s 超时保护
-        final long DEADLINE = System.currentTimeMillis() + 8000;
+        // 生产链路整体 8s 超时保护（内层 HTTP 5s，见 PLAY_BUDGET_MS 注释）
+        final long DEADLINE = System.currentTimeMillis() + PLAY_BUDGET_MS;
         // 1. 优先检查 MinIO 缓存（Redis 缓存 exists 结果，TTL 10min）
         String minioObjectName = "songs/" + sourceId + ".mp3";
         if (isCachedInMinio(sourceId, userCookie)) {

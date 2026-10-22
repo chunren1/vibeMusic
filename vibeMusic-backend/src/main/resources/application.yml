@@ -1,6 +1,26 @@
 server:
   port: 8080
 
+  # ── Tomcat 线程/连接收敛（2026-10-22 资源重排）──
+  # 生产事实：云主机 2 vCPU / 1.6 GiB（swap 已用 527MB），后端容器 limit 768MB / 1 CPU；
+  # 改前无任何 server.tomcat 配置 → Spring Boot 默认 max-threads=200。
+  # 并发上限由「内存 + 上游预算」决定，不是 CPU（照搬 CPU 核数反而会放开不该放开的并发）：
+  #   · 每线程栈 1MB（-Xss 默认）：200 线程 = 200MB 栈，叠加堆(~356MB RSS)/元空间/直接内存
+  #     必然撞 768MB limit 被 OOMKilled；
+  #   · 40 线程 ≈ 40MB 栈，余量留给 Hikari(8×~1MB) + HttpClient 池 + Netty/WebClient；
+  #   · 业务侧：日请求 860（/stream 150），峰值 ~70 req/min ≈ 1.2 req/s，
+  #     取链最坏 8s 预算 → 在途约 10 个请求，40 线程有 4 倍冗余。
+  # 只加线程不加内存没有意义：上游 musicapi/网易/QQ 的连接数与超时预算才是真瓶颈。
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:40}
+    # 排队+连接上限：40 工作线程 + 50 排队 = 90 个并发请求的瞬时缓冲，
+    # 超出由 Tomcat/OS 直接拒绝连接（快速失败），而不是在 JVM 里堆 200 个线程的栈。
+    accept-count: ${TOMCAT_ACCEPT_COUNT:50}
+    # 200 = 40 线程 × 5（HTTP/1.1 keep-alive 空闲连接占比通常 3-5 倍）；
+    # 单机 ~1.2 req/s 的负载下，200 连接足以覆盖长轮询/流式播放，再高只是白占 fd 与内核内存。
+    max-connections: ${TOMCAT_MAX_CONNECTIONS:200}
+
 spring:
   application:
     name: vibeMusic-backend
@@ -13,7 +33,11 @@ spring:
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      # 2 vCPU / 单机 MySQL：连接数不是瓶颈，池大了只会让「并发查询」在 2 核上互相排队，
+      # 还白占容器内存（每连接 ~1MB 栈 + 服务端线程）。8 = 2 核 × 4 倍冗余，
+      # 峰值 ~1.2 req/s 的读多写少负载下实测绰绰有余（旧值 20 是单机时代的过量配置）。
+      # 注意：docker-compose 里 DB_POOL_MAX_SIZE=20 会覆盖本默认值，发版时需同步。
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:8}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: 5000
       max-lifetime: 600000
@@ -46,6 +70,35 @@ spring:
       max-file-size: 50MB
       max-request-size: 50MB
 
+# ── 应用线程池（ThreadPoolConfig，prefix=threadpool）──
+# 全部可在本文件覆盖（或注入同名环境变量：THREADPOOL_SEARCH_CORE 等，Spring 松散绑定）。
+# 尺寸推导见 ThreadPoolConfig 类注释：容器 2 vCPU / 768MB，40 线程 Tomcat ≈ 40MB 栈，
+# 三个池合计 44+2+24=70 个任务上限 ≈ 70MB 栈，仍在 768MB 预算内。
+threadpool:
+  # 搜索池：单次搜索 fan-out 5 个音源，峰值 1.2 req/s × 最坏 3s 搜索超时 ≈ 4 请求 ≈ 20 任务在途。
+  # core 8 吃稳态、max 12 吸收突发、queue 32 兜分钟级洪峰（44 任务上限≈44MB 栈）。
+  # 旧值 20/40/100：40 线程 + 100 队列 ≈ 140 个任务在途，与 1.6G 主机不匹配；
+  # 且 100 的队列意味着排队 30s+ 才轮到（3s 上游超时的 10 倍），对用户等价于超时。
+  search-core: 8
+  search-max: 12
+  search-queue: 32
+  search-keep-alive: 60
+  # 预热池：core=max=1 是「串行限速」而不是容量（14 个关键词串行 + sleep 1.5s ≈ 21s）。
+  # 不与搜索池合并：合并会让预热长期占用搜索线程，用户搜索被后台预热拖慢。
+  # queue 2：提交方只有 @PostConstruct 的 1 个任务，旧值 20 纯属浪费；满了 DiscardOldest 静默丢。
+  warm-core: 1
+  warm-max: 1
+  warm-queue: 2
+  warm-keep-alive: 60
+  # 取链池：单次播放并行探测 3 个音质档（exhigh/higher/standard），/stream 最坏重试 5 次。
+  # 8 线程 = 2 个并发流 × 3 档 + 2 个重试位（旧值 3 会把并行探测退化成排队，
+  # 8s 总预算内 Abort 掉最需要的那档 → 表现为"有歌没链接"）。
+  # 固定 8（core=max）避免扩容抖动；queue 16 兜一轮重试；满了 AbortPolicy 快速失败、调用方降级。
+  get-url-core: 8
+  get-url-max: 8
+  get-url-queue: 16
+  get-url-keep-alive: 60
+
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml
   configuration:
@@ -69,7 +122,8 @@ ai:
 netease:
   api:
     base-url: ${MUSICAPI_URL:http://localhost:3000}
-    timeout: 10000
+    # 注：原 timeout: 10000 为死配置（全仓无 getTimeout 引用），已删除；
+    # HTTP 超时按用途收敛在 RestTemplateConfig（默认 5s / 搜索 3s / 流 30s / AI 60s）。
 
 # 音频流代理 CDN 域名白名单（逗号分隔，支持 *.xxx.com 通配符）
 stream:
@@ -84,6 +138,16 @@ storage:
     secret-key: ${MINIO_SECRET_KEY}
     bucket-name: ${MINIO_BUCKET:vibemusic}
     data-path: ${MINIO_DATA_PATH:minio-data}
+
+# 贵端点限流（P0-3）：只拦 search / stream，按身份计数（已登录用户 > 设备 ID > IP）
+# 关闭方式：rate-limit.enabled=false（或环境变量 RATE_LIMIT_ENABLED=false）
+rate-limit:
+  enabled: ${RATE_LIMIT_ENABLED:true}
+  window-seconds: ${RATE_LIMIT_WINDOW_SECONDS:60}
+  # 搜索一次扇出 5 个上游平台，20 次/分钟足够正常用户翻页
+  search-per-min: ${RATE_LIMIT_SEARCH_PER_MIN:20}
+  # 音频流含拖拽产生的 Range 请求，60 次/分钟对单曲循环也够用
+  stream-per-min: ${RATE_LIMIT_STREAM_PER_MIN:60}
 
 springdoc:
   swagger-ui:
