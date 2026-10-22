@@ -9,7 +9,10 @@
 - `deploy.ps1`：test → mvn package -DskipTests → npm run build → docker-compose down/up --build
 - `docker.ps1`：compose 包装（up/down/restart/status/logs）
 - `ops.cjs` → `npm run ops`：交互式运维面板（日志/状态/Cookie 检查/停止全部）
+- `deploy-frontend.sh`：前端 dist 发版，默认 dry-run，`--apply` 才动服务器（构建 → md5 对包 → `nginx -t` → 原子切换 → 公网验证 → 失败自动回滚），说明见 `docs/deploy-frontend.md`
 - `verify.js`：安全配置一致性检查（拒绝 123456/ChangeMe*/<your 弱默认值）
+- `serverchan-relay.py`：Alertmanager → Server酱 中继（127.0.0.1:8791，`/webhook` + `/healthz`，说明见 docs/alerting.md）
+- `test_serverchan_relay.sh`：上者的自测（本地桩 + 断言，无需真 key，`bash` 直接跑）
 - `k6-test.js` → `npm run k6`：k6 压测（50 VUs，p95 阈值 search<3000ms / stream<2000ms，需本机安装 k6）
 - `get_netease_cookie.mjs` / `get_qq_cookie.mjs`：Cookie 获取辅助
 - `ops/`：cookie-monitor.py、check-cookies.py、start-cloudflare-tunnel.{bat,ps1}、setup-scheduler.ps1（Python 依赖见 ops/requirements.txt）

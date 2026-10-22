@@ -157,7 +157,7 @@ services:
     container_name: vibemusic-backend
     restart: unless-stopped
     logging: *default-logging
-    <<: *resources-medium
+    mem_limit: 768M
     environment:
       # 数据库
       DB_HOST: mysql
@@ -185,10 +185,10 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       # JVM 自适应内存 (MaxRAMPercentage 自动按容器限制分配)
       # 显式设置非堆内存上限，防止 DirectMemory/Metaspace OOM
-      JAVA_OPTS: "-XX:MaxRAMPercentage=75.0 -XX:MinRAMPercentage=50.0 -XX:MaxDirectMemorySize=128m -XX:MetaspaceSize=64m -XX:MaxMetaspaceSize=128m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication"
+      JAVA_OPTS: "-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/uploads/dumps/ -XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MetaspaceSize=48m -XX:MaxMetaspaceSize=160m -XX:NativeMemoryTracking=detail -XX:+UseG1GC -Xlog:class+load=info,class+unload=info:file=/app/uploads/jfr/classload.log:time,uptime:filecount=4,filesize=20m"
       # 数据库连接池（可通过环境变量覆盖）
-      DB_POOL_MAX_SIZE: 20
-      DB_POOL_MIN_IDLE: 5
+      DB_POOL_MAX_SIZE: 5
+      DB_POOL_MIN_IDLE: 2
     # 后端仅回环地址发布（公网经 nginx 反代；直达 :8080 的 /actuator 随之不可达）
     ports:
       - "127.0.0.1:8080:8080"

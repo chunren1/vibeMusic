@@ -1,0 +1,102 @@
+# 外部可用性探活（从 GitHub 的机器探你的公网站，不是从服务器自己探自己）
+#
+# 为什么需要它：服务器内部的 cron 看门狗（scripts/health-alert.sh）能在后端挂掉时叫你，
+# 但如果整台机器/网络/隧道挂了，它自己也没了 —— 那是最需要告警的时刻。
+#
+# 行为：
+#   - 每 10 分钟探两个点：/  （前端+CF+nginx）、/api/songs/search（后端+网关+DB+Redis）
+#   - 任一失败 → 推 Server酱；恢复 → 推恢复
+#   - 去重：读取「上一次已完成的运行」，如果上次也是失败，则不重复推送（避免每 10 分钟刷屏）
+#
+# 需要配置（20 秒）：Settings → Secrets and variables → Actions → New repository secret
+#   SERVERCHAN_SENDKEY = SCT...（与服务器 /etc/vibeMusic/serverchan.key 同一个值）
+# 未配置时探活照跑，只是不推送（日志里会 ::warning）。
+
+name: uptime-check
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: uptime-check
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe public endpoints
+        id: probe
+        run: |
+          set -uo pipefail
+          BASE="https://vibe.cyk666.top"
+          FAILS=""
+
+          # 单次请求同时取状态码与耗时，失败不让整个脚本中断
+          probe() {
+            name="$1"; path="$2"; expect="$3"
+            out=$(curl -sS --max-time 25 -o /dev/null -w '%{http_code} %{time_total}' \
+                    "$BASE$path" 2>/dev/null) || out="000 -"
+            code=${out%% *}; t=${out##* }
+            echo "  $name  $path -> HTTP $code  ${t}s  (期望 $expect)"
+            if [ "$code" != "$expect" ]; then
+              FAILS="${FAILS}- ${name} 返回 HTTP ${code}（期望 ${expect}），耗时 ${t}s\n"
+            elif [ "$t" != "-" ] && awk -v v="$t" 'BEGIN{exit !(v>15)}' 2>/dev/null; then
+              echo "    ::warning::响应偏慢（${t}s）"
+            fi
+          }
+
+          echo "== 外部探活 $(date -u '+%F %T UTC') =="
+          probe "前端"       "/"                                   "200"
+          probe "后端搜索"   "/api/songs/search?keyword=test&limit=1" "200"
+
+          if [ -n "$FAILS" ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            { echo "detail<<EOF"; printf '%b' "$FAILS"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+            echo "::error::探活失败"
+            exit 1
+          fi
+          echo "failed=false" >> "$GITHUB_OUTPUT"
+          echo "全部正常"
+
+      - name: Notify via Server酱 (只在失败边沿 / 恢复时推送)
+        if: always()
+        env:
+          SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          NOW_FAILED: ${{ steps.probe.outputs.failed }}
+          DETAIL: ${{ steps.probe.outputs.detail }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${SENDKEY:-}" ]; then
+            echo "::warning::未配置 SERVERCHAN_SENDKEY，跳过推送（探活结果仍可在本页查看）"
+            exit 0
+          fi
+
+          # 上一次已完成运行的结论（排除本次），用于「只在边沿推送」
+          PREV=$(RUN_ID="$GITHUB_RUN_ID" gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/uptime-check.yml/runs?per_page=5" \
+            --jq '.workflow_runs | map(select(.status=="completed" and (.id|tostring) != env.RUN_ID)) | (.[0].conclusion // "none")' 2>/dev/null || echo unknown)
+          echo "  本次失败=$NOW_FAILED 上次结论=$PREV"
+
+          if [ "$NOW_FAILED" = "true" ]; then
+            [ "$PREV" = "failure" ] && { echo "  上次也是失败，已告警过，跳过（避免刷屏）"; exit 0; }
+            TITLE="🔴 vibeMusic 公网不可用"
+            BODY=$(printf '探活地址: https://vibe.cyk666.top\n时间: %s UTC\n%b\n探活来自 GitHub，不依赖本机与服务器 cron。' "$(date -u '+%F %T')" "${DETAIL:-（无详情）}")
+          else
+            [ "$PREV" = "failure" ] || { echo "  本次正常且上次也正常，无需推送"; exit 0; }
+            TITLE="🟢 vibeMusic 公网已恢复"
+            BODY=$(printf '探活地址: https://vibe.cyk666.top\n时间: %s UTC\n全部探活点恢复正常。' "$(date -u '+%F %T')")
+          fi
+
+          curl -sS --max-time 20 -X POST "https://sctapi.ftqq.com/${SENDKEY}.send" \
+            --data-urlencode "title=${TITLE}" \
+            --data-urlencode "desp=${BODY}" >/dev/null \
+            && echo "  已推送: ${TITLE}" || { echo "::error::推送失败"; exit 1; }
