@@ -30,11 +30,10 @@ CI 已把 `test/contract.test.js` 加入测试清单（`ci.yml` / `deploy.yml` �
 
 ## 当前覆盖与下一步
 
-已覆盖：`/search`、`/song/url/v1`、`/song/url/qq`、`/qq/lyric`、`/qq/playlist`。
+已覆盖：`/search`、`/netease/search`、`/qq/search`、`/song/url/v1`、`/song/url/qq`、`/qq/lyric`、`/qq/playlist`。
 
 下一步（按后端消费量排序）：
 
-1. `/netease/search`（网易透传体，需固定上游返回的关键字段）
 2. `/qq/search`、`/migu/search`、`/kugou/search`、`/bili/search`（各平台单路搜索）
 3. App ↔ Java 后端的公开 API（`/api/songs/search`、`/api/songs/lyric`、`/api/songs/{id}/stream`），
    建议用 Spring MockMvc + 同一份契约思路，放在 `vibeMusic-backend/src/test/java/.../contract/`。

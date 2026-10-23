@@ -229,3 +229,39 @@ test('/song/url/v1 契约：code/data[{url,freeTrialInfo,time}]，缺参 400', a
   const [err] = ok.errors;
   await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), err);
 });
+
+test('/qq/search 契约：data[歌曲字段]，缺 keyword 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  stubAxiosGet(async () => qqSearchPayload());
+
+  const ep = '/qq/search';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(`${ep} success`, await fetch(`${base}${ep}?keyword=晴天&limit=2`), ok.success);
+  assert.ok(body.data.length >= 1);
+  assert.equal(body.data[0].name, '晴天');
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
+});
+
+test('/netease/search 契约：data[歌曲字段]，缺 keyword 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origCloud = NeteaseCloudMusicApi.cloudsearch;
+  const origSearch = NeteaseCloudMusicApi.search;
+  NeteaseCloudMusicApi.cloudsearch = async () => neteaseSearchPayload();
+  NeteaseCloudMusicApi.search = async () => neteaseSearchPayload();
+  restores.push(() => {
+    NeteaseCloudMusicApi.cloudsearch = origCloud;
+    NeteaseCloudMusicApi.search = origSearch;
+  });
+
+  const ep = '/netease/search';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(`${ep} success`, await fetch(`${base}${ep}?keyword=晴天&limit=2`), ok.success);
+  assert.ok(body.data.length >= 1);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
+});

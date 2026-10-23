@@ -159,6 +159,62 @@
           }
         }
       ]
+    },
+    "/qq/search": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": [
+            {
+              "id": "any",
+              "name": "string",
+              "artists": "string",
+              "album": "string",
+              "cover": "string",
+              "duration": "number",
+              "vip": "boolean"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/netease/search": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": [
+            {
+              "id": "any",
+              "name": "string",
+              "artists": "string",
+              "album": "string",
+              "cover": "string",
+              "duration": "number",
+              "vip": "boolean"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
     }
   }
 }
