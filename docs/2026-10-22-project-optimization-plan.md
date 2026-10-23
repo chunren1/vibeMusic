@@ -298,6 +298,8 @@
 
 **第二次蓝绿（p2 镜像，同一天 11:32–11:34）**：端口从 8082 轮换回 **8080**，切换期探针 244 次全 200，新容器 healthy 67 s，冷启动 `Started in 48.2 seconds`；运行中 jar 的 md5 与本地 `mvn verify` 产物一致（`04e3197…`），字节级确认线上跑的就是门禁验过的那份。
 
+**第三次/第四次蓝绿（p3、p4，2026-10-23 11:59 / 12:26）**：p3 端口 8080→8082、探针 258 次全 200、healthy 66 s；p4 端口 8082→8080、探针 **265 次全 200**、healthy **55 s**、冷启动 `Started in 48.9 s`。p4 的容器 jar md5 与本地 `mvn verify` 产物一致（`401ccb1…`），并首次通过 `--set-env TOMCAT_MAX_THREADS=50` 让 Tomcat 线程数按预期生效（此前环境变量名与 yml 占位符不匹配，一直是 40）。
+
 **两次踩坑（脚本已加固）**：
 
 1. **镜像 ID 不能当校验依据**：跨 Docker 版本 `load` 会规范化 config，ID 必变（29.1.3→29.7.2 实测）。改成「RootFS 层逐层 diff_id + Config 摘要」。
@@ -365,10 +367,32 @@
 
 **musicapi 替换代价（记录，不是缺陷）**：musicapi 启动约 6 秒，替换是「停旧→起新」，实测 `host:3000/health` 每 100ms 采样出现 **66 次失败 ≈ 6.6 s**；期间后端搜索按设计降级为「200 + 空结果 + 重试建议」，不出现 5xx。宿主 `127.0.0.1:3000` 被 cookie 巡检脚本与一个 testweb 反代引用，所以新容器必须保留同端口映射，不能只走 docker 网段。
 
-### 11.6 仍待办（按优先级）
+### 11.6 AI 请求总预算（P1 快速项，已完成）
 
-1. **AI 超时预算**：`AI_RESPONSE_TIMEOUT=60s` 且 Function Calling 最多 3 次调用 → 单请求最坏 ~180 s；流式 `WebClient` 无 `responseTimeout`。
-2. **musicapi 整体熔断**：挂掉时每次搜索仍 5 线程 × 最多 3 s 空转；建议复用 30–60 s 进程内熔断语义。
-3. **Redis 失败时的搜索空等**：单飞锁失败被当成「别人持锁」，白等 150+300+600+1200 ms（Redis 挂时每次搜索 +2.25 s）。
+**问题**：`AI_RESPONSE_TIMEOUT = 60s`，Function Calling 最多 3 次 LLM 调用 → 单请求最坏 180s，客户端早断开而容器线程与连接仍被占；流式 `WebClient` 没有 `responseTimeout`，上游不回首包时无限挂起。
+
+| 路径 | 改前最坏 | 改后最坏 |
+|---|---|---|
+| `/chat` 同步 | 3×60s = **180s**（工具调用还不受外层约束） | **45s 硬顶**：第 1 次 `min(60s, 35s→45s)`，续轮逐次收紧 `min(60s, 剩余)`；工具调用 `min(10s, 剩余)`；剩余 ≤0 不再发起调用 |
+| `/stream` SSE | 无首包超时，**无限挂**（SseEmitter 60s 只能 cancel 外层，中断不了阻塞读） | 首包 ≤20s、总时长 ≤45s（`timeout(min(20s,剩余))` + `takeUntilOther`），终态只发一次 `done`/`error` |
+
+实现：`AiCallBudget`（纯逻辑、时钟可注入）+ `AiToolCallGuard` + 请求级 `RequestConfig` 覆盖读超时（**复用同一连接池**，不动全局 60s）；`ai.total-budget-ms` / `ai.stream-first-byte-timeout-ms` 可覆盖。SSE 事件格式（`token`/`done`/`error`）未变，前端零改动。测试 11 例，含「永不回首包」与「每次必返回 tool_calls」的 JDK HttpServer stub（零新依赖），断言第 3 次 LLM 调用绝不发起。
+
+### 11.7 搜索侧韧性：网关整体熔断 + Redis 单飞三态（已完成）
+
+**问题 A**：musicapi 进程整体挂掉时，5 个平台同时连接拒绝/超时，每次搜索 5 线程 × 最多 3s 空转。按平台的 QQ 熔断管不了「整个网关不可用」。
+**问题 B**：`tryLock` 返回 `null` 时无法区分「别人持锁」和「Redis 挂了」，Redis 全挂时每次搜索白等 150+300+600+1200 = **2250ms** 退避，而每轮重读必然失败。
+
+修法：
+- `UpstreamBreaker`（纯内存、时钟可注入）：**只对传输层失败计数**（连接拒绝/超时/DNS/5xx），4xx 与「200 空结果」算成功；连续 10 次（≈ 2 次全平台失败）开路 30s，开路期跳过全部 5 个远程分支；半开只放 1 个探针，探针 10s 未回传即放弃（防永久半开）。
+- `LockResult` 三态：`ACQUIRED` / `BUSY` / `UNAVAILABLE`；`UNAVAILABLE` 直接直查，不再退避空等。
+
+**一个必须记住的事实**：搜索路径（`search → doApiSearch`）**本来就没有 DB/本地兜底分支**——`songMapper` 只用于 `getRandomSongs()`。所以「开路时保住 DB 结果」这个前提不存在；开路返回的是与「五平台全失败」完全一致的收尾（空列表 + retry 提示、不写空哨兵）。后续若要加关键词 DB 兜底，必须放在熔断判断**之前**。
+
+### 11.8 仍待办（按优先级）
+
+1. ~~AI 超时预算~~ → 见 §11.6（已完成）
+2. ~~musicapi 整体熔断~~、~~Redis 单飞空等~~ → 见 §11.7（已完成）
 4. ~~配置漂移清理~~（已完成 2026-10-23）：删 `ES_URI` 死配置（Java 零绑定）；`SERVER_TOMCAT_THREADS_MAX` → `TOMCAT_MAX_THREADS`（名字对齐 yml 占位符，下次部署由 40 生效为 50）；`docker-compose.full.yml` 的 `AI_API_KEY` 默认值改空（与 demo/主 compose 一致，占位值不再触发外呼）。
-5. 响应头 `X-Content-Type-Options` 出现两次（nginx `add_header` 与后端重复），可用 `proxy_hide_header` 去重。
+5. ~~响应头重复~~（已完成 2026-10-23）：`/api/`、`/uploads/` 两个反代 location 加 `proxy_hide_header`，并把 `proxy_pass` 改为 upstream 名；`X-Frame-Options` 由「DENY + SAMEORIGIN 冲突」变单值。
+6. **前端覆盖率阈值**（P1-11 余下部分）：`vitest.config.js` 的 `coverage.include` 只含 `stores/components`（缺 `views`），且无 thresholds。需先跑一次真实覆盖率再定阈值，避免拍脑袋把 CI 打红。
