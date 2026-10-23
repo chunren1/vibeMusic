@@ -19,7 +19,7 @@ const routes = [
   // ===== 移动端路由 (/m) =====
   // Q2c 收敛：仅保留 3 个移动端核心页（首页/搜索/播放器），其余 /m 路由
   // 复用桌面端视图（响应式渲染），路由名/路径/meta 保持不变，无 404。
-  // 被替换的 mobile/*.vue 文件保留在原位，仅不再被路由引用，便于回滚。
+  // 无引用的 mobile/M*View.vue 已于 2026-10-23 删除（git 历史可回溯）。
   {
     path: '/m',
     component: () => import('@/views/mobile/MobileShell.vue'),
