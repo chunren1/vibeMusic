@@ -374,7 +374,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("tryBiliUrl: {} 失败: {}", biliId, ClientErrorScrubber.scrub(e.getMessage()), e);
+            log.warn("tryBiliUrl: {} 失败: {}", ClientErrorScrubber.scrub(biliId), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
     }
@@ -395,7 +395,7 @@ public class SongPlayService {
                     }
                 }
             } catch (Exception e) {
-                log.warn("tryKugouUrl: {} level={} 失败: {}", hash, level, ClientErrorScrubber.scrub(e.getMessage()), e);
+                log.warn("tryKugouUrl: {} level={} 失败: {}", ClientErrorScrubber.scrub(hash), level, ClientErrorScrubber.scrub(e.getMessage()), e);
             }
         }
         return null;
@@ -584,7 +584,7 @@ public class SongPlayService {
             try {
                 return storageService.exists("songs/" + sourceId + ".mp3");
             } catch (Exception e) {
-                log.debug("isCachedInMinio per-user direct probe failed for {}: {}", sourceId, e.getMessage());
+                log.debug("isCachedInMinio per-user direct probe failed for {}: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
                 return false;
             }
         }
@@ -602,7 +602,7 @@ public class SongPlayService {
             stringRedisTemplate.opsForValue().set(cacheKey, exists ? "1" : "0", ttl);
             return exists;
         } catch (Exception e) {
-            log.debug("isCachedInMinio failed for {} (Redis/MinIO unavailable): {}", sourceId, e.getMessage());
+            log.debug("isCachedInMinio failed for {} (Redis/MinIO unavailable): {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
             return false;
         }
     }
