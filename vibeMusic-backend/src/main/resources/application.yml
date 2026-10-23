@@ -121,6 +121,12 @@ ai:
   api-url: ${AI_API_URL:https://api.deepseek.com/chat/completions}
   model: ${AI_MODEL:deepseek-v4-flash}
   thinking-mode: ${AI_THINKING_MODE:disabled}
+  # 单次请求的 AI 总预算（ms）：Function Calling 最多 3 次 LLM 调用共享这一份预算，
+  # 每次调用超时 = min(AI 客户端 60s, 剩余预算)，耗尽即降级、不再发起新调用。
+  # 代码侧有同名默认值 45000，缺配置不会导致启动失败。
+  total-budget-ms: ${AI_TOTAL_BUDGET_MS:45000}
+  # 流式首包（响应头）超时（ms），必须小于 total-budget-ms；上游不回首包时不再无限挂起。
+  stream-first-byte-timeout-ms: ${AI_STREAM_FIRST_BYTE_TIMEOUT_MS:20000}
 
 netease:
   api:

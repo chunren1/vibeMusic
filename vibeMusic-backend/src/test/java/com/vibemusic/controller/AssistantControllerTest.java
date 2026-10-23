@@ -201,6 +201,8 @@ class AssistantControllerTest {
             WebClient.Builder builder = mock(WebClient.Builder.class);
             WebClient webClient = mock(WebClient.class);
             when(builder.baseUrl(anyString())).thenReturn(builder);
+            // 构造器额外装 reactor-netty connector（流式首包超时），mock 需链式返回
+            when(builder.clientConnector(any())).thenReturn(builder);
             when(builder.build()).thenReturn(webClient);
             var mvc = MockMvcBuilders.standaloneSetup(controllerWithKey("change-me", builder))
                     // 与真实 Boot 一致（server.servlet.encoding.charset 默认 UTF-8）；
