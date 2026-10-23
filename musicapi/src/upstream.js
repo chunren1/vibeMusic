@@ -5,6 +5,7 @@
 //   日志只允许出现 host + pathname。URL query、headers、Cookie 一律不落日志——
 //   网易云部分 URL 里带 cookie/token，明文打日志等于泄漏凭据。
 const axios = require('axios');
+const net = require('net');
 const logger = require('./logger');
 const { upstreamRequestTotal, upstreamDuration } = require('./metrics');
 
@@ -22,6 +23,7 @@ const KIND = {
   HTTP: 'http',
   TOO_LARGE: 'too_large',
   ABORTED: 'aborted',
+  BLOCKED: 'blocked', // 目标被安全策略拒绝（私网/环回等，见 isPrivateHost）
   UNKNOWN: 'unknown',
 };
 
@@ -71,14 +73,51 @@ function normalizeLabel(label) {
   return cleaned || 'unknown';
 }
 
-/** 只取 host + pathname（绝不带 search/query），用于脱敏日志。 */
+/** 只取 host + pathname（绝不带 search/query），用于脱敏日志；hostname 供私网判断。 */
 function describeUrl(rawUrl) {
   try {
     const u = new URL(String(rawUrl));
-    return { host: u.host || u.hostname || 'invalid', path: u.pathname || '/' };
+    return {
+      host: u.host || u.hostname || 'invalid',
+      hostname: u.hostname || '',
+      path: u.pathname || '/',
+    };
   } catch (e) {
-    return { host: 'invalid', path: '/' };
+    return { host: 'invalid', hostname: '', path: '/' };
   }
+}
+
+/**
+ * 私网/环回/链路本地等"不应被上游 URL 指向"的目标（二阶 SSRF 防护）。
+ * 背景：CDN 候选、取链地址这类 URL 来自上游响应体，若上游被污染/中间人，
+ * 可把请求引向内网服务（云元数据 169.254.169.254、Redis、本机端口）。
+ * 本层只校验**字面量**主机名/IP；域名解析到私网（DNS rebinding）不在本层
+ * 能力内（axios 解析后无法干预），但上游 CDN 均为公网域名/IP，字面量拦截
+ * 已覆盖"上游把地址直接指到内网"的主路径。
+ */
+function isPrivateHost(host) {
+  if (!host) return true; // 解析失败一律视为不安全
+  const h = String(host).toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
+  if (net.isIPv4(h)) {
+    const parts = h.split('.').map(Number);
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;              // 0/8、10/8、127/8
+    if (a === 169 && b === 254) return true;                        // link-local（含云元数据）
+    if (a === 172 && b >= 16 && b <= 31) return true;               // 172.16/12
+    if (a === 192 && b === 168) return true;                        // 192.168/16
+    if (a === 100 && b >= 64 && b <= 127) return true;              // CGNAT 100.64/10
+    return false;
+  }
+  if (net.isIPv6(h)) {
+    if (h === '::1' || h === '::') return true;
+    if (h.startsWith('fc') || h.startsWith('fd')) return true;      // ULA fc00::/7
+    if (/^fe[89ab]/.test(h)) return true;                           // link-local fe80::/10
+    if (h.startsWith('::ffff:')) return isPrivateHost(h.slice(7));  // IPv4-mapped
+    return false;
+  }
+  return false;
 }
 
 function normalizeTimeout(value) {
@@ -184,6 +223,22 @@ async function upstreamGet(url, options = {}) {
   const callerSignal = options.signal;
   const endpoint = describeUrl(url);
   const startedAt = Date.now();
+  // 二阶 SSRF 防护：默认拒绝私网/环回目标；本地联调与单测显式 allowPrivate: true。
+  if (options.allowPrivate !== true && isPrivateHost(endpoint.hostname)) {
+    recordOutcome(label, KIND.BLOCKED, startedAt);
+    logFailure({
+      label,
+      kind: KIND.BLOCKED,
+      status: null,
+      endpoint,
+      elapsedMs: Date.now() - startedAt,
+    });
+    throw new UpstreamError(KIND.BLOCKED, `upstream ${label} blocked`, {
+      label,
+      host: endpoint.host,
+      elapsedMs: Date.now() - startedAt,
+    });
+  }
   let attempt = 0;
 
   for (;;) {
@@ -235,6 +290,7 @@ module.exports = {
   classifyError,
   normalizeLabel,
   describeUrl,
+  isPrivateHost,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_BYTES,
   KIND,

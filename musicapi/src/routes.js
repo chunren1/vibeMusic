@@ -5,7 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
-const { upstreamGet } = require('./upstream');
+const { upstreamGet, describeUrl } = require('./upstream');
 
 const config = require('./config-loader');
 const cookie = require('./cookie');
@@ -216,7 +216,8 @@ async function fetchQQPlayUrl(id) {
               maxRedirects: 0,
             });
             if (probe.status === 200 || probe.status === 206) return candidate;
-            writeLog('api', 'INFO', `[/song/url/qq] ${id} CDN ${probe.status} 失效: ${candidate.slice(0, 80)}`);
+            const ep = describeUrl(candidate);
+            writeLog('api', 'INFO', `[/song/url/qq] ${id} CDN ${probe.status} 失效: ${ep.host}${ep.path}`);
             throw new Error(`CDN probe ${probe.status}`);
           } catch (e) {
             if (e.message && e.message.startsWith('CDN probe')) throw e;

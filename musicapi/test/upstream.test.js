@@ -10,6 +10,7 @@ const {
   classifyError,
   normalizeLabel,
   describeUrl,
+  isPrivateHost,
   KIND,
 } = require('../src/upstream');
 
@@ -67,7 +68,7 @@ test('describeUrl：日志只允许 host + pathname，query 永不出现', () =>
   assert.equal(JSON.stringify(d).includes('MUSIC_U'), false);
   assert.equal(JSON.stringify(d).includes('keyword'), false);
   // 非法 URL 不抛错
-  assert.deepEqual(describeUrl('not-a-url'), { host: 'invalid', path: '/' });
+  assert.deepEqual(describeUrl('not-a-url'), { host: 'invalid', hostname: '', path: '/' });
 });
 
 test('classifyError：错误归因覆盖 timeout/network/http/too_large/aborted/unknown', () => {
@@ -94,7 +95,7 @@ test('upstreamGet：2xx 正常返回响应体', async () => {
       res.end(JSON.stringify({ code: 0, ok: true }));
     },
     async (port) => {
-      const resp = await upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/ok' });
+      const resp = await upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/ok', allowPrivate: true });
       assert.equal(resp.status, 200);
       assert.deepEqual(resp.data, { code: 0, ok: true });
     }
@@ -111,7 +112,7 @@ test('upstreamGet：5xx 默认抛 http 且不重试（重试只给 network/timeo
     },
     async (port) => {
       await assert.rejects(
-        () => upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/500', retries: 2 }),
+        () => upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/500', allowPrivate: true, retries: 2 }),
         (err) => {
           assert.ok(err instanceof UpstreamError);
           assert.equal(err.kind, KIND.HTTP);
@@ -132,7 +133,7 @@ test('upstreamGet：validateStatus 透传——调用方放行的 4xx 正常返�
     },
     async (port) => {
       const resp = await upstreamGet(`http://127.0.0.1:${port}/x`, {
-        label: 'local/404',
+        label: 'local/404', allowPrivate: true,
         validateStatus: () => true,
       });
       assert.equal(resp.status, 404);
@@ -155,7 +156,7 @@ test('upstreamGet：超时归为 timeout，并按 retries 重试', async () => {
     },
     async (port) => {
       await assert.rejects(
-        () => upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/slow', timeoutMs: 60, retries: 1 }),
+        () => upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/slow', allowPrivate: true, timeoutMs: 60, retries: 1 }),
         (err) => {
           assert.ok(err instanceof UpstreamError);
           assert.equal(err.kind, KIND.TIMEOUT);
@@ -177,7 +178,7 @@ test('upstreamGet：响应超体积归为 too_large，且不重试', async () =>
     },
     async (port) => {
       await assert.rejects(
-        () => upstreamGet(`http://127.0.0.1:${port}/big`, { label: 'local/big', maxBytes: 1024, retries: 2 }),
+        () => upstreamGet(`http://127.0.0.1:${port}/big`, { label: 'local/big', allowPrivate: true, maxBytes: 1024, retries: 2 }),
         (err) => {
           assert.ok(err instanceof UpstreamError || err.code === 'ERR_BAD_RESPONSE');
           return true;
@@ -191,11 +192,51 @@ test('upstreamGet：响应超体积归为 too_large，且不重试', async () =>
 test('upstreamGet：连接拒绝归为 network', async () => {
   const port = await closedPort();
   await assert.rejects(
-    () => upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/down', timeoutMs: 500 }),
+    () => upstreamGet(`http://127.0.0.1:${port}/x`, { label: 'local/down', allowPrivate: true, timeoutMs: 500 }),
     (err) => {
       assert.ok(err instanceof UpstreamError);
       assert.equal(err.kind, KIND.NETWORK);
       return true;
+    }
+  );
+});
+
+// ---------------- 二阶 SSRF 防护 ----------------
+
+test('isPrivateHost：私网/环回/链路本地一律命中，公网不误伤', () => {
+  for (const h of [
+    '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255',
+    '192.168.1.1', '169.254.169.254', '0.0.0.0', '100.64.0.1',
+    '::1', 'fc00::1', 'fd12::1', 'fe80::1',
+    'localhost', 'foo.localhost', 'printer.local',
+  ]) {
+    assert.equal(isPrivateHost(h), true, `${h} 应判私网`);
+  }
+  for (const h of [
+    '8.8.8.8', '172.15.0.1', '172.32.0.1',
+    'music.163.com', 'aqqmusic.tc.qq.com', '2408:8000::1',
+  ]) {
+    assert.equal(isPrivateHost(h), false, `${h} 不应判私网`);
+  }
+});
+
+test('upstreamGet：私网目标默认拒绝且不发请求（二阶 SSRF 防护）', async () => {
+  let hits = 0;
+  await withServer(
+    (req, res) => {
+      hits += 1;
+      res.end('secret');
+    },
+    async (port) => {
+      await assert.rejects(
+        () => upstreamGet(`http://127.0.0.1:${port}/secret`, { label: 'local/ssrf' }),
+        (err) => {
+          assert.ok(err instanceof UpstreamError);
+          assert.equal(err.kind, KIND.BLOCKED);
+          return true;
+        }
+      );
+      assert.equal(hits, 0, '被拦截的请求不应到达目标');
     }
   );
 });
