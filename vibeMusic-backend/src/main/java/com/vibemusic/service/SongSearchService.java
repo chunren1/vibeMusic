@@ -15,6 +15,9 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -116,10 +119,32 @@ public class SongSearchService {
      * 启动时异步预热热门搜索词到 Redis 缓存，
      * 避免上线后的首次 API 穿透造成 P95 延迟飙升。
      * 每个关键词间隔 1.5 秒防止同时击穿第三方 API。
+     * <p>
+     * 触发时机：{@link ApplicationReadyEvent}（容器就绪后）而非 {@code @PostConstruct}。
+     * 旧实现挂在 context refresh 期间，17 个关键词 × 5 路上游在 2 vCPU 上与主线程抢 CPU，
+     * 实测把生产冷启动拖长约 47 秒；改为就绪后延迟执行，让启动路径先跑完。
      */
-    @PostConstruct
+    @Value("${app.prewarm.enabled:true}")
+    boolean prewarmEnabled;
+
+    /** 预热起始延迟（秒）：等启动路径与首批健康检查过去再打上游，默认 20s。 */
+    @Value("${app.prewarm.initial-delay-seconds:20}")
+    long prewarmDelaySeconds;
+
+    @EventListener(ApplicationReadyEvent.class)
     void preWarmHotKeywords() {
+        if (!prewarmEnabled) {
+            log.info("[PREWARM] 预热已关闭（app.prewarm.enabled=false），跳过热门关键词预热");
+            return;
+        }
         warmExecutor.submit(() -> {
+            try {
+                Thread.sleep(prewarmDelaySeconds * 1000L);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                log.info("[PREWARM] 预热等待被中断，放弃预热");
+                return;
+            }
             // 预热 HOT_KEYWORDS 与 RANDOM_KEYWORDS 的并集（去重），随机池命中时同样走缓存。
             Set<String> warmKeywords = new LinkedHashSet<>(HOT_KEYWORDS);
             warmKeywords.addAll(RANDOM_KEYWORDS);

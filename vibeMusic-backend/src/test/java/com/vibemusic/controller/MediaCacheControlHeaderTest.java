@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestClient;
 
 import java.io.ByteArrayInputStream;
 
@@ -48,7 +47,7 @@ class MediaCacheControlHeaderTest {
                 mock(PlayHistoryService.class),
                 storageService,
                 mock(RecommendService.class),
-                mock(RestClient.Builder.class));
+                mock(com.vibemusic.service.AudioProxyService.class));
 
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
@@ -65,6 +64,8 @@ class MediaCacheControlHeaderTest {
     @DisplayName("DownloadController 文件下载：Cache-Control 必须是 private")
     void fileDownloadMustBePrivate() throws Exception {
         StorageService storageService = mock(StorageService.class);
+        when(storageService.isAvailable()).thenReturn(true);
+        when(storageService.exists("songs/song-2.mp3")).thenReturn(true);
         when(storageService.getObject("songs/song-2.mp3"))
                 .thenReturn(new ByteArrayInputStream(new byte[]{9, 8, 7}));
         SongService songService = mock(SongService.class);
@@ -73,12 +74,14 @@ class MediaCacheControlHeaderTest {
         DownloadController controller = new DownloadController(
                 mock(com.vibemusic.service.DownloadService.class),
                 storageService,
-                songService);
+                songService,
+                mock(com.vibemusic.service.AudioProxyService.class));
 
+        HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse response = mock(HttpServletResponse.class);
         when(response.getOutputStream()).thenReturn(mock(ServletOutputStream.class));
 
-        controller.fileDownload("song-2", response);
+        controller.fileDownload("song-2", request, response);
 
         verify(response).setHeader("Cache-Control", PRIVATE_24H);
         verify(response, never()).setHeader(eq("Cache-Control"), contains("public"));

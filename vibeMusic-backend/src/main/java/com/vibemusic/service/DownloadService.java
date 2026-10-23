@@ -14,6 +14,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>
  * 流程：Netease API → 下载 mp3 → 上传 MinIO → 存入 DB(song表)
  * <p>
+ * 对象存储是可选组件（{@code storage.enabled}）：关闭/不可用时跳过「下载到临时文件 + 上传」，
+ * 只解析播放地址并入库，fileUrl 指向 {@code /api/download/file/<sourceId>}（走上游直连代理）。
+ * <p>
  * 并发控制：使用 per-sourceId 的 ReentrantLock 防止同一首歌被并发重复下载，
  * 避免多次请求外部 API 和重复上传 MinIO 造成的资源浪费。
  */
@@ -60,11 +63,24 @@ public class DownloadService {
 
     /**
      * 阶段 1：下载 + 上传 MinIO（无事务，HTTP I/O 可能耗时 30s+）
+     *
+     * <p>对象存储不可用（开关关闭/熔断中）时跳过「临时文件下载 + 上传」，
+     * 只解析一次播放地址确认可播，入库 URL 指向稳定的下载代理端点
+     * {@code /api/download/file/{sourceId}}（该端点会走上游直连转发）。</p>
      */
     private String downloadAndUpload(String sourceId, String name, String artist,
                                      String album, String coverUrl, Integer duration,
                                      String level) {
         String objectName = "songs/" + sourceId + ".mp3";
+
+        if (!storageService.isAvailable()) {
+            log.info("对象存储不可用，跳过缓存，仅登记下载: {} ({})", name, sourceId);
+            String playUrl = songPlayService.getPlayUrl(sourceId);
+            if (playUrl == null) {
+                throw new BusinessException(502, "无法获取 VIP 播放链接");
+            }
+            return "/api/download/file/" + sourceId;
+        }
 
         // 双重检查：获取锁后再次检查 MinIO 缓存
         if (storageService.exists(objectName)) {

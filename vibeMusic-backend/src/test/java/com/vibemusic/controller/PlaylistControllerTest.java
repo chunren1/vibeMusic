@@ -1,6 +1,8 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.service.JsonCacheService;
+import com.vibemusic.service.NeteaseApiService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -9,6 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
 
 /**
  * PlaylistController.songs IDOR 回归测试（纯单测，不启动 Spring 上下文）。
@@ -44,6 +48,22 @@ class PlaylistControllerTest {
         Result<List<Map<String, Object>>> result = controller.songs(1L);
 
         assertEquals(200, result.getCode());
+        assertNull(result.getData());
+    }
+
+    @Test
+    @DisplayName("musicapi 挂掉时 detail 应返回错误信封而非抛异常（503 中文提示）")
+    void detailDegradesWhenUpstreamThrows() {
+        NeteaseApiService netease = mock(NeteaseApiService.class);
+        JsonCacheService cache = mock(JsonCacheService.class);
+        when(cache.getAsMap(anyString())).thenReturn(null);
+        when(netease.getNeteasePlaylist("123")).thenThrow(new RuntimeException("musicapi down"));
+        PlaylistController controller = new PlaylistController(null, netease, cache);
+
+        Result<Map<String, Object>> result = controller.detail("netease", "123");
+
+        assertEquals(503, result.getCode());
+        assertEquals("歌单服务暂不可用，请稍后重试", result.getMessage());
         assertNull(result.getData());
     }
 }

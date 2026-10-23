@@ -159,6 +159,82 @@ class AssistantControllerTest {
         }
     }
 
+    @Nested @DisplayName("未配置 / 占位 Key 短路（不外呼）")
+    class PlaceholderKeyTest {
+
+        private AssistantController controllerWithKey(String key, WebClient.Builder builder) {
+            return new AssistantController(
+                    restTemplate, builder, aiToolService, chatMemoryService, rateLimitService,
+                    objectMapper, key, "deepseek-flash", "disabled",
+                    "https://api.deepseek.com/chat/completions");
+        }
+
+        @Test @DisplayName("同步入口：key=change-me 应返回未配置提示且零外呼")
+        void chatWithPlaceholderKeyShouldNotCallOut() throws Exception {
+            var mvc = MockMvcBuilders.standaloneSetup(controllerWithKey("change-me", WebClient.builder())).build();
+
+            mvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.reply").value(org.hamcrest.Matchers.containsString("未配置")));
+
+            verifyNoInteractions(restTemplate, rateLimitService, chatMemoryService, aiToolService);
+        }
+
+        @Test @DisplayName("同步入口：key=changeme（大小写/空格变体）同样视为未配置")
+        void chatWithChangemeVariantShouldNotCallOut() throws Exception {
+            var mvc = MockMvcBuilders.standaloneSetup(controllerWithKey(" Change-Me ", WebClient.builder())).build();
+
+            mvc.perform(post("/api/assistant/chat")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"message\":\"你好\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.reply").value(org.hamcrest.Matchers.containsString("未配置")));
+
+            verifyNoInteractions(restTemplate, rateLimitService, chatMemoryService, aiToolService);
+        }
+
+        @Test @DisplayName("流式入口：key=change-me 应发 SSE 未配置提示且零外呼")
+        void streamWithPlaceholderKeyShouldNotCallOut() throws Exception {
+            WebClient.Builder builder = mock(WebClient.Builder.class);
+            WebClient webClient = mock(WebClient.class);
+            when(builder.baseUrl(anyString())).thenReturn(builder);
+            when(builder.build()).thenReturn(webClient);
+            var mvc = MockMvcBuilders.standaloneSetup(controllerWithKey("change-me", builder))
+                    // 与真实 Boot 一致（server.servlet.encoding.charset 默认 UTF-8）；
+                    // standalone 默认的 StringHttpMessageConverter 是 ISO-8859-1，会把中文写成 '?'
+                    .setMessageConverters(
+                            new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(objectMapper),
+                            new org.springframework.http.converter.StringHttpMessageConverter(
+                                    java.nio.charset.StandardCharsets.UTF_8))
+                    .build();
+
+            org.springframework.test.web.servlet.MvcResult mvcResult = mvc.perform(
+                            post("/api/assistant/stream")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{\"message\":\"你好\"}"))
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+            mvcResult.getAsyncResult(1000);
+            String content = mvcResult.getResponse()
+                    .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+
+            org.junit.jupiter.api.Assertions.assertTrue(content.contains("未配置"), "SSE 应带未配置提示: " + content);
+            verifyNoInteractions(webClient, restTemplate, rateLimitService, chatMemoryService, aiToolService);
+        }
+
+        @Test @DisplayName("isApiKeyConfigured 判定：空白/占位为 false，真实 Key 为 true")
+        void shouldJudgeApiKeyConfigured() {
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isApiKeyConfigured(null));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isApiKeyConfigured("  "));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isApiKeyConfigured("change-me"));
+            org.junit.jupiter.api.Assertions.assertFalse(AssistantController.isApiKeyConfigured("CHANGEME"));
+            org.junit.jupiter.api.Assertions.assertTrue(AssistantController.isApiKeyConfigured("sk-real-key"));
+        }
+    }
+
     @Nested @DisplayName("DELETE /api/assistant/history")
     class HistoryEndpointTest {
 

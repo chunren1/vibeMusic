@@ -28,8 +28,19 @@ public class PlaylistController {
 
     /** 歌单详情（网易云/QQ，Redis 缓存 6h） */
     @GetMapping("/detail")
-    @SuppressWarnings("unchecked")
     public Result<Map<String, Object>> detail(@RequestParam String source, @RequestParam String id) {
+        try {
+            return loadDetail(source, id);
+        } catch (Exception e) {
+            // 上游 musicapi 挂掉时降级为业务错误信封，而不是 500
+            log.warn("[Playlist] 歌单详情获取失败（上游不可用降级）: source={} playlistId={} err={}",
+                    source, id, e.toString());
+            return Result.error(503, "歌单服务暂不可用，请稍后重试");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Result<Map<String, Object>> loadDetail(String source, String id) {
         String cacheKey = PLAYLIST_CACHE_PREFIX + source + ":" + id;
         Map<String, Object> cached = cache.getAsMap(cacheKey);
         if (cached != null) return Result.ok(cached);

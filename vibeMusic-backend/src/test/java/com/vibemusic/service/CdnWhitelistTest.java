@@ -2,7 +2,6 @@ package com.vibemusic.service;
 
 import com.vibemusic.common.utils.CdnWhitelist;
 import com.vibemusic.config.NeteaseApiConfig;
-import com.vibemusic.controller.StreamController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
@@ -81,7 +80,7 @@ class CdnWhitelistTest {
     @Test
     @DisplayName("两处 @Value 均为无默认值引用式，缺失即启动失败")
     void valueAnnotationsAreReferenceOnly() throws Exception {
-        for (Class<?> clazz : new Class<?>[]{StreamController.class, NeteaseApiService.class}) {
+        for (Class<?> clazz : new Class<?>[]{AudioProxyService.class, NeteaseApiService.class}) {
             Field f = clazz.getDeclaredField("cdnWhitelistConfig");
             Value v = f.getAnnotation(Value.class);
             assertNotNull(v, clazz.getSimpleName() + " 应有 @Value 注解");
@@ -113,8 +112,9 @@ class CdnWhitelistTest {
     void bothConsumersAgreeOnHostMatrix() throws Exception {
         List<String> whitelist = resolveWhitelistFromYml();
         String joined = String.join(",", whitelist);
-        StreamController controller = new StreamController(null, null, null, null, RestClient.builder());
-        ReflectionTestUtils.setField(controller, "cdnWhitelistConfig", joined);
+        // 白名单消费方已从 StreamController 收敛到 AudioProxyService（唯一代理实现）
+        AudioProxyService proxyService = new AudioProxyService(null, RestClient.builder());
+        ReflectionTestUtils.setField(proxyService, "cdnWhitelistConfig", joined);
         NeteaseApiService apiService = new NeteaseApiService(new NeteaseApiConfig(), null, RestClient.builder());
         ReflectionTestUtils.setField(apiService, "cdnWhitelistConfig", joined);
         String[] allow = {"p1.music.126.net", "music.126.net", "y.gtimg.cn",
@@ -122,14 +122,14 @@ class CdnWhitelistTest {
                 "f.migu.cn", "upos-sz-mirrorcos.bilivideo.com", "i0.hdslb.com"};
         String[] deny = {"evil.example", "music.126.net.evil.com", "", null};
         for (String host : allow) {
-            assertTrue((boolean) ReflectionTestUtils.invokeMethod(controller, "isCdnWhitelisted", host),
-                    "StreamController 应放行 " + host);
+            assertTrue((boolean) ReflectionTestUtils.invokeMethod(proxyService, "isCdnWhitelisted", host),
+                    "AudioProxyService 应放行 " + host);
             assertTrue((boolean) ReflectionTestUtils.invokeMethod(apiService, "isUrlAllowed", "https://" + host + "/x.mp3"),
                     "NeteaseApiService 应放行 " + host);
         }
         for (String host : deny) {
-            assertFalse((boolean) ReflectionTestUtils.invokeMethod(controller, "isCdnWhitelisted", host),
-                    "StreamController 应拦截 " + host);
+            assertFalse((boolean) ReflectionTestUtils.invokeMethod(proxyService, "isCdnWhitelisted", host),
+                    "AudioProxyService 应拦截 " + host);
             Object url = host == null ? null : "https://" + host + "/x.mp3";
             assertFalse((boolean) ReflectionTestUtils.invokeMethod(apiService, "isUrlAllowed", url),
                     "NeteaseApiService 应拦截 " + host);

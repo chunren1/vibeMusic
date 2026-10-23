@@ -58,6 +58,9 @@ spring:
       password: ${REDIS_PASSWORD:}
       database: 0
       timeout: 3000ms
+      # 显式设置连接超时：Spring Boot 4.0.6 在本项缺省时不注入 SocketOptions，
+      # Lettuce 会回落到默认 10s 连接超时——Redis 不可达时请求会白等 10s 才降级。
+      connect-timeout: 2000ms
       lettuce:
         pool:
           max-active: 20
@@ -132,6 +135,10 @@ stream:
     *.bilivideo.com,*.hdslb.com}
 
 storage:
+  # 对象存储总开关：缺省关闭（云上只跑 backend/musicapi/mysql/redis，MinIO 已下线）。
+  # 关闭时 StorageService 不发任何网络调用，播放/下载全部走上游直连代理。
+  # 本地演示（带 MinIO 的完整栈）用 STORAGE_ENABLED=true 开启。
+  enabled: ${STORAGE_ENABLED:false}
   minio:
     endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
     access-key: ${MINIO_ACCESS_KEY}

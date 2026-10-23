@@ -89,6 +89,17 @@ class IdempotentGuardTest {
     }
 
     @Test
+    @DisplayName("Redis 抛异常时应降级放行（fail-open，不得冒泡成 503）")
+    void shouldReturnTrueWhenRedisThrows() {
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenThrow(new RuntimeException("Redis connection refused"));
+
+        boolean result = idempotentGuard.tryAcquire("req-uuid-003");
+
+        assertTrue(result);
+    }
+
+    @Test
     @DisplayName("不同 Request-Id 应各自独立获取锁")
     void shouldHandleDifferentRequestIdsIndependently() {
         when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);

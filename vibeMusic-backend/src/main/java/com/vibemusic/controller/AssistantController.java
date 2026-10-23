@@ -62,6 +62,8 @@ public class AssistantController {
     private static final int AI_IP_RATE_LIMIT = 30;
     /** 172.16.0.0/12（docker 网段） */
     private static final Pattern PRIVATE_172 = Pattern.compile("^172\\.(1[6-9]|2\\d|3[01])\\..*");
+    /** 示例/占位 Key：一律视为未配置，绝不外呼（change-me 必然 401，还要白等超时） */
+    private static final Set<String> PLACEHOLDER_API_KEYS = Set.of("change-me", "changeme");
 
     public AssistantController(@Qualifier("aiRestTemplate") RestTemplate restTemplate,
                                WebClient.Builder webClientBuilder,
@@ -99,7 +101,7 @@ public class AssistantController {
         if (userMessage != null && userMessage.length() > 2000)
             return Result.error("消息过长，请限制在 2000 字以内");
 
-        if (apiKey == null || apiKey.isBlank())
+        if (!isApiKeyConfigured(apiKey))
             return Result.ok(Map.of("reply", "AI 助手暂未配置 API Key，请设置环境变量 AI_API_KEY", "model", aiModel));
 
         Long userId = UserService.getCurrentUserId();
@@ -191,8 +193,8 @@ public class AssistantController {
             return emitter;
         }
 
-        if (apiKey == null || apiKey.isBlank()) {
-            sendEvent(emitter, "error", Map.of("message", "AI_API_KEY 未配置"));
+        if (!isApiKeyConfigured(apiKey)) {
+            sendEvent(emitter, "error", Map.of("message", "AI 助手暂未配置 API Key"));
             emitter.complete();
             return emitter;
         }
@@ -280,6 +282,16 @@ public class AssistantController {
         emitter.onError(e -> { if (disposableHolder[0] != null) disposableHolder[0].dispose(); });
 
         return emitter;
+    }
+
+    /**
+     * Key 是否可用于外呼：空白 或 占位示例值（change-me / changeme）都视为未配置。
+     * <p>占位值不拦截的话，请求会真的打到上游并必然 401——用户看到的是「AI 服务暂时不可用」，
+     * 而真实原因是没配 Key，徒增一次外呼与超时。</p>
+     */
+    static boolean isApiKeyConfigured(String apiKey) {
+        if (apiKey == null || apiKey.isBlank()) return false;
+        return !PLACEHOLDER_API_KEYS.contains(apiKey.trim().toLowerCase(Locale.ROOT));
     }
 
     /**

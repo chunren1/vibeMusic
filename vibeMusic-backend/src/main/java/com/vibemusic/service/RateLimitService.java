@@ -55,11 +55,18 @@ public class RateLimitService {
 
     public boolean tryAcquire(String key, int max, Duration window) {
         String redisKey = PREFIX + key;
-        Long count = stringRedisTemplate.execute(
-                new org.springframework.data.redis.core.script.DefaultRedisScript<>(ATOMIC_INCR_SCRIPT, Long.class),
-                java.util.List.of(redisKey),
-                String.valueOf(window.getSeconds())
-        );
+        Long count;
+        try {
+            count = stringRedisTemplate.execute(
+                    new org.springframework.data.redis.core.script.DefaultRedisScript<>(ATOMIC_INCR_SCRIPT, Long.class),
+                    java.util.List.of(redisKey),
+                    String.valueOf(window.getSeconds())
+            );
+        } catch (RuntimeException e) {
+            // fail-open：限流是可用性增强组件，Redis 抖动不能把 AI 接口打成 503
+            log.warn("[RateLimit] Redis 不可用，限流降级放行 key={} err={}", key, e.toString());
+            return true;
+        }
         if (count == null) return true;
         if (count > max) {
             log.warn("[RateLimit] {} 超出限制: {}/{} (窗口:{})", key, count - 1, max, window);

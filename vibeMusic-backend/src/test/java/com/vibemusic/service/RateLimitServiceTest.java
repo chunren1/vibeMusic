@@ -84,6 +84,16 @@ class RateLimitServiceTest {
     }
 
     @Test
+    @DisplayName("Redis 抛异常时应降级放行（fail-open，不得把 AI 接口打成 503）")
+    void shouldAllowWhenRedisThrows() {
+        when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), anyString()))
+                .thenThrow(new RuntimeException("Redis connection refused"));
+
+        boolean result = rateLimitService.tryAcquire(KEY, MAX, WINDOW);
+        assertTrue(result);
+    }
+
+    @Test
     @DisplayName("首次请求时 Lua 脚本传入 EXPIRE 秒数")
     void shouldPassExpireSecondsToLuaScript() {
         when(stringRedisTemplate.execute(any(RedisScript.class), anyList(), anyString()))
