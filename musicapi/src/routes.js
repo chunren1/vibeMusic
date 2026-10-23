@@ -3,9 +3,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const axios = require('axios');
 const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
+const { upstreamGet } = require('./upstream');
 
 const config = require('./config-loader');
 const cookie = require('./cookie');
@@ -188,10 +188,11 @@ async function fetchQQPlayUrl(id) {
       },
       comm: { uin, format: 'json', ct: 19, cv: 0 },
     });
-    const qqResp = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+    const qqResp = await upstreamGet('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+      label: 'qq/vkey',
       params: { format: 'json', data: reqData },
       headers: qqRequestHeaders(),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
     });
     const mi = qqResp.data?.req_0?.data?.midurlinfo;
     const sip = qqResp.data?.req_0?.data?.sip?.[0] || 'https://aqqmusic.tc.qq.com';
@@ -207,9 +208,10 @@ async function fetchQQPlayUrl(id) {
       if (candidates.length > 0) {
         const probeOne = async (candidate) => {
           try {
-            const probe = await axios.get(candidate, {
+            const probe = await upstreamGet(candidate, {
+              label: 'qq/cdn-probe',
               headers: { 'User-Agent': 'Mozilla/5.0', Range: 'bytes=0-1023' },
-              timeout: 2500,
+              timeoutMs: 2500,
               validateStatus: () => true,
               maxRedirects: 0,
             });
@@ -248,10 +250,11 @@ async function fetchQQLyric(songmid) {
       },
       comm: { uin, format: 'json', ct: 19, cv: 0 },
     });
-    const qqResp = await axios.get('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+    const qqResp = await upstreamGet('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+      label: 'qq/lyric',
       params: { format: 'json', data: reqData },
       headers: qqRequestHeaders(),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
     });
     const ly = qqResp.data?.req_0?.data?.lyric;
     if (!ly) return null;

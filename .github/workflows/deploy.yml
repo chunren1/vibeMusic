@@ -81,7 +81,7 @@ jobs:
       # ---- 闸门 3/4: 网关 14 个离线测试文件 ----
       # 清单与 ci.yml gateway job 完全一致（server.test.js 需实机 :3000 故排除）；
       # 两处清单与磁盘的一致性由 ci.yml 的 "Guard — gateway test list..." 步骤强制。
-      - name: Gate 3/4 — Gateway tests (node --test, 14 files, no live server)
+      - name: Gate 3/4 — Gateway tests (node --test, 15 files, no live server)
         run: |
           cd musicapi
           npm ci
@@ -99,6 +99,7 @@ jobs:
             test/search-kugou.test.js \
             test/search-migu.test.js \
             test/search-qq.test.js \
+            test/upstream.test.js \
             test/vip-health-metrics.test.js
 
       # ---- 闸门 4/4: Docker 镜像必须能构建（cloud 部署就是目标机 compose build）----

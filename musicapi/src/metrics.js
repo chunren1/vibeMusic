@@ -12,11 +12,32 @@ const httpRequestTotal = new promClient.Counter({
   registers: [register],
 });
 
+// 直方图桶（入站/出站共用一套，便于同图对比）
+const HISTOGRAM_BUCKETS = [0.01, 0.05, 0.1, 0.3, 0.5, 1, 3, 5, 10];
+
 const httpRequestDuration = new promClient.Histogram({
   name: 'musicapi_http_request_duration_seconds',
   help: 'HTTP 请求耗时（秒）',
   labelNames: ['method', 'path'],
-  buckets: [0.01, 0.05, 0.1, 0.3, 0.5, 1, 3, 5, 10],
+  buckets: HISTOGRAM_BUCKETS,
+  registers: [register],
+});
+
+// 上游（出站）请求计数：label 只允许代码里写死的常量（如 'netease/search'），
+// 禁止拼 URL / sourceId —— 否则基数随用户输入爆炸。
+// outcome: ok | http | timeout | network | too_large | aborted | unknown
+const upstreamRequestTotal = new promClient.Counter({
+  name: 'musicapi_upstream_requests_total',
+  help: '上游请求次数',
+  labelNames: ['label', 'outcome'],
+  registers: [register],
+});
+
+const upstreamDuration = new promClient.Histogram({
+  name: 'musicapi_upstream_duration_seconds',
+  help: '上游请求耗时（秒，含重试）',
+  labelNames: ['label'],
+  buckets: HISTOGRAM_BUCKETS,
   registers: [register],
 });
 
@@ -79,6 +100,8 @@ module.exports = {
   register,
   httpRequestTotal,
   httpRequestDuration,
+  upstreamRequestTotal,
+  upstreamDuration,
   cacheHitTotal,
   cookieStatusGauge,
   vipHealthGauge,

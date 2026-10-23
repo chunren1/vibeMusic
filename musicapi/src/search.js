@@ -1,10 +1,10 @@
 // ==================== 上游 API 搜索代理 ====================
-const axios = require('axios');
 const crypto = require('crypto');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { LRUCache } = require('lru-cache');
 const { withNeteaseCookie, getQQCookieString } = require('./cookie');
 const { writeLog } = require('./logger');
+const { upstreamGet } = require('./upstream');
 
 // ==================== 上游 API 超时控制 ====================
 const UPSTREAM_TIMEOUT = 10000; // 10s（单次上游调用上限）
@@ -185,10 +185,11 @@ function buildQQSearchRequest(keyword, limit) {
 async function searchQQ(keyword, limit) {
   const { url, params, headers } = buildQQSearchRequest(keyword, limit);
   try {
-    const resp = await axios.get(url, {
+    const resp = await upstreamGet(url, {
+      label: 'qq/search',
       params,
       headers,
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
     });
     const list = resp.data?.search?.data?.body?.song?.list;
     if (!Array.isArray(list) || list.length === 0) {
@@ -217,7 +218,7 @@ async function probeQQSearch() {
   }
   try {
     const resp = await withTimeout(
-      axios.get(url, { params, headers, timeout: UPSTREAM_TIMEOUT }),
+      upstreamGet(url, { label: 'qq/health-probe', params, headers, timeoutMs: UPSTREAM_TIMEOUT }),
       UPSTREAM_TIMEOUT, 'qq/health-probe'
     );
     const song = resp.data?.search?.data?.body?.song;
@@ -280,7 +281,8 @@ function mapMiguSong(s) {
 
 async function searchMigu(keyword, limit) {
   try {
-    const resp = await axios.get(MIGU_SEARCH_URL, {
+    const resp = await upstreamGet(MIGU_SEARCH_URL, {
+      label: 'migu/search',
       params: {
         ua: 'Android_migu',
         version: '5.0.1',
@@ -290,7 +292,7 @@ async function searchMigu(keyword, limit) {
         searchSwitch: JSON.stringify({ song: 1 }),
       },
       headers: { Referer: 'https://music.migu.cn', 'User-Agent': 'Mozilla/5.0' },
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
     });
     const body = resp.data;
     if (!body || body.code !== '000000') {
@@ -319,7 +321,8 @@ async function getMiguUrl(contentId, copyrightId, toneFlag = 'PQ') {
     const cid = String(contentId);
     let cpid = copyrightId != null ? String(copyrightId) : '';
     if (!cpid) cpid = miguCopyrightCache.get(cid) || '';
-    const resp = await axios.get(MIGU_LISTEN_URL, {
+    const resp = await upstreamGet(MIGU_LISTEN_URL, {
+      label: 'migu/listen',
       params: {
         toneFlag: toneFlag || 'PQ',
         resourceType: 2,
@@ -330,7 +333,7 @@ async function getMiguUrl(contentId, copyrightId, toneFlag = 'PQ') {
         channel: MIGU_CHANNEL,
       },
       headers: { Referer: 'https://music.migu.cn', 'User-Agent': 'Mozilla/5.0' },
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       maxRedirects: 0, // 手动处理 302：只取 Location，不自动下载
       validateStatus: () => true,
     });
@@ -520,10 +523,11 @@ async function searchKugou(keyword, limit) {
       topicfull: '1',
     };
     params.signature = kugouAndroidSignature(params);
-    const resp = await axios.get(KUGOU_GATEWAY_URL + KUGOU_SEARCH_PATH, {
+    const resp = await upstreamGet(KUGOU_GATEWAY_URL + KUGOU_SEARCH_PATH, {
+      label: 'kugou/search',
       params,
       headers: kugouHeaders(KUGOU_SEARCH_ROUTER, device, clienttime),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       validateStatus: () => true,
     });
     const body = resp.data;
@@ -579,10 +583,11 @@ async function getKugouV5Data(hash, albumId, quality) {
     };
     params.key = kugouUrlKey(h, device.mid);
     params.signature = kugouAndroidSignature(params);
-    const resp = await axios.get(KUGOU_GATEWAY_URL + KUGOU_URL_PATH, {
+    const resp = await upstreamGet(KUGOU_GATEWAY_URL + KUGOU_URL_PATH, {
+      label: 'kugou/url',
       params,
       headers: kugouHeaders(KUGOU_URL_ROUTER, device, clienttime),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       validateStatus: () => true,
     });
     const body = resp.data;
@@ -620,9 +625,10 @@ function pickKugouUrls(node) {
 /** CDN Range 探活：首字节 200/206 即视为可播。永不抛错。 */
 async function probeKugouCdn(url) {
   try {
-    const resp = await axios.get(url, {
+    const resp = await upstreamGet(url, {
+      label: 'kugou/cdn-probe',
       headers: { Range: 'bytes=0-1', 'User-Agent': 'Mozilla/5.0' },
-      timeout: KUGOU_PROBE_TIMEOUT,
+      timeoutMs: KUGOU_PROBE_TIMEOUT,
       validateStatus: () => true,
       responseType: 'arraybuffer',
     });
@@ -739,9 +745,10 @@ async function ensureBiliBuvid(forceRefresh = false) {
     return biliBuvidCache;
   }
   try {
-    const resp = await axios.get(BILI_SPI_URL, {
+    const resp = await upstreamGet(BILI_SPI_URL, {
+      label: 'bili/spi',
       headers: { Referer: BILI_REFERER, 'User-Agent': BILI_UA },
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       validateStatus: () => true,
     });
     const b3 = resp.data && resp.data.data && resp.data.data.b_3;
@@ -771,9 +778,10 @@ async function ensureBiliWbiKey(forceRefresh = false) {
   }
   try {
     const buvid = await ensureBiliBuvid();
-    const resp = await axios.get(BILI_NAV_URL, {
+    const resp = await upstreamGet(BILI_NAV_URL, {
+      label: 'bili/nav',
       headers: biliHeaders(buvid),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       validateStatus: () => true,
     });
     const imgUrl = resp.data && resp.data.data && resp.data.data.wbi_img
@@ -1062,7 +1070,8 @@ function isBiliSingle(track) {
 async function searchBili(keyword, limit) {
   try {
     const buvid = await ensureBiliBuvid();
-    const resp = await axios.get(BILI_SEARCH_URL, {
+    const resp = await upstreamGet(BILI_SEARCH_URL, {
+      label: 'bili/search',
       params: {
         search_type: 'video',
         keyword,
@@ -1073,7 +1082,7 @@ async function searchBili(keyword, limit) {
         tids: BILI_MUSIC_TID,
       },
       headers: biliHeaders(buvid),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       validateStatus: () => true,
     });
     const body = resp.data;
@@ -1102,10 +1111,11 @@ async function searchBili(keyword, limit) {
 async function getBiliView(bvid) {
   try {
     const buvid = await ensureBiliBuvid();
-    const resp = await axios.get(BILI_PAGELIST_URL, {
+    const resp = await upstreamGet(BILI_PAGELIST_URL, {
+      label: 'bili/pagelist',
       params: { bvid, jsonp: 'jsonp' },
       headers: biliHeaders(buvid),
-      timeout: UPSTREAM_TIMEOUT,
+      timeoutMs: UPSTREAM_TIMEOUT,
       validateStatus: () => true,
     });
     const body = resp.data;
@@ -1150,10 +1160,11 @@ async function getBiliUrl(id) {
       const buvid = await ensureBiliBuvid(refreshBuvid);
       const base = { bvid, cid, qn: 32, fnval: 16, fnver: 0, fourk: 0 };
       const signed = biliSignWbi(base, mixinKey);
-      const resp = await axios.get(BILI_PLAYURL_URL, {
+      const resp = await upstreamGet(BILI_PLAYURL_URL, {
+        label: 'bili/playurl',
         params: signed,
         headers: biliHeaders(buvid),
-        timeout: UPSTREAM_TIMEOUT,
+        timeoutMs: UPSTREAM_TIMEOUT,
         validateStatus: () => true,
       });
       return resp.data;

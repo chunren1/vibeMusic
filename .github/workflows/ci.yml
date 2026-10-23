@@ -149,7 +149,7 @@ jobs:
   # server on :3000. All other test files are self-contained (node:test stubs)
   # and run per-file explicitly with --test-force-exit.
   gateway:
-    name: Gateway (node --test, 14 files)
+    name: Gateway (node --test, 15 files)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -220,6 +220,7 @@ jobs:
             test/search-kugou.test.js \
             test/search-migu.test.js \
             test/search-qq.test.js \
+            test/upstream.test.js \
             test/vip-health-metrics.test.js
 
   # ---- Job 5: API smoke (pytest vs 实机 backend + mysql + redis + musicapi) ----
