@@ -7,9 +7,10 @@
  * 3. AudioContext 挂起 → resume() 自动恢复
  * 4. 重回前台状态丢失 → localStorage 快照 + 恢复
  *
- * 用法：在 PlayerBar / MPlayerView 的 setup 中调用一次
+ * 用法：App.vue 根组件调用一次（常驻，保证后台能力始终在线）；
+ *      PlayerBar / MPlayerView 可以再调用，拿到的是同一个单例，不会重复注册。
  */
-import { ref, readonly, onMounted, onUnmounted } from 'vue'
+import { ref, readonly, onMounted, onUnmounted, getCurrentInstance } from 'vue'
 
 // ──────────────────────────────────────────────
 // Web Worker 内联脚本（心跳时钟，不会被主线程节流降频）
@@ -80,8 +81,43 @@ function stopWorkerIfIdle() {
 
 // ──────────────────────────────────────────────
 // 主 composable
+//
+// 模块级单例：后台播放能力（MediaSession / Worker 心跳 / 结束检测 / 快照）
+// 与「当前在哪个页面」无关，App.vue 常驻持有，PlayerBar / MPlayerView 复用同一实例。
+// 修复前每个调用点各自初始化，移动端首页/搜索页播放时切后台没有 MediaSession 控件、
+// 没有 Worker 心跳、没有结束检测 → 后台播放断链。
 // ──────────────────────────────────────────────
+let sharedInstance = null
+
+/**
+ * 获取（必要时创建）后台播放单例。
+ * 只在第一次调用时创建状态与监听；后续调用返回同一个 api 对象，不重复注册。
+ * 用引用计数管理销毁：每个调用方登记一次 onUnmounted 递减，归零才 teardown。
+ */
 export function useAudioBackground(audioRef) {
+  if (!sharedInstance) {
+    const created = createAudioBackground(audioRef)
+    sharedInstance = { api: created.api, teardown: created.teardown, refs: 0, destroyed: false }
+  }
+  const inst = sharedInstance
+  inst.refs++
+  // 只有组件 setup 内调用才需要登记卸载回调（App/PlayerBar/MPlayerView 均满足）
+  if (getCurrentInstance()) {
+    onUnmounted(() => releaseInstance(inst))
+  }
+  return inst.api
+}
+
+/** 引用计数递减；最后一个持有者卸载时才真正清理监听/Worker/WakeLock */
+function releaseInstance(inst) {
+  inst.refs = Math.max(0, inst.refs - 1)
+  if (inst.refs > 0 || inst.destroyed) return
+  inst.destroyed = true
+  inst.teardown()
+  if (sharedInstance === inst) sharedInstance = null
+}
+
+function createAudioBackground(audioRef) {
   // 后台状态
   const isBackground = ref(false)
   const wasPausedByBg = ref(false)
@@ -89,6 +125,14 @@ export function useAudioBackground(audioRef) {
 
   let rafId = null
   let unsubscribes = []
+
+  // 本实例从共享 Worker 获取的引用次数（teardown 时等量归还，保证最后一个持有者能真正 terminate）
+  let workerAcquires = 0
+  function acquireWorker() {
+    const w = getWorker()
+    workerAcquires++
+    return w
+  }
 
   /**
    * 1. Page Visibility API — 前后台切换
@@ -201,7 +245,7 @@ export function useAudioBackground(audioRef) {
       checkEnded()
     }
     try {
-      const w = getWorker()
+      const w = acquireWorker()
       _bgEndedTickHandler = onWorkerTick
       tickHandlers.add(onWorkerTick)
       // 若 Worker 尚未被任何调用方启动，以默认 250ms 节奏启动；
@@ -348,27 +392,33 @@ export function useAudioBackground(audioRef) {
   /**
    * 4. Worker 心跳 — 避免 setInterval 降频
    *    在 Worker 中保持时间精度，用于同步进度条
+   *
+   *    修复前是单个 onTick 槽位：PlayerBar（存进度）与 MPlayerView（进度条/歌词）
+   *    同时存在时后注册的会顶掉前一个。改成按调用方登记的回调集合，互不影响。
    */
-  let onTick = null
+  const workerCallbacks = new Set()
+
   function startWorkerTimer(callback, ms = 250) {
-    onTick = callback
+    if (typeof callback !== 'function') return
+    const isNew = !workerCallbacks.has(callback)
+    workerCallbacks.add(callback)
     try {
-      const w = getWorker()
-      tickHandlers.add(onTick)
+      // 同一回调重复 start 不重复占用 Worker 引用；已启动时只更新节奏
+      const w = isNew || !workerInstance ? acquireWorker() : workerInstance
+      if (isNew) tickHandlers.add(callback)
       w.postMessage(ms)
       // 'start' 在 Worker 侧幂等（running 标志），重复调用安全
       w.postMessage('start')
     } catch {
       console.warn('[AudioBG] Worker 不可用，回退到 RAF')
-      fallbackRaf()
+      fallbackRaf(callback)
     }
   }
 
   function stopWorkerTimer() {
-    if (onTick) {
-      tickHandlers.delete(onTick)
-      onTick = null
-    }
+    // 无参语义：清掉本实例登记的全部回调（调用方卸载时无需自己保管引用）
+    for (const cb of workerCallbacks) tickHandlers.delete(cb)
+    workerCallbacks.clear()
     if (rafId) {
       cancelAnimationFrame(rafId)
       rafId = null
@@ -377,9 +427,9 @@ export function useAudioBackground(audioRef) {
   }
 
   /** RAF 降级方案（在 Worker 不可用时使用，但后台会被节流） */
-  function fallbackRaf() {
+  function fallbackRaf(callback) {
     function step() {
-      onTick?.()
+      try { callback() } catch { /* ignore */ }
       rafId = requestAnimationFrame(step)
     }
     rafId = requestAnimationFrame(step)
@@ -413,6 +463,7 @@ export function useAudioBackground(audioRef) {
   let bgPauseRetries = 0
 
   onMounted(() => {
+    if (destroyed) return
     setupMediaSession()
     setupStatePersistence()
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -468,20 +519,34 @@ export function useAudioBackground(audioRef) {
     listenAudioEvent('pause', onPause)
   })
 
-  onUnmounted(() => {
+  // 销毁标记：teardown 只执行一次（引用计数归零时由 releaseInstance 调用）
+  let destroyed = false
+
+  function teardown() {
+    if (destroyed) return
+    destroyed = true
     document.removeEventListener('visibilitychange', handleVisibilityChange)
     stopWorkerTimer()
     stopBgEndedCheck()
-    releaseWorker()
+    // 本实例每次 acquireWorker 都占了一个全局引用，必须等量归还，
+    // 否则 workerRefs 永远 > 0，最后一个持有者卸载时 Worker 也不会 terminate
+    while (workerAcquires > 0) {
+      workerAcquires--
+      releaseWorker()
+    }
     releaseWakeLock()
     unsubscribes.forEach(fn => { try { fn() } catch { /* ignore */ } })
-  })
+    unsubscribes = []
+  }
 
-  return {
+  const api = {
     isBackground: readonly(isBackground),
     startWorkerTimer,
     stopWorkerTimer,
     requestWakeLock,
     releaseWakeLock,
   }
+
+  // refs / destroyed 由外层包装对象承载，releaseInstance 负责递减与置位
+  return { api, teardown }
 }

@@ -208,16 +208,28 @@ export const usePlayerStore = defineStore('player', () => {
     saveToStorage()
   }
 
-  /** 调用后端 API 获取播放 URL 并播放（记录播放历史） */
+  /**
+   * 调用后端 API 获取播放 URL 并播放（记录播放历史）
+   *
+   * 竞态守卫：快速连点两首时，A 的网络往返可能晚于 B 返回，
+   * 若直接落地会把 B 抢播的歌覆盖回去/出现「放着 B 显示 A」。
+   * 用单调递增序号标记每次请求，回来时序号不是最新就丢弃（成功/失败分支都要判）。
+   */
+  let _songPlaySeq = 0
+
   async function playSongFromApi(sourceId, name, artist, coverUrl, platform = '') {
     if (!sourceId) return
+    const seq = ++_songPlaySeq
     resumeAudioContext()
     try {
       await apiPlaySong(sourceId, name, artist, coverUrl || '', platform || '')
+      // 已有更新的点播请求：这次结果作废，不覆盖当前歌曲
+      if (seq !== _songPlaySeq) return
       isTrialSong.value = false
       // 后端 play 不返回 duration，传 0 并由 loadedmetadata 回填真实时长
       playBySourceId(sourceId, name, artist, coverUrl, 0, platform)
     } catch {
+      if (seq !== _songPlaySeq) return
       playBySourceId(sourceId, name, artist, coverUrl, 0, platform)
     }
   }

@@ -7,9 +7,15 @@ import PlayerBar from '@/components/PlayerBar.vue'
 import LoginModal from '@/components/LoginModal.vue'
 import ToastMessage from '@/components/ToastMessage.vue'
 import { useToast } from '@/composables/useToast'
+import { useAudioBackground } from '@/composables/useAudioBackground'
 
 const { message, type, show, toast } = useToast()
 window.toast = toast // 全局可用
+
+// 后台播放能力（MediaSession/Worker 心跳/结束检测）挂到根组件：
+// 移动端在首页/搜索页播放后切后台或锁屏也能维持播放链路，而不是只有播放页才有。
+// 单例实现：PlayerBar / MPlayerView 调用会拿到同一个实例，不会重复注册监听。
+useAudioBackground()
 
 const authStore = useAuthStore()
 // 初始化播放器 store（确保移动端也有 vibeAudioSetSrc / onEnded 等功能）
