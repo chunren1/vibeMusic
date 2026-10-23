@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -72,6 +73,8 @@ class SongSearchAliasRankingTest {
                 new SimpleMeterRegistry(), searchExec, warmExec, redisTemplate);
         service.initMetrics();
         when(cacheService.getSearchCache(anyString())).thenReturn(null);
+        lenient().when(cacheService.tryLockResult(anyString()))
+                .thenReturn(SongCacheService.LockResult.acquired("default-lock"));
     }
 
     @AfterEach
