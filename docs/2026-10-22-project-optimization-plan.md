@@ -389,7 +389,25 @@
 
 **一个必须记住的事实**：搜索路径（`search → doApiSearch`）**本来就没有 DB/本地兜底分支**——`songMapper` 只用于 `getRandomSongs()`。所以「开路时保住 DB 结果」这个前提不存在；开路返回的是与「五平台全失败」完全一致的收尾（空列表 + retry 提示、不写空哨兵）。后续若要加关键词 DB 兜底，必须放在熔断判断**之前**。
 
-### 11.8 仍待办（按优先级）
+### 11.8 移动端后台播放断链（P1-5，已上线）
+
+**症状**：手机上从首页/搜索页点播后切后台或锁屏，播放链路断掉——没有锁屏控件、进度不再走、播完不自动切歌。
+
+**根因（两处）**：
+
+1. `useAudioBackground`（MediaSession / Worker 心跳 / 三层结束检测 / 前后台快照）只被 `PlayerBar.vue`（桌面常驻）与 `MPlayerView.vue`（移动端**仅播放页**）调用。移动端所有 `/m/*` 页面都挂在 `MobileShell` 下，但 `MobileShell` 自己不初始化它 → 用户不在播放页时，整条后台链路根本不存在。
+2. `playSongFromApi` 在 `await apiPlaySong(...)` 后没有校验「这次请求是否仍是最新」，快速连点两首时先发后到的请求会把后点的歌覆盖（放着 B 显示 A）。
+
+**修法**：
+
+- `useAudioBackground` 改为**模块级单例**：首次调用创建全部状态与监听，后续调用返回同一 `api`，不重复注册；引用计数归零才 teardown。`App.vue` 根组件调用一次（常驻 → 计数恒 ≥1），`PlayerBar`/`MPlayerView` 原调用保留并复用同一实例。
+- Worker 引用计数修正：本实例每次 `acquireWorker()` 记账、teardown **等量** `releaseWorker()`（原实现只 release 一次 → `workerRefs` 永不归零，最后一个持有者卸载也不 `terminate`）。
+- `startWorkerTimer` 的回调从单槽位改成 Set，避免播放页与底部播放条互相顶掉进度回调。
+- `playSongFromApi` 加单调递增 `_songPlaySeq`，await 回来先校验序号，过期请求直接丢弃（成功/失败分支都判）。
+
+**验证（线上移动视口 390×844 + iPhone UA，Playwright 单实例）**：11 项全过——播放前就已注册 **4 个 MediaSession 动作**（旧实现此时为 0，这是最关键的判别证据）、`visibilitychange` 已注册；点播后进入 `/m/player` 出声且 metadata 标题/歌手正确；退回 `/m` 首页仍在播、`removeEventListener` 计数为 0、动作注册数不涨（单例未重复注册）；模拟 `hidden` 3 秒进度前进 3.01 s，恢复可见继续播。单测 180 例全绿（新增 6 例）。
+
+### 11.9 仍待办（按优先级）
 
 1. ~~AI 超时预算~~ → 见 §11.6（已完成）
 2. ~~musicapi 整体熔断~~、~~Redis 单飞空等~~ → 见 §11.7（已完成）
