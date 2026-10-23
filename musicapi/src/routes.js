@@ -25,6 +25,11 @@ const { searchLimiter, urlLimiter } = require('./rate-limiters');
 // 500 统一话术：细节只进 writeLog，不回传调用方（与全局错误处理器口径一致）
 const GENERIC_500 = '服务繁忙，请稍后重试';
 
+/** 日志单行化（CWE-117）：用户可控文本落日志前剥离 CR/LF。 */
+function logSafe(value) {
+  return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ');
+}
+
 // Express 4 默认 query parser 下 ?k=a&k=b 解析为数组；?k[x]=1 解析为对象。
 // 统一取首个标量，缺失/非法由各路由判 400（此前数组直接 .trim() 抛 TypeError → 500 泄漏堆栈文本）。
 function firstQuery(v) {
@@ -301,7 +306,7 @@ function registerRoutes(app) {
       const cached = searchCache.get(cacheKey);
       if (cached !== undefined) {
         cacheHitTotal.inc({ cache_type: 'search' });
-        writeLog('access', 'INFO', `[Cache] HIT for "${kw}"`);
+        writeLog('access', 'INFO', `[Cache] HIT for "${logSafe(kw)}"`);
         stripSearchInternals(cached);
         const pageData = paginate(cached, page, safeSize);
         return res.json({ code: 200, message: 'success (cached)', data: pageData });
