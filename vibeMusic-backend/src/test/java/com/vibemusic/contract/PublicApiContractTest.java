@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
@@ -21,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 消费方（Android Kotlin / Vue）按这些 key 解析，字段改名会在这里先红。</p>
  */
 @DisplayName("公开 API 信封契约")
+@TestPropertySource(properties = "musicapi.url=http://127.0.0.1:1")
 class PublicApiContractTest extends BaseTest {
 
     @Autowired

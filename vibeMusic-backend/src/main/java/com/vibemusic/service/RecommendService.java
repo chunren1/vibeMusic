@@ -515,9 +515,6 @@ public class RecommendService {
     }
 
     /**
-     * 检测缓存是否被污染：随机推荐 8 首全来自同一平台 → 另一个平台当时挂了
-     */
-    /**
      * 写 Redis 缓存
      */
     private void writeCache(String key, RecommendResult result, Duration ttl) {
