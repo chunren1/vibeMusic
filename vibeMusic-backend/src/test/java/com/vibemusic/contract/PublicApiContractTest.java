@@ -61,4 +61,14 @@ class PublicApiContractTest extends BaseTest {
                 .andExpect(jsonPath("$.code").value(400))
                 .andExpect(jsonPath("$.message").isString());
     }
+
+    @Test
+    @DisplayName("GET /api/songs/lyric：B站无歌词源 → 200 + data[] 稳定空形")
+    void lyricBilibiliEmptyEnvelope() throws Exception {
+        mockMvc.perform(get("/api/songs/lyric").param("sourceId", "BV1xx411c7mD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").isArray())
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
 }
