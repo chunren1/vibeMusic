@@ -7,7 +7,7 @@
 | **角色** | CI 校验用「影子配置」；自建 nginx **容器**方案用 | **云主机系统 nginx**，即线上真实反代 |
 | **谁在用** | `.github/workflows/ci.yml`（`nginx -t`）、容器化部署方案 | 生产环境（`systemctl` 的 nginx） |
 | **监听** | `443 ssl`，`server_name _` | `127.0.0.1:8081`，`server_name vibe.cyk666.top` |
-| **上游** | `upstream backend:8080`（Docker DNS 服务名） | `proxy_pass http://127.0.0.1:8080`（宿主回环） |
+| **上游** | `upstream backend:8080`（Docker DNS 服务名） | `proxy_pass http://vibemusic_backend`（upstream 名，端口由蓝绿脚本改） |
 | **TLS** | 容器内证书 `/etc/nginx/certs/` | **无证书**（TLS 由 Cloudflare 终结） |
 | **前端根** | `/usr/share/nginx/html` | `/var/www/vibemusic` |
 | **改了会怎样** | 挂 CI | 挂线上 |
@@ -22,8 +22,20 @@
 
 | 本目录文件 | 云上路径 |
 |---|---|
-| `vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic` |
+| `vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic`（`sites-available/` 同名副本，两边要一起改） |
 | `security.conf` | `/etc/nginx/conf.d/security.conf` |
+| `cloudflare-realip.conf` | `/etc/nginx/conf.d/cloudflare-realip.conf` |
+
+> `conf.d/vibemusic-backend-upstream.conf` **不纳管**：它由 `scripts/deploy-backend.sh` 生成/维护，
+> 内容随蓝绿端口（8080/8082/8083/8084）变化，入库反而会成为假真源。
+
+## 安全头为什么要在 `location` 里 `proxy_hide_header`
+
+后端 Spring Security 自己会发 `X-Frame-Options: DENY` 与 `X-Content-Type-Options: nosniff`，
+与 `security.conf` 的 `SAMEORIGIN`/`nosniff` 叠加后响应里会出现**两个值**。其中
+`X-Frame-Options` 是**冲突**（DENY vs SAMEORIGIN），部分浏览器取第一个值，
+等于把「同源可嵌入」变成「谁都不能嵌入」。反代到后端的两个 location
+（`/api/`、`/uploads/`）用 `proxy_hide_header` 丢掉上游这两个头，统一以 nginx 为准。
 
 云上还有 `/etc/nginx/nginx.conf`（主配置），它是 **Ubuntu 发行版默认**、未自定义，
 因此未纳管；生产真正自定义的只有上面两个文件。
