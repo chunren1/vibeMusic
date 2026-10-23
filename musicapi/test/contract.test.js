@@ -50,7 +50,11 @@ function assertShape(value, spec, at) {
   }
   assert.ok(value !== null && typeof value === 'object' && !Array.isArray(value), `${at} 应为对象`);
   for (const [key, child] of Object.entries(spec)) {
-    assert.ok(Object.prototype.hasOwnProperty.call(value, key), `${at}.${key} 缺失`);
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      // ? 同时表示"可缺省"：上游对非试听曲会省略 freeTrialInfo，后端 get() 得 null
+      if (typeof child === 'string' && child.endsWith('?')) continue;
+      assert.fail(`${at}.${key} 缺失`);
+    }
     assertShape(value[key], child, `${at}.${key}`);
   }
 }
@@ -217,6 +221,10 @@ test('/song/url/v1 契约：code/data[{url,freeTrialInfo,time}]，缺参 400', a
   const ep = '/song/url/v1';
   const ok = CONTRACT.endpoints[ep];
   await expectContract(`${ep} success`, await fetch(`${base}${ep}?id=386038&level=exhigh`), ok.success);
+
+  // 可选字段缺省也要通过：上游对非试听曲会省略 freeTrialInfo/time
+  NeteaseCloudMusicApi.song_url_v1 = async () => ({ body: { code: 200, data: [{ url: null }] } });
+  await expectContract(`${ep} optional fields absent`, await fetch(`${base}${ep}?id=386039`), ok.success);
 
   const [err] = ok.errors;
   await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), err);

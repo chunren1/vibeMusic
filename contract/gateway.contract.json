@@ -1,7 +1,7 @@
 {
   "version": 1,
   "description": "musicapi 网关内部契约（Java 后端消费的响应形状）。字段依据后端 NeteaseApiService/SongPlayService 实际读取的 key 定义；改这里必须先改后端解析。",
-  "typeSyntax": "string|number|boolean 为基础类型；后缀 ? 表示可为 null；数组写 [item]；对象逐 key 声明；未声明的字段允许存在；any 表示任意标量/结构（仅用于 id 这类平台间类型不一致的字段）",
+  "typeSyntax": "string|number|boolean 为基础类型；后缀 ? 表示可为 null 或缺省；数组写 [item]；对象逐 key 声明；未声明的字段允许存在；any 表示任意标量/结构（仅用于 id 这类平台间类型不一致的字段）",
   "endpoints": {
     "/song/url/qq": {
       "success": {
