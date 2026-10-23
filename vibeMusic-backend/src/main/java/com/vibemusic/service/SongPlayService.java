@@ -83,7 +83,7 @@ public class SongPlayService {
                     return neteaseApiService.getSongUrl(sourceId, level);
                 }
             } catch (Exception e) {
-                log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", e.getMessage(), e);
+                log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", ClientErrorScrubber.scrub(e.getMessage()), e);
             }
         }
         return rotateSharedCookieOnVipBlock(sourceId, level, body);
@@ -109,12 +109,12 @@ public class SongPlayService {
             if (!neteaseApiService.rotateSharedCookie(true)) return body;
             Map<String, Object> retried = neteaseApiService.getSongUrl(sourceId, level);
             if (NeteaseApiService.isFullPlayablePayload(retried)) {
-                log.info("VIP 权限受限快切成功: {} level={} 已取得完整可播链接", sourceId, level);
+                log.info("VIP 权限受限快切成功: {} level={} 已取得完整可播链接", ClientErrorScrubber.scrub(sourceId), level);
                 return retried;
             }
-            log.info("VIP 权限受限快切后重试仍不可播: {} level={}，保留原响应走降级链", sourceId, level);
+            log.info("VIP 权限受限快切后重试仍不可播: {} level={}，保留原响应走降级链", ClientErrorScrubber.scrub(sourceId), level);
         } catch (Exception e) {
-            log.warn("VIP 权限受限快切重试失败（降级链不变）: {}", e.getMessage(), e);
+            log.warn("VIP 权限受限快切重试失败（降级链不变）: {}", ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return body;
     }
@@ -144,7 +144,7 @@ public class SongPlayService {
         try {
             userService.markNeteaseCookieInvalid(userId, NeteaseApiService.extractUpstreamCode(body));
         } catch (Exception e) {
-            log.warn("BYOC 失效标记失败: userId={}, error={}", userId, e.getMessage());
+            log.warn("BYOC 失效标记失败: userId={}, error={}", userId, ClientErrorScrubber.scrub(e.getMessage()));
         }
     }
 
@@ -235,7 +235,7 @@ public class SongPlayService {
         } catch (ExecutionException e) {
             // CompletableFuture 把上游异常包在 ExecutionException 里：只打外层 message 会丢掉真实堆栈
             Throwable cause = e.getCause() != null ? e.getCause() : e;
-            log.warn("限时调用上游异常: {}", cause.getMessage(), cause);
+            log.warn("限时调用上游异常: {}", ClientErrorScrubber.scrub(cause.getMessage()), cause);
             return null;
         }
     }
@@ -275,7 +275,7 @@ public class SongPlayService {
         String minioObjectName = "songs/" + sourceId + ".mp3";
         if (isCachedInMinio(sourceId, userCookie)) {
             String directUrl = storageService.getDirectUrl(minioObjectName);
-            log.info("getPlayUrl: {} 命中 MinIO 缓存", sourceId);
+            log.info("getPlayUrl: {} 命中 MinIO 缓存", ClientErrorScrubber.scrub(sourceId));
             return directUrl;
         }
 
@@ -292,7 +292,7 @@ public class SongPlayService {
                 // 咪咕：musicapi 返回 302 Location 签名 URL（IP-bound），由 StreamController 代理字节流
                 String miguUrl = fetchMiguUrl(sourceId);
                 if (miguUrl != null) return miguUrl;
-                log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
                 String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitKugou || (!explicitQQ && !explicitNE && isKugouHash(sourceId))) {
@@ -300,7 +300,7 @@ public class SongPlayService {
                 // （此前误入 QQ 分支）；albumId 暂无法透传，取链失败则走网易云降级
                 String kugouUrl = tryKugouUrl(sourceId);
                 if (kugouUrl != null) return kugouUrl;
-                log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
                 String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && isBiliId(sourceId))) {
@@ -308,14 +308,14 @@ public class SongPlayService {
                 // （BV 形绝不能落入 QQ 分支，故本分支置于 QQ 分支之前）
                 String biliUrl = tryBiliUrl(sourceId);
                 if (biliUrl != null) return biliUrl;
-                log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
                 String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
                 // 取链实现与其它平台分支共用 fetchQqUrl（单一事实源）
                 String qqUrl = fetchQqUrl(sourceId);
                 if (qqUrl != null) return qqUrl;
-                log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", sourceId);
+                log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
                 String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
@@ -329,19 +329,19 @@ public class SongPlayService {
                 NeteaseApiService.CopyrightPrecheck precheck =
                         NeteaseApiService.precheckUrlPayload(probe.standardProbe);
                 if (precheck == NeteaseApiService.CopyrightPrecheck.NO_COPYRIGHT) {
-                    log.info("版权预检硬拦截: {} 无可用版权，跳过QQ降级直落DB兜底", sourceId);
+                    log.info("版权预检硬拦截: {} 无可用版权，跳过QQ降级直落DB兜底", ClientErrorScrubber.scrub(sourceId));
                 } else {
                     if (precheck == NeteaseApiService.CopyrightPrecheck.PERMISSION_BLOCKED) {
-                        log.info("VIP 权限受限: {} 付费曲目当前共享 Cookie 无播放权限（非无版权），继续 QQ 降级", sourceId);
+                        log.info("VIP 权限受限: {} 付费曲目当前共享 Cookie 无播放权限（非无版权），继续 QQ 降级", ClientErrorScrubber.scrub(sourceId));
                     }
                     // 网易云无可用链接（全失败或全试听）→ QQ 降级（Q2d 收敛）
                     String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
                     if (qqUrl != null) return qqUrl;
                 }
-                log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
+                log.warn("歌曲 {} 所有平台均无可用播放链接", ClientErrorScrubber.scrub(sourceId));
             }
         } catch (Exception e) {
-            log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage(), e);
+            log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
 
         // 3. API 失败 → 从 DB 兜底（只查 url 列）
@@ -374,7 +374,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("tryBiliUrl: {} 失败: {}", biliId, e.getMessage(), e);
+            log.warn("tryBiliUrl: {} 失败: {}", biliId, ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
     }
@@ -395,7 +395,7 @@ public class SongPlayService {
                     }
                 }
             } catch (Exception e) {
-                log.warn("tryKugouUrl: {} level={} 失败: {}", hash, level, e.getMessage(), e);
+                log.warn("tryKugouUrl: {} level={} 失败: {}", hash, level, ClientErrorScrubber.scrub(e.getMessage()), e);
             }
         }
         return null;
@@ -418,7 +418,7 @@ public class SongPlayService {
                 futures.put(level, CompletableFuture.supplyAsync(
                         () -> fetchNeteaseUrl(sourceId, level, uc, uid), getUrlExecutor));
             } catch (RejectedExecutionException e) {
-                log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", level, sourceId);
+                log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", level, ClientErrorScrubber.scrub(sourceId));
             }
         }
         Map<String, Object> standardProbe = null;
@@ -426,7 +426,7 @@ public class SongPlayService {
         try {
             for (String level : levels) {
                 if (System.currentTimeMillis() > deadline) {
-                    log.warn("音质降级链超时: {}, 已检查至 {}", sourceId, level);
+                    log.warn("音质降级链超时: {}, 已检查至 {}", ClientErrorScrubber.scrub(sourceId), level);
                     break;
                 }
                 CompletableFuture<Map<String, Object>> cf = futures.get(level);
@@ -444,14 +444,14 @@ public class SongPlayService {
                     Object time = data.get(0).get("time");
                     if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) {
                         trialCount++;
-                        log.info("音质[{}] 歌曲 {} 为试听片段 → 尝试下一级", level, sourceId);
+                        log.info("音质[{}] 歌曲 {} 为试听片段 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
                         continue;
                     }
                     return new NeteaseProbe(url, level, standardProbe, trialCount);
                 } catch (TimeoutException e) {
-                    log.info("音质[{}] 歌曲 {} 超时 → 尝试下一级", level, sourceId);
+                    log.info("音质[{}] 歌曲 {} 超时 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
                 } catch (Exception e) {
-                    log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, sourceId, e.getMessage(), e);
+                    log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
                 }
             }
         } finally {
@@ -488,7 +488,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("fetchMiguUrl: {} 获取失败: {}", sourceId, e.getMessage(), e);
+            log.warn("fetchMiguUrl: {} 获取失败: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
     }
@@ -506,7 +506,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("fetchQqUrl: {} 获取失败: {}", sourceId, e.getMessage(), e);
+            log.warn("fetchQqUrl: {} 获取失败: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
     }
@@ -521,7 +521,7 @@ public class SongPlayService {
      */
     private String degradeNeteaseToQq(String songName, String artist, String sourceId, long deadline) {
         degradationCount.incrementAndGet();
-        log.info("音质降级: {} 网易云不可用 → 尝试QQ降级", sourceId);
+        log.info("音质降级: {} 网易云不可用 → 尝试QQ降级", ClientErrorScrubber.scrub(sourceId));
         return callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), deadline);
     }
 
