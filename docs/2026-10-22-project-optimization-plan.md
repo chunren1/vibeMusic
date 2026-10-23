@@ -218,15 +218,15 @@
 |---|---|---|
 | P0-1 超时预算 | ✅ 完成 | `RestTemplateConfig` 4 个用途客户端（connect 3s / 默认 5s / 搜索 3s / 流 30s / AI 60s）；删死配置 `NeteaseApiConfig.timeout`；`mvn verify` 617 tests 绿 |
 | P0-2 资源重排 | ✅ 完成 | Tomcat 40/50/200；搜索池 8-12-32、取链 8/8/16、预热 1/1/2；Hikari 8/2；`ThreadPoolConfigTest` 12 例绿（我独立复跑）；运行时 actuator 读数 `tomcat.threads.config.max=40`、`jdbc.connections.max=8` |
-| P0-3 贵端点限流 | 🔄 已实现，待全量 verify | `RateLimitFilter`（只拦 `/api/songs/search` 20/min、`/api/songs/stream` 60/min）+ `RequestIdentity`（user > device > X-Real-IP > remoteAddr）+ 429 带 `Retry-After`；新增 14 例测试全绿 |
+| P0-3 贵端点限流 | ✅ 完成（线上实测） | `RateLimitFilter`（只拦 `/api/songs/search` 20/min、`/api/songs/stream` 60/min）+ `RequestIdentity`（user > device > X-Real-IP > remoteAddr）+ 429 带 `Retry-After`；新增 14 例测试；**线上实测第 21 次起 429，`Retry-After: 40`，信封 `{code:429}`，Redis 键 `ratelimit:search:dev:<id>=25`** |
 | P0-4 可用性告警 | ✅ 完成 | 云端 cron 看门狗；`docker stop` → **55 秒**手机收到 🔴，拉起后收到 🟢 |
 | P0-5 备份可恢复 | ✅ 完成 | `pipefail` + 尾部 `Dump completed` + 体积下限；恢复演练 8/8 表、导入 1046 ms；异地 cron 09:40 |
 | P0-6a App 验签 | ✅ 完成 | 证书 SHA-256 断言（fail-closed，固化指纹兜底）+ lint 门 + versionCode 单调；943 tests 绿 |
 | P0-6b 前端发布 | ✅ 完成 | `scripts/deploy-frontend.sh`（默认 dry-run）+ `docs/deploy-frontend.md` |
-| P0-7 前端上报 | ✅ 完成（后端待做） | 第一方 `clientErrorReporter.js`；174 tests 绿；dist 中 sentry chunk 归零 |
+| P0-7 错误上报 | ✅ 完成（线上实测） | 前端第一方 `clientErrorReporter.js`（174 tests 绿、dist sentry 归零）；后端 `POST /api/client-errors`：**正常 204 / 空 message 400 / 20KB JSON 413 / 第 31 次 429**，日志 `[CLIENT-ERROR]` 与 `client.error.reports{kind}` 计数器实测可查 |
 | P0-8 网关加固 | ✅ 完成 | 探针 8s 硬超时 + 巡检看门狗；限流按身份分桶；`/health|/metrics|/reload` 跳过；167 tests 绿 |
 | 云上收敛 | ✅ 完成 | 只剩 backend/musicapi/mysql/redis；磁盘 19G→15G；监控改本机按需（`restart: "no"`，起→200→down→零残留实测） |
-| 外部探活 | ⏳ 待推送 | `.github/workflows/uptime-check.yml`（YAML/bash -n/真探活/失败路径/未配 secret 静默 均本地验证）；需推送到 GitHub 才能生效 |
+| 外部探活 | ✅ 已上线运行 | `.github/workflows/uptime-check.yml` 已推送并 `workflow_dispatch` 实跑 **success**；Server酱 secret 实测可推送（首跑真的收到 🔴）。**能力边界**：GitHub runner 在 Azure，CF 对数据中心 IP 一律 managed challenge（403 + "Just a moment..."，0.1s，换 UA 无效），源站 80/443 只放行 CF 回源 → 探活只能发现 DNS 失效 / CF 边缘不可达 / 源站整体故障（522/523/524），源站内部组件由服务器 cron 看门狗每分钟盯 |
 
 ### 10.1 P0-3 设计取舍（避免后续被"优化"回坑）
 
@@ -236,3 +236,27 @@
 4. **入站 `X-User-Id` 一律不采信**：出站方向后端自己写这个头给网关，入站方向它同样可被客户端伪造，采信等于"换头即换额度"。仅已认证用户 ID 来自 SecurityContext（不可伪造）。
 5. **过滤器只在 Security 链里跑**：`FilterRegistrationBean.setEnabled(false)` 关掉 Boot 的自动注册，否则同一请求计数两次、且第一次执行时 SecurityContext 为空导致身份退化。
 6. **只拦 GET**：搜索/流都是 GET 语义，416/OPTIONS 预检不计数。
+
+## 10.2 线上部署实测（2026-10-23 10:07–10:20，阿里云 ECS）
+
+部署方式：本机 `docker build` → `docker save | gzip | ssh docker load` → `compose up -d --no-build`（**不在 1.6G 云上跑 mvn**）。
+
+| 项目 | 实测值 |
+|---|---|
+| 新镜像 | backend `583MB` / musicapi `467MB`（load 后大小），回滚标签 `*:rollback-20261022` |
+| 后端冷启动 | **161.0 s**（基线 156.8 s，差异在噪声范围；`Started VibeMusicBackendApplication in 161.0 seconds`） |
+| 健康 | `{"groups":["liveness","readiness"],"status":"UP"}` |
+| 新代码指纹 | 容器内 jar 的 `application.yml` 含 `rate-limit:` 段；`RateLimitFilter/RequestIdentity/RateLimitProperties` 三个 class 均在 jar 内；`SecurityConfig.class` 与本地 md5 一致 |
+| 限流 | 固定身份连打 25 次 search → `200×20` 后 `429×5`，`Retry-After: 40`，body `{"code":429,"message":"请求过于频繁，请稍后再试","data":null}`；Redis `ratelimit:search:dev:probe-fixed-001 = 25` |
+| 错误上报 | 正常 `204`；空 message `400`；20KB JSON `413`（`{"code":413,"message":"上报内容过大"}`）；同身份第 31 次 `429`；`ratelimit:clienterr:dev:err-probe-002` 落键 |
+| 网关额度 | 容器内 `rate-limiters.js`：global `300` / search `120` / url `240` |
+| 前端 | `deploy-frontend.sh --apply` 发布成功；线上 html 引用新 `index-CeGBCmeH.js`（200），dist 含 `client-errors` 特征、0 个 sentry 残留 |
+| 4 容器 | backend / musicapi / mysql / redis 全 healthy |
+
+**部署过程中被实测抓出的两个真问题（都已修）**：
+
+1. **前端发版误判回滚**：首跑切换与 reload 都成功、`/` 与 css 均 200，但取主 js 时 curl 报 `TLS connect error: unexpected eof while reading`（000），脚本按失败回滚。字节侧早已校验过（md5 + 解包文件数 + index.html sha256），属网络抖动 → 改为 `fetch_code/fetch_body`：**只有 000/空体重试一次，HTTP 错误码不重试**（不削弱门禁）。
+2. **验证脚本自身 bug**：首次 25 次连打全 200，一度以为限流失效；实际是脚本把 `X-Device-Id` 写成 `deploy-verify-$(date +%s)`，25 次请求跨了好几秒 → 每次都换身份、各自一个桶。改成固定设备头后立刻复现 429。**教训：验证限流必须用稳定身份，否则测的是"新用户"而不是"同一用户"。**
+
+**已知遗留**：冷启动 161 s 仍意味着每次发版 2.6 分钟不可用（P1-1 才解决）；`SERVER_TOMCAT_THREADS_MAX=50` 由云端 compose 环境变量覆盖 yml 默认值 40，两者一致于"max=50"。
+
