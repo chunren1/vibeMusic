@@ -536,14 +536,14 @@ public class SongPlayService {
             artist = song.getArtist();
         }
         try {
-            String keyword = ClientErrorScrubber.scrub(artist != null && !artist.isBlank() ? songName + " " + artist : songName);
+            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
             Map<String, Object> result = neteaseApiService.searchQQ(keyword, 5);
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null || data.isEmpty()) return null;
             // 歌名/歌手相似度匹配，避免取到错误歌曲
             Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist);
-            if (best == null) { log.info("QQ降级: '{}' 无匹配歌曲", keyword); return null; }
+            if (best == null) { log.info("QQ降级: '{}' 无匹配歌曲", ClientErrorScrubber.scrub(keyword)); return null; }
             String qqSourceId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
             String matchName = best.get("name") != null ? String.valueOf(best.get("name")) : "";
             String matchArtists = best.get("artists") != null ? String.valueOf(best.get("artists")) : "";
@@ -559,13 +559,13 @@ public class SongPlayService {
                 if (urlData != null && !urlData.isEmpty()) {
                     String url = (String) urlData.get(0).get("url");
                     if (url != null && !url.isEmpty()) {
-                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", keyword, ClientErrorScrubber.scrub(matchName), SongMatcher.similarity(keyword, matchName + matchArtists));
+                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", ClientErrorScrubber.scrub(keyword), ClientErrorScrubber.scrub(matchName), SongMatcher.similarity(keyword, matchName + matchArtists));
                         return url;
                     }
                 }
             }
         } catch (Exception e) {
-            log.warn("QQ降级搜索失败: {} - {}", songName, e.getMessage(), e);
+            log.warn("QQ降级搜索失败: {} - {}", ClientErrorScrubber.scrub(songName), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
     }
@@ -618,7 +618,7 @@ public class SongPlayService {
             artist = song.getArtist();
         }
         try {
-            String keyword = ClientErrorScrubber.scrub(artist != null && !artist.isBlank() ? songName + " " + artist : songName);
+            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
             Map<String, Object> result = fetchNeteaseSearch(keyword, 5, userCookie);
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
@@ -627,7 +627,7 @@ public class SongPlayService {
             if (neteaseId == null) return null;
             Object durObj = data.get(0).get("duration");
             if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= TRIAL_DURATION_MS) {
-                log.info("网易云降级: {} 也只有试听版，跳过", keyword);
+                log.info("网易云降级: {} 也只有试听版，跳过", ClientErrorScrubber.scrub(keyword));
                 return null;
             }
             String[] levels = {"exhigh", "higher", "standard"};
@@ -641,12 +641,12 @@ public class SongPlayService {
                 Object trial = urlData.get(0).get("freeTrialInfo");
                 Object time = urlData.get(0).get("time");
                 if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) continue;
-                log.info("网易云降级成功: {} → neteaseId={}, level={}", keyword, neteaseId, level);
+                log.info("网易云降级成功: {} → neteaseId={}, level={}", ClientErrorScrubber.scrub(keyword), neteaseId, level);
                 return url;
             }
-            log.info("网易云降级: {} 所有音质均为试听，跳过", keyword);
+            log.info("网易云降级: {} 所有音质均为试听，跳过", ClientErrorScrubber.scrub(keyword));
         } catch (Exception e) {
-            log.warn("网易云降级搜索失败: {} - {}", songName, e.getMessage(), e);
+            log.warn("网易云降级搜索失败: {} - {}", ClientErrorScrubber.scrub(songName), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
     }

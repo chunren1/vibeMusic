@@ -93,4 +93,21 @@ class SongPlayDegradeChainTest {
 
         assertEquals(1, songPlayService.getDegradationCount());
     }
+
+    @Test
+    @DisplayName("降级查询词保持原值：日志净化不得改写上游搜索")
+    void keywordIsNotScrubbedBeforeUpstream() {
+        when(neteaseApiService.getSongUrl(anyString(), anyString()))
+                .thenThrow(new RuntimeException("netease down"));
+        when(neteaseApiService.searchQQ(eq("晴天 a@b.com"), eq(5)))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("id", "qq1", "name", "晴天", "artists", "a@b.com", "duration", 240000))));
+        when(neteaseApiService.getQQSongUrl("qq1"))
+                .thenReturn(Map.of("data", List.of(Map.of("url", "https://cdn.example/x.mp3"))));
+
+        String url = songPlayService.getPlayUrl("12345", "晴天", "a@b.com");
+
+        assertEquals("https://cdn.example/x.mp3", url);
+        verify(neteaseApiService).searchQQ("晴天 a@b.com", 5);
+    }
 }
