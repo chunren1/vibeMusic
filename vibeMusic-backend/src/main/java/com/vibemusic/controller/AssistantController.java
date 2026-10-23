@@ -191,12 +191,12 @@ public class AssistantController {
 
             // 处理 Function Calling（最多 2 轮工具调用）
             int toolRounds = 0;
-            while (hasToolCalls(llmResponse) && toolRounds < MAX_TOOL_ROUNDS) {
+            while (AssistantPayloads.hasToolCalls(llmResponse) && toolRounds < MAX_TOOL_ROUNDS) {
                 toolRounds++;
-                List<Map<String, Object>> toolCalls = extractToolCalls(llmResponse);
+                List<Map<String, Object>> toolCalls = AssistantPayloads.extractToolCalls(llmResponse);
 
                 // 把 assistant 的 tool_calls 消息加入历史
-                messages.add(extractAssistantMessage(llmResponse));
+                messages.add(AssistantPayloads.extractAssistantMessage(llmResponse));
 
                 // 执行每个工具调用（受同一 deadline 约束，单次工具不吃掉整份预算）
                 for (Map<String, Object> toolCall : toolCalls) {
@@ -228,7 +228,7 @@ public class AssistantController {
                 llmResponse = callLLMWithTools(messages, budget);
             }
 
-            String reply = extractContent(llmResponse);
+            String reply = AssistantPayloads.extractContent(llmResponse);
             if (reply == null || reply.isBlank()) reply = AI_FALLBACK_REPLY;
 
             // 保存对话到记忆
@@ -577,35 +577,6 @@ public class AssistantController {
         requestBody.put("stream", true);
         requestBody.put("thinking", Map.of("type", thinkingMode));
         return requestBody;
-    }
-
-    @SuppressWarnings("unchecked")
-    private boolean hasToolCalls(Map<String, Object> choice) {
-        Map<String, Object> message = (Map<String, Object>) choice.get("message");
-        return message != null && message.get("tool_calls") != null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> extractToolCalls(Map<String, Object> choice) {
-        Map<String, Object> message = (Map<String, Object>) choice.get("message");
-        return (List<Map<String, Object>>) message.get("tool_calls");
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> extractAssistantMessage(Map<String, Object> choice) {
-        Map<String, Object> message = (Map<String, Object>) choice.get("message");
-        Map<String, Object> msg = new HashMap<>();
-        msg.put("role", "assistant");
-        msg.put("content", message.getOrDefault("content", ""));
-        msg.put("tool_calls", message.get("tool_calls"));
-        return msg;
-    }
-
-    @SuppressWarnings("unchecked")
-    private String extractContent(Map<String, Object> choice) {
-        Map<String, Object> message = (Map<String, Object>) choice.get("message");
-        if (message == null) return null;
-        return (String) message.get("content");
     }
 
     /**
