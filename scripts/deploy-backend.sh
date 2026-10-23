@@ -34,7 +34,14 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND="$REPO/vibeMusic-backend"
 
 HOST="${HOST:-root@101.132.167.178}"
-IMAGE="${IMAGE:-latest}"
+# 镜像 tag 默认用 git sha（P1-12：产物可追溯，回滚不依赖 latest 指针）；
+# 工作区有未提交改动时追加 -dirty，避免"镜像内容与 tag 不一致"的假象。
+GIT_SHA="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo latest)"
+if [ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]; then
+  echo "WARN: 工作区有未提交改动，镜像 tag 追加 -dirty" >&2
+  GIT_SHA="${GIT_SHA}-dirty"
+fi
+IMAGE="${IMAGE:-$GIT_SHA}"
 SKIP_BUILD=0
 HEALTH_TIMEOUT=300
 FORCE=0
@@ -66,7 +73,7 @@ usage() {
 用法: scripts/deploy-backend.sh [选项]
 
   --apply               真正执行（默认只打印将执行的命令，零副作用）
-  --image TAG           镜像 tag（默认 latest，或环境变量 IMAGE）
+  --image TAG           镜像 tag（默认 git sha，或环境变量 IMAGE）
   --skip-build          跳过本地 docker build，复用本机已有的 vibemusic-backend:<TAG>
   --health-timeout N    等新容器 healthy 的秒数上限（默认 300；冷启动约 161s）
   --host USER@IP        目标主机（默认 root@101.132.167.178，或环境变量 HOST）
