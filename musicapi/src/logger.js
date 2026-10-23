@@ -121,4 +121,31 @@ function writeLog(category, level, message) {
   if (category === 'api' || category === 'cookie') console.log(`[${new Date().toISOString()}] [${level}] ${message}`);
 }
 
-module.exports = { writeLog, logManager, LOG_DIR };
+// ==================== traceId 关联（与后端日志对齐） ====================
+// 后端 NeteaseApiService 出站首部透传 X-Trace-Id（见后端 TraceHeaderSupport），
+// 此处只负责把它安全地带进访问日志：没有该头就不打这个字段，绝不编造。
+// 字符集/长度校验与 rate-limiters 的计数键口径一致：不可信头值直接丢弃，
+// 防止换行/控制符伪造日志行（日志注入）。
+const TRACE_ID_HEADER = 'x-trace-id';
+const TRACE_ID_SAFE_RE = /^[A-Za-z0-9._:@-]{1,128}$/;
+
+/**
+ * 取请求里可安全落日志的 traceId。
+ * @param {import('express').Request} req
+ * @returns {string} 合法 traceId，缺失/非法返回 ''
+ */
+function traceIdOf(req) {
+  const raw = req && req.headers ? req.headers[TRACE_ID_HEADER] : undefined;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return TRACE_ID_SAFE_RE.test(trimmed) ? trimmed : '';
+}
+
+/** 访问日志的 trace 片段：无 traceId 时返回空串，保持既有日志格式不变。 */
+function traceTag(req) {
+  const traceId = traceIdOf(req);
+  return traceId ? ` [trace=${traceId}]` : '';
+}
+
+module.exports = { writeLog, logManager, LOG_DIR, traceIdOf, traceTag };

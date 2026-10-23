@@ -11,7 +11,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const express = require('express');
 const cors = require('cors');
 
-const { writeLog, logManager } = require('./src/logger');
+const { writeLog, logManager, traceTag } = require('./src/logger');
 const { globalLimiter, parseTrustProxyValue } = require('./src/rate-limiters');
 const { register, metricsMiddleware } = require('./src/metrics');
 const { canReadMetrics, clientIp } = require('./src/access');
@@ -62,7 +62,8 @@ app.use(globalLimiter);  // 全局限流
 app.use((req, res, next) => {
   // 跳过静态资源请求的日志
   if (!req.url.startsWith('/favicon')) {
-    writeLog('access', 'INFO', `${req.method} ${req.originalUrl}`);
+    // traceTag：仅当后端透传了合法 X-Trace-Id 时追加，缺失则保持原格式
+    writeLog('access', 'INFO', `${req.method} ${req.originalUrl}${traceTag(req)}`);
   }
   next();
 });
