@@ -44,6 +44,18 @@ function closedPort() {
   });
 }
 
+
+/** 启动一个本地服务，返回 { port, close }，便于构造重定向等多服务场景。 */
+function startServer(handler) {
+  return new Promise((resolve) => {
+    const server = http.createServer(handler);
+    server.listen(0, '127.0.0.1', () => resolve({
+      port: server.address().port,
+      close: () => new Promise((done) => server.close(done)),
+    }));
+  });
+}
+
 // ---------------- 纯函数 ----------------
 
 test('normalizeLabel：只认常量标签，疑似拼 URL/query 的一律 unknown', () => {
@@ -208,13 +220,15 @@ test('isPrivateHost：私网/环回/链路本地一律命中，公网不误伤',
     '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.31.255.255',
     '192.168.1.1', '169.254.169.254', '0.0.0.0', '100.64.0.1',
     '::1', 'fc00::1', 'fd12::1', 'fe80::1',
-    'localhost', 'foo.localhost', 'printer.local',
+    '::ffff:7f00:1', '::ffff:a9fe:a9fe', '::7f00:1',
+    'localhost', 'localhost.', 'foo.localhost', 'printer.local',
+    'metadata.tencentyun.com', 'metadata.google.internal',
   ]) {
     assert.equal(isPrivateHost(h), true, `${h} 应判私网`);
   }
   for (const h of [
     '8.8.8.8', '172.15.0.1', '172.32.0.1',
-    'music.163.com', 'aqqmusic.tc.qq.com', '2408:8000::1',
+    'music.163.com', 'aqqmusic.tc.qq.com', '2408:8000::1', '::ffff:8.8.8.8',
   ]) {
     assert.equal(isPrivateHost(h), false, `${h} 不应判私网`);
   }
@@ -239,4 +253,33 @@ test('upstreamGet：私网目标默认拒绝且不发请求（二阶 SSRF 防护
       assert.equal(hits, 0, '被拦截的请求不应到达目标');
     }
   );
+});
+
+test('upstreamGet：重定向到私网被拦截（每一跳都校验）', async () => {
+  let hits = 0;
+  const target = await startServer((req, res) => {
+    hits += 1;
+    res.end('secret');
+  });
+  const redirector = await startServer((req, res) => {
+    res.writeHead(302, { Location: `http://127.0.0.1:${target.port}/secret` });
+    res.end();
+  });
+  try {
+    await assert.rejects(
+      () => upstreamGet(`http://127.0.0.1:${redirector.port}/go`, {
+        label: 'local/redirect',
+        allowPrivate: true, // 首跳放行；重定向目标仍必须被拦
+      }),
+      (err) => {
+        assert.ok(err instanceof UpstreamError);
+        assert.equal(err.kind, KIND.BLOCKED);
+        return true;
+      }
+    );
+    assert.equal(hits, 0, '重定向目标不应被访问');
+  } finally {
+    await redirector.close();
+    await target.close();
+  }
 });
