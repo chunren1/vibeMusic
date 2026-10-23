@@ -50,10 +50,15 @@ class LogManager {
   _scheduleMidnightRotation() {
     const now = new Date();
     const msToMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0) - now;
-    setTimeout(() => {
+    // unref()：日志轮转不该成为「进程活着的理由」。少了它，单测里 require 过 logger
+    // 就会挂着一个永不触发的定时器（以前只能靠 node --test-force-exit 掩盖），
+    // 也挡住了优雅退出。
+    this._rotationTimer = setTimeout(() => {
       this._rotate();
-      setInterval(() => this._rotate(), 24 * 60 * 60 * 1000);
+      this._rotationTimer = setInterval(() => this._rotate(), 24 * 60 * 60 * 1000);
+      this._rotationTimer.unref();
     }, msToMidnight);
+    this._rotationTimer.unref();
   }
 
   /** 删除 retentionDays 天前的日志文件 */

@@ -233,8 +233,16 @@
                                 <rule>
                                     <element>BUNDLE</element>
                                     <limits>
+                                        <!-- 2026-10-23：实测 行 79.3% / 分支 66.8%，门禁从「仅行 60%」提到 70/60。
+                                             留 9 个百分点余量是刻意的：门禁是防倒退的底线，不是刷分目标；
+                                             一次正常的功能提交（新增几十行 + 测试）不该因为 0.3 个百分点把 CI 打红。 -->
                                         <limit>
                                             <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
                                             <value>COVEREDRATIO</value>
                                             <minimum>0.60</minimum>
                                         </limit>
