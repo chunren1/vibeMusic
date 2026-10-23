@@ -12,6 +12,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const axios = require('axios');
+const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
+const { searchCache, urlCache } = require('../src/search');
 const registerRoutes = require('../src/routes');
 
 const CONTRACT = JSON.parse(
@@ -19,7 +21,11 @@ const CONTRACT = JSON.parse(
 );
 
 const restores = [];
-afterEach(() => { while (restores.length) restores.pop()(); });
+afterEach(() => {
+  while (restores.length) restores.pop()();
+  searchCache.clear();
+  urlCache.clear();
+});
 
 function stubAxiosGet(impl) {
   const orig = axios.get;
@@ -29,6 +35,7 @@ function stubAxiosGet(impl) {
 
 /** 按契约里的类型语法校验（string / string? / [item] / 对象逐 key）。 */
 function assertShape(value, spec, at) {
+  if (spec === 'any') return;
   if (typeof spec === 'string') {
     const nullable = spec.endsWith('?');
     const expected = nullable ? spec.slice(0, -1) : spec;
@@ -131,4 +138,66 @@ test('/qq/playlist 契约：code/data 完整歌单形状，缺参 400', async (t
 
   const [err] = ok.errors;
   await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), err);
+});
+
+function neteaseSearchPayload() {
+  return {
+    body: {
+      code: 200,
+      result: {
+        songs: [{
+          id: 386038, name: '晴天', ar: [{ name: '周杰伦' }],
+          al: { name: '叶惠美', picUrl: 'https://p2.music.126.net/xxx.jpg' },
+          dt: 240000, fee: 0, pop: 1000000,
+        }],
+      },
+    },
+  };
+}
+
+function qqSearchPayload() {
+  return {
+    data: {
+      search: {
+        data: {
+          body: {
+            song: {
+              list: [{
+                mid: '004abcXYZ1', name: '晴天', singer: [{ name: '周杰伦' }],
+                album: { mid: '002eFUFQ2XYZOP', name: '叶惠美' },
+                interval: 240, pay: { pay_play: 0 },
+              }],
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+test('/search 契约：data{total,page,size,list[]}，缺 keyword 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const origCloud = NeteaseCloudMusicApi.cloudsearch;
+  const origSearch = NeteaseCloudMusicApi.search;
+  NeteaseCloudMusicApi.cloudsearch = async () => neteaseSearchPayload();
+  NeteaseCloudMusicApi.search = async () => neteaseSearchPayload();
+  restores.push(() => {
+    NeteaseCloudMusicApi.cloudsearch = origCloud;
+    NeteaseCloudMusicApi.search = origSearch;
+  });
+  stubAxiosGet(async () => qqSearchPayload());
+
+  const ep = '/search';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?keyword=${encodeURIComponent('契约搜索唯一词')}`),
+    ok.success
+  );
+  assert.ok(body.data.list.length >= 1, '应至少合并出一条结果');
+  assert.ok(['netease', 'qq'].includes(body.data.list[0].platform));
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
 });

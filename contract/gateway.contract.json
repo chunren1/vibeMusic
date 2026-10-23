@@ -1,25 +1,56 @@
 {
   "version": 1,
   "description": "musicapi 网关内部契约（Java 后端消费的响应形状）。字段依据后端 NeteaseApiService/SongPlayService 实际读取的 key 定义；改这里必须先改后端解析。",
-  "typeSyntax": "string|number|boolean 为基础类型；后缀 ? 表示可为 null；数组写 [item]；对象逐 key 声明；未声明的字段允许存在",
+  "typeSyntax": "string|number|boolean 为基础类型；后缀 ? 表示可为 null；数组写 [item]；对象逐 key 声明；未声明的字段允许存在；any 表示任意标量/结构（仅用于 id 这类平台间类型不一致的字段）",
   "endpoints": {
     "/song/url/qq": {
       "success": {
         "status": 200,
-        "body": { "code": "number", "data": [{ "id": "string", "url": "string?" }] }
+        "body": {
+          "code": "number",
+          "data": [
+            {
+              "id": "string",
+              "url": "string?"
+            }
+          ]
+        }
       },
       "errors": [
-        { "status": 400, "body": { "code": "number", "message": "string" } }
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
       ]
     },
     "/qq/lyric": {
       "success": {
         "status": 200,
-        "body": { "code": "number", "data": { "lyric": "string" } }
+        "body": {
+          "code": "number",
+          "data": {
+            "lyric": "string"
+          }
+        }
       },
       "errors": [
-        { "status": 400, "body": { "code": "number", "message": "string" } },
-        { "status": 404, "body": { "code": "number", "message": "string" } }
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        },
+        {
+          "status": 404,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
       ]
     },
     "/qq/playlist": {
@@ -32,7 +63,10 @@
             "name": "string",
             "description": "string",
             "coverUrl": "string",
-            "creator": { "name": "string", "avatar": "string" },
+            "creator": {
+              "name": "string",
+              "avatar": "string"
+            },
             "playCount": "number",
             "songCount": "number",
             "source": "string",
@@ -50,8 +84,56 @@
         }
       },
       "errors": [
-        { "status": 400, "body": { "code": "number", "message": "string" } },
-        { "status": 404, "body": { "code": "number", "message": "string" } }
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        },
+        {
+          "status": 404,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/search": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "message": "string",
+          "data": {
+            "total": "number",
+            "page": "number",
+            "size": "number",
+            "list": [
+              {
+                "id": "any",
+                "name": "string",
+                "artists": "string",
+                "album": "string",
+                "cover": "string",
+                "duration": "number",
+                "vip": "boolean",
+                "platform": "string"
+              }
+            ]
+          }
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string",
+            "data": "any"
+          }
+        }
       ]
     }
   }
