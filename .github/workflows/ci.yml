@@ -207,7 +207,8 @@ jobs:
 
       - name: Run gateway tests (per-file, no live server)
         run: |
-          node --test --test-force-exit test/cookie-endpoints-hardening.test.js \
+          node --test --test-force-exit test/contract.test.js \
+            test/cookie-endpoints-hardening.test.js \
             test/gateway-top10.test.js \
             test/netease-capability-probe.test.js \
             test/netease-cookie-failover.test.js \

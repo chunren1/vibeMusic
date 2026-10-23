@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "description": "musicapi 网关内部契约（Java 后端消费的响应形状）。字段依据后端 NeteaseApiService/SongPlayService 实际读取的 key 定义；改这里必须先改后端解析。",
+  "typeSyntax": "string|number|boolean 为基础类型；后缀 ? 表示可为 null；数组写 [item]；对象逐 key 声明；未声明的字段允许存在",
+  "endpoints": {
+    "/song/url/qq": {
+      "success": {
+        "status": 200,
+        "body": { "code": "number", "data": [{ "id": "string", "url": "string?" }] }
+      },
+      "errors": [
+        { "status": 400, "body": { "code": "number", "message": "string" } }
+      ]
+    },
+    "/qq/lyric": {
+      "success": {
+        "status": 200,
+        "body": { "code": "number", "data": { "lyric": "string" } }
+      },
+      "errors": [
+        { "status": 400, "body": { "code": "number", "message": "string" } },
+        { "status": 404, "body": { "code": "number", "message": "string" } }
+      ]
+    },
+    "/qq/playlist": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": {
+            "id": "string",
+            "name": "string",
+            "description": "string",
+            "coverUrl": "string",
+            "creator": { "name": "string", "avatar": "string" },
+            "playCount": "number",
+            "songCount": "number",
+            "source": "string",
+            "songs": [
+              {
+                "id": "string",
+                "name": "string",
+                "artist": "string",
+                "album": "string",
+                "coverUrl": "string",
+                "duration": "number"
+              }
+            ]
+          }
+        }
+      },
+      "errors": [
+        { "status": 400, "body": { "code": "number", "message": "string" } },
+        { "status": 404, "body": { "code": "number", "message": "string" } }
+      ]
+    }
+  }
+}
