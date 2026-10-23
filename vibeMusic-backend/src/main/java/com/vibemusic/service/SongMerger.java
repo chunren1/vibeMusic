@@ -42,13 +42,15 @@ final class SongMerger {
         addPlatformSongs(mergedMap, mergeCounts, biliSongs, weightOf(weights, "bilibili"), "bilibili", true);
 
         List<SongDTO> merged = new ArrayList<>(mergedMap.values());
+        // 日志注入面收口：keyword 来自用户输入，落日志前剥离换行（排序仍用原值）
+        String logKeyword = keyword == null ? "" : keyword.replaceAll("[\\r\\n]", " ");
         long relevanceStart = System.currentTimeMillis();
         SongRanking.applyRelevanceBonus(merged, keyword);
         SongRanking.applyNonVipBonus(merged);
         SongRanking.applyTitleLengthPenalty(merged);
         SongRanking.applyBiliPlayGate(merged);
         log.info("[SEARCH-RANK] 相关性重排: keyword='{}', count={}, relevance-cost={}ms",
-                keyword, merged.size(), System.currentTimeMillis() - relevanceStart);
+                logKeyword, merged.size(), System.currentTimeMillis() - relevanceStart);
         merged.sort((a, b) -> Double.compare(
                 b.getFinalScore() != null ? b.getFinalScore() : 0,
                 a.getFinalScore() != null ? a.getFinalScore() : 0));
