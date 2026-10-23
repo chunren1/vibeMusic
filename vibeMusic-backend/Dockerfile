@@ -1,7 +1,7 @@
 # ==========================
 # vibeMusic 后端 Dockerfile
 # ==========================
-FROM eclipse-temurin:25-jre-alpine
+FROM eclipse-temurin:25-jre-alpine@sha256:b7528962e65d43064d8a8b67ba175367896bc948363ea2d3fcd7f10d34e1f048
 
 # 创建非 root 用户
 RUN addgroup -S app && adduser -S app -G app
