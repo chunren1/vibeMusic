@@ -1,5 +1,10 @@
 // ==================== 上游 API 搜索代理 ====================
 const crypto = require('crypto');
+
+/** 日志单行化：剥离 CR/LF，防止上游/用户输入伪造日志行（CWE-117）。 */
+function logSafe(value) {
+  return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ');
+}
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { LRUCache } = require('lru-cache');
 const { withNeteaseCookie, getQQCookieString } = require('./cookie');
@@ -193,12 +198,12 @@ async function searchQQ(keyword, limit) {
     });
     const list = resp.data?.search?.data?.body?.song?.list;
     if (!Array.isArray(list) || list.length === 0) {
-      writeLog('degradation', 'WARN', `QQ搜索异常: code=${resp.data?.code}, keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `QQ搜索异常: code=${resp.data?.code}, keyword=${logSafe(keyword)}`);
       return [];
     }
     return list.map(mapQQSong);
   } catch (error) {
-    writeLog('degradation', 'ERROR', `QQ搜索失败: keyword=${keyword}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `QQ搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
     return [];
   }
 }
@@ -296,17 +301,17 @@ async function searchMigu(keyword, limit) {
     });
     const body = resp.data;
     if (!body || body.code !== '000000') {
-      writeLog('degradation', 'WARN', `咪咕搜索异常: code=${body && body.code}, keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `咪咕搜索异常: code=${body && body.code}, keyword=${logSafe(keyword)}`);
       return [];
     }
     const list = body.songResultData && body.songResultData.result;
     if (!Array.isArray(list) || list.length === 0) {
-      writeLog('degradation', 'WARN', `咪咕搜索空结果: keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `咪咕搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
     return list.map(mapMiguSong);
   } catch (error) {
-    writeLog('degradation', 'ERROR', `咪咕搜索失败: keyword=${keyword}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `咪咕搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
     return [];
   }
 }
@@ -352,7 +357,7 @@ async function getMiguUrl(contentId, copyrightId, toneFlag = 'PQ') {
     writeLog('degradation', 'WARN', `咪咕取链异常: contentId=${cid}, status=${status}`);
     return null;
   } catch (error) {
-    writeLog('degradation', 'ERROR', `咪咕取链失败: contentId=${contentId}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `咪咕取链失败: contentId=${contentId}, ${logSafe(error.message)}`);
     return null;
   }
 }
@@ -532,12 +537,12 @@ async function searchKugou(keyword, limit) {
     });
     const body = resp.data;
     if (!body || body.status !== 1) {
-      writeLog('degradation', 'WARN', `酷狗搜索异常: status=${body && body.status}, keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `酷狗搜索异常: status=${body && body.status}, keyword=${logSafe(keyword)}`);
       return [];
     }
     const list = body.data && body.data.lists;
     if (!Array.isArray(list) || list.length === 0) {
-      writeLog('degradation', 'WARN', `酷狗搜索空结果: keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `酷狗搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
     return list
@@ -545,7 +550,7 @@ async function searchKugou(keyword, limit) {
         && (s.Privilege === 0 || s.Privilege === 8))
       .map(mapKugouSong);
   } catch (error) {
-    writeLog('degradation', 'ERROR', `酷狗搜索失败: keyword=${keyword}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `酷狗搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
     return [];
   }
 }
@@ -600,7 +605,7 @@ async function getKugouV5Data(hash, albumId, quality) {
     }
     return node;
   } catch (error) {
-    writeLog('degradation', 'ERROR', `酷狗取链失败: hash=${hash}, quality=${quality}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `酷狗取链失败: hash=${hash}, quality=${quality}, ${logSafe(error.message)}`);
     return null;
   }
 }
@@ -662,7 +667,7 @@ async function getKugouUrl(hash, albumId, level = 'low') {
     }
     return await getKugouVerifiedUrl(hash, albumId, '128');
   } catch (error) {
-    writeLog('degradation', 'ERROR', `酷狗取链失败: hash=${hash}, level=${level}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `酷狗取链失败: hash=${hash}, level=${level}, ${logSafe(error.message)}`);
     return null;
   }
 }
@@ -759,7 +764,7 @@ async function ensureBiliBuvid(forceRefresh = false) {
     }
     writeLog('degradation', 'WARN', 'B站 buvid SPI 返回缺票据，沿用旧票据/空票据');
   } catch (error) {
-    writeLog('degradation', 'ERROR', `B站 buvid SPI 失败: ${error.message}`);
+    writeLog('degradation', 'ERROR', `B站 buvid SPI 失败: ${logSafe(error.message)}`);
   }
   return biliBuvidCache || { b3: '', b4: '', at: 0 };
 }
@@ -796,7 +801,7 @@ async function ensureBiliWbiKey(forceRefresh = false) {
     }
     writeLog('degradation', 'WARN', 'B站 nav 未返回 WBI 图 key，沿用旧 key');
   } catch (error) {
-    writeLog('degradation', 'ERROR', `B站 WBI key 获取失败: ${error.message}`);
+    writeLog('degradation', 'ERROR', `B站 WBI key 获取失败: ${logSafe(error.message)}`);
   }
   return biliWbiCache ? biliWbiCache.mixinKey : null;
 }
@@ -1087,12 +1092,12 @@ async function searchBili(keyword, limit) {
     });
     const body = resp.data;
     if (!body || body.code !== 0) {
-      writeLog('degradation', 'WARN', `B站搜索异常: code=${body && body.code}, keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `B站搜索异常: code=${body && body.code}, keyword=${logSafe(keyword)}`);
       return [];
     }
     const list = body.data && body.data.result;
     if (!Array.isArray(list) || list.length === 0) {
-      writeLog('degradation', 'WARN', `B站搜索空结果: keyword=${keyword}`);
+      writeLog('degradation', 'WARN', `B站搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
     return list
@@ -1101,7 +1106,7 @@ async function searchBili(keyword, limit) {
       .filter(isBiliSingle)
       .slice(0, limit);
   } catch (error) {
-    writeLog('degradation', 'ERROR', `B站搜索失败: keyword=${keyword}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `B站搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
     return [];
   }
 }
@@ -1130,7 +1135,7 @@ async function getBiliView(bvid) {
     }
     return { cid: first.cid, duration: Number(first.duration) || 0 };
   } catch (error) {
-    writeLog('degradation', 'ERROR', `B站 pagelist 失败: bvid=${bvid}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `B站 pagelist 失败: bvid=${bvid}, ${logSafe(error.message)}`);
     return null;
   }
 }
@@ -1190,7 +1195,7 @@ async function getBiliUrl(id) {
     }
     return best ? best.url : null;
   } catch (error) {
-    writeLog('degradation', 'ERROR', `B站取链失败: id=${id}, ${error.message}`);
+    writeLog('degradation', 'ERROR', `B站取链失败: id=${id}, ${logSafe(error.message)}`);
     return null;
   }
 }
