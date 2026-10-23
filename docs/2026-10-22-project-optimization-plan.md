@@ -413,4 +413,51 @@
 2. ~~musicapi 整体熔断~~、~~Redis 单飞空等~~ → 见 §11.7（已完成）
 4. ~~配置漂移清理~~（已完成 2026-10-23）：删 `ES_URI` 死配置（Java 零绑定）；`SERVER_TOMCAT_THREADS_MAX` → `TOMCAT_MAX_THREADS`（名字对齐 yml 占位符，下次部署由 40 生效为 50）；`docker-compose.full.yml` 的 `AI_API_KEY` 默认值改空（与 demo/主 compose 一致，占位值不再触发外呼）。
 5. ~~响应头重复~~（已完成 2026-10-23）：`/api/`、`/uploads/` 两个反代 location 加 `proxy_hide_header`，并把 `proxy_pass` 改为 upstream 名；`X-Frame-Options` 由「DENY + SAMEORIGIN 冲突」变单值。
-6. **前端覆盖率阈值**（P1-11 余下部分）：`vitest.config.js` 的 `coverage.include` 只含 `stores/components`（缺 `views`），且无 thresholds。需先跑一次真实覆盖率再定阈值，避免拍脑袋把 CI 打红。
+6. ~~前端覆盖率阈值~~（2026-10-23 完成）：`include` 补 `src/views/**`，按实测基线落阈值（删死代码后 33/22/20/37），CI 的 `--coverage` 即时生效。
+
+---
+
+## 12. 2026-10-23 补做记录（CodeBuddy，均在 main 上可回滚）
+
+### 12.1 网关收尾与安全加固（P1-3）
+
+| 提交 | 内容 | 证据 |
+|---|---|---|
+| `40793c6` | 统一上游客户端收口后的二阶 SSRF 防护：`isPrivateHost` + `KIND.BLOCKED` + `allowPrivate`（仅测试用）；`routes.js` 候选地址日志改 `describeUrl`（只 host+pathname） | 网关 178/178 |
+| `d215e64` | 补三处绕过：IPv6 映射/兼容写法（`::ffff:7f00:1`、`::7f00:1`）、末尾点域名与元数据域名、重定向逐跳校验（axios `beforeRedirect`，`blocked` 不重试） | 179/179；安全扫描复扫 0 finding，门禁 pass |
+
+### 12.2 网关依赖与运行时（P1-4）
+
+| 提交 | 内容 | 证据 |
+|---|---|---|
+| `4a54f8b` | 删除停更的 `qq-music-api`（2022-07-09），`/qq/playlist` 直连 `c.y.qq.com` 同参数接口；去掉 `qqMusic.setCookie` 注入；lock 连带移除 1298 行传递依赖 | 180/180；新增 `/qq/playlist` 字段映射用例 |
+| `8953996` | `node:20.19-alpine` → `node:24-alpine`，CI/deploy 的 `node-version` 与 `engines` 对齐 24 | 本地 Node 24.19 下 180/180 |
+
+### 12.3 前端门禁与死代码（P1-6 / P1-11）
+
+| 提交 | 内容 | 证据 |
+|---|---|---|
+| `e8d4d1b` + `f35ef14` | `coverage.include` 补 `views`；删除 7 个零引用 `mobile/M*View.vue`（1643 行）；阈值由 28/18/17/32 抬到 **33/22/20/37** | 删前 33.25/22.04/20.05/37.12 → 阈值按实测钉住；180 tests、`vue-tsc` 通过 |
+
+### 12.4 Android 播放唤醒（P1-7 的第一步）
+
+- `vibemusic-native` 提交 `1ce8087`：`ExoPlayer.Builder.setWakeMode(C.WAKE_MODE_LOCAL)` + Manifest 加 `WAKE_LOCK`；`testDebugUnitTest` BUILD SUCCESSFUL。
+- **Media3 1.5.1 → 1.12.x 暂缓**：跨 7 个 minor，且通知栏播放键问题未结案，升级后无法归因。等真机 logcat 抓到根因，或至少 1.5.1→1.8→1.12 分两次走。
+
+### 12.5 对原方案的修正（执行时采纳）
+
+1. **P1-1 先 spike 再决策**：P0-2 缩池与虚拟线程方向相反，且冷启动主因是 CPU 配额（0.5→1.5 核）不是 JVM 参数；直接开虚拟线程会互相掩盖。
+2. **P1-8 先做行为快照**：拆 `SongSearchService` 前先固化平台合并顺序/去重/降级的 golden 输出，601 例单测挡不住隐性知识丢失。
+3. **P1-2/P1-12 顺序**：先只读对账（已具备 `scripts/reconcile-cloud.sh` + `deploy/production/`），再切镜像不可变；否则对账会把部署临时物当漂移。
+4. **证据分级**：每项标注 L1 单测 / L2 本机 / L3 线上指纹+行为；`TOMCAT_MAX_THREADS` 名字不匹配导致"改了没生效"的教训要求关键配置启动即打印。
+5. **P1-11 阈值不拍数**：前端 40/35 是目标不是现状；当前基线 33/22/20/37。
+
+### 12.6 仍未做（需单独排期）
+
+- P1-1 JDK 25 + 虚拟线程 spike（需 1 天独立环境验证 RSS/启动/stream 并发）
+- P1-6 余下：`strictNullChecks` 开启（预计多文件）、`window.vibeFavIds` 收口
+- P1-8 God class 拆分（快照先行）
+- P1-10 契约测试（`contract/` + WireMock/Testcontainers）
+- P1-12 镜像 tag=git sha + 云端只 pull（蓝绿与内容校验已具备）
+- 线上部署：本轮所有提交尚未发布到生产
+
