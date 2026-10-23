@@ -1,12 +1,9 @@
 // ==================== Cookie 统一管理 ====================
 const path = require('path');
-const qqMusic = require('qq-music-api');
 const config = require('./config-loader');
 const { writeLog } = require('./logger');
 const { cookieStatusGauge, vipHealthGauge, cookieProbeTotal } = require('./metrics');
 
-// QQ音乐 Cookie（进程级全局设置；Cookie 为可选项，无 Cookie 即无登录模式，属正常情况）
-qqMusic.setCookie(config.qq || {});
 if (hasQQCookie()) {
   writeLog('cookie', 'INFO', `QQ音乐 Cookie 已加载 (${Object.keys(config.qq).length} 个字段)`);
 } else {
@@ -385,7 +382,6 @@ function reloadQQCookie() {
     if (fromEnv) {
       const cookieJson = JSON.parse(fromEnv.trim());
       config.qq = cookieJson;
-      qqMusic.setCookie(cookieJson);
       writeLog('cookie', 'INFO', `重载 QQ Cookie: ${Object.keys(cookieJson).length} 个字段`);
       return true;
     }
@@ -406,7 +402,6 @@ function reloadQQCookie() {
     const cookieRaw = match[1].trim();
     const cookieJson = JSON.parse(cookieRaw);
     config.qq = cookieJson;
-    qqMusic.setCookie(cookieJson);  // ← 关键：重新注入到 qq-music-api
     writeLog('cookie', 'INFO', `重载 QQ Cookie: ${Object.keys(cookieJson).length} 个字段`);
     return true;
   } catch (e) {

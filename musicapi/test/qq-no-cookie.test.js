@@ -8,7 +8,6 @@ const { test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const axios = require('axios');
-const qqMusic = require('qq-music-api');
 const config = require('../src/config-loader');
 const cookie = require('../src/cookie');
 const { qqRequestHeaders, fetchQQPlayUrl, fetchQQLyric } = require('../src/routes');
@@ -97,9 +96,7 @@ test('无 Cookie 歌词可取；缺歌词/异常返回 null，不抛错', async 
 
 test('无 Cookie 时监控保持安静：checkQQCookie 不调上游、不标失败', async () => {
   setQQConfig({});
-  const origApi = qqMusic.api;
-  qqMusic.api = async () => { throw new Error('must not be called without cookie'); };
-  restores.push(() => { qqMusic.api = origApi; });
+  stubAxiosGet(async () => { throw new Error('must not be called without cookie'); });
 
   await cookie.checkQQCookie();
   assert.equal(cookie.cookieStatus.qq, true);
@@ -166,4 +163,45 @@ test('端到端（无 Cookie、无真实网络）：/song/url/qq 200 同形，VI
   assert.equal(r.status, 404); // stub 未返回 lyric 字段 → 干净空形，非 500
   body = await r.json();
   assert.equal(body.code, 404);
+});
+
+test('/qq/playlist 无 Cookie 直连上游：字段映射正确（不再依赖 qq-music-api）', async (t) => {
+  setQQConfig({});
+  let seenHeaders;
+  stubAxiosGet(async (url, opts) => {
+    assert.ok(String(url).includes('fcg_ucc_getcdinfo_byids_cp.fcg'));
+    seenHeaders = opts.headers;
+    return {
+      data: {
+        cdlist: [{
+          dissid: '123456',
+          dissname: '测试歌单',
+          desc: '简介',
+          logo: 'https://cover/x.jpg',
+          nickname: '创建者',
+          listennum: 42,
+          songlist: [{ songmid: 'mid1', songname: '歌名', singer: [{ name: '歌手' }], albummid: 'am1', albumname: '专辑', interval: 200 }],
+        }],
+      },
+    };
+  });
+
+  const express = require('express');
+  const registerRoutes = require('../src/routes');
+  const app = express();
+  registerRoutes(app);
+  const server = await new Promise((resolve) => {
+    const s = app.listen(0, () => resolve(s));
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const r = await fetch(`http://127.0.0.1:${server.address().port}/qq/playlist?id=123456`);
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.code, 200);
+  assert.equal(body.data.name, '测试歌单');
+  assert.equal(body.data.songCount, 1);
+  assert.equal(body.data.songs[0].id, 'mid1');
+  assert.equal(body.data.songs[0].artist, '歌手');
+  assert.ok(!('Cookie' in seenHeaders), '无 Cookie 模式不应带 Cookie 头');
 });

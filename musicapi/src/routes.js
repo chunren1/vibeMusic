@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const qqMusic = require('qq-music-api');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { upstreamGet, describeUrl } = require('./upstream');
 
@@ -766,12 +765,14 @@ function registerRoutes(app) {
       const id = queryStr(req.query.id);
       if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
       if (!/^\d{3,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
-      const result = await withTimeout(
-        qqMusic.api('/songlist', { disstid: id }),
-        UPSTREAM_TIMEOUT, 'qq/playlist'
-      );
-      // qq-music-api 返回格式: { code, data: { cdlist: [...] } }
-      const pl = result?.data?.cdlist?.[0] || result?.cdlist?.[0];
+      const result = await upstreamGet('https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg', {
+        label: 'qq/playlist',
+        params: { type: 1, utf8: 1, disstid: id, loginUin: 0 },
+        headers: { ...qqRequestHeaders(), Referer: 'https://y.qq.com/n/yqq/playlist' },
+        timeoutMs: UPSTREAM_TIMEOUT,
+      });
+      // 直连上游的返回格式：{ cdlist: [ {...} ] }（此前 qq-music-api 会再包一层 data）
+      const pl = result.data?.cdlist?.[0] || result.data?.data?.cdlist?.[0];
       if (!pl) return res.status(404).json({ code: 404, message: '歌单不存在' });
       res.json({
         code: 200,
