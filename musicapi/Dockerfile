@@ -1,7 +1,7 @@
 # ==========================
 # musicapi — 网易云 + QQ 音乐统一 API 代理
 # ==========================
-FROM node:20.19-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
