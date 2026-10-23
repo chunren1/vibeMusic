@@ -355,35 +355,6 @@ public class SongPlayService {
     /**
      * 从搜索结果中找最优匹配，基于词重叠率 + 歌名首字匹配
      */
-    private Map<String, Object> findBestMatch(List<Map<String, Object>> results, String expectedName, String expectedArtist) {
-        Map<String, Object> best = null;
-        double bestScore = 0;
-        String target = (expectedName + " " + (expectedArtist != null ? expectedArtist : "")).toLowerCase().trim();
-        for (Map<String, Object> item : results) {
-            String candName = item.get("name") != null ? String.valueOf(item.get("name")) : "";
-            String candArtist = item.get("artists") != null ? String.valueOf(item.get("artists")) : "";
-            String candidate = (candName + " " + candArtist).toLowerCase().trim();
-            double score = similarity(target, candidate);
-            // 歌名首字相同加分
-            if (!candName.isEmpty() && !expectedName.isEmpty() && candName.charAt(0) == expectedName.charAt(0)) score += 0.2;
-            if (score > bestScore) { bestScore = score; best = item; }
-        }
-        return bestScore > 0.15 ? best : (results.get(0)); // 分数太低降级取第一条
-    }
-
-    /** 简单 token 重叠率 */
-    private double similarity(String a, String b) {
-        if (a.isEmpty() || b.isEmpty()) return 0;
-        Set<String> setA = new HashSet<>(Arrays.asList(a.split("\\s+")));
-        Set<String> setB = new HashSet<>(Arrays.asList(b.split("\\s+")));
-        int overlap = 0;
-        for (String s : setA) { if (setB.contains(s)) overlap++; }
-        double jaccard = (double) overlap / Math.max(setA.size(), setB.size());
-        // 包含关系 bonus
-        if (a.contains(b) || b.contains(a)) return Math.max(jaccard, 0.6);
-        return jaccard;
-    }
-
     // ==================== 跨平台降级（续） ====================
 
     /**
@@ -570,7 +541,7 @@ public class SongPlayService {
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null || data.isEmpty()) return null;
             // 歌名/歌手相似度匹配，避免取到错误歌曲
-            Map<String, Object> best = findBestMatch(data, songName, artist);
+            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist);
             if (best == null) { log.info("QQ降级: '{}' 无匹配歌曲", keyword); return null; }
             String qqSourceId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
             String matchName = best.get("name") != null ? String.valueOf(best.get("name")) : "";
@@ -587,7 +558,7 @@ public class SongPlayService {
                 if (urlData != null && !urlData.isEmpty()) {
                     String url = (String) urlData.get(0).get("url");
                     if (url != null && !url.isEmpty()) {
-                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", keyword, matchName, similarity(keyword, matchName + matchArtists));
+                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", keyword, matchName, SongMatcher.similarity(keyword, matchName + matchArtists));
                         return url;
                     }
                 }
