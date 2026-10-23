@@ -135,6 +135,30 @@
           }
         }
       ]
+    },
+    "/song/url/v1": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": [
+            {
+              "url": "string?",
+              "freeTrialInfo": "any?",
+              "time": "number?"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
     }
   }
 }

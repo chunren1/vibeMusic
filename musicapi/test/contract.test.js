@@ -35,7 +35,7 @@ function stubAxiosGet(impl) {
 
 /** 按契约里的类型语法校验（string / string? / [item] / 对象逐 key）。 */
 function assertShape(value, spec, at) {
-  if (spec === 'any') return;
+  if (spec === 'any' || spec === 'any?') return;
   if (typeof spec === 'string') {
     const nullable = spec.endsWith('?');
     const expected = nullable ? spec.slice(0, -1) : spec;
@@ -200,4 +200,24 @@ test('/search 契约：data{total,page,size,list[]}，缺 keyword 400', async (t
 
   const [err] = ok.errors;
   await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
+});
+
+test('/song/url/v1 契约：code/data[{url,freeTrialInfo,time}]，缺参 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const orig = NeteaseCloudMusicApi.song_url_v1;
+  NeteaseCloudMusicApi.song_url_v1 = async () => ({
+    body: {
+      code: 200,
+      data: [{ id: 386038, url: 'https://m701.music.126.net/x.mp3', time: 240000, freeTrialInfo: null }],
+    },
+  });
+  restores.push(() => { NeteaseCloudMusicApi.song_url_v1 = orig; });
+
+  const ep = '/song/url/v1';
+  const ok = CONTRACT.endpoints[ep];
+  await expectContract(`${ep} success`, await fetch(`${base}${ep}?id=386038&level=exhigh`), ok.success);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), err);
 });
