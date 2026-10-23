@@ -87,6 +87,28 @@ need ssh; need scp; need tar; need sha256sum; need md5sum
 if [ "$SKIP_BUILD" -eq 0 ] && ! is_dry; then need npm; fi
 [ -f "$WEB/package.json" ] || { echo "找不到 $WEB/package.json" >&2; exit 1; }
 
+# 公网校验用的取码/取体：只在**传输层失败**（000/空体，如 TLS 中途断开、CF 抖动）重试一次，
+# HTTP 错误码（404/500）不重试——那是真问题。2026-10-23 实测：一次 TLS "unexpected eof"
+# 把已经切好的发布判成失败并回滚，属于误伤。
+fetch_code() {
+  local url="$1" c
+  c="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" 2>/dev/null || true)"
+  if [ "$c" = "000" ] || [ -z "$c" ]; then
+    sleep 1
+    c="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$url" 2>/dev/null || true)"
+  fi
+  printf '%s' "$c"
+}
+fetch_body() {
+  local url="$1" b
+  b="$(curl -sS --max-time 20 "$url" 2>/dev/null || true)"
+  if [ -z "$b" ]; then
+    sleep 1
+    b="$(curl -sS --max-time 20 "$url" 2>/dev/null || true)"
+  fi
+  printf '%s' "$b"
+}
+
 if is_dry; then
   say "*** DRY-RUN：只打印命令，不构建、不 scp、不改远端。加 --apply 才真发。***"
 else
@@ -209,23 +231,23 @@ if is_dry; then
   if [ -n "${MAIN_CSS:-}" ]; then say "  将检查: GET $PUBLIC_URL$MAIN_CSS 200"; fi
   say "  将检查: GET $PUBLIC_URL$MAIN_JS?v=$STAMP 200"
 else
-  CODE_INDEX="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$PUBLIC_URL/?v=$STAMP" || true)"
+  CODE_INDEX="$(fetch_code "$PUBLIC_URL/?v=$STAMP")"
   [ "$CODE_INDEX" = "200" ] || { rollback "index 返回 $CODE_INDEX"; exit 1; }
   say "  /       → $CODE_INDEX"
 
   # 内容级校验：公网 HTML 必须引用刚构建出来的那个 js，防“发了但内容不是刚构建的”
-  SERVED_HTML="$(curl -sS --max-time 20 "$PUBLIC_URL/?v=$STAMP" || true)"
+  SERVED_HTML="$(fetch_body "$PUBLIC_URL/?v=$STAMP")"
   case "$SERVED_HTML" in
     *"$MAIN_JS"*) say "  html 引用 $MAIN_JS ✓" ;;
     *) rollback "公网 html 未引用新构建的 $MAIN_JS"; exit 1 ;;
   esac
 
   if [ -n "${MAIN_CSS:-}" ]; then
-    CODE_CSS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$PUBLIC_URL$MAIN_CSS" || true)"
+    CODE_CSS="$(fetch_code "$PUBLIC_URL$MAIN_CSS")"
     [ "$CODE_CSS" = "200" ] || { rollback "关键资源 $MAIN_CSS 返回 $CODE_CSS"; exit 1; }
     say "  $MAIN_CSS → $CODE_CSS"
   fi
-  CODE_JS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$PUBLIC_URL$MAIN_JS?v=$STAMP" || true)"
+  CODE_JS="$(fetch_code "$PUBLIC_URL$MAIN_JS?v=$STAMP")"
   [ "$CODE_JS" = "200" ] || { rollback "关键资源 $MAIN_JS 返回 $CODE_JS"; exit 1; }
   say "  $MAIN_JS → $CODE_JS"
 fi
