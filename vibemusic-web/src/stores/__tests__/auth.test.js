@@ -134,14 +134,12 @@ describe('AuthStore', () => {
       const fav = useFavoriteStore()
       fav.favIds = new Set(['s1', 's2'])
       fav.loaded = true
-      window.vibeFavIds = fav.favIds
 
       auth.logout()
       await new Promise((r) => setTimeout(r, 0))
 
       expect(fav.favIds.size).toBe(0)
       expect(fav.loaded).toBe(false)
-      expect(window.vibeFavIds.size).toBe(0)
     })
 
     it('登录成功后应拉取本账号收藏', async () => {

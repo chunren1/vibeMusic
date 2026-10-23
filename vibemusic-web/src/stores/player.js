@@ -529,7 +529,6 @@ export const usePlayerStore = defineStore('player', () => {
   window.vibePlay = playSongFromApi
   window.vibePlayBySourceId = playBySourceId
   window.vibeToggleMode = toggleMode
-  window.vibeFavIds = new Set() // 收藏 ID 集合（由各组件维护）
 
   /** 替换队列为歌单全部歌曲并从头播放 */
   function playPlaylist(songs) {

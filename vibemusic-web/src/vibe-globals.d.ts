@@ -8,7 +8,6 @@ interface Window {
   vibeAddToQueue: Function
   vibeAudio: HTMLAudioElement
   vibeAudioSetSrc: Function
-  vibeFavIds: Set<any>
   vibeNext: Function
   vibePlay: Function
   vibePlayBySourceId: Function

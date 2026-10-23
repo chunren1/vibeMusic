@@ -23,7 +23,6 @@ describe('FavoriteStore', () => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     mockIsLoggedIn = true
-    window.vibeFavIds = undefined
   })
 
   describe('初始状态', () => {
@@ -46,7 +45,6 @@ describe('FavoriteStore', () => {
       expect(fav.favIds.has('song1')).toBe(true)
       expect(fav.loaded).toBe(true)
       expect(fav.loading).toBe(false)
-      expect(window.vibeFavIds).toBeDefined()
     })
 
     it('并发同账号请求：旧代际响应被丢弃，新代际获胜且 loading 正确复位', async () => {
@@ -93,7 +91,6 @@ describe('FavoriteStore', () => {
       expect(fav.favIds.has('songB1')).toBe(true)
       expect(fav.favIds.has('songA1')).toBe(false)
       expect(fav.loading).toBe(false)
-      expect(window.vibeFavIds.has('songB1')).toBe(true)
     })
 
     it('登出后返回的响应直接丢弃，不回填收藏', async () => {
@@ -165,7 +162,6 @@ describe('FavoriteStore', () => {
       await fav.toggleFav({ sourceId: 'song1', name: '晴天', artist: '周杰伦', coverUrl: '' })
 
       expect(fav.favIds.has('song1')).toBe(true)
-      expect(window.vibeFavIds.has('song1')).toBe(true)
     })
 
     it('取消已收藏的歌曲：乐观删除 + 后端确认', async () => {

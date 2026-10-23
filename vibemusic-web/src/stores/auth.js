@@ -63,14 +63,12 @@ export const useAuthStore = defineStore('auth', () => {
     sessionChecked.value = true
     sessionRestored.value = false
     setToken(null)
-    // 同步清收藏镜像 + 异步重置 favorite store，防止同标签页换账号残留上一用户收藏态
-    window.vibeFavIds = new Set()
+    // 异步重置 favorite store，防止同标签页换账号残留上一用户收藏态
     try {
       import('@/stores/favorite').then(({ useFavoriteStore }) => {
         const fav = useFavoriteStore()
         fav.favIds = new Set()
         fav.loaded = false
-        window.vibeFavIds = fav.favIds
       }).catch(() => {})
     } catch { /* ignore */ }
   }

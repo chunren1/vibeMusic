@@ -26,8 +26,6 @@ export const useFavoriteStore = defineStore('favorite', () => {
       if (my !== gen || !useAuthStore().isLoggedIn) return // 过期/已登出 → 丢弃
       if (res.data) {
         favIds.value = new Set(res.data)
-        // 保持 window 全局兼容（LyricsView 等旧代码可能还在读）
-        window.vibeFavIds = favIds.value
       }
       loaded.value = true
     } catch {
@@ -54,7 +52,6 @@ export const useFavoriteStore = defineStore('favorite', () => {
     else favIds.value.add(sid)
     // 触发 Vue 响应式（Set 变异不自动触发）
     favIds.value = new Set(favIds.value)
-    window.vibeFavIds = favIds.value
 
     try {
       const artifact = song.name || song.songName || song.title || ''
@@ -68,14 +65,12 @@ export const useFavoriteStore = defineStore('favorite', () => {
         favIds.value.delete(sid)
       }
       favIds.value = new Set(favIds.value)
-      window.vibeFavIds = favIds.value
-    } catch {
+      } catch {
       // 网络异常等，回滚
       if (was) favIds.value.add(sid)
       else favIds.value.delete(sid)
       favIds.value = new Set(favIds.value)
-      window.vibeFavIds = favIds.value
-      window.toast?.('操作失败', 'error')
+        window.toast?.('操作失败', 'error')
     }
   }
 
