@@ -89,7 +89,7 @@ public class AiToolService {
                 default -> "{\"error\":\"未知工具: " + functionName + "\"}";
             };
         } catch (Exception e) {
-            log.error("工具调用执行失败: function={}, error={}", functionName, e.getMessage());
+            log.error("工具调用执行失败: function={}, error={}", functionName, e.getMessage(), e);
             return "{\"error\":\"工具执行异常: " + e.getMessage() + "\"}";
         }
     }

@@ -3,6 +3,7 @@ package com.vibemusic.service;
 import com.vibemusic.common.exception.BusinessException;
 import com.vibemusic.common.utils.CdnWhitelist;
 import com.vibemusic.common.utils.StreamUtils;
+import com.vibemusic.common.utils.TraceHeaderSupport;
 import com.vibemusic.config.NeteaseApiConfig;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -260,7 +261,7 @@ public class NeteaseApiService {
             log.info("网易云共享 Cookie 快切: force={}, switched={}", force, switched);
             return true;
         } catch (Exception e) {
-            log.warn("网易云共享 Cookie 快切失败（降级链不变）: {}", e.getMessage());
+            log.warn("网易云共享 Cookie 快切失败（降级链不变）: {}", e.getMessage(), e);
             return false;
         }
     }
@@ -429,7 +430,7 @@ public class NeteaseApiService {
             log.info("流式下载完成: {} → {}", downloadUrl, tempFile.getName());
             return tempFile;
         } catch (Exception e) {
-            log.error("流式下载失败: {}", e.getMessage());
+            log.error("流式下载失败: {}", e.getMessage(), e);
             if (tempFile != null && tempFile.exists() && !tempFile.delete()) {
                 log.warn("临时文件删除失败: {}", tempFile.getAbsolutePath());
             }
@@ -462,6 +463,8 @@ public class NeteaseApiService {
         if (userCookie != null && !userCookie.isBlank()) {
             headers.set(USER_COOKIE_HEADER, userCookie);
         }
+        // traceId 透传给 musicapi（仅在 MDC 有时），让网关访问日志与后端日志按同一 id 对齐
+        TraceHeaderSupport.apply(headers);
         return new HttpEntity<>(headers);
     }
 }

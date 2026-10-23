@@ -158,7 +158,7 @@ public class SongSearchService {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    log.warn("[PREWARM] '{}' 预热失败: {}", kw, e.getMessage());
+                    log.warn("[PREWARM] '{}' 预热失败: {}", kw, e.getMessage(), e);
                 }
             }
             log.info("[PREWARM] 热门搜索关键词预热全部完成");
@@ -496,7 +496,7 @@ public class SongSearchService {
                     } catch (Exception e) {
                         recordQqOutcomeOnce(qqOutcomeClaimed, false);
                         qqFailed.set(true);
-                        log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+                        log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
                         return Collections.emptyList();
                     }
                 });
@@ -606,7 +606,7 @@ public class SongSearchService {
             String keyword = RANDOM_KEYWORDS.get(ThreadLocalRandom.current().nextInt(RANDOM_KEYWORDS.size()));
             songs = new ArrayList<>(search(keyword, 1, 30, null).getList());
         } catch (Exception e) {
-            log.warn("[RANDOM] 搜索随机关键词失败，降级到 DB 随机: {}", e.getMessage());
+            log.warn("[RANDOM] 搜索随机关键词失败，降级到 DB 随机: {}", e.getMessage(), e);
             songs = new ArrayList<>();
         }
         songs = songs.stream()
@@ -798,7 +798,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
-            log.error("Netease search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+            log.error("Netease search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
     }
@@ -848,7 +848,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
-            log.error("Migu search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+            log.error("Migu search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
     }
@@ -876,7 +876,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
-            log.error("Bili search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+            log.error("Bili search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
     }
@@ -894,7 +894,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
-            log.error("Kugou search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
+            log.error("Kugou search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
     }
@@ -1010,7 +1010,7 @@ public class SongSearchService {
             if (failed != null) failed.set(true);
         }
         catch (Exception e) {
-            log.error("{} search failed: {}", platform, e.getMessage());
+            log.error("{} search failed: {}", platform, e.getMessage(), e);
             if (failed != null) failed.set(true);
         }
         return Collections.emptyList();
@@ -1041,7 +1041,7 @@ public class SongSearchService {
             recordQqOutcomeOnce(claimed, false);
             if (failed != null) failed.set(true);
         } catch (Exception e) {
-            log.error("QQ search failed: {}", e.getMessage());
+            log.error("QQ search failed: {}", e.getMessage(), e);
             recordQqOutcomeOnce(claimed, false);
             if (failed != null) failed.set(true);
         }

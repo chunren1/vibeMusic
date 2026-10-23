@@ -2,6 +2,7 @@ package com.vibemusic.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
@@ -12,6 +13,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -197,8 +199,65 @@ class ThreadPoolConfigTest {
         }
     }
 
-    // ==================== 资源预算不变量（2026-10-22 线程/连接池重排） ====================
+    // ==================== traceId 透传（P1-9） ====================
 
+    @Test
+    @DisplayName("三个线程池共用同一个 MDC 装饰器实例（TaskDecorator 已装配）")
+    void shouldInstallSharedMdcTaskDecorator() {
+        ThreadPoolConfig config = new ThreadPoolConfig();
+        ThreadPoolTaskExecutor search = config.searchExecutor();
+        ThreadPoolTaskExecutor warm = config.warmExecutor();
+        ThreadPoolTaskExecutor getUrl = config.getUrlExecutor();
+        try {
+            // Spring 7 的 ThreadPoolTaskExecutor 只暴露 setTaskDecorator（无 getter），
+            // 故用 ReflectionTestUtils 读取私有字段验证装配与共享。
+            Object searchDecorator = org.springframework.test.util.ReflectionTestUtils
+                    .getField(search, "taskDecorator");
+            Object warmDecorator = org.springframework.test.util.ReflectionTestUtils
+                    .getField(warm, "taskDecorator");
+            Object getUrlDecorator = org.springframework.test.util.ReflectionTestUtils
+                    .getField(getUrl, "taskDecorator");
+
+            assertInstanceOf(com.vibemusic.common.concurrent.MdcTaskDecorator.class,
+                    searchDecorator, "searchExecutor 必须安装 MdcTaskDecorator");
+            assertInstanceOf(com.vibemusic.common.concurrent.MdcTaskDecorator.class,
+                    warmDecorator, "warmExecutor 必须安装 MdcTaskDecorator");
+            assertInstanceOf(com.vibemusic.common.concurrent.MdcTaskDecorator.class,
+                    getUrlDecorator, "getUrlExecutor 必须安装 MdcTaskDecorator");
+            assertSame(searchDecorator, warmDecorator, "三池必须共用同一实例");
+            assertSame(searchDecorator, getUrlDecorator, "三池必须共用同一实例");
+        } finally {
+            search.shutdown();
+            warm.shutdown();
+            getUrl.shutdown();
+        }
+    }
+
+    @Test
+    @DisplayName("真实提交任务：worker 内可见 traceId，且第二个任务不残留第一个的")
+    void shouldCarryTraceIdThroughExecutor() throws Exception {
+        ThreadPoolConfig config = new ThreadPoolConfig();
+        config.setSearchCore(1);
+        config.setSearchMax(1);
+        config.setSearchQueue(2);
+        ThreadPoolTaskExecutor executor = config.searchExecutor();
+        try {
+            MDC.put("traceId", "pool-trace-42");
+            AtomicReference<String> firstTask = new AtomicReference<>();
+            executor.submit(() -> firstTask.set(MDC.get("traceId"))).get(2, TimeUnit.SECONDS);
+            assertEquals("pool-trace-42", firstTask.get(), "异步任务日志必须带请求 traceId");
+
+            MDC.clear();
+            AtomicReference<String> secondTask = new AtomicReference<>("sentinel");
+            executor.submit(() -> secondTask.set(MDC.get("traceId"))).get(2, TimeUnit.SECONDS);
+            assertNull(secondTask.get(), "线程复用时不得残留上一个任务的 traceId");
+        } finally {
+            MDC.clear();
+            executor.shutdown();
+        }
+    }
+
+    // ==================== 资源预算不变量（2026-10-22 线程/连接池重排） ====================
     @Test
     @DisplayName("资源预算：core ≤ max、队列有界、三池总任务上限 ≤ 96（768MB 容器）")
     void shouldKeepPoolsWithinContainerBudget() {

@@ -1,5 +1,6 @@
 package com.vibemusic.config;
 
+import com.vibemusic.common.concurrent.MdcTaskDecorator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -46,6 +47,12 @@ public class ThreadPoolConfig {
     private int getUrlMax = 8;
     private int getUrlQueue = 16;
     private int getUrlKeepAlive = 60;
+
+    /**
+     * MDC 透传装饰器：三个池共用同一无状态实例，异步任务日志才带 {@code [%X{traceId}]}。
+     * 不能在 {@code build()} 里每次 new —— 共用实例才符合"装饰器无状态"的语义，也便于统一替换。
+     */
+    private final MdcTaskDecorator mdcTaskDecorator = new MdcTaskDecorator();
 
     @Bean(name = "searchExecutor")
     public ThreadPoolTaskExecutor searchExecutor() {
@@ -107,6 +114,9 @@ public class ThreadPoolConfig {
         executor.setThreadNamePrefix(threadNamePrefix);
         executor.setDaemon(true);
         executor.setRejectedExecutionHandler(handler);
+        // 必须在 initialize() 之前设置：initialize 时任务装饰器会随线程池一起装配，
+        // 之后再 set 不会影响已创建的 Executor。
+        executor.setTaskDecorator(mdcTaskDecorator);
         executor.initialize();
         log.info("[THREAD-POOL] {} 初始化完成: core={}, max={}, queue={}, reject={}",
                 beanName, core, max, queue, rejectLabel(handler));

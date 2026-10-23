@@ -82,7 +82,7 @@ public class SongPlayService {
                     return neteaseApiService.getSongUrl(sourceId, level);
                 }
             } catch (Exception e) {
-                log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", e.getMessage());
+                log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", e.getMessage(), e);
             }
         }
         return rotateSharedCookieOnVipBlock(sourceId, level, body);
@@ -113,7 +113,7 @@ public class SongPlayService {
             }
             log.info("VIP 权限受限快切后重试仍不可播: {} level={}，保留原响应走降级链", sourceId, level);
         } catch (Exception e) {
-            log.warn("VIP 权限受限快切重试失败（降级链不变）: {}", e.getMessage());
+            log.warn("VIP 权限受限快切重试失败（降级链不变）: {}", e.getMessage(), e);
         }
         return body;
     }
@@ -232,7 +232,9 @@ public class SongPlayService {
             log.warn("限时调用被中断，已取消");
             return null;
         } catch (ExecutionException e) {
-            log.warn("限时调用上游异常: {}", e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+            // CompletableFuture 把上游异常包在 ExecutionException 里：只打外层 message 会丢掉真实堆栈
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            log.warn("限时调用上游异常: {}", cause.getMessage(), cause);
             return null;
         }
     }
@@ -338,7 +340,7 @@ public class SongPlayService {
                 log.warn("歌曲 {} 所有平台均无可用播放链接", sourceId);
             }
         } catch (Exception e) {
-            log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage());
+            log.warn("API获取播放链接失败, sourceId={}, 尝试DB兜底: {}", sourceId, e.getMessage(), e);
         }
 
         // 3. API 失败 → 从 DB 兜底（只查 url 列）
@@ -400,7 +402,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("tryBiliUrl: {} 失败: {}", biliId, e.getMessage());
+            log.warn("tryBiliUrl: {} 失败: {}", biliId, e.getMessage(), e);
         }
         return null;
     }
@@ -421,7 +423,7 @@ public class SongPlayService {
                     }
                 }
             } catch (Exception e) {
-                log.warn("tryKugouUrl: {} level={} 失败: {}", hash, level, e.getMessage());
+                log.warn("tryKugouUrl: {} level={} 失败: {}", hash, level, e.getMessage(), e);
             }
         }
         return null;
@@ -477,7 +479,7 @@ public class SongPlayService {
                 } catch (TimeoutException e) {
                     log.info("音质[{}] 歌曲 {} 超时 → 尝试下一级", level, sourceId);
                 } catch (Exception e) {
-                    log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, sourceId, e.getMessage());
+                    log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, sourceId, e.getMessage(), e);
                 }
             }
         } finally {
@@ -514,7 +516,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("fetchMiguUrl: {} 获取失败: {}", sourceId, e.getMessage());
+            log.warn("fetchMiguUrl: {} 获取失败: {}", sourceId, e.getMessage(), e);
         }
         return null;
     }
@@ -532,7 +534,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("fetchQqUrl: {} 获取失败: {}", sourceId, e.getMessage());
+            log.warn("fetchQqUrl: {} 获取失败: {}", sourceId, e.getMessage(), e);
         }
         return null;
     }
@@ -591,7 +593,7 @@ public class SongPlayService {
                 }
             }
         } catch (Exception e) {
-            log.warn("QQ降级搜索失败: {} - {}", songName, e.getMessage());
+            log.warn("QQ降级搜索失败: {} - {}", songName, e.getMessage(), e);
         }
         return null;
     }
@@ -672,7 +674,7 @@ public class SongPlayService {
             }
             log.info("网易云降级: {} 所有音质均为试听，跳过", keyword);
         } catch (Exception e) {
-            log.warn("网易云降级搜索失败: {} - {}", songName, e.getMessage());
+            log.warn("网易云降级搜索失败: {} - {}", songName, e.getMessage(), e);
         }
         return null;
     }
