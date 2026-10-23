@@ -258,7 +258,9 @@
 1. **前端发版误判回滚**：首跑切换与 reload 都成功、`/` 与 css 均 200，但取主 js 时 curl 报 `TLS connect error: unexpected eof while reading`（000），脚本按失败回滚。字节侧早已校验过（md5 + 解包文件数 + index.html sha256），属网络抖动 → 改为 `fetch_code/fetch_body`：**只有 000/空体重试一次，HTTP 错误码不重试**（不削弱门禁）。
 2. **验证脚本自身 bug**：首次 25 次连打全 200，一度以为限流失效；实际是脚本把 `X-Device-Id` 写成 `deploy-verify-$(date +%s)`，25 次请求跨了好几秒 → 每次都换身份、各自一个桶。改成固定设备头后立刻复现 429。**教训：验证限流必须用稳定身份，否则测的是"新用户"而不是"同一用户"。**
 
-**已知遗留**：冷启动 161 s 仍意味着每次发版 2.6 分钟不可用（P1-1 才解决）；`SERVER_TOMCAT_THREADS_MAX=50` 由云端 compose 环境变量覆盖 yml 默认值 40，两者一致于"max=50"。
+**已知遗留**：冷启动 161 s 仍意味着每次发版 2.6 分钟不可用（P1-1 才解决）。
+
+> 更正（2026-10-23）：原文称 `SERVER_TOMCAT_THREADS_MAX=50` 与 yml 一致于 max=50 是**错的**——yml 读的占位符是 `${TOMCAT_MAX_THREADS:40}`，环境变量名不匹配 → 一直静默生效 40。已在 `docker-compose.demo.yml` 改成 `TOMCAT_MAX_THREADS: 50`（下次部署生效），并加注释说明名字必须对齐。
 
 
 ---
@@ -335,10 +337,38 @@
 
 **启动路径外部调用复查**：`@PostConstruct` / `ApplicationRunner` / `CommandLineRunner` 全量核查，除 Flyway（MySQL，fail-fast 属预期）外**无第三处**对外网络调用。
 
-### 11.5 仍待办（按优先级）
+### 11.5 traceId 贯穿全链路（P1-9，已上线）
+
+**问题**：`TraceIdFilter` 只给请求线程 `MDC.put("traceId")`，而搜索/预热/取链三条链路都提交到 `ThreadPoolConfig` 的线程池 → worker 线程没有 MDC，logback 的 `[%X{traceId}]` 打空值，异步日志无法与请求关联；上游异常大量只打 `getMessage()`，没有堆栈；出站调 musicapi 不带 trace，网关日志无法对齐。
+
+| 改动 | 说明 |
+|---|---|
+| 新增 `MdcTaskDecorator` | 提交时取 MDC 快照 → worker 执行前覆盖 → `finally` **精确恢复**任务开始前状态（不是无脑 clear，避免污染池内上下文）；无状态、三池共用 |
+| `ThreadPoolConfig` | `initialize()` **之前**装配装饰器（之后再 set 不生效） |
+| 新增 `TraceHeaderSupport` | MDC 有合法 traceId 才写 `X-Trace-Id`；空值/超长/含 CRLF 一律丢弃（header 注入防护） |
+| `NeteaseApiService` | 接进唯一造头入口 `buildHeaders`，签名与 cookie 逻辑不变 |
+| `SongSearchService` / `SongPlayService` / `AiToolService` / `NeteaseApiService` | 上游失败 catch 补异常对象；逐首歌解析、超时、聚合结论等高频/无信息量位置按频次豁免（否则一次搜索秒级刷屏） |
+| `musicapi` | 访问日志按需追加 `[trace=...]`（无该头时格式与原样一致）；字符集/长度校验与限流计数键口径一致，防日志注入 |
+
+**线上实测（2026-10-23 12:04，冷搜索必然穿缓存）**：请求头带 `X-Trace-Id: miss120406` →
+
+```
+后端: [http-nio-8080-exec-8] [miss120406] [CACHE-LAYER] Redis 未命中 ...
+网关卡: GET /netease/search?... [trace=miss120406]
+        GET /qq/search?...      [trace=miss120406]
+        GET /kugou/search?...   [trace=miss120406]
+        GET /bili/search?...    [trace=miss120406]
+        GET /migu/search?...    [trace=miss120406]   ← 5 条全是扇出线程发出的
+```
+
+这 5 个请求由 `searchExecutor` 的 worker 线程构造并发出，头部能带上 traceId 即证明「装饰器 → MDC → 出站头」整链生效（不是请求线程代发）。响应头同样回显 `X-Trace-Id`。
+
+**musicapi 替换代价（记录，不是缺陷）**：musicapi 启动约 6 秒，替换是「停旧→起新」，实测 `host:3000/health` 每 100ms 采样出现 **66 次失败 ≈ 6.6 s**；期间后端搜索按设计降级为「200 + 空结果 + 重试建议」，不出现 5xx。宿主 `127.0.0.1:3000` 被 cookie 巡检脚本与一个 testweb 反代引用，所以新容器必须保留同端口映射，不能只走 docker 网段。
+
+### 11.6 仍待办（按优先级）
 
 1. **AI 超时预算**：`AI_RESPONSE_TIMEOUT=60s` 且 Function Calling 最多 3 次调用 → 单请求最坏 ~180 s；流式 `WebClient` 无 `responseTimeout`。
 2. **musicapi 整体熔断**：挂掉时每次搜索仍 5 线程 × 最多 3 s 空转；建议复用 30–60 s 进程内熔断语义。
 3. **Redis 失败时的搜索空等**：单飞锁失败被当成「别人持锁」，白等 150+300+600+1200 ms（Redis 挂时每次搜索 +2.25 s）。
-4. 配置漂移清理：`ES_URI` 死配置（Java 无绑定）、`SERVER_TOMCAT_THREADS_MAX` 与 yml 占位符 `${TOMCAT_MAX_THREADS:40}` 名字不匹配（实际仍 40）、`docker-compose.full.yml` 的 `AI_API_KEY:-change-me` 未同步。
+4. ~~配置漂移清理~~（已完成 2026-10-23）：删 `ES_URI` 死配置（Java 零绑定）；`SERVER_TOMCAT_THREADS_MAX` → `TOMCAT_MAX_THREADS`（名字对齐 yml 占位符，下次部署由 40 生效为 50）；`docker-compose.full.yml` 的 `AI_API_KEY` 默认值改空（与 demo/主 compose 一致，占位值不再触发外呼）。
 5. 响应头 `X-Content-Type-Options` 出现两次（nginx `add_header` 与后端重复），可用 `proxy_hide_header` 去重。

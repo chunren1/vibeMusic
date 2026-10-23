@@ -183,7 +183,7 @@ services:
       # JWT
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required see .env.example}
       # AI 助手
-      AI_API_KEY: ${AI_API_KEY:-change-me}
+      AI_API_KEY: ${AI_API_KEY:-} # 未配置时留空：后端短路返回"未配置"提示，不拿占位值外呼
       # musicapi (网易云 API 代理)
       MUSICAPI_URL: http://musicapi:3000
       # CORS 允许的来源（生产环境改为你的实际域名）

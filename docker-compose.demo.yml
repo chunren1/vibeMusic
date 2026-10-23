@@ -110,7 +110,6 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:
-      ES_URI: ""
       MINIO_ENDPOINT: "http://127.0.0.1:9000" # MinIO已下线:仅StorageService-init占位,空值致启动崩溃,勿改空
       MINIO_ACCESS_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
       MINIO_SECRET_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
@@ -125,7 +124,7 @@ services:
       # JVM_DIAG_OPTS 可临时注入 -Xlog:class+load / -XX:NativeMemoryTracking=detail（默认关闭：生产启动路径上写 19k 行 class 日志、NMT detail 都会拖慢冷启动）
       JAVA_OPTS: "-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/uploads/dumps/ -XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MaxMetaspaceSize=160m -XX:+UseG1GC ${JVM_DIAG_OPTS:-}"
       DB_POOL_MAX_SIZE: 5
-      SERVER_TOMCAT_THREADS_MAX: 50
+      TOMCAT_MAX_THREADS: 50 # 名字必须与 application.yml 的 ${TOMCAT_MAX_THREADS:40} 一致，写成 SERVER_TOMCAT_THREADS_MAX 会静默失效
       DB_POOL_MIN_IDLE: 2
       APP_GUEST_MODE: "true"
       COOKIE_ENC_KEY: ${COOKIE_ENC_KEY:-} # 2026-09-14:BYOC-AES-GCM密钥,勿删
