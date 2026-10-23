@@ -294,6 +294,13 @@
 | 回滚点 | `vibemusic-backend:rollback-<ts>` + 配置备份，回滚同样零停机 |
 | 内存闸门 | `available < 400 MB` 直接拒绝（蓝绿窗口两个 JVM 并存） |
 
+**第二次蓝绿（p2 镜像，同一天 11:32–11:34）**：端口从 8082 轮换回 **8080**，切换期探针 244 次全 200，新容器 healthy 67 s，冷启动 `Started in 48.2 seconds`；运行中 jar 的 md5 与本地 `mvn verify` 产物一致（`04e3197…`），字节级确认线上跑的就是门禁验过的那份。
+
+**两次踩坑（脚本已加固）**：
+
+1. **镜像 ID 不能当校验依据**：跨 Docker 版本 `load` 会规范化 config，ID 必变（29.1.3→29.7.2 实测）。改成「RootFS 层逐层 diff_id + Config 摘要」。
+2. **`docker inspect -f '{{range ...}}'` 输出末尾会多一个空行** → `mapfile` 末元素恒为空串 → 重建的启动命令变成 `sh '' -c ...` → 容器死循环重启，日志只有 `sh: can't open ''`。已用 `sed '/^$/d'` 过滤，并加「RestartCount > 3 立即失败」的护栏（不再盲等 7 分钟）。
+
 **配套**：`scripts/health-alert.sh` 的探活端口改为动态解析（`HEALTH_PORT` → upstream conf 的 `server 127.0.0.1:<port>` → 8080 回退），否则切换后每分钟误报。
 
 ### 11.3 MinIO：从「硬依赖」改成「开关 + 优雅降级」

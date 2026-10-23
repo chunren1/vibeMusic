@@ -64,6 +64,29 @@ next   127.0.0.1:8082 ──┘   （只在 next healthy 之后才指过去）
 原因：`docker load` 跨版本会规范化 config JSON，`.Size` 的计算口径也不同。所以 **ID 和 Size 都不是内容指纹**，
 只有「层 + Config」是。dry-run 会做一次只读预校验（比云端现有该 tag 的内容），真跑在传输后重新校验。
 
+## 启动命令重建：`docker inspect -f '{{range}}'` 的尾部空行
+
+新容器不是 compose 起的，`Entrypoint`/`Cmd` 要从现容器 `docker inspect` 抄。这里有个坑：
+
+```bash
+# 现容器 Entrypoint = ["sh"]
+mapfile -t EP < <(docker inspect -f '{{range .Config.Entrypoint}}{{.}}{{"\n"}}{{end}}' "$C")
+# 结果：EP=("sh" "")   ← 末尾多一个空串
+```
+
+`{{range}}` 给每个元素补换行，`docker inspect -f` 又给整体输出补一个换行 → `mapfile` 的末元素恒为空串。不滤掉，重建出来的命令是 `sh '' -c 'exec java ...'`，容器起来就死循环重启，日志只有：
+
+```
+sh: can't open '': No such file or directory
+```
+
+因为带 `--restart unless-stopped`，容器一直在重启、`State.Running` 永远是 `true`，脚本会**盲等到健康超时**（默认 420s）才失败。
+
+脚本已加两道护栏：
+
+1. `mapfile` 两侧都过 `sed '/^$/d'`；
+2. 等 healthy 的循环里读 `RestartCount`，`> 3` 立即打印日志、删容器、退出（线上不动）。
+
 ## ⚠ 首次 `--apply` 会改一次宿主 nginx 配置
 
 全程只此一次动 `/etc/nginx`：

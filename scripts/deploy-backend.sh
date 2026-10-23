@@ -610,8 +610,15 @@ done < <(docker inspect -f '{{range \$k,\$v := .HostConfig.LogConfig.Config}}{{\
 
 # 5) 入口：现容器的 Entrypoint 来自 compose/手工覆盖，镜像本身没有，必须显式带上
 EP=(); CMD=()
-mapfile -t EP  < <(docker inspect -f '{{range .Config.Entrypoint}}{{.}}{{"\n"}}{{end}}' "\$C")
-mapfile -t CMD < <(docker inspect -f '{{range .Config.Cmd}}{{.}}{{"\n"}}{{end}}' "\$C")
+# sed '/^$/d'：docker inspect -f 自己会在输出末尾补换行，{{range}} 又给每个元素补换行，
+# 结果 mapfile 的最后一个元素恒为空串。不滤掉就会出现 `sh '' -c ...`（空脚本名），
+# 容器起来就死循环重启，日志只有 "sh: can't open '': No such file or directory"（2026-10-23 实测踩到）。
+mapfile -t EP  < <(docker inspect -f '{{range .Config.Entrypoint}}{{.}}{{"\n"}}{{end}}' "\$C" | sed '/^$/d')
+mapfile -t CMD < <(docker inspect -f '{{range .Config.Cmd}}{{.}}{{"\n"}}{{end}}' "\$C" | sed '/^$/d')
+if [ \${#CMD[@]} -eq 0 ]; then
+  echo "预检失败：现容器的 Entrypoint/Cmd 都为空，重建不出启动命令（别猜，先看 docker inspect \$C）" >&2
+  exit 1
+fi
 
 RUN=(docker run -d --name "\$NEW" --network "\$NET" -p "127.0.0.1:\$PORT:8080"
      --restart "\${RESTART:-unless-stopped}" --env-file "\$ENVF"
@@ -656,7 +663,16 @@ else
     ELAPSED=$(( NOW - T0 ))
     ST="$(rout "docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' '$NEXT_NAME' 2>/dev/null || echo missing")"
     RUNNING="$(rout "docker inspect -f '{{.State.Running}}' '$NEXT_NAME' 2>/dev/null || echo false")"
-    say "  [+${ELAPSED}s] 状态=$ST running=$RUNNING"
+    RESTARTS="$(rout "docker inspect -f '{{.RestartCount}}' '$NEXT_NAME' 2>/dev/null || echo 0")"
+    say "  [+${ELAPSED}s] 状态=$ST running=$RUNNING restarts=$RESTARTS"
+    # --restart unless-stopped 会让崩溃容器反复重启，Running 永远是 true，只能靠重启次数识别死循环
+    if [ "${RESTARTS:-0}" -gt 3 ] 2>/dev/null; then
+      echo "新容器反复重启（RestartCount=$RESTARTS），最后 30 行日志：" >&2
+      rout "docker logs --tail 30 '$NEXT_NAME' 2>&1" >&2 || true
+      rsh "docker rm -f '$NEXT_NAME' >/dev/null 2>&1 || true"
+      echo "线上未变（仍是 $CUR_NAME:$CUR_PORT），nginx 未动" >&2
+      exit 1
+    fi
     case "$ST" in
       healthy) HEALTH_SECS=$ELAPSED; break ;;
       missing) echo "新容器不见了（docker run 失败？），查看上面输出" >&2; exit 1 ;;
