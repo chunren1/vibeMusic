@@ -54,7 +54,7 @@ def log(msg: str):
 def register_and_login() -> str | None:
     """自动注册并登录，返回 JWT token"""
     username = f"batch_{uuid.uuid4().hex[:8]}"
-    password = "batch_12345678"
+    password = f"Bt_{uuid.uuid4().hex[:16]}!9"  # 每次随机，避免固定口令落在脚本里
 
     # 1. 尝试注册
     try:
