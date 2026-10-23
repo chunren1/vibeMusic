@@ -72,4 +72,14 @@ class ClientErrorScrubberTest {
         assertEquals(null, ClientErrorScrubber.scrub(null));
         assertEquals("", ClientErrorScrubber.scrub(""));
     }
+
+    @Test
+    @DisplayName("CR/LF 与控制字符被替换，无法伪造日志行")
+    void scrubsControlChars() {
+        String s = ClientErrorScrubber.scrub("晴天\r\n2026-10-23 ERROR 伪造行\u0007");
+        assertFalse(s.contains("\r"));
+        assertFalse(s.contains("\n"));
+        assertEquals(1, s.lines().count());
+        assertTrue(s.contains("晴天"));
+    }
 }

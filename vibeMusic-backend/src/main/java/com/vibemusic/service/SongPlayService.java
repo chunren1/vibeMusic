@@ -2,6 +2,7 @@ package com.vibemusic.service;
 
 import com.vibemusic.config.AudioQualityTier;
 import com.vibemusic.config.ThreadPoolConfig;
+import com.vibemusic.common.utils.ClientErrorScrubber;
 import com.vibemusic.common.utils.SongIdUtils;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
@@ -535,7 +536,7 @@ public class SongPlayService {
             artist = song.getArtist();
         }
         try {
-            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
+            String keyword = ClientErrorScrubber.scrub(artist != null && !artist.isBlank() ? songName + " " + artist : songName);
             Map<String, Object> result = neteaseApiService.searchQQ(keyword, 5);
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
@@ -549,7 +550,7 @@ public class SongPlayService {
             if (qqSourceId == null) return null;
             Object durObj = best.get("duration");
             if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= TRIAL_DURATION_MS) {
-                log.info("QQ降级: '{}' 也只有试听版，跳过", matchName);
+                log.info("QQ降级: '{}' 也只有试听版，跳过", ClientErrorScrubber.scrub(matchName));
                 return null;
             }
             Map<String, Object> urlResult = neteaseApiService.getQQSongUrl(qqSourceId);
@@ -558,7 +559,7 @@ public class SongPlayService {
                 if (urlData != null && !urlData.isEmpty()) {
                     String url = (String) urlData.get(0).get("url");
                     if (url != null && !url.isEmpty()) {
-                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", keyword, matchName, SongMatcher.similarity(keyword, matchName + matchArtists));
+                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", keyword, ClientErrorScrubber.scrub(matchName), SongMatcher.similarity(keyword, matchName + matchArtists));
                         return url;
                     }
                 }
@@ -617,7 +618,7 @@ public class SongPlayService {
             artist = song.getArtist();
         }
         try {
-            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
+            String keyword = ClientErrorScrubber.scrub(artist != null && !artist.isBlank() ? songName + " " + artist : songName);
             Map<String, Object> result = fetchNeteaseSearch(keyword, 5, userCookie);
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
