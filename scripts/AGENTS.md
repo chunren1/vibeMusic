@@ -10,6 +10,7 @@
 - `docker.ps1`：compose 包装（up/down/restart/status/logs）
 - `ops.cjs` → `npm run ops`：交互式运维面板（日志/状态/Cookie 检查/停止全部）
 - `deploy-frontend.sh`：前端 dist 发版，默认 dry-run，`--apply` 才动服务器（构建 → md5 对包 → `nginx -t` → 原子切换 → 公网验证 → 失败自动回滚），说明见 `docs/deploy-frontend.md`
+- `deploy-backend.sh`：后端**蓝绿**发版（零停机），默认 dry-run，`--apply` 才动服务器（本机 `docker build` → `save|gzip|ssh load` → 起 `vibemusic-backend-next`（8080/8082/8083 轮换，8081 被 nginx 占用）→ 等 healthy → 写 upstream 切 `nginx` → 停旧容器转正），首次运行会改一次 `sites-enabled/vibemusic`（幂等，有备份），内存 available<400MB 拒绝执行，说明见 `docs/deploy-backend.md`
 - `verify.js`：安全配置一致性检查（拒绝 123456/ChangeMe*/<your 弱默认值）
 - `serverchan-relay.py`：Alertmanager → Server酱 中继（127.0.0.1:8791，`/webhook` + `/healthz`，说明见 docs/alerting.md）
 - `test_serverchan_relay.sh`：上者的自测（本地桩 + 断言，无需真 key，`bash` 直接跑）

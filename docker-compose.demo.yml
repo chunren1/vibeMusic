@@ -114,13 +114,16 @@ services:
       MINIO_ENDPOINT: "http://127.0.0.1:9000" # MinIO已下线:仅StorageService-init占位,空值致启动崩溃,勿改空
       MINIO_ACCESS_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
       MINIO_SECRET_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
+      # 云上 demo 栈无 MinIO：显式关闭对象存储，播放/下载走上游直连代理（本地完整栈才开缓存）
+      STORAGE_ENABLED: "false"
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET} # 必填fail-fast：缺失直接报错，绝不用默认密钥启动（默认密钥全网皆知=伪造token）
-      AI_API_KEY: ${AI_API_KEY:-change-me}
+      AI_API_KEY: ${AI_API_KEY:-} # 未配置时留空：后端短路返回"未配置"提示，不拿占位值外呼
       MUSICAPI_URL: http://musicapi:3000
       CORS_ORIGINS: ${CORS_ORIGINS:-https://vibe.cyk666.top,http://localhost:5173}
       STREAM_CDN_WHITELIST: "*.music.126.net,*.gtimg.cn,*.stream.qqmusic.qq.com,*.tc.qq.com,*.tencentmusic.com,*.migu.cn,*.bilivideo.com,*.hdslb.com,*.kugou.com" # 2026-09-14:补B站/酷狗/咪咕(yml旧值缺失致SSRF-403),勿删
       SPRING_PROFILES_ACTIVE: docker
-      JAVA_OPTS: "-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/uploads/dumps/ -XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MetaspaceSize=48m -XX:MaxMetaspaceSize=160m -XX:NativeMemoryTracking=detail -XX:+UseG1GC -Xlog:class+load=info,class+unload=info:file=/app/uploads/jfr/classload.log:time,uptime:filecount=4,filesize=20m"
+      # JVM_DIAG_OPTS 可临时注入 -Xlog:class+load / -XX:NativeMemoryTracking=detail（默认关闭：生产启动路径上写 19k 行 class 日志、NMT detail 都会拖慢冷启动）
+      JAVA_OPTS: "-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/uploads/dumps/ -XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MaxMetaspaceSize=160m -XX:+UseG1GC ${JVM_DIAG_OPTS:-}"
       DB_POOL_MAX_SIZE: 5
       SERVER_TOMCAT_THREADS_MAX: 50
       DB_POOL_MIN_IDLE: 2
@@ -128,7 +131,10 @@ services:
       COOKIE_ENC_KEY: ${COOKIE_ENC_KEY:-} # 2026-09-14:BYOC-AES-GCM密钥,勿删
     ports: ["127.0.0.1:8080:8080"]
     mem_limit: 768M
-    cpus: 0.5
+    # 2026-10-23: 0.5 → 1.5。实测 0.5 核时生产有 19% 的周期被限流（nr_throttled 2546/13355），
+    # 启动期 86% 周期被限流（冷启动 136s 里 44s 卡在类加载/bean 初始化）。配额是上限不是预留，
+    # 宿主机 2 核、load 0.45，调高只影响峰值时谁先被调度。
+    cpus: 1.5
     volumes:
       - ./docker-data/backend/uploads:/app/uploads
     networks: [vibemusic-net]

@@ -7,11 +7,41 @@ set -uo pipefail
 KEY_FILE=/etc/vibeMusic/serverchan.key
 STATE_FILE=/var/run/vibemusic-alert.state
 LOG=/var/log/vibemusic-alert.log
+UPSTREAM_CONF=/etc/nginx/conf.d/vibemusic-backend-upstream.conf
 REPEAT_SEC=1800
-HEALTH_URL="http://127.0.0.1:8080/actuator/health"
 DISK_MAX=85          # 根分区使用率上限 %
 SWAP_MAX=80          # swap 使用率上限 %
 CONTAINERS="vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis"
+
+# ---------------------------------------------------------------------------
+# 后端探活端口（2026-10-23 修：蓝绿部署后端口会在 8080/8082/8083/8084 之间轮换，
+# 写死 8080 会在每次切流量后每分钟误报「健康检查失败」）。解析优先级（高 → 低）：
+#   1) 环境变量 HEALTH_PORT —— 临时排查/手工指定时用；
+#   2) UPSTREAM_CONF 里的 `server 127.0.0.1:<port>;` —— 蓝绿脚本切流量改的就是这一行，
+#      是"当前谁在服务"的唯一事实来源（nginx 指哪就打哪）；
+#   3) 回退 8080 —— 蓝绿首次运行前的现状（那时还没有 upstream 文件）。
+# 解析失败（文件不存在 / 没匹配到 server 行 / 端口非数字）一律**静默回退**，绝不中断巡检。
+resolve_backend_port() {
+    local port=""
+    if [ -n "${HEALTH_PORT:-}" ]; then
+        case "$HEALTH_PORT" in
+            *[!0-9]*) ;;                 # 非数字视为非法，继续往下解析
+            *) port="$HEALTH_PORT" ;;
+        esac
+        if [ -n "$port" ]; then printf '%s' "$port"; return 0; fi
+    fi
+    if [ -r "$UPSTREAM_CONF" ]; then
+        port="$(sed -n 's/^[[:space:]]*server[[:space:]][[:space:]]*127\.0\.0\.1:\([0-9][0-9]*\)[[:space:]]*;.*$/\1/p' "$UPSTREAM_CONF" 2>/dev/null | head -1)"
+        case "$port" in
+            ''|*[!0-9]*) port="" ;;
+        esac
+        if [ -n "$port" ]; then printf '%s' "$port"; return 0; fi
+    fi
+    printf '8080'
+}
+
+BACKEND_PORT="$(resolve_backend_port)"
+HEALTH_URL="http://127.0.0.1:${BACKEND_PORT}/actuator/health"
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
 

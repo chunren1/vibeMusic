@@ -171,12 +171,14 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required see .env.example}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required see .env.example}
+      # 本地完整栈带 MinIO：开启对象存储缓存（云上 demo 栈显式关闭，见 docker-compose.demo.yml）
+      STORAGE_ENABLED: "true"
       # JWT
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required see .env.example}
       # Cookie 加密（CookieCryptoService 硬性要求；缺失则后端启动 fail-fast）
       COOKIE_ENC_KEY: ${COOKIE_ENC_KEY:-}
-      # AI 助手
-      AI_API_KEY: ${AI_API_KEY:-change-me}
+      # AI 助手（未配置时留空：后端会短路返回"未配置"提示，不再拿占位值外呼）
+      AI_API_KEY: ${AI_API_KEY:-}
       # musicapi (网易云 API 代理)
       MUSICAPI_URL: http://musicapi:3000
       # CORS 允许的来源（生产环境改为你的实际域名）
@@ -185,7 +187,8 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       # JVM 自适应内存 (MaxRAMPercentage 自动按容器限制分配)
       # 显式设置非堆内存上限，防止 DirectMemory/Metaspace OOM
-      JAVA_OPTS: "-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/uploads/dumps/ -XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MetaspaceSize=48m -XX:MaxMetaspaceSize=160m -XX:NativeMemoryTracking=detail -XX:+UseG1GC -Xlog:class+load=info,class+unload=info:file=/app/uploads/jfr/classload.log:time,uptime:filecount=4,filesize=20m"
+      # JVM_DIAG_OPTS 可临时注入 -Xlog:class+load / -XX:NativeMemoryTracking=detail（默认关闭：生产启动路径上写 19k 行 class 日志、NMT detail 都会拖慢冷启动）
+      JAVA_OPTS: "-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/app/uploads/dumps/ -XX:MaxRAMPercentage=60.0 -XX:MinRAMPercentage=30.0 -XX:MaxDirectMemorySize=64m -XX:MaxMetaspaceSize=160m -XX:+UseG1GC ${JVM_DIAG_OPTS:-}"
       # 数据库连接池（可通过环境变量覆盖）
       DB_POOL_MAX_SIZE: 5
       DB_POOL_MIN_IDLE: 2

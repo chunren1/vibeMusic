@@ -260,3 +260,78 @@
 
 **已知遗留**：冷启动 161 s 仍意味着每次发版 2.6 分钟不可用（P1-1 才解决）；`SERVER_TOMCAT_THREADS_MAX=50` 由云端 compose 环境变量覆盖 yml 默认值 40，两者一致于"max=50"。
 
+
+---
+
+## 11. P1 执行状态（2026-10-23 上午，每项附真实证据）
+
+### 11.1 冷启动：161.0 s → **47.9 s**（-70%）
+
+**取证先行**（对 10:07 那版容器日志逐段拆）：banner→Tomcat **46.3 s**（期间 `-Xlog:class+load` 每启动写 19,525 行/3 MB）、Tomcat→Hikari 18.4 s（MySQL 单连接 6.6 s）、上下文收尾 **70.8 s**（预热在主线程 refresh 期间就开跑、`StorageService` 启动即连已下线的 MinIO）。
+
+**四处改动**：
+
+| # | 改动 | 效果 |
+|---|---|---|
+| 1 | 预热从 `@PostConstruct` → `@EventListener(ApplicationReadyEvent)` + `app.prewarm.initial-delay-seconds`（默认 20s）+ `app.prewarm.enabled` | 启动路径不再与 17 个关键词×5 路上游抢 CPU；收尾段 70.8 s → ~52 s |
+| 2 | `StorageService.init()` 只构建客户端，桶检查改 `ensureBucket()` 懒执行（只试一次） | 启动路径零 MinIO 网络调用（生产已无 MinIO） |
+| 3 | `JAVA_OPTS` 摘掉 `-Xlog:class+load`、`-XX:NativeMemoryTracking=detail`、`-XX:MetaspaceSize=48m`，改 `${JVM_DIAG_OPTS:-}` 可选注入 | banner→Tomcat 46.3 s → 44.2 s（**只省 2 秒**，说明主因不是日志） |
+| 4 | **`cpus: 0.5` → `1.5`**（`docker-compose.demo.yml`） | **决定性因素**：banner→Tomcat 44.2 s → 约 10 s，总启动 136 s → 47.9 s |
+
+**为什么第 4 项才是主因（实测数据）**：0.5 核配额下，生产容器 `cpu.stat` 为 `nr_throttled 2546 / nr_periods 13355`（**19% 周期被限流**，限流累计 297 s > 实际 CPU 150 s）；启动期 `nr_throttled 1792 / 2087`（**86% 周期被限流**）。同期宿主机 load average 仅 0.45（2 vCPU 基本空闲）——瓶颈是配额不是机器。调到 1.5 核后，同一镜像冷启动 `Started VibeMusicBackendApplication in 47.885 seconds`。
+
+**副作用与取舍**：CPU 配额是上限不是预留（宿主 2 核，mysql 0.3 / redis 0.3 / musicapi 0.2 均很轻），调高只影响峰值时谁先被调度；内存配额未动（仍 768 M）。
+
+### 11.2 零停机部署（蓝绿，已实弹通过）
+
+`scripts/deploy-backend.sh`（8 步，默认 dry-run，`--apply` 才真动）：本机构建 → `docker save|gzip|ssh load`（**比层 + Config 内容，不比 image ID**——跨 Docker 版本 load 会规范化 config，ID 必然变，29.1.3→29.7.2 实测踩到）→ 起 `vibemusic-backend-next` 到空闲端口（8080/8082/8083/8084 轮换，**8081 被宿主 nginx 占用**）→ 等 healthy → 写 upstream + 首次幂等迁移 nginx + `nginx -t` + reload → 验证流量真的改道 → 停旧容器、next 转正。
+
+| 项目 | 实测 |
+|---|---|
+| 切换期可用性 | 云上探针每 0.5 s 打一次 nginx 回源口，**1,596 次采样全部 200**（零停机） |
+| 新容器 healthy 耗时 | **53 s**（这期间旧容器一直在服务） |
+| 首次 nginx 迁移 | 双备份到 `/root/.vibemusic-bluegreen/*.bak-<ts>`，`nginx -t` 通过后 reload；失败自动还原且不 reload |
+| 回滚点 | `vibemusic-backend:rollback-<ts>` + 配置备份，回滚同样零停机 |
+| 内存闸门 | `available < 400 MB` 直接拒绝（蓝绿窗口两个 JVM 并存） |
+
+**配套**：`scripts/health-alert.sh` 的探活端口改为动态解析（`HEALTH_PORT` → upstream conf 的 `server 127.0.0.1:<port>` → 8080 回退），否则切换后每分钟误报。
+
+### 11.3 MinIO：从「硬依赖」改成「开关 + 优雅降级」
+
+云上只保留 4 个核心容器（backend / musicapi / mysql / redis），MinIO 已下线，但代码曾硬依赖它 → `GET /api/download/file/{id}` 线上 **404**、`POST /api/download/{id}` 必然失败。
+
+| 改动 | 说明 |
+|---|---|
+| `storage.enabled`（默认 **false**） | 关闭时 `StorageService` 零网络调用：`exists()` 直接 false，读写抛 503；`isAvailable()` 供调用方判断 |
+| 60 s 短期熔断 | 开启但连不上时，60 s 内直接判不可用，避免每个请求吃一次连接超时 |
+| `AudioProxyService` | 把 `StreamController.streamFromRemote` 收敛成**唯一实现**，播放（`asAttachment=false`）与下载（`true`）共用，消除孪生副本 |
+| 下载降级 | 存储不可用/对象不存在 → 上游直连流式转发（带 Range 与 `Content-Disposition: attachment`），不再 404 |
+| `check` 语义 | 改为「现在能否下载」= 已缓存 **或** 存储不可用（走直连） |
+| 本地演示 | `docker-compose.yml` 显式 `STORAGE_ENABLED: "true"`（完整栈带 MinIO 才开缓存），demo 版显式 `"false"` |
+
+**线上实测**：`/api/download/file/347230` → `200`、13,042,460 B、`Content-Type: audio/mpeg`、`Content-Disposition: attachment; filename*=UTF-8''347230.mp3`；`/api/download/check/347230` → `{"code":200,"data":true}`；`/api/songs/stream?sourceId=347230`（Range 0-65535）→ `206` + `Content-Range: bytes 0-65535/13042460`。
+
+### 11.4 非核心依赖降级盘点（结论 + 已修）
+
+全量盘点后，「非核心服务挂掉会把核心功能打成 5xx」的位置共 6 处，已修：
+
+| 位置 | 原行为 | 现行为 |
+|---|---|---|
+| `IdempotentGuard.tryAcquire` | Redis 异常未捕获 → 收藏/取消收藏 **503** | catch → 放行（fail-open，warn 60 s 限流打印） |
+| `RateLimitService.tryAcquire` | 无 try/catch → AI 接口 **503** | catch → 放行 |
+| `PlaylistController.detail` | 无 catch → 歌单详情 **500** | catch → `Result.error(503, "歌单服务暂不可用，请稍后重试")` |
+| `spring.data.redis` 无 `connect-timeout` | Boot 4 不注入 SocketOptions → Lettuce 默认 **10 s** 建连 | 显式 `connect-timeout: 2000ms` |
+| `AI_API_KEY` 默认 `change-me` | 占位值让 `isBlank()` 失效 → **每个 AI 请求真的外呼 DeepSeek 吃 401** | 默认空；`change-me`/`changeme` 视为未配置，两个入口（同步/流式）都短路且零外呼 |
+| 本地完整栈未设 `STORAGE_ENABLED` | 本地演示的 MinIO 缓存**从未生效** | 显式开启 |
+
+**已确认能优雅降级、无需改造**：搜索/取链/推荐/歌词/banner（musicapi 整体挂掉时返回 `200` + 空结果 + 重试建议，逐源降权 + QQ 5 min 熔断）、Redis 缓存与 Token 黑名单（本地表兜底）、限流过滤器（fail-open）、封面代理（8 s 超时 → 502）。
+
+**启动路径外部调用复查**：`@PostConstruct` / `ApplicationRunner` / `CommandLineRunner` 全量核查，除 Flyway（MySQL，fail-fast 属预期）外**无第三处**对外网络调用。
+
+### 11.5 仍待办（按优先级）
+
+1. **AI 超时预算**：`AI_RESPONSE_TIMEOUT=60s` 且 Function Calling 最多 3 次调用 → 单请求最坏 ~180 s；流式 `WebClient` 无 `responseTimeout`。
+2. **musicapi 整体熔断**：挂掉时每次搜索仍 5 线程 × 最多 3 s 空转；建议复用 30–60 s 进程内熔断语义。
+3. **Redis 失败时的搜索空等**：单飞锁失败被当成「别人持锁」，白等 150+300+600+1200 ms（Redis 挂时每次搜索 +2.25 s）。
+4. 配置漂移清理：`ES_URI` 死配置（Java 无绑定）、`SERVER_TOMCAT_THREADS_MAX` 与 yml 占位符 `${TOMCAT_MAX_THREADS:40}` 名字不匹配（实际仍 40）、`docker-compose.full.yml` 的 `AI_API_KEY:-change-me` 未同步。
+5. 响应头 `X-Content-Type-Options` 出现两次（nginx `add_header` 与后端重复），可用 `proxy_hide_header` 去重。
