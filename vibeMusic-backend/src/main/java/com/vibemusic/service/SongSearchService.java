@@ -203,9 +203,6 @@ public class SongSearchService {
     // 同曲多源合并加成：同一首歌每多一个可播平台 +0.5（多源≈正版/热门版本，
     // 这是网易/QQ/咪咕/酷狗不带播放量字段下唯一可用的热度代理），总额封顶 +1.0。
     // 网易头名加成 +0.5：网易排序≈C-pop 热度排序，头名即热度第一的强信号。
-    private static final double MERGE_BONUS_PER_SOURCE = 0.5;
-    private static final double MERGE_BONUS_MAX = 1.0;
-    private static final double NETEASE_HEAD_BONUS = 0.5;
     // 查询相关性加分叠加在平台分之上，不改变平台权重与跨平台加分。
     private static final int PER_PLATFORM_FETCH = 40;
     /**
@@ -605,61 +602,17 @@ public class SongSearchService {
         return new ApiSearchOutcome(Collections.emptyList(), true);
     }
 
-    /** 合并五平台结果：归一化去重、跨平台加分、查询相关性加分、按最终分排序 */
+    /** 合并五平台结果：委托给无状态的 SongMerger（权重按熔断降权后的实时值传入）。 */
     private List<SongDTO> mergePlatformResults(List<SongDTO> neteaseSongs, List<SongDTO> qqSongs,
                                                List<SongDTO> miguSongs, List<SongDTO> kugouSongs,
                                                List<SongDTO> biliSongs, String keyword) {
-        Map<String, SongDTO> mergedMap = new LinkedHashMap<>();
-        Map<String, Integer> mergeCounts = new java.util.HashMap<>();
-
-        addPlatformSongs(mergedMap, mergeCounts, neteaseSongs, effectiveWeight("netease", NET_WEIGHT), "netease", false);
-        addPlatformSongs(mergedMap, mergeCounts, qqSongs, effectiveWeight("qq", QQ_WEIGHT), "qq", true);
-        addPlatformSongs(mergedMap, mergeCounts, miguSongs, effectiveWeight("migu", MIGU_WEIGHT), "migu", true);
-        addPlatformSongs(mergedMap, mergeCounts, kugouSongs, effectiveWeight("kugou", KUGOU_WEIGHT), "kugou", true);
-        addPlatformSongs(mergedMap, mergeCounts, biliSongs, effectiveWeight("bilibili", BILI_WEIGHT), "bilibili", true);
-
-        List<SongDTO> merged = new ArrayList<>(mergedMap.values());
-        long relevanceStart = System.currentTimeMillis();
-        SongRanking.applyRelevanceBonus(merged, keyword);
-        SongRanking.applyNonVipBonus(merged);
-        SongRanking.applyTitleLengthPenalty(merged);
-        SongRanking.applyBiliPlayGate(merged);
-        log.info("[SEARCH-RANK] 相关性重排: keyword='{}', count={}, relevance-cost={}ms",
-                keyword, merged.size(), System.currentTimeMillis() - relevanceStart);
-        merged.sort((a, b) -> Double.compare(
-                b.getFinalScore() != null ? b.getFinalScore() : 0,
-                a.getFinalScore() != null ? a.getFinalScore() : 0));
-        return merged;
-    }
-
-    private void addPlatformSongs(Map<String, SongDTO> mergedMap, Map<String, Integer> mergeCounts,
-                                  List<SongDTO> songs, double weight, String platform, boolean mergeOnDuplicate) {
-        for (int i = 0; i < songs.size(); i++) {
-            SongDTO song = songs.get(i);
-            song.setPlatform(platform);
-            song.setAvailableSources(new ArrayList<>(List.of(platform)));
-            double base = SongRanking.computeScore(i + 1, weight);
-            if ("netease".equals(platform) && i == 0) base += NETEASE_HEAD_BONUS;
-            song.setFinalScore(base);
-            String key = SongRanking.normalizeKey(song.getName(), song.getArtist());
-            SongDTO existing = mergedMap.get(key);
-
-            if (existing != null && mergeOnDuplicate) {
-                List<String> allSources = new ArrayList<>(existing.getAvailableSources());
-                if (!allSources.contains(platform)) allSources.add(platform);
-                SongDTO winner = SongRanking.pickBest(existing, song);
-                winner.setAvailableSources(allSources);
-                int merges = mergeCounts.merge(key, 1, Integer::sum);
-                double prevBonus = Math.min(MERGE_BONUS_PER_SOURCE * (merges - 1), MERGE_BONUS_MAX);
-                double bonus = Math.min(MERGE_BONUS_PER_SOURCE * merges, MERGE_BONUS_MAX);
-                double baseExisting = existing.getFinalScore() - prevBonus;
-                winner.setFinalScore(Math.max(baseExisting, song.getFinalScore()) + bonus);
-                mergedMap.put(key, winner);
-            } else {
-                // 同平台重复键保留分数更高者（见 SongRanking.pickBestByScore 的修复说明）
-                mergedMap.put(key, existing != null ? SongRanking.pickBestByScore(existing, song) : song);
-            }
-        }
+        return SongMerger.merge(neteaseSongs, qqSongs, miguSongs, kugouSongs, biliSongs, keyword,
+                Map.of(
+                        "netease", effectiveWeight("netease", NET_WEIGHT),
+                        "qq", effectiveWeight("qq", QQ_WEIGHT),
+                        "migu", effectiveWeight("migu", MIGU_WEIGHT),
+                        "kugou", effectiveWeight("kugou", KUGOU_WEIGHT),
+                        "bilibili", effectiveWeight("bilibili", BILI_WEIGHT)));
     }
 
     public List<SongDTO> getRandomSongs(int count) {
