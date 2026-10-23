@@ -1,7 +1,7 @@
 package com.vibemusic.service;
 
-import com.vibemusic.config.ThreadPoolConfig;
 import com.vibemusic.common.exception.BusinessException;
+import com.vibemusic.common.resilience.UpstreamBreaker;
 import com.vibemusic.dto.SearchResult;
 import com.vibemusic.dto.SongDTO;
 import com.vibemusic.entity.Song;
@@ -51,6 +51,17 @@ public class SongSearchService {
     private final ThreadPoolTaskExecutor searchExecutor;
     private final ThreadPoolTaskExecutor warmExecutor;
     private final StringRedisTemplate stringRedisTemplate;
+
+    /**
+     * 网关（musicapi）整体熔断器：连续传输失败开路，避免 5 平台同时空转。
+     * 纯内存、进程内（单实例假设，与 QQ 熔断器一致），随 service 单例创建。
+     */
+    private final UpstreamBreaker upstreamBreaker = new UpstreamBreaker();
+
+    /** 测试用：直接拿熔断器注入状态/假时钟。 */
+    UpstreamBreaker upstreamBreaker() {
+        return upstreamBreaker;
+    }
 
     private UserService userService;
 
@@ -226,6 +237,17 @@ public class SongSearchService {
     // 退避序列 150/300/600/1200ms（累计 2.25s），仍 < SEARCH_TIMEOUT_SEC=4s 预算，
     // 既能真正等到持锁者回写，也不会拖慢"持锁者已挂"时的兜底直查。
     private static final long[] LOCK_WAIT_BACKOFF_MS = {150L, 300L, 600L, 1200L};
+    /**
+     * 退避轮询总时长（150+300+600+1200=2250ms）。
+     * Redis 不可用时这段等待必然落空（每轮重读都失败），直接跳过；日志/文档据此说明省下的耗时。
+     */
+    static final long LOCK_BACKOFF_TOTAL_MS = sumOf(LOCK_WAIT_BACKOFF_MS);
+
+    private static long sumOf(long[] values) {
+        long total = 0L;
+        for (long v : values) total += v;
+        return total;
+    }
     // QQ 熔断器阈值：连续失败/超时达此次数开路；开路时长 5 分钟。
     static final int QQ_BREAKER_FAILURE_THRESHOLD = 3;
     static final long QQ_BREAKER_OPEN_MS = 5 * 60 * 1000L;
@@ -362,41 +384,47 @@ public class SongSearchService {
         if (perUser) {
             outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, searchStart);
         } else {
-        String lockValue = cacheService.tryLock(allCacheKey);
-        if (lockValue == null) {
-            List<SongDTO> retried = null;
-            for (int round = 0; round < LOCK_WAIT_BACKOFF_MS.length; round++) {
-                // 指数退避：持锁者通常 1-2s 内回写，早轮重读注定 miss 且空耗 CPU/Redis
-                long backoff = LOCK_WAIT_BACKOFF_MS[round];
-                if (System.currentTimeMillis() - searchStart + backoff > SEARCH_TIMEOUT_SEC * 1000L) {
-                    log.info("[API-LAYER] 单飞退避超出搜索预算，提前兜底直查: keyword='{}'", kw);
-                    break;
-                }
-                try {
-                    Thread.sleep(backoff);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-                retried = cacheService.getSearchCache(allCacheKey);
-                if (retried != null) {
-                    log.info("[CACHE-LAYER] 等待后命中单飞结果: keyword='{}', round={}, waited={}ms", kw, round + 1, backoff);
-                    int from = (page - 1) * size;
-                    int to = Math.min(from + size, retried.size());
-                    if (from >= retried.size()) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis",
-                            retried.isEmpty() ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, false) : null);
-                    return SearchResult.of(retried.subList(from, to), retried.size(), page, size, "redis");
-                }
-            }
-            log.info("[API-LAYER] 单飞等待超时仍无缓存，兜底直查: keyword='{}', 原因=持锁者未及时回写", kw);
-            outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
-        } else {
-            try {
+            SongCacheService.LockResult lock = cacheService.tryLockResult(allCacheKey);
+            if (lock.status() == SongCacheService.LockResult.Status.UNAVAILABLE) {
+                // Redis 不可用：退避轮询每轮都要重读缓存，而 Redis 挂了重读必然失败，
+                // 白等 2.25s（150+300+600+1200）后仍要直查 → 直接跳过单飞等待。
+                log.warn("[API-LAYER] Redis 不可用，跳过单飞等待直查: keyword='{}', 省去退避 {}ms",
+                        kw, LOCK_BACKOFF_TOTAL_MS);
                 outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
-            } finally {
-                cacheService.releaseLock(allCacheKey, lockValue);
+            } else if (lock.status() == SongCacheService.LockResult.Status.BUSY) {
+                List<SongDTO> retried = null;
+                for (int round = 0; round < LOCK_WAIT_BACKOFF_MS.length; round++) {
+                    // 指数退避：持锁者通常 1-2s 内回写，早轮重读注定 miss 且空耗 CPU/Redis
+                    long backoff = LOCK_WAIT_BACKOFF_MS[round];
+                    if (System.currentTimeMillis() - searchStart + backoff > SEARCH_TIMEOUT_SEC * 1000L) {
+                        log.info("[API-LAYER] 单飞退避超出搜索预算，提前兜底直查: keyword='{}'", kw);
+                        break;
+                    }
+                    try {
+                        Thread.sleep(backoff);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                    retried = cacheService.getSearchCache(allCacheKey);
+                    if (retried != null) {
+                        log.info("[CACHE-LAYER] 等待后命中单飞结果: keyword='{}', round={}, waited={}ms", kw, round + 1, backoff);
+                        int from = (page - 1) * size;
+                        int to = Math.min(from + size, retried.size());
+                        if (from >= retried.size()) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis",
+                                retried.isEmpty() ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, false) : null);
+                        return SearchResult.of(retried.subList(from, to), retried.size(), page, size, "redis");
+                    }
+                }
+                log.info("[API-LAYER] 单飞等待超时仍无缓存，兜底直查: keyword='{}', 原因=持锁者未及时回写", kw);
+                outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+            } else {
+                try {
+                    outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+                } finally {
+                    cacheService.releaseLock(allCacheKey, lock.lockValue());
+                }
             }
-        }
         }
         List<SongDTO> resultList = outcome.songs();
 
@@ -426,7 +454,16 @@ public class SongSearchService {
         long apiStart = System.currentTimeMillis();
         final boolean perUser = userCookie != null;
 
+        // 网关整体熔断：开路时跳过全部 5 个远程分支，只走「空结果 + 重试提示」的本地兜底，
+        // 避免 5 线程各自等连接拒绝/超时（单平台熔断管不了网关整个不可用）。
+        final boolean upstreamAllowed = upstreamBreaker.allow();
+        if (!upstreamAllowed) {
+            log.warn("[UPSTREAM-BREAKER] 网关整体熔断开路，跳过 5 平台远程检索: keyword='{}', remainingMs={}, 返回空结果不写负缓存",
+                    kw, upstreamBreaker.remainingOpenMs());
+        }
+
         if ("netease".equals(cacheExtra)) {
+            if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean neFailedOnce = new AtomicBoolean(false);
             List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw, neFailedOnce, userCookie));
             recordSourceOutcome("netease", !neFailedOnce.get());
@@ -435,7 +472,11 @@ public class SongSearchService {
             return new ApiSearchOutcome(songs, false);
         }
         if ("qq".equals(cacheExtra)) {
+            if (!upstreamAllowed) return upstreamUnavailableOutcome();
             if (shouldSkipQq()) {
+                // 半开探针被 QQ 平台熔断跳过：本次没有远程调用，必须释放探针占位（不计数），
+                // 否则网关熔断器会永远停在半开。
+                upstreamBreaker.recordAttemptFailure(false);
                 log.warn("[QQ-BREAKER] 熔断中跳过QQ: keyword='{}'", kw);
                 return new ApiSearchOutcome(Collections.emptyList(), false);
             }
@@ -445,6 +486,7 @@ public class SongSearchService {
             return new ApiSearchOutcome(songs, false);
         }
         if ("migu".equals(cacheExtra)) {
+            if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean mgFailedOnce = new AtomicBoolean(false);
             List<SongDTO> songs = new ArrayList<>(safeSearchMigu(kw, mgFailedOnce));
             recordSourceOutcome("migu", !mgFailedOnce.get());
@@ -453,6 +495,7 @@ public class SongSearchService {
             return new ApiSearchOutcome(songs, false);
         }
         if ("kugou".equals(cacheExtra)) {
+            if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean kgFailedOnce = new AtomicBoolean(false);
             List<SongDTO> songs = new ArrayList<>(safeSearchKugou(kw, kgFailedOnce));
             recordSourceOutcome("kugou", !kgFailedOnce.get());
@@ -461,6 +504,7 @@ public class SongSearchService {
             return new ApiSearchOutcome(songs, false);
         }
         if ("bilibili".equals(cacheExtra)) {
+            if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean biFailedOnce = new AtomicBoolean(false);
             List<SongDTO> songs = new ArrayList<>(safeSearchBili(kw, biFailedOnce));
             recordSourceOutcome("bilibili", !biFailedOnce.get());
@@ -471,6 +515,8 @@ public class SongSearchService {
 
         // 合并搜索（复用 Spring 托管线程池）；熔断开路时跳过 QQ 分支，不再吃 4s 超时。
         // 线程池过载 submit 同步抛 RejectedExecutionException → 快速失败转可重试错误，不静默丢任务。
+        // 网关整体熔断开路时连 5 个 submit 都不发：空转的连接拒绝/超时会白占线程与 DB 连接窗口。
+        if (!upstreamAllowed) return upstreamUnavailableOutcome();
         final AtomicBoolean neFailed = new AtomicBoolean(false);
         final AtomicBoolean qqFailed = new AtomicBoolean(false);
         final AtomicBoolean mgFailed = new AtomicBoolean(false);
@@ -491,9 +537,11 @@ public class SongSearchService {
                 qqFuture = searchExecutor.submit(() -> {
                     try {
                         List<SongDTO> songs = fetchQQ(kw);
+                        upstreamBreaker.recordSuccess();
                         recordQqOutcomeOnce(qqOutcomeClaimed, true);
                         return songs;
                     } catch (Exception e) {
+                        recordUpstreamFailure(e);
                         recordQqOutcomeOnce(qqOutcomeClaimed, false);
                         qqFailed.set(true);
                         log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
@@ -508,6 +556,8 @@ public class SongSearchService {
         } catch (RejectedExecutionException rex) {
             // ThreadPoolTaskExecutor.submit 把拒绝包装为 TaskRejectedException（仍是 RejectedExecutionException 子类），此处一并捕获。
             searchRejectedCounter.increment();
+            // 线程池拒绝属于本地过载，不是传输失败：只释放半开探针占位，不计数
+            upstreamBreaker.recordAttemptFailure(false);
             log.warn("[SEARCH-POOL] 搜索线程池过载，快速失败: keyword='{}', error={}", kw, rex.getMessage());
             throw new BusinessException(503, "搜索服务繁忙，请稍后重试");
         }
@@ -539,6 +589,20 @@ public class SongSearchService {
             cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
         }
         return new ApiSearchOutcome(merged, false);
+    }
+
+    /**
+     * 网关整体熔断开路时的结果：不发任何远程请求，返回「全上游失败」空结果。
+     *
+     * <p>{@link #search} 据 allUpstreamFailed=true 不给改写建议（客户端只提示重试），
+     * 且 doApiSearch 不会写空哨兵污染缓存 —— 与「五平台全失败」的收尾行为一致，
+     * 只是省掉了 5 线程的连接拒绝/超时空转。
+     *
+     * <p>说明：当前搜索路径没有 DB 兜底分支（songMapper 仅用于 getRandomSongs），
+     * 因此开路时不会有本地结果被丢弃；后续若新增 DB/本地兜底，必须放在本分支之前执行。
+     */
+    private ApiSearchOutcome upstreamUnavailableOutcome() {
+        return new ApiSearchOutcome(Collections.emptyList(), true);
     }
 
     /** 合并五平台结果：归一化去重、跨平台加分、查询相关性加分、按最终分排序 */
@@ -765,6 +829,14 @@ public class SongSearchService {
         }
     }
 
+    /**
+     * 网关整体熔断的失败上报：仅在传输层失败（连接拒绝/超时/5xx）时计数；
+     * 4xx/解析失败等业务侧问题只清理半开探针占位，不误导开路。
+     */
+    private void recordUpstreamFailure(Throwable error) {
+        upstreamBreaker.recordAttemptFailure(UpstreamBreaker.isTransportFailure(error));
+    }
+
     /** 全失败判定：实际发起的平台全部异常/超时（熔断跳过的 QQ 不计入，被跳过时只看网易云+咪咕+酷狗+B站）。 */
     private boolean allUpstreamFailed(boolean qqSkipped, AtomicBoolean neFailed,
                                       AtomicBoolean qqFailed, AtomicBoolean mgFailed,
@@ -789,6 +861,8 @@ public class SongSearchService {
             Map<String, Object> result = userCookie != null
                     ? neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH, userCookie)
                     : neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH);
+            // 传输层成功（拿到 HTTP 200 响应体）即视为网关健康：200 空结果也算成功
+            upstreamBreaker.recordSuccess();
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();
@@ -798,6 +872,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
+            recordUpstreamFailure(e);
             log.error("Netease search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
@@ -819,10 +894,12 @@ public class SongSearchService {
     private List<SongDTO> safeSearchQQ(String keyword) {
         try {
             List<SongDTO> songs = fetchQQ(keyword);
+            upstreamBreaker.recordSuccess();
             recordQqSuccess();
             recordSourceOutcome("qq", true);
             return songs;
         } catch (Exception e) {
+            recordUpstreamFailure(e);
             recordQqFailure();
             recordSourceOutcome("qq", false);
             log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
@@ -839,6 +916,7 @@ public class SongSearchService {
     private List<SongDTO> safeSearchMigu(String keyword, AtomicBoolean failed) {
         try {
             Map<String, Object> result = neteaseApiService.searchMigu(keyword, PER_PLATFORM_FETCH);
+            upstreamBreaker.recordSuccess();
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();
@@ -848,6 +926,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
+            recordUpstreamFailure(e);
             log.error("Migu search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
@@ -867,6 +946,7 @@ public class SongSearchService {
     private List<SongDTO> safeSearchBili(String keyword, AtomicBoolean failed) {
         try {
             Map<String, Object> result = neteaseApiService.searchBili(keyword, PER_PLATFORM_FETCH);
+            upstreamBreaker.recordSuccess();
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();
@@ -876,6 +956,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
+            recordUpstreamFailure(e);
             log.error("Bili search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }
@@ -885,6 +966,7 @@ public class SongSearchService {
     private List<SongDTO> safeSearchKugou(String keyword, AtomicBoolean failed) {
         try {
             Map<String, Object> result = neteaseApiService.searchKugou(keyword, PER_PLATFORM_FETCH);
+            upstreamBreaker.recordSuccess();
             if (result == null) return Collections.emptyList();
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null) return Collections.emptyList();
@@ -894,6 +976,7 @@ public class SongSearchService {
                     .collect(Collectors.toList());
         } catch (Exception e) {
             if (failed != null) failed.set(true);
+            recordUpstreamFailure(e);
             log.error("Kugou search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
             return Collections.emptyList();
         }

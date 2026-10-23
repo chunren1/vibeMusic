@@ -58,6 +58,43 @@ class SongCacheServiceTest {
     }
 
     @Test
+    @DisplayName("tryLockResult 三态：持锁成功 → ACQUIRED(锁值)")
+    void tryLockResultAcquired() {
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
+
+        SongCacheService.LockResult result = cacheService.tryLockResult("周杰伦:all");
+
+        assertEquals(SongCacheService.LockResult.Status.ACQUIRED, result.status());
+        assertNotNull(result.lockValue());
+        assertTrue(result.isAcquired());
+    }
+
+    @Test
+    @DisplayName("tryLockResult 三态：锁被他人持有 → BUSY（无锁值）")
+    void tryLockResultBusy() {
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
+
+        SongCacheService.LockResult result = cacheService.tryLockResult("周杰伦:all");
+
+        assertEquals(SongCacheService.LockResult.Status.BUSY, result.status());
+        assertNull(result.lockValue());
+    }
+
+    @Test
+    @DisplayName("tryLockResult 三态：Redis 异常 → UNAVAILABLE（调用方跳过退避等待）")
+    void tryLockResultUnavailable() {
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenThrow(new RuntimeException("Redis down"));
+
+        SongCacheService.LockResult result = cacheService.tryLockResult("周杰伦:all");
+
+        assertEquals(SongCacheService.LockResult.Status.UNAVAILABLE, result.status());
+        assertNull(result.lockValue());
+        // 旧签名保持兼容：三态里的非 ACQUIRED 仍是 null
+        assertNull(cacheService.tryLock("周杰伦:all"));
+    }
+
+    @Test
     @DisplayName("releaseLock 为 null 时不操作")
     void shouldSkipReleaseWhenLockValueIsNull() {
         cacheService.releaseLock("周杰伦:all", null);

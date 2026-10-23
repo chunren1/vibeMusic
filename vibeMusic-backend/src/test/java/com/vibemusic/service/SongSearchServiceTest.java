@@ -74,6 +74,9 @@ class SongSearchServiceTest {
                 cacheService, meterRegistry, searchExec, warmExec,
                 redisTemplate);
         songSearchService.initMetrics();
+        // 默认视为抢到锁：多数用例只关心缓存/上游行为，三态用例各自覆盖本 stub
+        lenient().when(cacheService.tryLockResult(anyString()))
+                .thenReturn(SongCacheService.LockResult.acquired("default-lock"));
     }
 
     @AfterEach
@@ -907,7 +910,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("仅酷狗失败不计全失败：有结果仍写缓存且不计数")
         void onlyKugouFailureIsNotAllFailed() {
             mockCacheMiss();
-            when(cacheService.tryLock(anyString())).thenReturn("lock-kg");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-kg"));
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of(
                     apiSong("ne1", "晴天", "周杰伦", 240000, null))));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -928,7 +931,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("五平台全失败不写空哨兵并计数")
         void allFiveUpstreamFailedCountsWithoutSentinel() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(cacheService.tryLock(anyString())).thenReturn("lock-kg-all");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-kg-all"));
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenThrow(new RuntimeException("netease down"));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -1202,7 +1205,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("仅B站失败不计全失败：有结果仍写缓存且不计数")
         void onlyBiliFailureIsNotAllFailed() {
             mockCacheMiss();
-            when(cacheService.tryLock(anyString())).thenReturn("lock-bi");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-bi"));
             when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(Map.of("data", List.of(
                     apiSong("ne1", "晴天", "周杰伦", 240000, null))));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -1257,8 +1260,10 @@ class SongSearchServiceTest {
                 return null;
             }).when(cacheService).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
             AtomicInteger lockCalls = new AtomicInteger(0);
-            when(cacheService.tryLock(eq(key))).thenAnswer(inv ->
-                    lockCalls.getAndIncrement() == 0 ? "holder-lock" : null);
+            when(cacheService.tryLockResult(eq(key))).thenAnswer(inv ->
+                    lockCalls.getAndIncrement() == 0
+                            ? SongCacheService.LockResult.acquired("holder-lock")
+                            : SongCacheService.LockResult.busy());
 
             CountDownLatch holderEntered = new CountDownLatch(1);
             CountDownLatch releaseHolder = new CountDownLatch(1);
@@ -1309,7 +1314,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("持锁者崩溃无回写时等待者兜底直查，不死锁")
         void holderCrashDegradesWithoutDeadlock() throws Exception {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(cacheService.tryLock(anyString())).thenReturn(null);
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.busy());
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -1362,7 +1367,7 @@ class SongSearchServiceTest {
                 tiny.execute(blocker);
                 tiny.execute(blocker);
                 when(cacheService.getSearchCache(anyString())).thenReturn(null);
-                when(cacheService.tryLock(anyString())).thenReturn("lock-tp");
+                when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-tp"));
 
                 BusinessException ex = assertThrows(BusinessException.class,
                         () -> svc.search("过载词", 1, 20));
@@ -1407,7 +1412,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("三平台全失败不写空哨兵并计数，下次仍可穿透重试")
         void shouldNotWriteSentinelWhenAllUpstreamFailed() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(cacheService.tryLock(anyString())).thenReturn("lock-fail");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-fail"));
             mockUpstreamDown();
 
             SearchResult result = songSearchService.search("全挂词", 1, 20);
@@ -1422,7 +1427,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("三平台返回空数据（非异常）仍写空哨兵防穿透")
         void shouldWriteSentinelWhenGenuinelyEmpty() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(cacheService.tryLock(anyString())).thenReturn("lock-empty");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-empty"));
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -1449,7 +1454,7 @@ class SongSearchServiceTest {
 
         private void mockEmptyUpstream() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(cacheService.tryLock(anyString())).thenReturn("lock-cap");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-cap"));
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of()));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -1599,7 +1604,7 @@ class SongSearchServiceTest {
         @Test @DisplayName("咪咕为空、其余四平台非空 → 以不完整标记写缓存（30s档）")
         void miguEmptyOthersFullWritesIncomplete() {
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
-            when(cacheService.tryLock(anyString())).thenReturn("lock-migu-empty");
+            when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-migu-empty"));
             when(neteaseApiService.searchNetease(eq("咪咕缺货"), eq(40))).thenReturn(Map.of("data", List.of(
                     apiSong("ne1", "咪咕缺货", "周杰伦", 240000, null))));
             when(neteaseApiService.searchQQ(eq("咪咕缺货"), eq(40))).thenReturn(Map.of("data", List.of(

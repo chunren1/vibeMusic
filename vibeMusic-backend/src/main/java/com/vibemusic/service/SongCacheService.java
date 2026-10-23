@@ -59,25 +59,73 @@ public class SongCacheService {
     }
 
     /**
-     * 尝试获取分布式锁（SET NX + 过期时间）
-     * @param keyword 缓存键关键词
-     * @return 锁值（UUID），获取失败返回 null（Redis 不可用时也返回 null，走降级）
+     * 单飞锁三态结果：区分「持锁成功」「锁被他人持有」「Redis 不可用」。
+     *
+     * <p>旧 {@link #tryLock(String)} 把后两者都压成 null，调用方无法判断该不该退避等待：
+     * Redis 整体挂掉时退避轮询每轮重读缓存必然失败，白等 2.25s。
      */
-    public String tryLock(String keyword) {
+    public record LockResult(Status status, String lockValue) {
+
+        public enum Status {
+            /** 持锁成功，调用方负责 finally 释放。 */
+            ACQUIRED,
+            /** 锁被他人持有：短暂退避后重读缓存（单飞等待）。 */
+            BUSY,
+            /** Redis 不可用：不要等待，直接兜底直查。 */
+            UNAVAILABLE
+        }
+
+        public static LockResult acquired(String lockValue) {
+            return new LockResult(Status.ACQUIRED, lockValue);
+        }
+
+        public static LockResult busy() {
+            return new LockResult(Status.BUSY, null);
+        }
+
+        public static LockResult unavailable() {
+            return new LockResult(Status.UNAVAILABLE, null);
+        }
+
+        public boolean isAcquired() {
+            return status == Status.ACQUIRED;
+        }
+    }
+
+    /**
+     * 尝试获取分布式锁（SET NX + 过期时间），返回三态结果。
+     * <p>SET NX 返回 false/null 视为「被他人持有」；抛异常视为「Redis 不可用」。
+     *
+     * @param keyword 缓存键关键词
+     * @return 恒非 null：ACQUIRED(锁值) / BUSY / UNAVAILABLE
+     */
+    public LockResult tryLockResult(String keyword) {
         String lockKey = LOCK_PREFIX + keyword;
         String lockValue = UUID.randomUUID().toString();
         try {
             Boolean acquired = stringRedisTemplate.opsForValue().setIfAbsent(lockKey, lockValue, LOCK_TTL);
             if (Boolean.TRUE.equals(acquired)) {
                 log.debug("[CACHE-LOCK] 获取锁成功: {}", lockKey);
-                return lockValue;
+                return LockResult.acquired(lockValue);
             }
             log.debug("[CACHE-LOCK] 获取锁失败（已被持有）: {}", lockKey);
-            return null;
+            return LockResult.busy();
         } catch (Exception e) {
             log.debug("[CACHE-LOCK] 获取锁异常（Redis 不可用，降级为无锁）: {}", e.getMessage());
-            return null;
+            return LockResult.unavailable();
         }
+    }
+
+    /**
+     * 尝试获取分布式锁（兼容旧签名）：只关心锁值。
+     * <p>新代码请用 {@link #tryLockResult(String)}，以便区分 BUSY 与 Redis 不可用。
+     *
+     * @param keyword 缓存键关键词
+     * @return 锁值（UUID），获取失败或 Redis 不可用时返回 null
+     */
+    public String tryLock(String keyword) {
+        LockResult result = tryLockResult(keyword);
+        return result.isAcquired() ? result.lockValue() : null;
     }
 
     /**

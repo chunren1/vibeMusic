@@ -101,7 +101,7 @@ class SourceWeightAdjustTest {
     @DisplayName("合并搜索中网易云异常：仅网易云降权，其余源权重不变")
     void mergePathRecordsPerSourceOutcome() {
         when(cacheService.getSearchCache(anyString())).thenReturn(null);
-        when(cacheService.tryLock(anyString())).thenReturn("v1");
+        when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("v1"));
         when(neteaseApiService.searchNetease(anyString(), anyInt()))
                 .thenThrow(new RuntimeException("netease down"));
         Map<String, Object> payload = Map.of("data", List.of(

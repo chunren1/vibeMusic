@@ -129,7 +129,7 @@ class SongSearchUserCookieIsolationTest {
         verify(cacheService, never()).getSearchCache(anyString());
         verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
         verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
-        verify(cacheService, never()).tryLock(anyString());
+        verify(cacheService, never()).tryLockResult(anyString());
         verify(cacheService, never()).releaseLock(anyString(), anyString());
 
         verify(neteaseApiService, times(1)).searchNetease(eq("晴天"), eq(40), eq(COOKIE_B));
@@ -141,7 +141,7 @@ class SongSearchUserCookieIsolationTest {
     void userBIsolatedFromSharedCache() {
         stubOtherPlatformsEmpty();
         when(cacheService.getSearchCache(anyString())).thenReturn(null);
-        when(cacheService.tryLock(anyString())).thenReturn("lock-anon");
+        when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-anon"));
         when(neteaseApiService.searchNetease(eq("夜曲"), eq(40)))
                 .thenReturn(apiPayload("shared-a", "夜曲"));
         when(neteaseApiService.searchNetease(eq("夜曲"), eq(40), eq(COOKIE_B)))
@@ -182,7 +182,7 @@ class SongSearchUserCookieIsolationTest {
 
         clearInvocations(cacheService, neteaseApiService);
         when(cacheService.getSearchCache(eq("夜曲:all"))).thenReturn(null);
-        when(cacheService.tryLock(anyString())).thenReturn(null);
+        when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.busy());
         when(neteaseApiService.searchNetease(eq("夜曲"), eq(40)))
                 .thenReturn(apiPayload("n-1", "夜曲"));
 

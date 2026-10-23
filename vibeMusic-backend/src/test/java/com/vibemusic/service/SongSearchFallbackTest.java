@@ -53,7 +53,7 @@ class SongSearchFallbackTest {
                 cacheService, meters, searchExec, warmExec, redisTemplate);
         service.initMetrics();
         when(cacheService.getSearchCache(anyString())).thenReturn(null);
-        when(cacheService.tryLock(anyString())).thenReturn("lock-fb");
+        when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-fb"));
     }
 
     @AfterEach
