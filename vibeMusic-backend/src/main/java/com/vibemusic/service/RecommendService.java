@@ -51,7 +51,6 @@ public class RecommendService {
     private static final String SEEN_KEY_PREFIX = "recommend:seen:v3:";
     private static final int SEEN_MAX = 200;
     private static final Duration SEEN_TTL = Duration.ofDays(7);
-    private static final int MAX_PER_ARTIST = 2;
     private static final int TOP_ARTIST_LIMIT = 5;
 
     /**
@@ -162,7 +161,7 @@ public class RecommendService {
                 }
                 if (!seenSourceIds.add(s.getSourceId())) continue;
                 if (s.getDuration() == null || s.getDuration() > 30) {
-                    if (tryCountArtist(artistCount, s.getArtist())) {
+                    if (RecommendRules.tryCountArtist(artistCount, s.getArtist())) {
                         result.add(s);
                     }
                 }
@@ -195,7 +194,7 @@ public class RecommendService {
                     }
                     if (!seenSourceIds.add(s.getSourceId())) continue;
                     if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                    if (!tryCountArtist(artistCount, s.getArtist())) continue;
+                    if (!RecommendRules.tryCountArtist(artistCount, s.getArtist())) continue;
                     result.add(s);
                 }
             } catch (Exception e) { log.warn("补充随机歌曲失败", e); }
@@ -211,7 +210,7 @@ public class RecommendService {
                 if (result.size() >= RECOMMEND_COUNT) break;
                 if (s.getSourceId() == null || !resultIds.add(s.getSourceId())) continue;
                 if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                if (!tryCountArtist(artistCount, s.getArtist())) continue;
+                if (!RecommendRules.tryCountArtist(artistCount, s.getArtist())) continue;
                 result.add(s);
             }
         }
@@ -306,7 +305,7 @@ public class RecommendService {
                 }
                 if (!seenSourceIds.add(s.getSourceId())) continue;
                 if (s.getDuration() != null && s.getDuration() <= 30) continue;
-                if (!tryCountArtist(artistCount, s.getArtist())) continue;
+                if (!RecommendRules.tryCountArtist(artistCount, s.getArtist())) continue;
                 result.add(s);
             }
         }
@@ -369,20 +368,6 @@ public class RecommendService {
         } catch (Exception e) {
             log.warn("写回已推荐记忆失败: {}", key, e);
         }
-    }
-
-    private static String artistBucket(String artist) {
-        return (artist == null || artist.isEmpty()) ? "" : artist;
-    }
-
-    private static boolean tryCountArtist(Map<String, Integer> artistCount, String artist) {
-        String bucket = artistBucket(artist);
-        int used = artistCount.getOrDefault(bucket, 0);
-        if (used >= MAX_PER_ARTIST) {
-            return false;
-        }
-        artistCount.put(bucket, used + 1);
-        return true;
     }
 
     /**
@@ -498,7 +483,7 @@ public class RecommendService {
             String json = stringRedisTemplate.opsForValue().get(key);
             if (json == null) return null;
             RecommendResult result = objectMapper.readValue(json, RecommendResult.class);
-            if (isCachePoisoned(result)) {
+            if (RecommendRules.isCachePoisoned(result)) {
                 if (isPlatformOutage()) {
                     log.warn("推荐缓存疑似污染但处于平台故障期，降级 serving 旧缓存: {}", key);
                     return result;
@@ -532,16 +517,6 @@ public class RecommendService {
     /**
      * 检测缓存是否被污染：随机推荐 8 首全来自同一平台 → 另一个平台当时挂了
      */
-    private boolean isCachePoisoned(RecommendResult result) {
-        List<SongDTO> songs = result.getSongs();
-        if (songs == null || songs.size() < 4) return false;
-        long neteaseCount = songs.stream().filter(s -> "netease".equals(s.getPlatform())).count();
-        long qqCount = songs.stream().filter(s -> "qq".equals(s.getPlatform())).count();
-        long miguCount = songs.stream().filter(s -> "migu".equals(s.getPlatform())).count();
-        // 全部来自一个平台且数量≥4 → 大概率另两个平台当时异常
-        return (neteaseCount == songs.size() || qqCount == songs.size() || miguCount == songs.size());
-    }
-
     /**
      * 写 Redis 缓存
      */
