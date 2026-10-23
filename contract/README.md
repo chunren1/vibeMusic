@@ -35,5 +35,6 @@ CI 已把 `test/contract.test.js` 加入测试清单（`ci.yml` / `deploy.yml` �
 下一步（按后端消费量排序）：
 
 2. `/qq/search`、`/migu/search`、`/kugou/search`、`/bili/search`（各平台单路搜索）
-3. App ↔ Java 后端的公开 API（`/api/songs/search`、`/api/songs/lyric`、`/api/songs/{id}/stream`），
-   建议用 Spring MockMvc + 同一份契约思路，放在 `vibeMusic-backend/src/test/java/.../contract/`。
+3. 公开 API 已起步：`vibeMusic-backend/src/test/java/com/vibemusic/contract/PublicApiContractTest.java`
+   用 MockMvc 锁 `/api/songs/search` 的 code/message/data{total,page,size,hasMore,list} 信封与 400 错误形。
+   下一步补 `/api/songs/lyric`、`/api/songs/{id}/stream`。
