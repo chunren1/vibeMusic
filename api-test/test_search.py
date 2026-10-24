@@ -79,13 +79,19 @@ def test_personalized_guest(guest):
 
 
 def test_personalized_refresh_overlap(guest):
-    """边界值：连续 3 次 refresh=true，换一批重叠率 <50%（空库/候选池塌缩则跳过）。
+    """边界值：连续 3 次 refresh=true，「换一批」确实带来新歌。
 
-    候选池守卫（2026-10-25 加）：本用例的前提是「上游能给出足够多的候选曲」。
-    GitHub runner 的出口 IP 常被网易/QQ 风控，三批各 8 首但并集只有 8~10 首时，
-    无论轮换逻辑是否正确，重叠率都必然接近 100%（无曲可换）。
-    判据取并集 <12（不足 1.5 批）→ 前提不成立，跳过而不是误报回归。
-    本地/正常网络实测并集 24 首，重叠率 0%，断言照常执行。
+    两档断言（2026-10-25 二次修订，替代只看并集绝对值的单挡守卫）：
+
+    1. **始终断言** 三批并集 > 单批条数。这是本用例真正要守的回归：轮换/随机
+       完全失效时三批一模一样（并集 == 单批），任何候选池规模下都必红。
+    2. **仅在候选池够大时** 断言任意两批重叠率 <50%。前提是三批并集 ≥ 3×单批
+       （理论上才可能存在三批互不相交）。GitHub runner 出口 IP 常被上游风控，
+       只剩一路平台回同一批曲库时（实测并集 17 首 ≈ 单批 8 首的两倍多），
+       「两两重叠 <50%」在上游无曲可换的前提下不可能成立 —— 属前提缺失，跳过。
+       本地/正常网络实测并集 24 首（= 3×单批），断言照常执行。
+
+    失败时打印三批条数与并集大小，便于区分「代码回归」与「上游被风控」。
     """
     rounds = []
     for _ in range(3):
@@ -95,13 +101,26 @@ def test_personalized_refresh_overlap(guest):
         rounds.append(_ids_from_personalized(data))
     if any(not r for r in rounds):
         pytest.skip("推荐结果为空（曲库空或上游不可达），跳过重叠率断言")
+
+    batch = max(len(r) for r in rounds)
     pool = set()
     for r in rounds:
         pool.update(r)
+    print(f"[refresh-overlap] 三批条数={[len(r) for r in rounds]} 并集={len(pool)}")
+
     if len(pool) < 12:
         pytest.skip(
             f"候选池塌缩（三批并集仅 {len(pool)} 首，上游大概率被风控），"
             "重叠率断言在此前提下无意义")
+
+    assert len(pool) > batch, (
+        f"换一批未带来任何新歌：三批条数={[len(r) for r in rounds]}，并集仅 {len(pool)} 首")
+
+    if len(pool) < 3 * batch:
+        pytest.skip(
+            f"候选池不足以撑满三批（并集 {len(pool)} < 3×{batch}），"
+            "两两重叠率 <50% 的前提不成立（上游可换的曲不够）")
+
     for i in range(3):
         for j in range(i + 1, 3):
             rate = overlap_rate(rounds[i], rounds[j])
