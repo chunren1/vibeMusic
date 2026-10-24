@@ -1,0 +1,6 @@
+# 云服务器 (101.132.167.178) root crontab — 2026-10-19 抓取
+# 来源: crontab -l
+# 2026-10-25 按云上 `crontab -l` 实际内容回同步（补上 health-alert 每分钟告警）
+30 3 * * * /bin/bash /opt/vibeMusic/scripts/backup-mysql.sh >> /var/log/vibemusic-backup.log 2>&1
+*/5 * * * * /bin/sh /opt/vibeMusic/scripts/watchdog.sh
+* * * * * /bin/bash /opt/vibeMusic/scripts/health-alert.sh

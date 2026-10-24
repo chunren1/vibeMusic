@@ -80,6 +80,9 @@ docker-data/nginx/logs/
 Thumbs.db
 # 例外：api-test 的依赖清单必须入库（CI pip install -r 要用；被上面的 *.txt 误伤）
 !api-test/requirements.txt
+# 例外：云上 cron 的纳管副本必须入库（reconcile-cloud.sh 要拿它做对账基准；
+# 不入库则新克隆的仓库没有基准，对账会把「仅云上有」当成静默通过）
+!deploy/production/crontab.txt
 
 # 大文件 / 二进制工具 / 隧道凭据
 .cloudflared/
