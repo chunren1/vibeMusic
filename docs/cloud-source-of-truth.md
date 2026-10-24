@@ -13,7 +13,7 @@
 
 | 问题 | 答案 |
 |---|---|
-| 生产跑的是哪个 compose？ | **`/opt/vibeMusic/docker-compose.demo.yml`**（5 服务），不是 `docker-compose.yml` |
+| 生产跑的是哪个 compose？ | **mysql / redis 由 `docker-compose.demo.yml` 托管；backend / musicapi 是 `docker run` 起的**（见 §5.1，2026-10-25 实测容器无任何 compose 标签、`NanoCpus=1.5e9`/`Memory=768M` 与仓库版一致） |
 | 生产前端/反代是谁？ | **云主机上的系统 nginx**（`/etc/nginx`），**不是**仓库里的 `nginx/nginx.conf` 容器配置 |
 | 仓库里 `nginx/nginx.conf` 是干嘛的？ | **CI 校验用的"影子配置"**（`ci.yml` 跑 `nginx -t`），生产不使用 |
 | 对账方向？ | **永远只有「云上 → 仓库」**。绝不允许把仓库覆盖回云上。 |
@@ -200,10 +200,42 @@ scripts/reconcile-cloud.sh --help
 - **凭据安全**：按变量名从 `~/.dsh/.credentials.yaml` 读 `VIBEMUSIC_SERVER_*`，不硬编码、不打印。
 - **不依赖 sshpass**：装了走 `sshpass -e`（密码走环境变量），没装自动退化为 `key-only ssh`。
   （实测云主机支持 key-only 登录，所以两种方式都能跑。）
-- **退出码可用于 CI**：`0` 一致 / `1` 有漂移 / `3` 凭据缺失 / `4` 连不上。
+- **退出码可用于 CI/cron**：`0` 无真漂移 / `1` 有真漂移 / `3` 凭据缺失 / `4` 连不上。
 
 输出列：`文件 | md5(云) | md5(仓) | 行数(云) | 行数(仓) | 状态`，
-状态取 `一致` / `★漂移` / `仅云上有` / `仅仓库有`。
+状态取 `一致` / `预期差异` / `★漂移` / `仅云上有` / `仅仓库有`。
+
+**预期差异（2026-10-25 新增）**：脚本 3b 节维护一张 `label|原因` 表，把
+「生产根本不用的影子文件」与「仓库更新但未部署且不影响线上」标成 `预期差异`，
+打印原因但不计失败；**表外**的任何差异才算真漂移 → 退出码 1。
+这样它才能挂 cron / 进 CI —— 否则长期十几项漂移等于永远红，没人会看。
+
+### 5.1 生产部署机制真相（2026-10-25 实测，此前文档只写了 compose）
+
+| 服务 | 谁创建 | 证据 |
+|---|---|---|
+| `vibemusic-mysql` / `vibemusic-redis` | `docker compose`（`docker-compose.demo.yml`） | 有 11 个 `com.docker.compose.*` 标签 |
+| `vibemusic-backend` / `vibemusic-musicapi` | **`scripts/deploy-backend.sh` 里的 `docker run`**（蓝绿） | **0 个 compose 标签**，创建时间 2026-10-23T16:01Z |
+
+后果与结论：
+
+- 云上 `docker-compose.demo.yml`（mtime 2026-10-19）**不是** app 容器的真源，它只描述 mysql/redis；
+  拿它 `docker compose up -d backend` 会与线上蓝绿容器抢 8080（`docs/deploy-backend.md:170` 已警告）。
+- 仓库版 compose 才是应保留的真源（fail-fast 变量、`cpus: 1.5`、`TOMCAT_MAX_THREADS` 名字修正），
+  线上容器实测 `NanoCpus=1.5e9` / `Memory=768M` 与仓库一致 → 归入「预期差异」，**不回灌**云上旧副本。
+- 想知道线上到底跑什么，看 `scripts/deploy-backend.sh` + `docker inspect`，不看云上 compose。
+
+### 5.2 云上 cron（2026-10-25 与 `crontab -l` 对齐）
+
+```
+30 3 * * *  /bin/bash /opt/vibeMusic/scripts/backup-mysql.sh >> /var/log/vibemusic-backup.log 2>&1
+*/5 * * * * /bin/sh   /opt/vibeMusic/scripts/watchdog.sh
+* * * * *   /bin/bash /opt/vibeMusic/scripts/health-alert.sh
+```
+
+仓库副本：`deploy/production/crontab.txt`。2026-10-25 前它缺第三条（每分钟告警），且 backup 行写的是
+`/bin/sh`，导致对账长期假红；已按云上 `crontab -l` 实际内容回同步。`scripts/health-alert.sh`
+两边字节一致，已纳入对账清单。
 
 > 未纳入对账的项目（有意为之）：
 > - `.env`（云上是生产密钥，仓库本地 `.env` 是开发用，比对没有意义且涉密）

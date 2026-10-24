@@ -14,8 +14,8 @@
 #   4. 不依赖 sshpass：装了就用（sshpass -e 走环境变量），没装自动退化为 key-only ssh。
 #
 # 退出码
-#   0 = 全部一致（无漂移）
-#   1 = 存在漂移（可用于 CI 门禁）
+#   0 = 无真漂移（允许「预期差异」，见 3b 节）
+#   1 = 存在真漂移（可用于 CI/cron 门禁）
 #   3 = 凭据缺失
 #   4 = 连不上云 / 远端执行失败
 #
@@ -76,6 +76,7 @@ nginx/logrotate-nginx.conf|nginx/logrotate-nginx.conf|/opt/vibeMusic/nginx/logro
 scripts/backup-mysql.sh|scripts/backup-mysql.sh|/opt/vibeMusic/scripts/backup-mysql.sh
 scripts/watchdog.sh|scripts/watchdog.sh|/opt/vibeMusic/scripts/watchdog.sh
 scripts/health_check.py|scripts/health_check.py|/opt/vibeMusic/scripts/health_check.py
+scripts/health-alert.sh|scripts/health-alert.sh|/opt/vibeMusic/scripts/health-alert.sh
 scripts/adversarial-chaos.sh|scripts/adversarial-chaos.sh|/opt/vibeMusic/scripts/adversarial-chaos.sh
 scripts/adversarial-security.sh|scripts/adversarial-security.sh|/opt/vibeMusic/scripts/adversarial-security.sh
 monitoring/prometheus.yml|monitoring/prometheus.yml|/opt/vibeMusic/monitoring/prometheus.yml
@@ -85,6 +86,26 @@ host-nginx: vibemusic-site|deploy/production/nginx/vibemusic-site.conf|/etc/ngin
 host-nginx: security.conf|deploy/production/nginx/security.conf|/etc/nginx/conf.d/security.conf
 cloudflared: config.yml|deploy/production/cloudflared/config.yml|/etc/cloudflared/config.yml
 host crontab|deploy/production/crontab.txt|cmd:crontab -l'
+
+# ------------------------------------------------------------
+# 3b) 预期差异（label|原因）：这些差异是已知且可接受的，打印但不计失败
+#     判据：① 生产根本不使用该文件（影子配置）；② 仓库更新但未部署且不影响线上
+#     出现新的、不在本表里的差异 = 真漂移 → 退出码 1
+# ------------------------------------------------------------
+EXPECTED='docker-compose.yml|生产不用：生产栈加载 docker-compose.demo.yml
+docker-compose.full.yml|生产不用：本地完整栈模板
+docker-compose.demo.yml|仓库为真源：云上副本停留在 2026-10-19，app 容器实际由 scripts/deploy-backend.sh 的 docker run 起（线上容器无 compose 标签，实测 NanoCpus=1.5e9/Memory=768M 与仓库版一致），compose 仅托管 mysql/redis
+.env.example|仓库更新未部署：本地模板，生产用自有 .env；两边键集差异来自已下线的 ES/THREADPOOL 配置清理
+nginx/nginx.conf|影子配置：生产反代是宿主机 nginx（deploy/production/nginx），仓库版供 CI nginx -t
+nginx/docker-entrypoint.sh|影子配置：生产不跑 nginx 容器
+monitoring/prometheus.yml|生产未部署：监控文件仅纳入版本管理
+monitoring/docker-compose.yml|生产未部署：监控文件仅纳入版本管理
+monitoring/blackbox.yml|生产未部署：监控文件仅纳入版本管理
+scripts/health_check.py|仓库更新未部署：仓库版已删掉下线的 ES 端点
+scripts/adversarial-chaos.sh|仓库更新未部署：演练脚本，不影响线上服务
+scripts/adversarial-security.sh|仓库更新未部署：仓库版多了非本机目标必须 --yes 的校验（O5）'
+
+expected_reason() { printf '%s\n' "$EXPECTED" | awk -F'|' -v k="$1" '$1==k {print $2; exit}'; }
 
 # 归一化：crontab 比较「有效行」（去注释/空行/行尾空白），避免注释差异造成假漂移
 normalize() { grep -vE '^[[:space:]]*(#|$)' | sed 's/[[:space:]]*$//' | sort; }
@@ -170,7 +191,8 @@ printf '%s\n' '─────────────────────�
 printf '%-30s %-9s %-9s %-5s %-5s %s\n' "文件" "md5(云)" "md5(仓)" "行云" "行仓" "状态"
 printf '%s\n' '────────────────────────────────────────────────────────────────────────────'
 
-drift=0; total=0
+drift=0; total=0; ok=0; expected=0
+EXPECTED_HITS=()
 while IFS='|' read -r label lpath _; do
   [ -z "${label:-}" ] && continue
   total=$((total+1))
@@ -180,16 +202,31 @@ while IFS='|' read -r label lpath _; do
   elif [ "$l_md5" = MISSING ] && [ "$c_md5" != MISSING ]; then st="仅云上有"
   elif [ "$c_md5" = "$l_md5" ]; then st="一致"
   else st="★漂移"; fi
-  [ "$st" = "一致" ] || drift=$((drift+1))
+  reason=""
+  if [ "$st" = "一致" ]; then
+    ok=$((ok+1))
+  else
+    reason="$(expected_reason "$label")"
+    if [ -n "$reason" ]; then st="预期差异"; expected=$((expected+1)); EXPECTED_HITS+=("$label")
+    else drift=$((drift+1)); fi
+  fi
   printf '%-30s %-9s %-9s %-5s %-5s %s\n' \
     "$label" "${c_md5:0:8}" "${l_md5:0:8}" "$c_lines" "$l_lines" "$st"
 done <<<"$MANIFEST"
 
+if [ "${#EXPECTED_HITS[@]}" -gt 0 ]; then
+  printf '\n预期差异说明（不计入失败，明细见脚本 3b 节）：\n'
+  for label in "${EXPECTED_HITS[@]}"; do
+    printf '  · %s —— %s\n' "$label" "$(expected_reason "$label")"
+  done
+fi
+
 printf '%s\n' '────────────────────────────────────────────────────────────────────────────'
 if [ "$drift" -eq 0 ]; then
-  printf '结果：%d/%d 一致，无漂移 ✅\n\n' "$total" "$total"
+  printf '结果：%d/%d 一致，%d 项预期差异，无真漂移 ✅\n\n' "$ok" "$total" "$expected"
   exit 0
 else
-  printf '结果：%d/%d 存在漂移 ❌（方向只能是 云上 → 仓库，见 docs/cloud-source-of-truth.md）\n\n' "$drift" "$total"
+  printf '结果：%d 项真漂移 ❌（%d 一致 / %d 预期差异，共 %d；方向只能是 云上 → 仓库，见 docs/cloud-source-of-truth.md）\n\n' \
+    "$drift" "$ok" "$expected" "$total"
   exit 1
 fi

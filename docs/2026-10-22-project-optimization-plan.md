@@ -510,3 +510,22 @@ RSS 多 20~120MB，1.6GB 机器不划算。→ 保持关闭，RUNBOOK 已记录�
 
 另补 `backend-jdk25` job（`mvn test`，不含 JaCoCo）并清掉残留 `--test-force-exit`（`39593cb`），
 真 CI 上 7/7 success。**以后「推 Gitee」不等于跑过 CI，必须推 GitHub。**
+
+### 13.4 P1-2：云上对账从「永远红」变成可用门禁
+
+只读对账跑出 **13/21 项差异**，逐条查过后发现其中没有一项是「云上被手改而仓库不知道」，
+反而全是仓库领先或生产根本不用的影子文件。于是给 `scripts/reconcile-cloud.sh` 加预期差异分类：
+
+- 脚本 3b 节维护 `label|原因` 表（12 项），命中即标 `预期差异`，打印原因但不计失败；
+- **表外**的任何差异才算真漂移 → 退出码 1；
+- 实测：`10/22 一致 + 12 项预期差异 + 0 真漂移`，退出码 **0**（此前恒为 1，等于没人会看）。
+
+同时挖出两条一直被当成事实的错误认知，已写进 `docs/cloud-source-of-truth.md` §5.1/§5.2：
+
+1. **生产 app 容器不是 compose 起的**：`vibemusic-backend` / `vibemusic-musicapi` 没有任何
+   `com.docker.compose.*` 标签（0 个），是 `scripts/deploy-backend.sh` 里的 `docker run` 蓝绿起的；
+   compose 只托管 mysql / redis。云上那份 `docker-compose.demo.yml` 停在 2026-10-19，
+   `cpus: 0.5` 与线上实测 `NanoCpus=1.5e9`/`Memory=768M` 不一致——**它只描述 mysql/redis，不是 app 真源**。
+2. **云上 cron 是 3 条不是 2 条**：多了 `* * * * * health-alert.sh`（每分钟告警），而仓库
+   `deploy/production/crontab.txt` 缺这条、且 backup 行写成 `/bin/sh`（云上是 `/bin/bash`），
+   对账因此长期假红。已按 `crontab -l` 回同步，并将 `scripts/health-alert.sh` 纳入对账清单（两边字节一致）。
