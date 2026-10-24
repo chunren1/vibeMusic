@@ -12,13 +12,11 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
-import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
@@ -28,20 +26,24 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 歌曲搜索服务
- * <p>
- * 二级缓存：Redis → API 实时搜索
- * 支持分源搜索（网易云 / QQ）和跨平台去重合并
- * <p>
+ * 歌曲搜索服务（facade）：缓存 → 单飞 → 平台扇出 → 合并排序 → 分页。
+ *
+ * <p>职责拆分（P1-8，2026-10-25）：
+ * <ul>
+ *   <li>{@link PlatformSearchAdapter}：五平台单次搜索、超时等待、失败上报</li>
+ *   <li>{@link QqCircuitBreaker}：QQ 熔断状态机（进程内 + Redis 跨实例）</li>
+ *   <li>{@link SongDtoParser}：网关结果解析与封面改写</li>
+ *   <li>{@link SongMerger}：跨平台去重与加权排序</li>
+ * </ul>
+ *
+ * <p>二级缓存：Redis → API 实时搜索；支持分源搜索（网易云 / QQ / 咪咕 / 酷狗 / B站）。
  * 线程池由 Spring 托管（ThreadPoolConfig），避免 static ExecutorService 泄漏。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SongSearchService {
 
     private final SongMapper songMapper;
@@ -50,7 +52,30 @@ public class SongSearchService {
     private final MeterRegistry meterRegistry;
     private final ThreadPoolTaskExecutor searchExecutor;
     private final ThreadPoolTaskExecutor warmExecutor;
-    private final StringRedisTemplate stringRedisTemplate;
+
+    /** QQ 熔断状态机（进程内状态 + Redis 跨实例持久化）。 */
+    private final QqCircuitBreaker qqBreaker;
+
+    /** 平台适配层：五平台单次搜索 / 超时 / 失败上报。 */
+    private final PlatformSearchAdapter platformSearch;
+
+    public SongSearchService(SongMapper songMapper,
+                             NeteaseApiService neteaseApiService,
+                             SongCacheService cacheService,
+                             MeterRegistry meterRegistry,
+                             ThreadPoolTaskExecutor searchExecutor,
+                             ThreadPoolTaskExecutor warmExecutor,
+                             StringRedisTemplate stringRedisTemplate) {
+        this.songMapper = songMapper;
+        this.neteaseApiService = neteaseApiService;
+        this.cacheService = cacheService;
+        this.meterRegistry = meterRegistry;
+        this.searchExecutor = searchExecutor;
+        this.warmExecutor = warmExecutor;
+        this.qqBreaker = new QqCircuitBreaker(stringRedisTemplate);
+        this.platformSearch = new PlatformSearchAdapter(
+                neteaseApiService, upstreamBreaker, qqBreaker, this::recordSourceOutcome);
+    }
 
     /**
      * 网关（musicapi）整体熔断器：连续传输失败开路，避免 5 平台同时空转。
@@ -210,10 +235,10 @@ public class SongSearchService {
      * {@link com.vibemusic.config.RestTemplateConfig#SEARCH_RESPONSE_TIMEOUT}（3s），
      * 留 1s 给线程池调度与结果合并；包内可见以便超时预算自洽测试断言。
      */
-    static final int SEARCH_TIMEOUT_SEC = 4;
+    static final int SEARCH_TIMEOUT_SEC = PlatformSearchAdapter.SEARCH_TIMEOUT_SEC;
     // QQ 专属预算 2s（2026-09-29 实测：QQ 仅 25% 搜索有贡献，权重又最低；
     // 4s 预算下它是常见的尾部拖慢者，减半只截长尾，健康时 2s 内必回）
-    static final int QQ_TIMEOUT_SEC = 2;
+    static final int QQ_TIMEOUT_SEC = PlatformSearchAdapter.QQ_TIMEOUT_SEC;
     /** 搜索 keyword 最大长度：超长截断，防上游/缓存键膨胀（与 size<=100 同属入参校验层）。 */
     public static final int MAX_KEYWORD_LENGTH = 200;
     /** 随机推荐 count 上限：直通 DB LIMIT（含 lyric TEXT），必须封顶。 */
@@ -245,9 +270,9 @@ public class SongSearchService {
         for (long v : values) total += v;
         return total;
     }
-    // QQ 熔断器阈值：连续失败/超时达此次数开路；开路时长 5 分钟。
-    static final int QQ_BREAKER_FAILURE_THRESHOLD = 3;
-    static final long QQ_BREAKER_OPEN_MS = 5 * 60 * 1000L;
+    // QQ 熔断器阈值：连续失败/超时达此次数开路；开路时长 5 分钟（状态机见 QqCircuitBreaker）。
+    static final int QQ_BREAKER_FAILURE_THRESHOLD = QqCircuitBreaker.FAILURE_THRESHOLD;
+    static final long QQ_BREAKER_OPEN_MS = QqCircuitBreaker.OPEN_MS;
     // 动态源权重：各平台连续失败（异常/超时；空结果属健康应答，不计）自动降权，
     // 成功一次即复权。档位 1 → 1/2 → 1/4 → 1/8 封顶，健康时因子恒为 1（排序与旧权重逐分一致）。
     static final int SOURCE_DEWEIGHT_MAX_STEPS = 3;
@@ -288,26 +313,12 @@ public class SongSearchService {
         return c == null ? 0 : c.get();
     }
 
-    /**
-      * QQ 熔断器 Redis 持久化键（Hash）：failures=连续失败计数，openedAt=开路时刻毫秒（-1=闭路）。
-     * TTL 恒等于开路窗口；键过期即视为闭路（与内存语义一致：窗口过后进入半开探针）。
-     * 半开探针占用标记仅保存在进程内（qqHalfOpenProbeInFlight + qqBreakerLock），跨实例重复探针无害（恰好计数一次）。
-     */
-    static final String QQ_BREAKER_REDIS_KEY = "circuit:qq:v1";
-    private static final String QQ_BREAKER_F_FAILURES = "failures";
-    private static final String QQ_BREAKER_F_OPENED_AT = "openedAt";
-
-    // ======== QQ 熔断器状态（进程内内存；单实例部署假设，多实例需 Redis 共享，此处从简） ========
-    // service 为单例，状态变更统一在 qqBreakerLock 下，计数器用 AtomicInteger，时钟 volatile 可注入（测试用）。
-    private final AtomicInteger qqConsecutiveFailures = new AtomicInteger(0);
-    private volatile long qqCircuitOpenedAt = -1L; // -1 = 闭路
-    private volatile boolean qqHalfOpenProbeInFlight = false;
-    private final Object qqBreakerLock = new Object();
-    private volatile LongSupplier qqClock = System::currentTimeMillis;
+    /** QQ 熔断器 Redis 键（状态机内部实现，此处保留常量供测试/运维对齐）。 */
+    static final String QQ_BREAKER_REDIS_KEY = QqCircuitBreaker.REDIS_KEY;
 
     /** 测试用时钟注入（生产恒为 System::currentTimeMillis）。 */
     void setQqClockForTest(LongSupplier clock) {
-        this.qqClock = clock;
+        qqBreaker.setClockForTest(clock);
     }
 
     @PreDestroy
@@ -462,7 +473,7 @@ public class SongSearchService {
         if ("netease".equals(cacheExtra)) {
             if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean neFailedOnce = new AtomicBoolean(false);
-            List<SongDTO> songs = new ArrayList<>(safeSearchNetease(kw, neFailedOnce, userCookie));
+            List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchNetease(kw, neFailedOnce, userCookie));
             recordSourceOutcome("netease", !neFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("netease");
             if (!songs.isEmpty() && !perUser) cacheService.setSearchCache(kw + ":netease", songs, true);
@@ -477,7 +488,7 @@ public class SongSearchService {
                 log.warn("[QQ-BREAKER] 熔断中跳过QQ: keyword='{}'", kw);
                 return new ApiSearchOutcome(Collections.emptyList(), false);
             }
-            List<SongDTO> songs = new ArrayList<>(safeSearchQQ(kw));
+            List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchQQ(kw));
             for (SongDTO s : songs) s.setPlatform("qq");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", songs, true);
             return new ApiSearchOutcome(songs, false);
@@ -485,7 +496,7 @@ public class SongSearchService {
         if ("migu".equals(cacheExtra)) {
             if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean mgFailedOnce = new AtomicBoolean(false);
-            List<SongDTO> songs = new ArrayList<>(safeSearchMigu(kw, mgFailedOnce));
+            List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchMigu(kw, mgFailedOnce));
             recordSourceOutcome("migu", !mgFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("migu");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":migu", songs, true);
@@ -494,7 +505,7 @@ public class SongSearchService {
         if ("kugou".equals(cacheExtra)) {
             if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean kgFailedOnce = new AtomicBoolean(false);
-            List<SongDTO> songs = new ArrayList<>(safeSearchKugou(kw, kgFailedOnce));
+            List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchKugou(kw, kgFailedOnce));
             recordSourceOutcome("kugou", !kgFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("kugou");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":kugou", songs, true);
@@ -503,7 +514,7 @@ public class SongSearchService {
         if ("bilibili".equals(cacheExtra)) {
             if (!upstreamAllowed) return upstreamUnavailableOutcome();
             AtomicBoolean biFailedOnce = new AtomicBoolean(false);
-            List<SongDTO> songs = new ArrayList<>(safeSearchBili(kw, biFailedOnce));
+            List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchBili(kw, biFailedOnce));
             recordSourceOutcome("bilibili", !biFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("bilibili");
             if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":bilibili", songs, true);
@@ -526,19 +537,19 @@ public class SongSearchService {
         final Future<List<SongDTO>> biF;
         final AtomicBoolean qqOutcomeClaimed = new AtomicBoolean(false);
         try {
-            neF = searchExecutor.submit(() -> safeSearchNetease(kw, neFailed, userCookie));
+            neF = searchExecutor.submit(() -> platformSearch.safeSearchNetease(kw, neFailed, userCookie));
             Future<List<SongDTO>> qqFuture = null;
             if (shouldSkipQq()) {
                 log.warn("[QQ-BREAKER] 熔断中跳过QQ: keyword='{}'", kw);
             } else {
                 qqFuture = searchExecutor.submit(() -> {
                     try {
-                        List<SongDTO> songs = fetchQQ(kw);
+                        List<SongDTO> songs = platformSearch.fetchQQ(kw);
                         upstreamBreaker.recordSuccess();
                         recordQqOutcomeOnce(qqOutcomeClaimed, true);
                         return songs;
                     } catch (Exception e) {
-                        recordUpstreamFailure(e);
+                        platformSearch.recordUpstreamFailure(e);
                         recordQqOutcomeOnce(qqOutcomeClaimed, false);
                         qqFailed.set(true);
                         log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
@@ -547,9 +558,9 @@ public class SongSearchService {
                 });
             }
             qqF = qqFuture;
-            mgF = searchExecutor.submit(() -> safeSearchMigu(kw, mgFailed));
-            kgF = searchExecutor.submit(() -> safeSearchKugou(kw, kgFailed));
-            biF = searchExecutor.submit(() -> safeSearchBili(kw, biFailed));
+            mgF = searchExecutor.submit(() -> platformSearch.safeSearchMigu(kw, mgFailed));
+            kgF = searchExecutor.submit(() -> platformSearch.safeSearchKugou(kw, kgFailed));
+            biF = searchExecutor.submit(() -> platformSearch.safeSearchBili(kw, biFailed));
         } catch (RejectedExecutionException rex) {
             // ThreadPoolTaskExecutor.submit 把拒绝包装为 TaskRejectedException（仍是 RejectedExecutionException 子类），此处一并捕获。
             searchRejectedCounter.increment();
@@ -561,11 +572,11 @@ public class SongSearchService {
         // 全局 fanout deadline：5 路并行提交后串行 get，若每路各等 4s，最坏叠加 4+2+4+4+4=18s
         //（17s 毛刺根因）。此处以 SEARCH_TIMEOUT_SEC 为总预算，后到的源只等剩余时间。
         long fanoutDeadlineMs = System.currentTimeMillis() + SEARCH_TIMEOUT_SEC * 1000L;
-        List<SongDTO> neteaseSongs = getWithTimeout(neF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Netease", neFailed);
-        List<SongDTO> qqSongs = (qqF == null) ? Collections.emptyList() : getQqWithTimeout(qqF, qqOutcomeClaimed, qqFailed, remainingSec(fanoutDeadlineMs, QQ_TIMEOUT_SEC));
-        List<SongDTO> miguSongs = getWithTimeout(mgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Migu", mgFailed);
-        List<SongDTO> kugouSongs = getWithTimeout(kgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Kugou", kgFailed);
-        List<SongDTO> biliSongs = getWithTimeout(biF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Bili", biFailed);
+        List<SongDTO> neteaseSongs = platformSearch.getWithTimeout(neF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Netease", neFailed);
+        List<SongDTO> qqSongs = (qqF == null) ? Collections.emptyList() : platformSearch.getQqWithTimeout(qqF, qqOutcomeClaimed, qqFailed, remainingSec(fanoutDeadlineMs, QQ_TIMEOUT_SEC));
+        List<SongDTO> miguSongs = platformSearch.getWithTimeout(mgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Migu", mgFailed);
+        List<SongDTO> kugouSongs = platformSearch.getWithTimeout(kgF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Kugou", kgFailed);
+        List<SongDTO> biliSongs = platformSearch.getWithTimeout(biF, remainingSec(fanoutDeadlineMs, SEARCH_TIMEOUT_SEC), "Bili", biFailed);
         recordSourceOutcome("netease", !neFailed.get());
         if (qqF != null) recordSourceOutcome("qq", !qqFailed.get());
         recordSourceOutcome("migu", !mgFailed.get());
@@ -577,7 +588,7 @@ public class SongSearchService {
         log.info("[API-LAYER] 搜索完成: keyword='{}', 网易云={}首, QQ={}首, 咪咕={}首, 酷狗={}首, B站={}首, 去重后={}首, API-cost={}ms, totalCost={}ms",
                 kw, neteaseSongs.size(), qqSongs.size(), miguSongs.size(), kugouSongs.size(), biliSongs.size(), merged.size(),
                 System.currentTimeMillis() - apiStart, System.currentTimeMillis() - searchStart);
-        if (merged.isEmpty() && allUpstreamFailed(qqF == null, neFailed, qqFailed, mgFailed, kgFailed, biFailed)) {
+        if (merged.isEmpty() && PlatformSearchAdapter.allUpstreamFailed(qqF == null, neFailed, qqFailed, mgFailed, kgFailed, biFailed)) {
             upstreamAllFailedCounter.increment();
             log.warn("[API-LAYER] 五平台上游全部失败，不写空哨兵: keyword='{}'", kw);
             return new ApiSearchOutcome(merged, true);
@@ -660,427 +671,45 @@ public class SongSearchService {
         return songs;
     }
 
-    // ==================== QQ 熔断器状态机 ====================
+    // ==================== QQ 熔断器（状态机见 QqCircuitBreaker） ====================
 
-    /**
-     * 熔断开路期间是否应跳过 QQ 分支。半开时仅放行一个探针，其余并发请求继续跳过。
-     * 开路时刻优先读 Redis（重启后新实例同样可见）；Redis 不可用或无状态时降级为进程内内存。
-     */
+    /** 开路期间是否应跳过 QQ 分支（半开时仅放行一个探针）。 */
     boolean shouldSkipQq() {
-        long openedAt = readQqOpenedAt();
-        if (openedAt < 0) return false;
-        long now = qqClock.getAsLong();
-        if (now - openedAt < QQ_BREAKER_OPEN_MS) return true;
-        synchronized (qqBreakerLock) {
-            openedAt = readQqOpenedAt();
-            if (openedAt < 0) return false;
-            now = qqClock.getAsLong();
-            if (now - openedAt < QQ_BREAKER_OPEN_MS) return true;
-            if (qqHalfOpenProbeInFlight) return true;
-            qqHalfOpenProbeInFlight = true;
-            return false;
-        }
+        return qqBreaker.shouldSkip();
     }
 
-    /** QQ 成功：清零计数、闭路（探针成功同样闭路）。内存与 Redis 双写，Redis 异常只降级不抛。 */
+    /** QQ 成功：清零计数、闭路（探针成功同样闭路）。 */
     void recordQqSuccess() {
-        qqConsecutiveFailures.set(0);
-        synchronized (qqBreakerLock) {
-            qqCircuitOpenedAt = -1L;
-            qqHalfOpenProbeInFlight = false;
-        }
-        try {
-            if (stringRedisTemplate != null) stringRedisTemplate.delete(QQ_BREAKER_REDIS_KEY);
-        } catch (Exception e) {
-            log.debug("[QQ-BREAKER] Redis 清除开路状态失败，降级为内存状态: {}", e.getMessage());
-        }
+        qqBreaker.recordSuccess();
     }
 
-    /** QQ 失败/超时：累计；达阈值开路，探针失败则重开并重置计时。计数经 Redis 原子累加实现跨实例共享。 */
+    /** QQ 失败/超时：累计；达阈值开路，探针失败则重开并重置计时。 */
     void recordQqFailure() {
-        int n = incrementQqFailures();
-        synchronized (qqBreakerLock) {
-            qqHalfOpenProbeInFlight = false;
-            if (n >= QQ_BREAKER_FAILURE_THRESHOLD) {
-                long now = qqClock.getAsLong();
-                qqCircuitOpenedAt = now;
-                writeQqOpenState(n, now);
-            }
-        }
+        qqBreaker.recordFailure();
     }
 
-    /** 开路时刻：Redis 优先（-1 亦视为有效闭路状态），缺失/异常时用内存值。 */
-    private long readQqOpenedAt() {
-        try {
-            HashOperations<String, String, String> ops = breakerHashOps();
-            if (ops != null) {
-                String v = ops.get(QQ_BREAKER_REDIS_KEY, QQ_BREAKER_F_OPENED_AT);
-                if (v != null) return Long.parseLong(v);
-            }
-        } catch (Exception e) {
-            log.debug("[QQ-BREAKER] Redis 读取开路状态失败，降级为内存状态: {}", e.getMessage());
-        }
-        return qqCircuitOpenedAt;
+    /** 单次搜索内恰好计数一次（实现见 PlatformSearchAdapter）。 */
+    void recordQqOutcomeOnce(AtomicBoolean claimed, boolean success) {
+        platformSearch.recordQqOutcomeOnce(claimed, success);
     }
 
-    /** 失败计数：Redis HINCRBY 原子跨实例累加并同步内存镜像；Redis 不可用时内存自增。 */
-    private int incrementQqFailures() {
-        try {
-            HashOperations<String, String, String> ops = breakerHashOps();
-            if (ops != null) {
-                Long n = ops.increment(QQ_BREAKER_REDIS_KEY, QQ_BREAKER_F_FAILURES, 1L);
-                if (n != null) {
-                    int v = n.intValue();
-                    qqConsecutiveFailures.set(v);
-                    refreshQqBreakerTtl();
-                    return v;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[QQ-BREAKER] Redis 累计失败次数失败，降级为内存计数: {}", e.getMessage());
-        }
-        return qqConsecutiveFailures.incrementAndGet();
+    /** QQ 专属超时等待（实现见 PlatformSearchAdapter；保留本入口给同包测试验证 2s 预算）。 */
+    List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed) {
+        return platformSearch.getQqWithTimeout(future, claimed);
     }
 
-    /** 开路写 Redis：failures + openedAt 双字段，TTL 恒等于开路窗口。异常只降级不抛。 */
-    private void writeQqOpenState(int failures, long openedAt) {
-        try {
-            HashOperations<String, String, String> ops = breakerHashOps();
-            if (ops == null) return;
-            ops.put(QQ_BREAKER_REDIS_KEY, QQ_BREAKER_F_FAILURES, String.valueOf(failures));
-            ops.put(QQ_BREAKER_REDIS_KEY, QQ_BREAKER_F_OPENED_AT, String.valueOf(openedAt));
-            refreshQqBreakerTtl();
-        } catch (Exception e) {
-            log.debug("[QQ-BREAKER] Redis 写入开路状态失败，降级为内存状态: {}", e.getMessage());
-        }
-    }
-
-    /** 刷新熔断器键 TTL = 开路窗口；键过期即视为闭路。异常只降级不抛。 */
-    private void refreshQqBreakerTtl() {
-        try {
-            if (stringRedisTemplate != null)
-                stringRedisTemplate.expire(QQ_BREAKER_REDIS_KEY, QQ_BREAKER_OPEN_MS, TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            log.debug("[QQ-BREAKER] Redis 刷新熔断器 TTL 失败，降级为内存状态: {}", e.getMessage());
-        }
-    }
-
-    private HashOperations<String, String, String> breakerHashOps() {
-        try {
-            if (stringRedisTemplate == null) return null;
-            return stringRedisTemplate.opsForHash();
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** 单次搜索内恰好计数一次：超时分支与任务收尾分支竞争，胜者计数，败者跳过。 */
-    private void recordQqOutcomeOnce(AtomicBoolean claimed, boolean success) {
-        if (claimed.compareAndSet(false, true)) {
-            if (success) recordQqSuccess();
-            else recordQqFailure();
-        }
-    }
-
-    /**
-     * 网关整体熔断的失败上报：仅在传输层失败（连接拒绝/超时/5xx）时计数；
-     * 4xx/解析失败等业务侧问题只清理半开探针占位，不误导开路。
-     */
-    private void recordUpstreamFailure(Throwable error) {
-        upstreamBreaker.recordAttemptFailure(UpstreamBreaker.isTransportFailure(error));
-    }
-
-    /** 全失败判定：实际发起的平台全部异常/超时（熔断跳过的 QQ 不计入，被跳过时只看网易云+咪咕+酷狗+B站）。 */
-    private boolean allUpstreamFailed(boolean qqSkipped, AtomicBoolean neFailed,
-                                      AtomicBoolean qqFailed, AtomicBoolean mgFailed,
-                                      AtomicBoolean kgFailed, AtomicBoolean biFailed) {
-        if (!neFailed.get() || !mgFailed.get() || !kgFailed.get() || !biFailed.get()) return false;
-        return qqSkipped || qqFailed.get();
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchNetease(String keyword) {
-        return safeSearchNetease(keyword, null, null);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchNetease(String keyword, AtomicBoolean failed) {
-        return safeSearchNetease(keyword, failed, null);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchNetease(String keyword, AtomicBoolean failed, String userCookie) {
-        try {
-            Map<String, Object> result = userCookie != null
-                    ? neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH, userCookie)
-                    : neteaseApiService.searchNetease(keyword, PER_PLATFORM_FETCH);
-            // 传输层成功（拿到 HTTP 200 响应体）即视为网关健康：200 空结果也算成功
-            upstreamBreaker.recordSuccess();
-            if (result == null) return Collections.emptyList();
-            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-            if (data == null) return Collections.emptyList();
-            return data.stream()
-                    .map(this::parsePlatformSong).filter(Objects::nonNull)
-                    .peek(this::rewriteHttpCoverUrl)
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            if (failed != null) failed.set(true);
-            recordUpstreamFailure(e);
-            log.error("Netease search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
-            return Collections.emptyList();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> fetchQQ(String keyword) {
-        Map<String, Object> result = neteaseApiService.searchQQ(keyword, PER_PLATFORM_FETCH);
-        if (result == null) return Collections.emptyList();
-        List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-        if (data == null) return Collections.emptyList();
-        return data.stream()
-                .map(this::parsePlatformSong).filter(Objects::nonNull)
-                .peek(this::rewriteHttpCoverUrl)
-                .collect(Collectors.toList());
-    }
-
-    /** 同步单平台 QQ 搜索：成功清零、异常计数（单次调用恰好计数一次）。 */
-    private List<SongDTO> safeSearchQQ(String keyword) {
-        try {
-            List<SongDTO> songs = fetchQQ(keyword);
-            upstreamBreaker.recordSuccess();
-            recordQqSuccess();
-            recordSourceOutcome("qq", true);
-            return songs;
-        } catch (Exception e) {
-            recordUpstreamFailure(e);
-            recordQqFailure();
-            recordSourceOutcome("qq", false);
-            log.error("QQ search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName());
-            return Collections.emptyList();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchMigu(String keyword) {
-        return safeSearchMigu(keyword, null);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchMigu(String keyword, AtomicBoolean failed) {
-        try {
-            Map<String, Object> result = neteaseApiService.searchMigu(keyword, PER_PLATFORM_FETCH);
-            upstreamBreaker.recordSuccess();
-            if (result == null) return Collections.emptyList();
-            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-            if (data == null) return Collections.emptyList();
-            return data.stream()
-                    .map(this::parsePlatformSong).filter(Objects::nonNull)
-                    .peek(this::rewriteHttpCoverUrl)
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            if (failed != null) failed.set(true);
-            recordUpstreamFailure(e);
-            log.error("Migu search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
-            return Collections.emptyList();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchKugou(String keyword) {
-        return safeSearchKugou(keyword, null);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchBili(String keyword) {
-        return safeSearchBili(keyword, null);
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchBili(String keyword, AtomicBoolean failed) {
-        try {
-            Map<String, Object> result = neteaseApiService.searchBili(keyword, PER_PLATFORM_FETCH);
-            upstreamBreaker.recordSuccess();
-            if (result == null) return Collections.emptyList();
-            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-            if (data == null) return Collections.emptyList();
-            return data.stream()
-                    .map(this::parsePlatformSong).filter(Objects::nonNull)
-                    .peek(this::rewriteHttpCoverUrl)
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            if (failed != null) failed.set(true);
-            recordUpstreamFailure(e);
-            log.error("Bili search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
-            return Collections.emptyList();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SongDTO> safeSearchKugou(String keyword, AtomicBoolean failed) {
-        try {
-            Map<String, Object> result = neteaseApiService.searchKugou(keyword, PER_PLATFORM_FETCH);
-            upstreamBreaker.recordSuccess();
-            if (result == null) return Collections.emptyList();
-            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-            if (data == null) return Collections.emptyList();
-            return data.stream()
-                    .map(this::parsePlatformSong).filter(Objects::nonNull)
-                    .peek(this::rewriteHttpCoverUrl)
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            if (failed != null) failed.set(true);
-            recordUpstreamFailure(e);
-            log.error("Kugou search failed: {} ({})", e.getMessage(), e.getClass().getSimpleName(), e);
-            return Collections.emptyList();
-        }
-    }
-
-    private void rewriteHttpCoverUrl(SongDTO song) {
-        if (song.getCoverUrl() != null && song.getCoverUrl().startsWith("http://")) {
-            String encoded = java.net.URLEncoder.encode(song.getCoverUrl(), java.nio.charset.StandardCharsets.UTF_8);
-            song.setCoverUrl("/api/image-proxy?url=" + encoded);
-            return;
-        }
-        // B 站封面防盗链代取(2026-09 质量 pass 实测)：hdslb CDN 对外来 Referer 回 403
-        // (curl 验证：无 Referer→200，外站 Referer→403，bilibili Referer→200)，
-        // 浏览器从 App 域名直连必带外站 Referer → 裂图。网关 pic 透传本身无误，
-        // App 亦无平台特判(纯 coverUrl 渲染)，故在此统一改走后端 image-proxy
-        // (ProxyController 白名单已含 i0/i1/i2.hdslb.com，服务端无 Referer 拉取→200)。
-        // 仅代理白名单内三域名，其他 https 原样保留；已代理的不重复包。
-        if (song.getCoverUrl() != null && isBiliCdnCover(song.getCoverUrl())
-                && !song.getCoverUrl().startsWith("/api/image-proxy")) {
-            String encoded = java.net.URLEncoder.encode(song.getCoverUrl(), java.nio.charset.StandardCharsets.UTF_8);
-            song.setCoverUrl("/api/image-proxy?url=" + encoded);
-        }
-    }
-
-    /** B 站封面 CDN 域名判定：与 ProxyController ALLOWED_HOSTS 内三域名镜像，防发出不可代理 URL。 */
-    static boolean isBiliCdnCover(String coverUrl) {
-        if (coverUrl == null) return false;
-        try {
-            String host = java.net.URI.create(coverUrl).getHost();
-            return com.vibemusic.common.utils.BiliCdnHosts.isCoverHost(host);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    private SongDTO parsePlatformSong(Map<String, Object> raw) {
-        try {
-            String sourceId = raw.get("id") != null ? String.valueOf(raw.get("id")) : "";
-            if (sourceId.isEmpty()) return null;
-            String name = raw.get("name") != null ? String.valueOf(raw.get("name")) : "";
-            String artists = raw.get("artists") != null ? String.valueOf(raw.get("artists")) : "未知歌手";
-            String album = raw.get("album") != null ? String.valueOf(raw.get("album")) : "";
-            String coverUrl = raw.get("cover") != null ? String.valueOf(raw.get("cover")) : "";
-            int duration = 0;
-            Object durObj = raw.get("duration");
-            if (durObj instanceof Number) duration = ((Number) durObj).intValue() / 1000;
-            Object vipObj = raw.get("vip");
-            // 上游未知保持 null（中性、不得分），只有明确非付费才加权，见 applyNonVipBonus
-            Boolean vip = vipObj instanceof Boolean ? (Boolean) vipObj : null;
-            // B 站热度透传（网关 _raw.play/_raw.danmaku，加性；缺失即 null=未知，门控按 0 计）
-            Long playCount = null;
-            Long danmakuCount = null;
-            Object rawObj = raw.get("_raw");
-            if (rawObj instanceof Map<?, ?> rawMap) {
-                playCount = toLongOrNull(rawMap.get("play"));
-                if (playCount == null) playCount = toLongOrNull(rawMap.get("playCount"));
-                danmakuCount = toLongOrNull(rawMap.get("danmaku"));
-            }
-
-            SongDTO dto = new SongDTO();
-            dto.setSourceId(sourceId); dto.setName(name); dto.setArtist(artists);
-            dto.setAlbum(album); dto.setCoverUrl(coverUrl); dto.setDuration(duration);
-            dto.setVip(vip);
-            dto.setAlias(parseAlias(raw.get("alias")));
-            dto.setPlayCount(playCount); dto.setDanmakuCount(danmakuCount);
-            return dto;
-        } catch (Exception e) {
-            log.warn("Failed to parse platform song: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 解析网关透传的译名/别名（`alias` 数组或单字符串）。
-     * 上游缺失、空数组、非字符串条目一律忽略；永不抛异常（老数据/脏数据视为无别名）。
-     */
+    /** 解析译名/别名（实现见 SongDtoParser；保留本入口给同包测试）。 */
     static List<String> parseAlias(Object raw) {
-        if (raw instanceof String s) {
-            String t = s.trim();
-            return t.isEmpty() ? Collections.emptyList() : List.of(t);
-        }
-        if (!(raw instanceof List<?> list)) return Collections.emptyList();
-        List<String> alias = new ArrayList<>(list.size());
-        for (Object o : list) {
-            if (o == null) continue;
-            String t = String.valueOf(o).trim();
-            if (!t.isEmpty() && !alias.contains(t)) alias.add(t);
-        }
-        return alias;
+        return SongDtoParser.parseAlias(raw);
     }
 
-    /** 网关 _raw 热度字段宽容转 Long：Number 直接取，数字字符串解析，其他一律 null。 */
-    static Long toLongOrNull(Object v) {
-        if (v instanceof Number n) return n.longValue();
-        if (v instanceof String s && s.trim().matches("-?\\d+")) {
-            try {
-                return Long.parseLong(s.trim());
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return null;
+    /** B 站封面 CDN 判定（实现见 SongDtoParser）。 */
+    static boolean isBiliCdnCover(String coverUrl) {
+        return SongDtoParser.isBiliCdnCover(coverUrl);
     }
 
-    private <T> List<T> getWithTimeout(Future<List<T>> future, int seconds, String platform) {
-        return getWithTimeout(future, seconds, platform, null);
-    }
-
-    private <T> List<T> getWithTimeout(Future<List<T>> future, int seconds, String platform, AtomicBoolean failed) {
-        try { return future.get(seconds, TimeUnit.SECONDS); }
-        catch (TimeoutException e) {
-            log.warn("{} search timed out after {}s", platform, seconds);
-            future.cancel(true);
-            if (failed != null) failed.set(true);
-        }
-        catch (Exception e) {
-            log.error("{} search failed: {}", platform, e.getMessage(), e);
-            if (failed != null) failed.set(true);
-        }
-        return Collections.emptyList();
-    }
-
-    /** QQ 专属超时等待：超时/异常计失败（与任务内计数互斥，单次搜索恰好计数一次）。 */
-    private List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed) {
-        return getQqWithTimeout(future, claimed, null);
-    }
-
-    /** QQ 专属超时等待：超时/异常计失败（与任务内计数互斥，单次搜索恰好计数一次）。 */
-    private List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed, AtomicBoolean failed) {
-        return getQqWithTimeout(future, claimed, failed, QQ_TIMEOUT_SEC);
-    }
-
+    /** 剩余预算秒数（实现见 PlatformSearchAdapter；保留本入口给同包测试）。 */
     static int remainingSec(long deadlineMs, int capSec) {
-        long remainMs = deadlineMs - System.currentTimeMillis();
-        if (remainMs <= 0) return 1;
-        return (int) Math.min(capSec, (remainMs + 999) / 1000);
-    }
-
-    private List<SongDTO> getQqWithTimeout(Future<List<SongDTO>> future, AtomicBoolean claimed, AtomicBoolean failed, int seconds) {
-        try {
-            return future.get(seconds, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            log.warn("QQ search timed out after {}s", seconds);
-            future.cancel(true);
-            recordQqOutcomeOnce(claimed, false);
-            if (failed != null) failed.set(true);
-        } catch (Exception e) {
-            log.error("QQ search failed: {}", e.getMessage(), e);
-            recordQqOutcomeOnce(claimed, false);
-            if (failed != null) failed.set(true);
-        }
-        return Collections.emptyList();
+        return PlatformSearchAdapter.remainingSec(deadlineMs, capSec);
     }
 }
