@@ -86,7 +86,7 @@ jobs:
           cd musicapi
           npm ci
           node --check server.js
-          node --test --test-force-exit test/contract.test.js \
+          node --test test/contract.test.js \
             test/cookie-endpoints-hardening.test.js \
             test/gateway-top10.test.js \
             test/netease-capability-probe.test.js \

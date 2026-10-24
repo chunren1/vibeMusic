@@ -90,6 +90,36 @@ jobs:
           path: vibeMusic-backend/target/site/jacoco/
           retention-days: 7
 
+  # ---- Job 1b: 同一套用例在「线上运行时」的 JDK 上再跑一遍 ----
+  # 线上 base 镜像已是 eclipse-temurin:25（Dockerfile），但字节码仍编译到 17
+  # （pom <java.version>17</java.version>）。此前测试只在 JDK 17 上跑过，
+  # 意味着「测试的 JVM」与「运行的 JVM」错位——只在 25 上出现的
+  # 反射/模块/GC 行为差异没有任何门禁能拦住。
+  # 这里只跑 `test`（不跑 verify）：JaCoCo 70/60 门禁由 Job 1 唯一负责，避免双份覆盖率报告互相覆盖。
+  backend-jdk25:
+    name: Backend (JDK 25 runtime alignment, tests only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: vibeMusic-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25 (与线上 runtime 对齐)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run tests on JDK 25（不含覆盖率门禁）
+        run: mvn -B test -DskipTests=false
+        env:
+          JWT_SECRET: ci-test-secret-key-32bytes-long!
+          # test-only, never production：32 个零字节的 base64 假密钥，仅供测试加载 CookieCryptoService
+          COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+
   # ---- Job 2: Vue 3 frontend (build + Vitest) ----
   frontend:
     name: Frontend (Vite build + Vitest)
@@ -147,7 +177,9 @@ jobs:
   # ---- Job 3: Express BFF gateway (offline stub tests, no live server) ----
   # NOTE: test/server.test.js is deliberately excluded — it requires a live
   # server on :3000. All other test files are self-contained (node:test stubs)
-  # and run per-file explicitly with --test-force-exit.
+  # and run per-file explicitly. 不再加 --test-force-exit：logger 定时器已 unref()，
+  # 进程能自然退出；force-exit 会在有句柄泄漏时仍判绿，把泄漏藏起来
+  # （2026-10-23 a37056c 已从 npm test 摘掉，此处是同一笔清理的收尾）。
   gateway:
     name: Gateway (node --test, 15 files)
     runs-on: ubuntu-latest
@@ -207,7 +239,7 @@ jobs:
 
       - name: Run gateway tests (per-file, no live server)
         run: |
-          node --test --test-force-exit test/contract.test.js \
+          node --test test/contract.test.js \
             test/cookie-endpoints-hardening.test.js \
             test/gateway-top10.test.js \
             test/netease-capability-probe.test.js \
