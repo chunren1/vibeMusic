@@ -1,27 +1,17 @@
 package com.vibemusic.service;
 
-import com.vibemusic.config.AudioQualityTier;
-import com.vibemusic.config.ThreadPoolConfig;
 import com.vibemusic.common.utils.ClientErrorScrubber;
-import com.vibemusic.common.utils.SongIdUtils;
 import com.vibemusic.entity.Song;
 import com.vibemusic.mapper.SongMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 
 /**
  * 歌曲播放服务
@@ -29,23 +19,46 @@ import java.util.function.Supplier;
  * 音质降级链：MinIO 缓存 → 原平台 API（多级音质）→ 跨平台降级 → DB 历史 URL 兜底
  * <p>
  * 线程池由 Spring 托管（ThreadPoolConfig），避免 static ExecutorService 泄漏。
+ * <p>
+ * 拆分（P1-8）：本类只保留编排——平台选择分支、8s 预算、MinIO 命中直返、DB 兜底、
+ * 降级计数与指标注册。网易云取链/探测见 {@link NeteaseUrlProbe}，平台直取见
+ * {@link PlatformUrlFetcher}，跨平台降级见 {@link NeteaseDegradeChain}。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SongPlayService {
 
     private final SongMapper songMapper;
-    private final NeteaseApiService neteaseApiService;
     private final StorageService storageService;
-    private final StringRedisTemplate stringRedisTemplate;
-    private final ThreadPoolTaskExecutor getUrlExecutor;
+    /** 网易云取链与并行探测。 */
+    private final NeteaseUrlProbe neteaseUrlProbe;
+    /** 平台直取（B站/酷狗/咪咕/QQ）与 MinIO 缓存判定。 */
+    private final PlatformUrlFetcher platformUrlFetcher;
+    /** 跨平台降级链（网易→QQ / 其它→网易云）。 */
+    private final NeteaseDegradeChain degradeChain;
+
+    private final AtomicInteger degradationCount = new AtomicInteger(0);
 
     private UserService userService;
+
+    public SongPlayService(SongMapper songMapper,
+                          NeteaseApiService neteaseApiService,
+                          StorageService storageService,
+                          StringRedisTemplate stringRedisTemplate,
+                          ThreadPoolTaskExecutor getUrlExecutor) {
+        this.songMapper = songMapper;
+        this.storageService = storageService;
+        this.neteaseUrlProbe = new NeteaseUrlProbe(neteaseApiService, getUrlExecutor);
+        this.platformUrlFetcher = new PlatformUrlFetcher(neteaseApiService, storageService, stringRedisTemplate);
+        this.degradeChain = new NeteaseDegradeChain(
+                songMapper, neteaseApiService, neteaseUrlProbe, degradationCount, getUrlExecutor);
+    }
 
     @Autowired(required = false)
     public void setUserService(UserService userService) {
         this.userService = userService;
+        // BYOC 失效探测在探测类内完成，需同步注入（测试无 Spring 上下文时为 null）
+        neteaseUrlProbe.setUserService(userService);
     }
 
     /**
@@ -56,10 +69,7 @@ public class SongPlayService {
     public void setMeterRegistry(MeterRegistry meterRegistry) {
         if (meterRegistry != null) {
             meterRegistry.gauge("play.degradation.count", degradationCount, AtomicInteger::get);
-            needLoginCounter = Counter.builder("play.netease.need_login")
-                    .description("网易云取链 need-login 信号次数").register(meterRegistry);
-            rotateCounter = Counter.builder("play.netease.cookie_rotate")
-                    .description("共享 Cookie 快切触发次数").register(meterRegistry);
+            neteaseUrlProbe.setMeterRegistry(meterRegistry);
         }
     }
 
@@ -68,192 +78,16 @@ public class SongPlayService {
         return userService == null ? null : userService.resolveCurrentNeteaseCookie();
     }
 
-    private Map<String, Object> fetchNeteaseUrl(String sourceId, String level, String userCookie, Long userId) {
-        Map<String, Object> body = userCookie != null
-                ? neteaseApiService.getSongUrl(sourceId, level, userCookie)
-                : neteaseApiService.getSongUrl(sourceId, level);
-        observeNeteaseUrlPayload(body, userCookie, userId);
-        // BYOC（per-user）路径不参与共享快切，语义保持不变
-        if (userCookie != null) return body;
-        if (NeteaseApiService.isNeedLoginPayload(body)) {
-            if (needLoginCounter != null) needLoginCounter.increment();
-            try {
-                if (rotateCounter != null) rotateCounter.increment();
-                if (neteaseApiService.rotateSharedCookie()) {
-                    return neteaseApiService.getSongUrl(sourceId, level);
-                }
-            } catch (Exception e) {
-                log.warn("共享 Cookie 快切重试失败（降级链不变）: {}", ClientErrorScrubber.scrub(e.getMessage()), e);
-            }
-        }
-        return rotateSharedCookieOnVipBlock(sourceId, level, body);
-    }
-
-    /**
-     * VIP 权限受限（付费曲目但当前共享 Cookie 无播放权限）→ 能力感知快切 + 重试一次。
-     *
-     * <p>与 need-login 分支的区别：上游仍是 {@code code=200}（登录态有效、搜索正常），
-     * 只是 VIP-only 曲目只下发 ≤30s 试听（判定见 {@link NeteaseApiService#isVipBlockedPayload}），
-     * 故必须按条目字段判定，并让网关重探"登录 + 播放能力"后换槽位。
-     *
-     * <p>仅共享链路（userCookie==null）参与；重试结果必须是<b>完整可播</b>才采信，
-     * 否则保留原响应继续降级链（绝不抛错，绝不改变降级链形状）。
-     * 并发取链（多音质并行）共用冷却窗口，避免风暴式快切；
-     * 冷却内命中只跳过快切，不影响本次取链结果的降级处理。
-     */
-    private Map<String, Object> rotateSharedCookieOnVipBlock(String sourceId, String level, Map<String, Object> body) {
-        if (!NeteaseApiService.isVipBlockedPayload(body)) return body;
-        if (!tryAcquireVipRotateWindow()) return body;
-        try {
-            if (rotateCounter != null) rotateCounter.increment();
-            if (!neteaseApiService.rotateSharedCookie(true)) return body;
-            Map<String, Object> retried = neteaseApiService.getSongUrl(sourceId, level);
-            if (NeteaseApiService.isFullPlayablePayload(retried)) {
-                log.info("VIP 权限受限快切成功: {} level={} 已取得完整可播链接", ClientErrorScrubber.scrub(sourceId), level);
-                return retried;
-            }
-            log.info("VIP 权限受限快切后重试仍不可播: {} level={}，保留原响应走降级链", ClientErrorScrubber.scrub(sourceId), level);
-        } catch (Exception e) {
-            log.warn("VIP 权限受限快切重试失败（降级链不变）: {}", ClientErrorScrubber.scrub(e.getMessage()), e);
-        }
-        return body;
-    }
-
-    /** 抢占 VIP 能力快切窗口（进程内冷却）：并发/短时重复请求只放行一次，避免快切风暴。 */
-    private boolean tryAcquireVipRotateWindow() {
-        long now = System.currentTimeMillis();
-        long last = lastVipRotateAt.get();
-        if (now - last < VIP_ROTATE_COOLDOWN_MS) return false;
-        return lastVipRotateAt.compareAndSet(last, now);
-    }
-
-    /**
-     * BYOC 过期探测（Q3-11 接线）：per-user 取链拿到上游 need-login 信号
-     * （{@code /song/url/v1} 原样透传体，见 {@link NeteaseApiService#isNeedLoginPayload}）
-     * 时将该用户 Cookie 标失效，后续 {@code GET /api/cookies/status} 返回
-     * {@code needsRebind:true}。
-     *
-     * <p>仅 per-user 请求参与（userCookie/userId 任一缺席即跳过，匿名/共享失败永不翻转）；
-     * 永不抛错，不干扰播放降级链；日志仅 userId + 上游 code，绝不记 Cookie 字节。
-     * 搜索链路不接：网关 {@code /netease/search} 已归一化为 {@code code:200}，
-     * 上游 need-login 在网关内即被吞为匿名降级，后端侧无信号可探。
-     */
-    private void observeNeteaseUrlPayload(Map<String, Object> body, String userCookie, Long userId) {
-        if (userCookie == null || userId == null || userService == null) return;
-        if (!NeteaseApiService.isNeedLoginPayload(body)) return;
-        try {
-            userService.markNeteaseCookieInvalid(userId, NeteaseApiService.extractUpstreamCode(body));
-        } catch (Exception e) {
-            log.warn("BYOC 失效标记失败: userId={}, error={}", userId, ClientErrorScrubber.scrub(e.getMessage()));
-        }
-    }
-
-    private Map<String, Object> fetchNeteaseSearch(String keyword, int limit, String userCookie) {
-        return userCookie != null
-                ? neteaseApiService.searchNetease(keyword, limit, userCookie)
-                : neteaseApiService.searchNetease(keyword, limit);
-    }
-
-    private static final String MINIO_CACHE_PREFIX = "minio:exists:v1:";
-    private static final Duration MINIO_CACHE_TTL = Duration.ofMinutes(10);
-    /** 试听片段判定阈值（毫秒）：时长 ≤ 30 秒视为试听片段 */
-    private static final int TRIAL_DURATION_MS = 30000;
-    /** VIP 能力快切冷却窗口（毫秒）：并发取链与短时重复请求共享，避免快切风暴 */
-    private static final long VIP_ROTATE_COOLDOWN_MS = 30_000;
-    private final AtomicInteger degradationCount = new AtomicInteger(0);
-    /** 最近一次 VIP 能力快切时间戳（见 {@link #tryAcquireVipRotateWindow}） */
-    private final AtomicLong lastVipRotateAt = new AtomicLong(0);
-    private volatile Counter needLoginCounter;
-    private volatile Counter rotateCounter;
-
     public int getDegradationCount() { return degradationCount.get(); }
 
-    /** 酷狗 hash 判定：32 位十六进制（全数字 32 位亦命中，优先于网易云纯数字分支）。 */
-    static boolean isKugouHash(String sourceId) {
-        return SongIdUtils.isKugouHash(sourceId);
-    }
-
-    /**
-     * B站 track 判定：纯 bvid(BV 开头)或复合 bvid|cid。
-     * BV 形与 QQ songmid 字符集有交集，故调用方必须优先显式 platform，
-     * ID 猜测仅在无显式平台时生效；裸数字 aid 一律不视为 B 站(归网易云)。
-     */
-    static boolean isBiliId(String sourceId) {
-        return SongIdUtils.isBiliId(sourceId);
-    }
-
-    // ============ 限时调用/取消工具（getPlayUrl 共用）============
-
-    /**
-     * 取消未完成的并行取链任务。
-     * <p>
-     * 语义说明（CompletableFuture.cancel(true) 无法中断已开始的任务，
-     * boolean 参数对 CompletableFuture 无实质中断效果）：
-     * <ul>
-     *   <li>排队中尚未开始的任务：cancel 后不再执行，不消耗线程与上游配额；</li>
-     *   <li>已开始执行的任务：无法被中断，会执行至返回/超时，但其结果会被调用方丢弃。</li>
-     * </ul>
-     * loser 并发被天然限制在 getUrl 池大小（8 线程 + 16 队列，AbortPolicy 快速失败）
-     * 与整体 8s DEADLINE 之内，不会 wedge 线程池。
-     */
-    private static void cancelUnfinished(Collection<CompletableFuture<Map<String, Object>>> futures) {
-        for (CompletableFuture<Map<String, Object>> f : futures) {
-            if (f != null && !f.isDone()) {
-                f.cancel(true);
-            }
-        }
-    }
-
-    /**
-     * 在剩余预算内限时执行上游调用：预算约束调用本身而非仅约束是否发起。
-     * 预算耗尽/超时/异常一律返回 null，由调用方按降级处理；超时时 cancel 排队任务。
-     */
-    private <T> T callWithDeadline(Supplier<T> s, long deadline) {
-        long left = deadline - System.currentTimeMillis();
-        if (left <= 0) {
-            log.warn("限时调用跳过: 预算已耗尽");
-            return null;
-        }
-        final CompletableFuture<T> cf;
-        try {
-            cf = CompletableFuture.supplyAsync(s, getUrlExecutor);
-        } catch (RejectedExecutionException e) {
-            log.warn("限时调用取链池过载，直接跳过");
-            return null;
-        }
-        try {
-            return cf.get(left, TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            cf.cancel(true);
-            log.warn("限时调用超时: {}ms 预算内未返回，已取消", left);
-            return null;
-        } catch (InterruptedException e) {
-            cf.cancel(true);
-            Thread.currentThread().interrupt();
-            log.warn("限时调用被中断，已取消");
-            return null;
-        } catch (ExecutionException e) {
-            // CompletableFuture 把上游异常包在 ExecutionException 里：只打外层 message 会丢掉真实堆栈
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            log.warn("限时调用上游异常: {}", ClientErrorScrubber.scrub(cause.getMessage()), cause);
-            return null;
-        }
-    }
-
-
-    // ==================== getPlayUrl ====================
-
-    @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId) {
         return getPlayUrl(sourceId, null, null, null);
     }
 
-    @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist) {
         return getPlayUrl(sourceId, songName, artist, null);
     }
 
-    @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform) {
         return getPlayUrl(sourceId, songName, artist, platform, resolveUserCookie());
     }
@@ -265,7 +99,6 @@ public class SongPlayService {
      */
     static final long PLAY_BUDGET_MS = 8000;
 
-    @SuppressWarnings("unchecked")
     public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
         // 请求线程捕获 userId（异步取链线程读不到 SecurityContext）。
         final Long callerUserId = UserService.getCurrentUserId();
@@ -273,7 +106,7 @@ public class SongPlayService {
         final long DEADLINE = System.currentTimeMillis() + PLAY_BUDGET_MS;
         // 1. 优先检查 MinIO 缓存（Redis 缓存 exists 结果，TTL 10min）
         String minioObjectName = "songs/" + sourceId + ".mp3";
-        if (isCachedInMinio(sourceId, userCookie)) {
+        if (platformUrlFetcher.isCachedInMinio(sourceId, userCookie)) {
             String directUrl = storageService.getDirectUrl(minioObjectName);
             log.info("getPlayUrl: {} 命中 MinIO 缓存", ClientErrorScrubber.scrub(sourceId));
             return directUrl;
@@ -290,39 +123,40 @@ public class SongPlayService {
         try {
             if (explicitMigu) {
                 // 咪咕：musicapi 返回 302 Location 签名 URL（IP-bound），由 StreamController 代理字节流
-                String miguUrl = fetchMiguUrl(sourceId);
+                String miguUrl = platformUrlFetcher.fetchMiguUrl(sourceId);
                 if (miguUrl != null) return miguUrl;
                 log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
-            } else if (explicitKugou || (!explicitQQ && !explicitNE && isKugouHash(sourceId))) {
+            } else if (explicitKugou || (!explicitQQ && !explicitNE && PlatformUrlFetcher.isKugouHash(sourceId))) {
                 // 酷狗：platform=kugou 显式指定，或无显式平台时的 32 位 hash 猜测
                 // （此前误入 QQ 分支）；albumId 暂无法透传，取链失败则走网易云降级
-                String kugouUrl = tryKugouUrl(sourceId);
+                String kugouUrl = platformUrlFetcher.tryKugouUrl(sourceId);
                 if (kugouUrl != null) return kugouUrl;
                 log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
-            } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && isBiliId(sourceId))) {
+            } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && PlatformUrlFetcher.isBiliId(sourceId))) {
                 // B站：platform=bilibili 显式指定，或无显式平台时的 BV 猜测
                 // （BV 形绝不能落入 QQ 分支，故本分支置于 QQ 分支之前）
-                String biliUrl = tryBiliUrl(sourceId);
+                String biliUrl = platformUrlFetcher.tryBiliUrl(sourceId);
                 if (biliUrl != null) return biliUrl;
                 log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
                 // 取链实现与其它平台分支共用 fetchQqUrl（单一事实源）
-                String qqUrl = fetchQqUrl(sourceId);
+                String qqUrl = platformUrlFetcher.fetchQqUrl(sourceId);
                 if (qqUrl != null) return qqUrl;
                 log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
                 // 并行探测 3 级音质（exhigh/higher/standard），取最高可用非试听版本
                 // 探测实现与其它平台分支共用 probeNeteaseParallel（单一事实源）
                 String[] levels = {"exhigh", "higher", "standard"};
-                NeteaseProbe probe = probeNeteaseParallel(sourceId, levels, DEADLINE, userCookie, callerUserId);
+                NeteaseUrlProbe.NeteaseProbe probe =
+                        neteaseUrlProbe.probeNeteaseParallel(sourceId, levels, DEADLINE, userCookie, callerUserId);
                 if (probe.url != null) return probe.url;
                 // 版权预检 fast-fail：standard 明确硬拦截（url 空、无试听信息且非付费曲目）
                 // 时跳过 QQ 降级、直落 DB 兜底；need-login/试听/VIP 权限受限/空响应一律走完整降级链
@@ -335,7 +169,7 @@ public class SongPlayService {
                         log.info("VIP 权限受限: {} 付费曲目当前共享 Cookie 无播放权限（非无版权），继续 QQ 降级", ClientErrorScrubber.scrub(sourceId));
                     }
                     // 网易云无可用链接（全失败或全试听）→ QQ 降级（Q2d 收敛）
-                    String qqUrl = degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
+                    String qqUrl = degradeChain.degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
                     if (qqUrl != null) return qqUrl;
                 }
                 log.warn("歌曲 {} 所有平台均无可用播放链接", ClientErrorScrubber.scrub(sourceId));
@@ -349,305 +183,5 @@ public class SongPlayService {
                 .eq(Song::getSourceId, sourceId)
                 .select(Song::getId, Song::getUrl));
         return song != null ? song.getUrl() : null;
-    }
-
-    // ==================== 跨平台降级 ====================
-
-    /**
-     * 从搜索结果中找最优匹配，基于词重叠率 + 歌名首字匹配
-     */
-    // ==================== 跨平台降级（续） ====================
-
-    /**
-     * B站 guest 取链：网关 /bili/url 直通（纯 bvid 或复合 bvid|cid 原样透传）。
-     * 失败返回 null 由调用方降级，永不抛错。
-     */
-    @SuppressWarnings("unchecked")
-    private String tryBiliUrl(String biliId) {
-        try {
-            Map<String, Object> result = neteaseApiService.getBiliSongUrl(biliId);
-            if (result != null) {
-                List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                if (data != null && !data.isEmpty()) {
-                    String url = (String) data.get(0).get("url");
-                    if (url != null && !url.isEmpty()) return url;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("tryBiliUrl: {} 失败: {}", ClientErrorScrubber.scrub(biliId), ClientErrorScrubber.scrub(e.getMessage()), e);
-        }
-        return null;
-    }
-
-    /**
-     * 酷狗取链：phase 1 匿名 standard→low 逐级尝试。albumId 尚无透传字段，
-     * 传 null（网关按空 album_id 处理）；失败返回 null 由调用方降级，永不抛错。
-     */
-    @SuppressWarnings("unchecked")
-    private String tryKugouUrl(String hash) {        for (String level : new String[]{"standard", "low"}) {
-            try {
-                Map<String, Object> result = neteaseApiService.getKugouSongUrl(hash, null, level);
-                if (result != null) {
-                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                    if (data != null && !data.isEmpty()) {
-                        String url = (String) data.get(0).get("url");
-                        if (url != null && !url.isEmpty()) return url;
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("tryKugouUrl: {} level={} 失败: {}", ClientErrorScrubber.scrub(hash), level, ClientErrorScrubber.scrub(e.getMessage()), e);
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 网易云并行探测（生产唯一取链路径，单一事实源）。
-     * 按 [levels] 优先级检查并行提交的取链结果：跳过试听片段，返回首个可用 URL。
-     * 预算统一由 [deadline] 约束（生产路径原先各自硬编码 5s 等待，与 8s 预算脱节）。
-     */
-    @SuppressWarnings("unchecked")
-    private NeteaseProbe probeNeteaseParallel(String sourceId, String[] levels, long deadline,
-                                              String userCookie, Long callerUserId) {
-        Map<String, CompletableFuture<Map<String, Object>>> futures = new LinkedHashMap<>();
-        for (String level : levels) {
-            if (System.currentTimeMillis() > deadline) break;
-            try {
-                final String uc = userCookie;
-                final Long uid = callerUserId;
-                futures.put(level, CompletableFuture.supplyAsync(
-                        () -> fetchNeteaseUrl(sourceId, level, uc, uid), getUrlExecutor));
-            } catch (RejectedExecutionException e) {
-                log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", level, ClientErrorScrubber.scrub(sourceId));
-            }
-        }
-        Map<String, Object> standardProbe = null;
-        int trialCount = 0;
-        try {
-            for (String level : levels) {
-                if (System.currentTimeMillis() > deadline) {
-                    log.warn("音质降级链超时: {}, 已检查至 {}", ClientErrorScrubber.scrub(sourceId), level);
-                    break;
-                }
-                CompletableFuture<Map<String, Object>> cf = futures.get(level);
-                if (cf == null) continue;
-                try {
-                    long remaining = Math.max(1, deadline - System.currentTimeMillis());
-                    Map<String, Object> result = cf.get(remaining, TimeUnit.MILLISECONDS);
-                    if (result == null) continue;
-                    if (AudioQualityTier.STANDARD.toNeteaseLevel().equals(level)) standardProbe = result;
-                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                    if (data == null || data.isEmpty()) continue;
-                    String url = (String) data.get(0).get("url");
-                    if (url == null || url.isEmpty()) continue;
-                    Object trial = data.get(0).get("freeTrialInfo");
-                    Object time = data.get(0).get("time");
-                    if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) {
-                        trialCount++;
-                        log.info("音质[{}] 歌曲 {} 为试听片段 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
-                        continue;
-                    }
-                    return new NeteaseProbe(url, level, standardProbe, trialCount);
-                } catch (TimeoutException e) {
-                    log.info("音质[{}] 歌曲 {} 超时 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
-                } catch (Exception e) {
-                    log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
-                }
-            }
-        } finally {
-            cancelUnfinished(futures.values());
-        }
-        return new NeteaseProbe(null, null, standardProbe, trialCount);
-    }
-
-    /** 网易云并行探测结果：命中 URL 与级别（可空）、standard 原始响应（试听兜底复用）、试听片段命中次数。 */
-    private static final class NeteaseProbe {
-        final String url;
-        final String level;
-        final Map<String, Object> standardProbe;
-        final int trialCount;
-
-        NeteaseProbe(String url, String level, Map<String, Object> standardProbe, int trialCount) {
-            this.url = url;
-            this.level = level;
-            this.standardProbe = standardProbe;
-            this.trialCount = trialCount;
-        }
-    }
-
-    /** 咪咕取链：musicapi 返回 302 签名 URL（IP-bound），由 StreamController 代理字节流；失败返回 null。 */
-    @SuppressWarnings("unchecked")
-    private String fetchMiguUrl(String sourceId) {
-        try {
-            Map<String, Object> result = neteaseApiService.getMiguSongUrl(sourceId, null);
-            if (result != null) {
-                List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                if (data != null && !data.isEmpty()) {
-                    String url = (String) data.get(0).get("url");
-                    if (url != null && !url.isEmpty()) return url;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("fetchMiguUrl: {} 获取失败: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
-        }
-        return null;
-    }
-
-    /** QQ 直取链接（platform=qq 或 id 非纯数字猜测）；失败返回 null 由调用方降级，永不抛错。 */
-    @SuppressWarnings("unchecked")
-    private String fetchQqUrl(String sourceId) {
-        try {
-            Map<String, Object> result = neteaseApiService.getQQSongUrl(sourceId);
-            if (result != null) {
-                List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                if (data != null && !data.isEmpty()) {
-                    String url = (String) data.get(0).get("url");
-                    if (url != null && !url.isEmpty()) return url;
-                }
-            }
-        } catch (Exception e) {
-            log.warn("fetchQqUrl: {} 获取失败: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
-        }
-        return null;
-    }
-
-    /**
-     * 网易→QQ 降级链唯一入口（Q2d 收敛）。
-     *
-     * <p>决策记录：网易云无可用链接（全失败或全试听）时统一经此步到 QQ，再落到 DB
-     * 兜底；原先生产路径的 {@code neAllFailed} 门控只在取链超时才成立
-     * （supplier 内异常被吞，flag 近似死代码），会导致全试听时跳过 QQ 直接落 DB，
-     * 已删除。历史上的孪生元信息路径 getPlayInfo 已整体移除（零生产调用）。
-     */
-    private String degradeNeteaseToQq(String songName, String artist, String sourceId, long deadline) {
-        degradationCount.incrementAndGet();
-        log.info("音质降级: {} 网易云不可用 → 尝试QQ降级", ClientErrorScrubber.scrub(sourceId));
-        return callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), deadline);
-    }
-
-    @SuppressWarnings("unchecked")
-    private String tryQQFallback(String songName, String artist, String neteaseId) {
-        if (songName == null || songName.isBlank()) {
-            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
-                    .eq(Song::getSourceId, neteaseId)
-                    .select(Song::getName, Song::getArtist));
-            if (song == null || song.getName() == null) return null;
-            songName = song.getName();
-            artist = song.getArtist();
-        }
-        try {
-            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
-            Map<String, Object> result = neteaseApiService.searchQQ(keyword, 5);
-            if (result == null) return null;
-            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-            if (data == null || data.isEmpty()) return null;
-            // 歌名/歌手相似度匹配，避免取到错误歌曲
-            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist);
-            if (best == null) { log.info("QQ降级: '{}' 无匹配歌曲", ClientErrorScrubber.scrub(keyword)); return null; }
-            String qqSourceId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
-            String matchName = best.get("name") != null ? String.valueOf(best.get("name")) : "";
-            String matchArtists = best.get("artists") != null ? String.valueOf(best.get("artists")) : "";
-            if (qqSourceId == null) return null;
-            Object durObj = best.get("duration");
-            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= TRIAL_DURATION_MS) {
-                log.info("QQ降级: '{}' 也只有试听版，跳过", ClientErrorScrubber.scrub(matchName));
-                return null;
-            }
-            Map<String, Object> urlResult = neteaseApiService.getQQSongUrl(qqSourceId);
-            if (urlResult != null) {
-                List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
-                if (urlData != null && !urlData.isEmpty()) {
-                    String url = (String) urlData.get(0).get("url");
-                    if (url != null && !url.isEmpty()) {
-                        log.info("QQ降级成功: '{}' → QQ '{}' (score={})", ClientErrorScrubber.scrub(keyword), ClientErrorScrubber.scrub(matchName), SongMatcher.similarity(keyword, matchName + matchArtists));
-                        return url;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("QQ降级搜索失败: {} - {}", ClientErrorScrubber.scrub(songName), ClientErrorScrubber.scrub(e.getMessage()), e);
-        }
-        return null;
-    }
-
-    /**
-     * 检查歌曲是否缓存于 MinIO，Redis 缓存结果减少 MinIO HTTP 调用
-     * 任何异常（Redis/MinIO 不可用）均返回 false，调用方继续走 API/DB 降级
-     */
-    private boolean isCachedInMinio(String sourceId) {
-        return isCachedInMinio(sourceId, null);
-    }
-
-    private boolean isCachedInMinio(String sourceId, String userCookie) {
-        if (sourceId == null) return false;
-        if (userCookie != null) {
-            try {
-                return storageService.exists("songs/" + sourceId + ".mp3");
-            } catch (Exception e) {
-                log.debug("isCachedInMinio per-user direct probe failed for {}: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
-                return false;
-            }
-        }
-        try {
-            String cacheKey = MINIO_CACHE_PREFIX + sourceId;
-            // 先查 Redis
-            String cached = stringRedisTemplate.opsForValue().get(cacheKey);
-            if ("1".equals(cached)) return true;
-            if ("0".equals(cached)) return false;
-
-            // Redis 未命中 → 查 MinIO
-            boolean exists = storageService.exists("songs/" + sourceId + ".mp3");
-            // 写入 Redis 缓存（存在 10min，不存在 30s）
-            Duration ttl = exists ? MINIO_CACHE_TTL : Duration.ofSeconds(30);
-            stringRedisTemplate.opsForValue().set(cacheKey, exists ? "1" : "0", ttl);
-            return exists;
-        } catch (Exception e) {
-            log.debug("isCachedInMinio failed for {} (Redis/MinIO unavailable): {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
-            return false;
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private String tryNeteaseFallback(String songName, String artist, String qqSourceId, String userCookie, Long userId) {
-        if (songName == null || songName.isBlank()) {
-            Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
-                    .eq(Song::getSourceId, qqSourceId)
-                    .select(Song::getName, Song::getArtist));
-            if (song == null || song.getName() == null) return null;
-            songName = song.getName();
-            artist = song.getArtist();
-        }
-        try {
-            String keyword = artist != null && !artist.isBlank() ? songName + " " + artist : songName;
-            Map<String, Object> result = fetchNeteaseSearch(keyword, 5, userCookie);
-            if (result == null) return null;
-            List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-            if (data == null || data.isEmpty()) return null;
-            String neteaseId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
-            if (neteaseId == null) return null;
-            Object durObj = data.get(0).get("duration");
-            if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= TRIAL_DURATION_MS) {
-                log.info("网易云降级: {} 也只有试听版，跳过", ClientErrorScrubber.scrub(keyword));
-                return null;
-            }
-            String[] levels = {"exhigh", "higher", "standard"};
-            for (String level : levels) {
-                Map<String, Object> urlResult = fetchNeteaseUrl(neteaseId, level, userCookie, userId);
-                if (urlResult == null) continue;
-                List<Map<String, Object>> urlData = (List<Map<String, Object>>) urlResult.get("data");
-                if (urlData == null || urlData.isEmpty()) continue;
-                String url = (String) urlData.get(0).get("url");
-                if (url == null || url.isEmpty()) continue;
-                Object trial = urlData.get(0).get("freeTrialInfo");
-                Object time = urlData.get(0).get("time");
-                if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) continue;
-                log.info("网易云降级成功: {} → neteaseId={}, level={}", ClientErrorScrubber.scrub(keyword), neteaseId, level);
-                return url;
-            }
-            log.info("网易云降级: {} 所有音质均为试听，跳过", ClientErrorScrubber.scrub(keyword));
-        } catch (Exception e) {
-            log.warn("网易云降级搜索失败: {} - {}", ClientErrorScrubber.scrub(songName), ClientErrorScrubber.scrub(e.getMessage()), e);
-        }
-        return null;
     }
 }
