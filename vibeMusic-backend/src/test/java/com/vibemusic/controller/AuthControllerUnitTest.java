@@ -4,6 +4,8 @@ import com.vibemusic.common.Result;
 import com.vibemusic.common.exception.BusinessException;
 import com.vibemusic.common.utils.JwtUtils;
 import com.vibemusic.dto.AuthRequest;
+import com.vibemusic.dto.ChangePasswordRequest;
+import com.vibemusic.dto.UpdateProfileRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.security.TokenBlacklistService;
@@ -360,7 +362,7 @@ class AuthControllerUnitTest {
         @Test
         @DisplayName("未登录 → 401")
         void shouldRejectWhenNotLoggedIn() {
-            Result<String> result = controller.changePassword(Map.of("oldPassword", "old12345", "newPassword", "new12345"));
+            Result<String> result = controller.changePassword(new ChangePasswordRequest("old12345", "new12345"));
 
             assertEquals(401, result.getCode());
             verifyNoInteractions(userService);
@@ -371,7 +373,7 @@ class AuthControllerUnitTest {
         void shouldRejectMissingParams() {
             loginAs(user());
 
-            Result<String> result = controller.changePassword(Map.of("oldPassword", "old12345"));
+            Result<String> result = controller.changePassword(new ChangePasswordRequest("old12345", null));
 
             assertEquals(400, result.getCode());
             assertEquals("参数不能为空", result.getMessage());
@@ -383,7 +385,7 @@ class AuthControllerUnitTest {
         void shouldRejectShortNewPassword() {
             loginAs(user());
 
-            Result<String> result = controller.changePassword(Map.of("oldPassword", "old12345", "newPassword", "1234567"));
+            Result<String> result = controller.changePassword(new ChangePasswordRequest("old12345", "1234567"));
 
             assertEquals(400, result.getCode());
             assertEquals("新密码至少8位", result.getMessage());
@@ -395,7 +397,7 @@ class AuthControllerUnitTest {
         void shouldRejectMissingOldPassword() {
             loginAs(user());
 
-            Result<String> result = controller.changePassword(Map.of("newPassword", "new12345"));
+            Result<String> result = controller.changePassword(new ChangePasswordRequest(null, "new12345"));
 
             assertEquals(400, result.getCode());
             assertEquals("参数不能为空", result.getMessage());
@@ -407,7 +409,7 @@ class AuthControllerUnitTest {
         void shouldChangePassword() {
             loginAs(user());
 
-            Result<String> result = controller.changePassword(Map.of("oldPassword", "old12345", "newPassword", "new12345"));
+            Result<String> result = controller.changePassword(new ChangePasswordRequest("old12345", "new12345"));
 
             assertEquals(200, result.getCode());
             assertEquals("密码修改成功", result.getData());
@@ -422,7 +424,7 @@ class AuthControllerUnitTest {
                     .when(userService).changePassword(eq(1L), anyString(), anyString());
 
             BusinessException ex = assertThrows(BusinessException.class,
-                    () -> controller.changePassword(Map.of("oldPassword", "bad", "newPassword", "new12345")));
+                    () -> controller.changePassword(new ChangePasswordRequest("bad", "new12345")));
             assertEquals(400, ex.getCode());
         }
     }
@@ -434,7 +436,7 @@ class AuthControllerUnitTest {
         @Test
         @DisplayName("未登录 → 401")
         void shouldRejectWhenNotLoggedIn() {
-            Result<Map<String, Object>> result = controller.updateProfile(Map.of("nickname", "x"));
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest("x", null, null));
 
             assertEquals(401, result.getCode());
             verifyNoInteractions(userService);
@@ -445,7 +447,7 @@ class AuthControllerUnitTest {
         void shouldRejectBlankNickname() {
             loginAs(user());
 
-            Result<Map<String, Object>> result = controller.updateProfile(Map.of("nickname", "   "));
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest("   ", null, null));
 
             assertEquals(400, result.getCode());
             assertEquals("昵称长度不能超过30个字符", result.getMessage());
@@ -457,7 +459,7 @@ class AuthControllerUnitTest {
         void shouldRejectLongNickname() {
             loginAs(user());
 
-            Result<Map<String, Object>> result = controller.updateProfile(Map.of("nickname", "n".repeat(31)));
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest("n".repeat(31), null, null));
 
             assertEquals(400, result.getCode());
             verifyNoInteractions(userService);
@@ -468,7 +470,7 @@ class AuthControllerUnitTest {
         void shouldRejectInvalidGender() {
             loginAs(user());
 
-            Result<Map<String, Object>> result = controller.updateProfile(Map.of("gender", "其他"));
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest(null, "其他", null));
 
             assertEquals(400, result.getCode());
             assertEquals("性别参数无效", result.getMessage());
@@ -482,7 +484,7 @@ class AuthControllerUnitTest {
             when(userService.updateProfile(eq(1L), any(), any(), any())).thenReturn(user());
 
             for (String gender : List.of("男", "女", "保密")) {
-                assertEquals(200, controller.updateProfile(Map.of("gender", gender)).getCode());
+                assertEquals(200, controller.updateProfile(new UpdateProfileRequest(null, gender, null)).getCode());
             }
         }
 
@@ -491,7 +493,7 @@ class AuthControllerUnitTest {
         void shouldRejectInvalidBirthday() {
             loginAs(user());
 
-            Result<Map<String, Object>> result = controller.updateProfile(Map.of("birthday", "2020/01/01"));
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest(null, null, "2020/01/01"));
 
             assertEquals(400, result.getCode());
             assertEquals("生日格式不正确（应为 YYYY-MM-DD）", result.getMessage());
@@ -504,7 +506,7 @@ class AuthControllerUnitTest {
             loginAs(user());
             when(userService.updateProfile(eq(1L), any(), any(), any())).thenReturn(user());
 
-            assertEquals(200, controller.updateProfile(Map.of("birthday", "")).getCode());
+            assertEquals(200, controller.updateProfile(new UpdateProfileRequest(null, null, "")).getCode());
         }
 
         @Test
@@ -513,7 +515,7 @@ class AuthControllerUnitTest {
             loginAs(user());
             when(userService.updateProfile(eq(1L), any(), any(), any())).thenReturn(user());
 
-            Result<Map<String, Object>> result = controller.updateProfile(new java.util.HashMap<>());
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest(null, null, null));
 
             assertEquals(200, result.getCode());
             verify(userService).updateProfile(1L, null, null, null);
@@ -531,7 +533,7 @@ class AuthControllerUnitTest {
             when(userService.updateProfile(1L, "新昵称", "女", "1999-12-31")).thenReturn(updated);
 
             Result<Map<String, Object>> result = controller.updateProfile(
-                    Map.of("nickname", "新昵称", "gender", "女", "birthday", "1999-12-31"));
+                    new UpdateProfileRequest("新昵称", "女", "1999-12-31"));
 
             assertEquals(200, result.getCode());
             assertEquals("新昵称", result.getData().get("nickname"));
@@ -549,7 +551,7 @@ class AuthControllerUnitTest {
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()));
 
-            Result<Map<String, Object>> result = controller.updateProfile(Map.of("gender", "男"));
+            Result<Map<String, Object>> result = controller.updateProfile(new UpdateProfileRequest(null, "男", null));
 
             assertEquals("nonick", result.getData().get("nickname"));
         }

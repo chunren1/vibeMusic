@@ -1,12 +1,15 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.dto.FavoriteRemoveBatchRequest;
+import com.vibemusic.dto.FavoriteToggleRequest;
 import com.vibemusic.service.FavoriteService;
 import com.vibemusic.service.IdempotentGuard;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,7 +29,7 @@ public class FavoriteController {
     /** 切换收藏（幂等：X-Request-Id 5分钟防重放） */
     @PostMapping("/toggle")
     @Operation(summary = "收藏/取消收藏")
-    public Result<Boolean> toggle(@RequestBody Map<String, Object> body,
+    public Result<Boolean> toggle(@Valid @RequestBody FavoriteToggleRequest req,
                                   HttpServletRequest request) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
@@ -37,10 +40,10 @@ public class FavoriteController {
             return Result.ok("重复请求已忽略", true);
         }
 
-        String sourceId = (String) body.get("sourceId");
-        String songName = (String) body.get("songName");
-        String artist = (String) body.get("artist");
-        String coverUrl = (String) body.getOrDefault("coverUrl", "");
+        String sourceId = req.sourceId();
+        String songName = req.songName();
+        String artist = req.artist();
+        String coverUrl = req.coverUrl() != null ? req.coverUrl() : "";
 
         // Bug4修复: 必填字段校验
         if (sourceId == null || sourceId.isEmpty()) return Result.error("sourceId 不能为空");
@@ -72,11 +75,10 @@ public class FavoriteController {
     /** 批量取消收藏 */
     @PostMapping("/remove-batch")
     @Operation(summary = "批量取消收藏")
-    public Result<Integer> removeBatch(@RequestBody Map<String, Object> body) {
+    public Result<Integer> removeBatch(@Valid @RequestBody FavoriteRemoveBatchRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        @SuppressWarnings("unchecked")
-        List<String> sourceIds = (List<String>) body.get("sourceIds");
+        List<String> sourceIds = req.sourceIds();
         if (sourceIds == null || sourceIds.isEmpty()) return Result.ok(0);
         int count = favoriteService.removeBatch(userId, sourceIds);
         return Result.ok("已移除 " + count + " 首", count);

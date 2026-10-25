@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.AnonymousIdentityUtils;
 import com.vibemusic.config.RestTemplateConfig;
+import com.vibemusic.dto.AssistantChatRequest;
 import com.vibemusic.service.AiCallBudget;
 import com.vibemusic.service.AiToolCallGuard;
 import com.vibemusic.service.AiToolService;
@@ -14,6 +15,7 @@ import io.netty.channel.ChannelOption;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -139,12 +141,12 @@ public class AssistantController {
 
     @PostMapping("/chat")
     @Operation(summary = "AI 音乐聊天（Function Calling + 多轮记忆）")
-    public Result<Map<String, Object>> chat(@RequestBody Map<String, Object> body,
+    public Result<Map<String, Object>> chat(@Valid @RequestBody AssistantChatRequest req,
                                             @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
                                             @RequestParam(value = "deviceId", required = false) String paramDeviceId,
                                             HttpServletRequest request) {
-        String userMessage = (String) body.getOrDefault("message", "推荐一首歌给我");
-        String songContext = (String) body.getOrDefault("context", "");
+        String userMessage = req.message() != null ? req.message() : "推荐一首歌给我";
+        String songContext = req.context() != null ? req.context() : "";
 
         if (userMessage != null && userMessage.length() > 2000)
             return Result.error("消息过长，请限制在 2000 字以内");
@@ -256,11 +258,11 @@ public class AssistantController {
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "AI 流式聊天（WebClient 真正流式 + 逐 token 输出）")
-    public SseEmitter streamChat(@RequestBody Map<String, Object> body,
+    public SseEmitter streamChat(@Valid @RequestBody AssistantChatRequest req,
                                  @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
                                  @RequestParam(value = "deviceId", required = false) String paramDeviceId,
                                  HttpServletRequest request) {
-        return streamOrchestrator.stream(body, headerDeviceId, paramDeviceId, request);
+        return streamOrchestrator.stream(req.toBodyMap(), headerDeviceId, paramDeviceId, request);
     }
 
     // ========================== 请求身份/准入（测试入口，实现在 AssistantRequestIdentity） ==========================

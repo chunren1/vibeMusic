@@ -3,6 +3,8 @@ package com.vibemusic.controller;
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.JwtUtils;
 import com.vibemusic.dto.AuthRequest;
+import com.vibemusic.dto.ChangePasswordRequest;
+import com.vibemusic.dto.UpdateProfileRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.security.TokenBlacklistService;
@@ -116,12 +118,12 @@ public class AuthController {
 
     @PostMapping("/change-password")
     @Operation(summary = "修改密码")
-    public Result<String> changePassword(@RequestBody Map<String, String> body) {
+    public Result<String> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "未登录");
 
-        String oldPwd = body.get("oldPassword");
-        String newPwd = body.get("newPassword");
+        String oldPwd = req.oldPassword();
+        String newPwd = req.newPassword();
         if (oldPwd == null || newPwd == null) return Result.error("参数不能为空");
         if (newPwd.length() < 8) return Result.error("新密码至少8位");
 
@@ -131,13 +133,13 @@ public class AuthController {
 
     @PutMapping("/profile")
     @Operation(summary = "更新个人资料")
-    public Result<Map<String, Object>> updateProfile(@RequestBody Map<String, String> body) {
+    public Result<Map<String, Object>> updateProfile(@Valid @RequestBody UpdateProfileRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "未登录");
 
-        String nickname = body.get("nickname");
-        String gender = body.get("gender");
-        String birthday = body.get("birthday");
+        String nickname = req.nickname();
+        String gender = req.gender();
+        String birthday = req.birthday();
 
         // 校验
         if (nickname != null && (nickname.trim().isEmpty() || nickname.length() > 30)) {

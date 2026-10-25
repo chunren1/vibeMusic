@@ -1,6 +1,7 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.dto.SearchHistorySyncRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.service.SearchHistoryService;
@@ -11,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -68,7 +68,7 @@ class SearchHistoryControllerTest {
     @Test
     @DisplayName("push → 未登录返回 401，不调用 service")
     void shouldRejectPushWhenAnonymous() {
-        Result<List<String>> result = controller.push(Map.of("keywords", List.of("晴天")));
+        Result<List<String>> result = controller.push(new SearchHistorySyncRequest(List.of("晴天")));
 
         assertThat(result.getCode()).isEqualTo(401);
         verifyNoInteractions(service);
@@ -79,7 +79,7 @@ class SearchHistoryControllerTest {
     void shouldRejectPushWithoutKeywords() {
         login();
 
-        assertThat(controller.push(new HashMap<>()).getCode()).isEqualTo(400);
+        assertThat(controller.push(new SearchHistorySyncRequest(null)).getCode()).isEqualTo(400);
         assertThat(controller.push(null).getCode()).isEqualTo(400);
         verifyNoInteractions(service);
     }
@@ -90,7 +90,7 @@ class SearchHistoryControllerTest {
         login();
         when(service.push(1L, List.of("晴天"))).thenReturn(List.of("晴天"));
 
-        Result<List<String>> result = controller.push(Map.of("keywords", List.of("晴天")));
+        Result<List<String>> result = controller.push(new SearchHistorySyncRequest(List.of("晴天")));
 
         assertThat(result.getCode()).isEqualTo(200);
         assertThat(result.getData()).containsExactly("晴天");

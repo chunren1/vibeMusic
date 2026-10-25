@@ -1,15 +1,16 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.dto.SearchHistorySyncRequest;
 import com.vibemusic.service.SearchHistoryService;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * 搜索历史云同步 — App 本地 DataStore（cap 10）与云端（cap 50）对齐。
@@ -33,11 +34,10 @@ public class SearchHistoryController {
 
     @PostMapping("/sync")
     @Operation(summary = "推送搜索历史（云同步 push，upsert + 裁剪）")
-    public Result<List<String>> push(@RequestBody Map<String, Object> body) {
+    public Result<List<String>> push(@Valid @RequestBody SearchHistorySyncRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        @SuppressWarnings("unchecked")
-        List<String> keywords = body == null ? null : (List<String>) body.get("keywords");
+        List<String> keywords = req == null ? null : req.keywords();
         if (keywords == null) return Result.error("keywords 不能为空");
         return Result.ok(searchHistoryService.push(userId, keywords));
     }

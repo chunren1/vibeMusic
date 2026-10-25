@@ -1,6 +1,12 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.dto.PlaylistAddSongRequest;
+import com.vibemusic.dto.PlaylistCreateRequest;
+import com.vibemusic.dto.PlaylistDeleteBatchRequest;
+import com.vibemusic.dto.PlaylistImportRequest;
+import com.vibemusic.dto.PlaylistReorderRequest;
+import com.vibemusic.dto.PlaylistUpdateRequest;
 import com.vibemusic.service.JsonCacheService;
 import com.vibemusic.service.NeteaseApiService;
 import org.junit.jupiter.api.DisplayName;
@@ -27,15 +33,15 @@ class PlaylistControllerTest {
         SecurityContextHolder.clearContext();
         PlaylistController controller = new PlaylistController(null, null, null);
 
-        assertEquals(401, controller.create(Map.of("name", "x")).getCode());
-        assertEquals(401, controller.addSong(Map.of("playlistId", 1L, "sourceId", "s1")).getCode());
+        assertEquals(401, controller.create(new PlaylistCreateRequest("x", null, null)).getCode());
+        assertEquals(401, controller.addSong(new PlaylistAddSongRequest(1L, "s1", null, null, null, null, null)).getCode());
         assertEquals(401, controller.removeSong(1L, "s1").getCode());
         // 2026-10-11 审查补齐：剩余 5 处写操作同样不得静默假成功
-        assertEquals(401, controller.update(Map.of("playlistId", 1L, "name", "x")).getCode());
-        assertEquals(401, controller.reorder(Map.of("order", List.of())).getCode());
+        assertEquals(401, controller.update(new PlaylistUpdateRequest(1L, "x", null, null)).getCode());
+        assertEquals(401, controller.reorder(new PlaylistReorderRequest(List.of())).getCode());
         assertEquals(401, controller.delete(1L).getCode());
-        assertEquals(401, controller.deleteBatch(Map.of("ids", List.of(1))).getCode());
-        assertEquals(401, controller.importPlaylist(Map.of("source", "netease", "id", "123")).getCode());
+        assertEquals(401, controller.deleteBatch(new PlaylistDeleteBatchRequest(List.of(1L))).getCode());
+        assertEquals(401, controller.importPlaylist(new PlaylistImportRequest("netease", "123")).getCode());
     }
 
     @Test

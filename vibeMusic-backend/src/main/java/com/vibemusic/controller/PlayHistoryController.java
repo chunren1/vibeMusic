@@ -1,10 +1,12 @@
 package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
+import com.vibemusic.dto.PlayHistoryRemoveRequest;
 import com.vibemusic.service.PlayHistoryService;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -40,11 +42,10 @@ public class PlayHistoryController {
 
     @PostMapping("/remove")
     @Operation(summary = "批量删除播放历史")
-    public Result<Integer> remove(@RequestBody Map<String, Object> body) {
+    public Result<Integer> remove(@Valid @RequestBody PlayHistoryRemoveRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        @SuppressWarnings("unchecked")
-        List<String> sourceIds = (List<String>) body.get("sourceIds");
+        List<String> sourceIds = req.sourceIds();
         if (sourceIds == null || sourceIds.isEmpty()) return Result.ok(0);
         int count = playHistoryService.deleteBatch(userId, sourceIds);
         return Result.ok("已删除 " + count + " 条记录", count);

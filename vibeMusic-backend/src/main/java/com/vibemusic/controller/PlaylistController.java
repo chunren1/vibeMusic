@@ -2,7 +2,14 @@ package com.vibemusic.controller;
 
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.CoverUrlUtils;
+import com.vibemusic.dto.PlaylistAddSongRequest;
+import com.vibemusic.dto.PlaylistCreateRequest;
+import com.vibemusic.dto.PlaylistDeleteBatchRequest;
+import com.vibemusic.dto.PlaylistImportRequest;
+import com.vibemusic.dto.PlaylistReorderRequest;
+import com.vibemusic.dto.PlaylistUpdateRequest;
 import com.vibemusic.service.*;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -147,12 +154,12 @@ public class PlaylistController {
 
     /** 创建歌单 */
     @PostMapping("/create")
-    public Result<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, Object>> create(@Valid @RequestBody PlaylistCreateRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        String name = (String) body.get("name");
-        String description = (String) body.getOrDefault("description", "");
-        String coverUrl = (String) body.getOrDefault("coverUrl", "");
+        String name = req.name();
+        String description = req.description() != null ? req.description() : "";
+        String coverUrl = req.coverUrl() != null ? req.coverUrl() : "";
         // Bug3修复: name 必填校验
         if (name == null || name.trim().isEmpty()) return Result.error("歌单名称不能为空");
         return Result.ok(playlistService.create(userId, name.trim(), description, coverUrl));
@@ -160,20 +167,19 @@ public class PlaylistController {
 
     /** 添加歌曲到歌单 */
     @PostMapping("/add-song")
-    public Result<Boolean> addSong(@RequestBody Map<String, Object> body) {
+    public Result<Boolean> addSong(@Valid @RequestBody PlaylistAddSongRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        Long playlistId = body.get("playlistId") instanceof Number n ? n.longValue() : null;
-        String sourceId = (String) body.get("sourceId");
-        String songName = (String) body.get("songName");
+        Long playlistId = req.playlistId();
+        String sourceId = req.sourceId();
+        String songName = req.songName();
         if (playlistId == null) return Result.error("缺少 playlistId");
         if (sourceId == null || sourceId.isEmpty()) return Result.error("缺少 sourceId");
         if (songName == null || songName.isEmpty()) return Result.error("缺少 songName");
-        String artist = (String) body.getOrDefault("artist", "");
-        String coverUrl = (String) body.getOrDefault("coverUrl", "");
-        String platform = (String) body.getOrDefault("platform", "netease");
-        Integer duration = body.get("duration") != null
-                ? ((Number) body.get("duration")).intValue() : 0;
+        String artist = req.artist() != null ? req.artist() : "";
+        String coverUrl = req.coverUrl() != null ? req.coverUrl() : "";
+        String platform = req.platform() != null ? req.platform() : "netease";
+        Integer duration = req.duration() != null ? req.duration() : 0;
         return Result.ok(playlistService.addSong(userId, playlistId, sourceId, songName, artist, coverUrl, duration, platform));
     }
 
@@ -197,25 +203,24 @@ public class PlaylistController {
 
     /** 更新歌单信息（重命名、改描述、换封面） */
     @PostMapping("/update")
-    public Result<Void> update(@RequestBody Map<String, Object> body) {
+    public Result<Void> update(@Valid @RequestBody PlaylistUpdateRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        Long playlistId = body.get("playlistId") instanceof Number n ? n.longValue() : null;
+        Long playlistId = req.playlistId();
         if (playlistId == null) return Result.error("缺少 playlistId");
-        String name = (String) body.get("name");
-        String description = (String) body.get("description");
-        String coverUrl = (String) body.get("coverUrl");
+        String name = req.name();
+        String description = req.description();
+        String coverUrl = req.coverUrl();
         playlistService.update(userId, playlistId, name, description, coverUrl);
         return Result.ok();
     }
 
     /** 歌单排序/置顶 */
     @PostMapping("/reorder")
-    public Result<Void> reorder(@RequestBody Map<String, Object> body) {
+    public Result<Void> reorder(@Valid @RequestBody PlaylistReorderRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> order = (List<Map<String, Object>>) body.get("order");
+        List<Map<String, Object>> order = req.order();
         if (order == null || order.isEmpty()) return Result.error("缺少 order");
         playlistService.reorder(userId, order);
         return Result.ok();
@@ -240,28 +245,24 @@ public class PlaylistController {
 
     /** 批量删除歌单 */
     @PostMapping("/delete-batch")
-    public Result<Integer> deleteBatch(@RequestBody Map<String, Object> body) {
+    public Result<Integer> deleteBatch(@Valid @RequestBody PlaylistDeleteBatchRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        @SuppressWarnings("unchecked")
-        List<Integer> ids = (List<Integer>) body.get("ids");
+        List<Long> ids = req.ids();
         if (ids == null || ids.isEmpty()) return Result.ok(0);
-        List<Long> longIds = ids.stream().map(Long::valueOf).collect(Collectors.toList());
-        int count = playlistService.deleteBatch(userId, longIds);
+        int count = playlistService.deleteBatch(userId, ids);
         return Result.ok("已删除 " + count + " 个歌单", count);
     }
 
     /** 导入外部歌单到我的歌单（一键收藏） */
     @PostMapping("/import")
     @SuppressWarnings("unchecked")
-    public Result<Map<String, Object>> importPlaylist(@RequestBody Map<String, Object> body) {
+    public Result<Map<String, Object>> importPlaylist(@Valid @RequestBody PlaylistImportRequest req) {
         Long userId = UserService.getCurrentUserId();
         if (userId == null) return Result.error(401, "请先登录");
-        String source = (String) body.get("source");
-        Object rawId = body.get("id");
-        if (source == null || rawId == null) return Result.error("缺少 source 或 id 参数");
-        // 前端可能传数字 id（JSON number → Long），统一转字符串
-        String id = rawId instanceof Number n ? String.valueOf(n.longValue()) : String.valueOf(rawId);
+        String source = req.source();
+        String id = req.id();
+        if (source == null || id == null) return Result.error("缺少 source 或 id 参数");
         log.info("导入歌单请求: userId={}, source={}, id={}", userId, source, id);
 
         // 1. 获取歌单详情
