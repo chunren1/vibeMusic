@@ -6,8 +6,8 @@ import com.vibemusic.mapper.PlayHistoryMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -19,52 +19,87 @@ import java.util.stream.Collectors;
  * 定义 AI 可调用的工具函数 schema，并执行 LLM 返回的 tool_calls。
  * 让 AI 从"只会聊天"升级为"能操作音乐系统"的 Agent。
  * <p>
- * 当前支持的工具：
- * - search_songs: 搜索歌曲
- * - get_user_history: 获取用户播放历史
- * - create_playlist: 创建歌单（预留）
+ * 工具清单（schema 顺序即注册顺序，勿随意调整）：
+ * <ul>
+ *   <li>search_songs：搜索歌曲</li>
+ *   <li>get_user_history：获取用户播放历史</li>
+ *   <li>list_playlists / add_to_playlist / create_playlist：歌单三件套，实现见 {@link AiPlaylistTools}</li>
+ * </ul>
+ * 本类只做 schema 注册 + 路由，歌单相关执行逻辑已拆到 {@link AiPlaylistTools}（单文件 ≤250 纯 LOC）。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiToolService {
 
     private final SongSearchService songSearchService;
     private final PlayHistoryMapper playHistoryMapper;
     private final ObjectMapper objectMapper;
 
+    /** 歌单三件套执行器；Spring 装配必有，仅兼容旧三参构造的单测里为 null。 */
+    private final AiPlaylistTools playlistTools;
+
+    @Autowired
+    public AiToolService(SongSearchService songSearchService,
+                         PlayHistoryMapper playHistoryMapper,
+                         ObjectMapper objectMapper,
+                         AiPlaylistTools playlistTools) {
+        this.songSearchService = songSearchService;
+        this.playHistoryMapper = playHistoryMapper;
+        this.objectMapper = objectMapper;
+        this.playlistTools = playlistTools;
+    }
+
+    /**
+     * 兼容既有单测的三参装配（无歌单执行器）。
+     * 生产环境一律走 {@link #AiToolService(SongSearchService, PlayHistoryMapper, ObjectMapper, AiPlaylistTools)}。
+     */
+    AiToolService(SongSearchService songSearchService,
+                  PlayHistoryMapper playHistoryMapper,
+                  ObjectMapper objectMapper) {
+        this(songSearchService, playHistoryMapper, objectMapper, null);
+    }
+
     /**
      * 获取所有工具的 schema 定义（OpenAI Function Calling 格式）
      */
     public List<Map<String, Object>> getToolDefinitions() {
-        return List.of(
-            Map.of(
-                "type", "function",
-                "function", Map.of(
-                    "name", "search_songs",
-                    "description", "搜索歌曲。当用户想听歌、找歌、推荐歌曲时调用此工具。返回歌曲列表（含歌名、歌手、封面）。",
-                    "parameters", Map.of(
-                        "type", "object",
-                        "properties", Map.of(
-                            "keyword", Map.of("type", "string", "description", "搜索关键词，如歌手名、歌曲名、情绪关键词"),
-                            "limit", Map.of("type", "integer", "description", "返回数量，默认6", "default", 6)
-                        ),
-                        "required", List.of("keyword")
-                    )
+        List<Map<String, Object>> defs = new ArrayList<>(5);
+        defs.add(searchSongsDefinition());
+        defs.add(getUserHistoryDefinition());
+        defs.addAll(AiPlaylistTools.toolDefinitions());
+        return List.copyOf(defs);
+    }
+
+    private static Map<String, Object> searchSongsDefinition() {
+        return Map.of(
+            "type", "function",
+            "function", Map.of(
+                "name", "search_songs",
+                "description", "搜索歌曲。当用户想听歌、找歌、推荐歌曲时调用此工具。返回歌曲列表（含歌名、歌手、封面）。",
+                "parameters", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "keyword", Map.of("type", "string", "description", "搜索关键词，如歌手名、歌曲名、情绪关键词"),
+                        "limit", Map.of("type", "integer", "description", "返回数量，默认6", "default", 6)
+                    ),
+                    "required", List.of("keyword")
                 )
-            ),
-            Map.of(
-                "type", "function",
-                "function", Map.of(
-                    "name", "get_user_history",
-                    "description", "获取用户最近播放历史。当用户问'我最近听了什么'、'根据我的口味推荐'时调用。",
-                    "parameters", Map.of(
-                        "type", "object",
-                        "properties", Map.of(
-                            "limit", Map.of("type", "integer", "description", "返回数量，默认10", "default", 10)
-                        ),
-                        "required", List.of()
-                    )
+            )
+        );
+    }
+
+    private static Map<String, Object> getUserHistoryDefinition() {
+        return Map.of(
+            "type", "function",
+            "function", Map.of(
+                "name", "get_user_history",
+                "description", "获取用户最近播放历史。当用户问'我最近听了什么'、'根据我的口味推荐'时调用。",
+                "parameters", Map.of(
+                    "type", "object",
+                    "properties", Map.of(
+                        "limit", Map.of("type", "integer", "description", "返回数量，默认10", "default", 10)
+                    ),
+                    "required", List.of()
                 )
             )
         );
@@ -86,12 +121,23 @@ public class AiToolService {
             return switch (functionName) {
                 case "search_songs" -> executeSearchSongs(args);
                 case "get_user_history" -> executeGetUserHistory(args);
-                default -> "{\"error\":\"未知工具: " + functionName + "\"}";
+                case "list_playlists", "add_to_playlist", "create_playlist" -> executePlaylistTool(functionName, args);
+                default -> AiToolJson.error(objectMapper, "未知工具: " + functionName);
             };
         } catch (Exception e) {
             log.error("工具调用执行失败: function={}, error={}", functionName, e.getMessage(), e);
-            return "{\"error\":\"工具执行异常: " + e.getMessage() + "\"}";
+            String detail = e.getMessage();
+            return AiToolJson.error(objectMapper,
+                    (detail == null || detail.isBlank()) ? "工具执行异常" : "工具执行异常: " + detail);
         }
+    }
+
+    /** 歌单工具路由（实现见 {@link AiPlaylistTools}）。 */
+    private String executePlaylistTool(String functionName, Map<String, Object> args) throws Exception {
+        if (playlistTools == null) {
+            return AiToolJson.error(objectMapper, "歌单工具未装配");
+        }
+        return playlistTools.execute(functionName, args);
     }
 
     /**
@@ -122,7 +168,7 @@ public class AiToolService {
         Long userId = UserService.getCurrentUserId();
 
         if (userId == null) {
-            return "{\"error\":\"未登录，无法获取播放历史\"}";
+            return AiToolJson.error(objectMapper, "未登录，无法获取播放历史");
         }
 
         List<PlayHistory> history = playHistoryMapper.selectPage(

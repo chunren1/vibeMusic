@@ -29,7 +29,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -87,12 +86,12 @@ class AiToolServiceTest {
     // ---------- schema ----------
 
     @Test
-    @DisplayName("工具定义：两个工具都是 OpenAI function 格式，search_songs 必填 keyword")
+    @DisplayName("工具定义：五个工具都是 OpenAI function 格式，search_songs 必填 keyword")
     @SuppressWarnings("unchecked")
-    void shouldExposeTwoOpenAiFunctionDefinitions() {
+    void shouldExposeFiveOpenAiFunctionDefinitions() {
         List<Map<String, Object>> defs = service.getToolDefinitions();
 
-        assertThat(defs).hasSize(2);
+        assertThat(defs).hasSize(5);
         assertThat(defs).allSatisfy(d -> assertThat(d).containsEntry("type", "function"));
 
         Map<String, Object> search = (Map<String, Object>) defs.get(0).get("function");
@@ -108,6 +107,11 @@ class AiToolServiceTest {
         assertThat((List<String>) historyParams.get("required")).isEmpty();
         Map<String, Object> historyProps = (Map<String, Object>) historyParams.get("properties");
         assertThat((Map<String, Object>) historyProps.get("limit")).containsEntry("default", 10);
+
+        // 歌单三件套：注册顺序固定，name 不可漂移
+        assertThat((Map<String, Object>) defs.get(2).get("function")).containsEntry("name", "list_playlists");
+        assertThat((Map<String, Object>) defs.get(3).get("function")).containsEntry("name", "add_to_playlist");
+        assertThat((Map<String, Object>) defs.get(4).get("function")).containsEntry("name", "create_playlist");
     }
 
     // ---------- search_songs ----------
@@ -247,19 +251,28 @@ class AiToolServiceTest {
     }
 
     @Test
-    @DisplayName("已知缺陷：error 信封直接拼异常消息/工具名、未做 JSON 转义，可能返回非法 JSON")
-    void errorEnvelopeIsNotJsonEscaped() {
-        // 异常消息里带换行与引号（Jackson 的解析错误就是这种），拼进去后整个信封不再合法
-        String fromException = service.executeTool("search_songs", "{not-json");
-        assertThatThrownBy(() -> objectMapper.readTree(fromException))
-                .as("异常消息含换行/引号，未转义 → LLM 收到非法 JSON")
-                .isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+    @DisplayName("error 信封已做 JSON 转义：异常消息含引号+换行时输出仍能被 readTree 解析")
+    void errorEnvelopeIsJsonEscaped() throws Exception {
+        // 异常消息里带引号、换行、反斜杠（Jackson 的解析错误就是这种形状）
+        when(songSearchService.search(anyString(), anyInt(), anyInt()))
+                .thenThrow(new RuntimeException("boom \"quoted\"\nline2 \\ backslash"));
 
-        // 未知工具分支同理：函数名里的引号直接把 JSON 截断
+        String raw = service.executeTool("search_songs", "{\"keyword\":\"x\"}");
+
+        JsonNode json = json(raw);
+        assertThat(json.get("error").asText())
+                .startsWith("工具执行异常")
+                .contains("boom \"quoted\"\nline2 \\ backslash");
+        // 信封形状不变：只有一个 error 字段
+        assertThat(fieldNames(json)).containsExactly("error");
+
+        // 未知工具分支同理：函数名里的引号不能再把 JSON 截断
         String fromUnknownTool = service.executeTool("bad\"name", "{}");
-        assertThat(fromUnknownTool).contains("未知工具");
-        assertThatThrownBy(() -> objectMapper.readTree(fromUnknownTool))
-                .isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
+        assertThat(json(fromUnknownTool).get("error").asText()).isEqualTo("未知工具: bad\"name");
+
+        // 真实生产路径：Jackson 自身的解析错误消息同样含换行/引号，也必须可解析
+        String fromMalformedArgs = service.executeTool("search_songs", "{not-json");
+        assertThat(json(fromMalformedArgs).get("error").asText()).startsWith("工具执行异常");
     }
 
     // ---------- get_user_history ----------
