@@ -20,7 +20,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -71,7 +70,7 @@ public class UploadController {
             }
 
             // 生成唯一文件名
-            String ext = getExtension(Objects.requireNonNull(file.getOriginalFilename()));
+            String ext = getExtension(file.getOriginalFilename() != null ? file.getOriginalFilename() : "");
             String fileName = "avatar_" + userId + "_" + System.currentTimeMillis() + "." + ext;
             Path filePath = uploadPath.resolve(fileName);
             file.transferTo(filePath.toFile());
@@ -118,7 +117,7 @@ public class UploadController {
                 Files.createDirectories(uploadPath);
             }
 
-            String ext = getExtension(Objects.requireNonNull(file.getOriginalFilename()));
+            String ext = getExtension(file.getOriginalFilename() != null ? file.getOriginalFilename() : "");
             String fileName = "bg_" + userId + "_" + System.currentTimeMillis() + "." + ext;
             Path filePath = uploadPath.resolve(fileName);
             file.transferTo(filePath.toFile());
@@ -137,20 +136,25 @@ public class UploadController {
     /** 通过文件头部魔数校验是否为真实图片 */
     private boolean isValidImage(MultipartFile file) {
         try {
-            byte[] header = new byte[8];
+            // 12 字节：WebP 的 "WEBP" 标记在 offset 8..11，8 字节缓冲永远读不到
+            // （2026-10-25 修复：原实现 new byte[8] 却判断 header[8..11]，WebP 分支是死代码，
+            //   白名单放行 image/webp 但合法 WebP 一律被拒）
+            byte[] header;
             try (var in = file.getInputStream()) {
-                int read = in.read(header);
-                if (read < 4) return false;
+                header = in.readNBytes(12);
             }
+            int read = header.length;
+            if (read < 4) return false;
             // JPEG: FF D8 FF
             if ((header[0] & 0xFF) == 0xFF && (header[1] & 0xFF) == 0xD8 && (header[2] & 0xFF) == 0xFF) return true;
             // PNG: 89 50 4E 47
             if (header[0] == (byte)0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G') return true;
             // GIF: 47 49 46 38
             if (header[0] == 'G' && header[1] == 'I' && header[2] == 'F' && header[3] == '8') return true;
-            // WebP: 52 49 46 46 ... 57 45 42 50
-            if (header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
-                    && header.length >= 12 && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P') return true;
+            // WebP: 52 49 46 46 ... 57 45 42 50（需要完整 12 字节头）
+            if (read >= 12
+                    && header[0] == 'R' && header[1] == 'I' && header[2] == 'F' && header[3] == 'F'
+                    && header[8] == 'W' && header[9] == 'E' && header[10] == 'B' && header[11] == 'P') return true;
             return false;
         } catch (IOException e) {
             log.warn("魔数校验失败: {}", e.getMessage());

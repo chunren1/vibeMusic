@@ -225,18 +225,47 @@ class UploadControllerTest {
     }
 
     @Test
-    @DisplayName("已知缺陷：合法 WebP 被拒（header 只有 8 字节，却判断 header[8..11]）")
-    void webpIsRejectedBecauseHeaderBufferIsTooShort() {
+    @DisplayName("合法 WebP 应通过魔数校验（原实现 header 只有 8 字节却判断 header[8..11]，是死代码）")
+    void webpIsAccepted() {
         loginAs(USER_ID);
         // RIFF....WEBP
         byte[] webp = {'R', 'I', 'F', 'F', 0x24, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '};
+        when(userService.updateAvatar(eq(USER_ID), anyString()))
+                .thenReturn(User.builder().id(USER_ID).username("bob").build());
 
         Result<Map<String, Object>> result = controller.uploadAvatar(file("image/webp", webp.length, "a.webp", webp));
 
-        // 白名单允许 image/webp，但魔数校验永远失败 → 合法 WebP 无法上传（生产缺陷，测试锁定现状）
+        // 白名单允许 image/webp，修好后魔数校验应放行并走到落盘 + 回写
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat((String) result.getData().get("avatarUrl")).startsWith("/uploads/avatars/avatar_1_").endsWith(".webp");
+        verify(userService).updateAvatar(eq(USER_ID), anyString());
+    }
+
+    @Test
+    @DisplayName("WebP 头被截断（不足 12 字节）仍应拒绝，不能因放宽而漏过")
+    void truncatedWebpIsRejected() {
+        loginAs(USER_ID);
+        // 只有前 8 字节 RIFF....，缺少 WEBP 标记
+        byte[] truncated = {'R', 'I', 'F', 'F', 0x24, 0, 0, 0};
+
+        Result<Map<String, Object>> result = controller.uploadAvatar(file("image/webp", truncated.length, "a.webp", truncated));
+
         assertThat(result.getCode()).isEqualTo(400);
         assertThat(result.getMessage()).isEqualTo("文件内容不是有效图片");
         verifyNoInteractions(userService);
+    }
+
+    @Test
+    @DisplayName("文件名缺失不应 NPE→500，应兜底扩展名 jpg 正常落盘")
+    void nullOriginalFilenameFallsBackToJpg() {
+        loginAs(USER_ID);
+        when(userService.updateAvatar(eq(USER_ID), anyString()))
+                .thenReturn(User.builder().id(USER_ID).username("bob").build());
+
+        Result<Map<String, Object>> result = controller.uploadAvatar(file("image/png", 8, null, PNG_HEADER));
+
+        assertThat(result.getCode()).isEqualTo(200);
+        assertThat((String) result.getData().get("avatarUrl")).endsWith(".jpg");
     }
 
     // ---------- 成功路径 ----------
