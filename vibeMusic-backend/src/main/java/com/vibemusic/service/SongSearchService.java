@@ -125,6 +125,10 @@ public class SongSearchService {
                     .tag("platform", platform)
                     .description("搜索源动态权重（含连续失败降权）").register(meterRegistry);
         }
+        // QQ 熔断状态：1=开路（请求被跳过），0=闭路。用无副作用的 isOpen()，
+        // 不能用 shouldSkip()——后者会占用半开探针名额，Prometheus 每次抓取都会偷走一次探针。
+        Gauge.builder("circuit.qq.open", () -> qqBreaker.isOpen() ? 1 : 0)
+                .description("QQ 平台熔断是否开路（1=开路，0=闭路）").register(meterRegistry);
     }
 
     // ==================== 热门关键词预热 ====================

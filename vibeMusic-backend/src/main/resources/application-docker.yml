@@ -5,13 +5,14 @@
 # Flyway 云端接管（2026-09-28）：V1–V7 已全部幂等化，
 # 云库实测仅缺 V2/V3_1 的 3 个 song 索引 + url 扩容，其余皆是空操作；
 # 首次启动以 baseline-version=1 建基线并补齐缺失项，此后 V8+ 正常版本化。
-# validate 保持关闭（历史手管期无 checksum 可对）。
+# 2026-10-25 开启 validate：云库 checksum 已逐条核对与本地一致（V2–V8 全等，V1 为 baseline），
+# 无需 repair。历史手管期遗留问题已消除，此后改历史迁移文件会在启动时立即失败。
 spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
     baseline-version: 1
-    validate-on-migrate: false
+    validate-on-migrate: true
 
 logging:
   level:

@@ -49,7 +49,10 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 1
-    validate-on-migrate: false
+    # 2026-10-25 开启：云库 flyway_schema_history 的 V2–V8 checksum 与本地迁移文件逐条实测一致
+    # （V1 为 baseline 标记，不参与校验），无需 repair。开启后迁移文件被改动会在启动时立即失败，
+    # 而不是静默漂移。新增迁移只能追加新版本号，禁止改历史文件。
+    validate-on-migrate: true
 
   data:
     redis:

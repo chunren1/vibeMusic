@@ -75,6 +75,18 @@ class QqCircuitBreaker {
         }
     }
 
+    /**
+     * 只读状态查询（供指标/看板用）：true = 当前处于开路窗口内。
+     *
+     * <p>与 {@link #shouldSkip()} 的区别：<b>无副作用</b>，不会占用半开探针名额，
+     * 因此可以安全地在 Prometheus Gauge 里反复求值。每次调用读一次 Redis（HGET），
+     * 缺失时降级为内存值。</p>
+     */
+    boolean isOpen() {
+        long openedAt = readOpenedAt();
+        return openedAt >= 0 && clock.getAsLong() - openedAt < OPEN_MS;
+    }
+
     /** 成功：清零计数、闭路（探针成功同样闭路）。内存与 Redis 双写，Redis 异常只降级不抛。 */
     void recordSuccess() {
         consecutiveFailures.set(0);
