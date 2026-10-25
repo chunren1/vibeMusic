@@ -321,7 +321,18 @@
       ]
     },
     "/kugou/lyric": {
-      "note": "getKugouPlayData() 的 lyrics 恒为空串（v5/url 响应无内联歌词字段），故当前实现恒定 404；成功形（data.lyric）在上游提供歌词字段后才会出现，暂不锁。",
+      "note": "成功形走酷狗官方两步歌词接口（src/kugou-lyric.js：krcs/search 取候选 → lyrics/download 取 base64 LRC 解码）。后端只读 data.lyric；data.song/data.singer 是选中候选的曲名/歌手，便于前端核对版本，可选（前端可忽略）。无候选/上游异常一律降级 404，绝不 500。",
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": {
+            "lyric": "string",
+            "song": "string?",
+            "singer": "string?"
+          }
+        }
+      },
       "errors": [
         {
           "status": 400,

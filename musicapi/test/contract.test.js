@@ -271,10 +271,10 @@ test('/netease/search 契约：data[歌曲字段]，缺 keyword 400', async (t) 
 
 /** 按 URL 子串路由的多路上游 stub：未命中直接抛错（测试若偷偷连真网会红）。 */
 function stubUpstream(routes) {
-  stubAxiosGet(async (url) => {
+  stubAxiosGet(async (url, opts) => {
     const u = String(url);
     for (const [needle, resp] of routes) {
-      if (u.includes(needle)) return typeof resp === 'function' ? resp(u) : resp;
+      if (u.includes(needle)) return typeof resp === 'function' ? resp(u, opts) : resp;
     }
     throw new Error(`unexpected upstream call: ${u}`);
   });
@@ -576,22 +576,76 @@ test('/lyric 契约：code/lrc.lyric（网易云直通），缺参 400，上游�
   await expectContract(`${ep} upstream error`, await fetch(`${base}${ep}?id=386038`), err500);
 });
 
-test('/kugou/lyric 契约：无内联歌词恒定 404，缺/非法 hash 400', async (t) => {
+const KUGOU_LYRIC_LRC = '[id:$00000000]\n[ar:Missy]\n[ti:晴天 (DJ降调0.9x版)]\n[by:深]\n[00:01.00]故事的小黄花\n';
+
+/** 酷狗歌词第一步（krcs/search）响应：UGC 排前面，官方版在后面（验证官方优先）。 */
+function kugouLyricSearchPayload() {
+  return {
+    data: {
+      status: 200,
+      candidates: [
+        {
+          id: '900001', accesskey: 'UGCACCESSKEY0001', song: '晴天(DJ版)', singer: 'DJ小明',
+          duration: 238, product_from: 'ugc',
+        },
+        {
+          id: '741307774', accesskey: '8D735CF26880D11E9F70B8953F206FBE', song: '晴天 (DJ降调0.9x版)',
+          singer: 'Missy', duration: 240, product_from: 'kugou',
+        },
+      ],
+    },
+  };
+}
+
+/** 酷狗歌词第二步（lyrics/download）响应：content 是 base64 编码的 LRC。 */
+function kugouLyricDownloadPayload(lrc = KUGOU_LYRIC_LRC) {
+  return { data: { status: 200, fmt: 'lrc', content: Buffer.from(lrc, 'utf8').toString('base64') } };
+}
+
+test('/kugou/lyric 契约：code/data.lyric（两步接口解码 base64），无候选/上游异常 404，缺参 400', async (t) => {
   const { server, base } = await startApp();
   t.after(() => new Promise((resolve) => server.close(resolve)));
-  stubUpstream([['gateway.kugou.com', { data: { status: 1, url: ['https://fs.youthandroid2.kugou.com/x.mp3'] } }]]);
+  const seenIds = [];
+  stubUpstream([
+    ['krcs.kugou.com/search', kugouLyricSearchPayload()],
+    ['lyrics.kugou.com/download', (url, opts) => {
+      seenIds.push(String(opts.params.id));
+      return kugouLyricDownloadPayload();
+    }],
+  ]);
 
   const ep = '/kugou/lyric';
-  const { errors } = CONTRACT.endpoints[ep];
-  const notFound = errors.find((e) => e.status === 404);
-  const bad = errors.find((e) => e.status === 400);
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?hash=${KUGOU_HASH}&albumId=958706&duration=240000`),
+    ok.success
+  );
+  assert.equal(body.data.lyric, KUGOU_LYRIC_LRC, 'content 需 base64 解码');
+  assert.equal(body.data.song, '晴天 (DJ降调0.9x版)', '应优先官方版而非 UGC');
+  assert.equal(body.data.singer, 'Missy');
+  assert.deepEqual(seenIds, ['741307774'], '下载步应带选中候选的 id');
 
-  // v5/url 响应无歌词字段 → getKugouPlayData().lyrics 恒为 ''，路由恒 404（与 /qq/lyric 同形）
-  const body = await expectContract(`${ep} no lyrics`, await fetch(`${base}${ep}?hash=${KUGOU_HASH}`), notFound);
-  assert.equal(body.code, 404);
+  const notFound = ok.errors.find((e) => e.status === 404);
+  const bad = ok.errors.find((e) => e.status === 400);
+
+  // 上游无候选（candidates: []）→ 404，不是 500
+  stubUpstream([['krcs.kugou.com/search', { data: { status: 200, candidates: [] } }]]);
+  const empty = await expectContract(`${ep} no candidates`, await fetch(`${base}${ep}?hash=${KUGOU_HASH}`), notFound);
+  assert.equal(empty.code, 404);
+
+  // 上游抛错（stub 未命中）→ 404，不是 500
+  stubUpstream([['krcs.kugou.com/search', () => { throw new Error('krcs down'); }]]);
+  const down = await expectContract(`${ep} upstream error`, await fetch(`${base}${ep}?hash=${KUGOU_HASH}`), notFound);
+  assert.equal(down.code, 404);
 
   await expectContract(`${ep} missing hash`, await fetch(`${base}${ep}`), bad);
   await expectContract(`${ep} invalid hash`, await fetch(`${base}${ep}?hash=not-a-hash`), bad);
+  await expectContract(
+    `${ep} invalid albumId`,
+    await fetch(`${base}${ep}?hash=${KUGOU_HASH}&albumId=abc`),
+    bad
+  );
 });
 
 test('/personalized 契约：result[{id,name,picUrl,playCount}]，上游异常 500', async (t) => {

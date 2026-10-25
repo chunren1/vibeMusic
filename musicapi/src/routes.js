@@ -19,7 +19,8 @@ const {
   paginate,
   refineResults,
 } = require('./scoring');
-const { searchNetease, searchQQ, searchMigu, getMiguUrl, searchKugou, getKugouPlayData, getKugouUrl, searchBili, getBiliUrl, isBiliTrackId, searchCache, urlCache, UPSTREAM_TIMEOUT, withTimeout } = require('./search');
+const { searchNetease, searchQQ, searchMigu, getMiguUrl, searchKugou, getKugouUrl, searchBili, getBiliUrl, isBiliTrackId, searchCache, urlCache, UPSTREAM_TIMEOUT, withTimeout } = require('./search');
+const { fetchKugouLyric, parseKugouLyricDuration } = require('./kugou-lyric');
 const { searchLimiter, urlLimiter } = require('./rate-limiters');
 
 // 500 统一话术：细节只进 writeLog，不回传调用方（与全局错误处理器口径一致）
@@ -742,7 +743,8 @@ function registerRoutes(app) {
   });
 
   // ==================== 酷狗歌词 ====================
-  // 复用 getdata 响应内联 lyrics 字段(与封面 img 同响应)；缺歌词/异常 404(与 /qq/lyric 同形)
+  // 官方两步接口（krcs 搜候选 → lyrics 下 base64 LRC），实现见 src/kugou-lyric.js。
+  // 失败/无候选一律 404(与 /qq/lyric 同形)，绝不 500；400 校验保持不变。
 
   app.get('/kugou/lyric', async (req, res) => {
     try {
@@ -752,10 +754,11 @@ function registerRoutes(app) {
       if (!/^[a-f0-9]{32}$/i.test(hash)) return res.status(400).json({ code: 400, message: 'invalid hash format' });
       if (albumId && !/^\d{1,20}$/.test(albumId)) return res.status(400).json({ code: 400, message: 'invalid albumId format' });
 
-      const data = await getKugouPlayData(hash, albumId);
-      const lrc = data && data.lyrics;
-      if (!lrc) return res.status(404).json({ code: 404, message: '未找到歌词' });
-      res.json({ code: 200, message: 'success', data: { lyric: lrc } });
+      // duration 可选（毫秒或秒，见 parseKugouLyricDuration）：用于在候选里挑时长最接近的官方版本
+      const hit = await fetchKugouLyric(hash, parseKugouLyricDuration(req.query.duration));
+      if (!hit || !hit.lyric) return res.status(404).json({ code: 404, message: '未找到歌词' });
+      // song/singer 便于前端核对选中的版本（契约里为可选字段，后端只读 data.lyric）
+      res.json({ code: 200, message: 'success', data: { lyric: hit.lyric, song: hit.song, singer: hit.singer } });
     } catch (error) {
       // 兜底：任何意外异常也以干净空形返回，绝不 500
       writeLog('api', 'INFO', `[/kugou/lyric] 兜底降级: ${error.message}`);

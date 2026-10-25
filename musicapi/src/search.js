@@ -392,7 +392,9 @@ async function getMiguUrl(contentId, copyrightId, toneFlag = 'PQ') {
 //   128-only 曲回 status=2)再回落 128；high/super 为 VIP 档，phase 1 直接 null。
 // quality→hash 配对(128→FileHash, 320→HQFileHash, flac→SQFileHash)phase-1 仅记录
 // 于 _raw，不切换 hash(免费曲切 quality 即可升，见 kugou_sdk 0.2.9 实测要点)。
-// 歌词：v5 响应无内联歌词字段 → /kugou/lyric 恒 404(形状与 /qq/lyric 同形)。
+// 歌词：v5 响应无内联歌词字段，故 getKugouPlayData().lyrics 恒为空串。
+//   /kugou/lyric 现已改走独立两步歌词接口（src/kugou-lyric.js，krcs 搜候选 → lyrics 下 base64 LRC），
+//   不再依赖本文件的内联字段；getKugouPlayData 保留原签名与原有行为（既有单测锁定）。
 // 上游文档版本：MakcRe/KuGouMusicApi 2026-02(module/song_url.js, util/helper.js
 //   signatureAndroidParams/signKey, util/request.js 默认参数/头/UA, util/config.json
 //   liteAppid) + kugou_sdk 0.2.9 docs/protocol/{search,song}.md。
@@ -673,8 +675,9 @@ async function getKugouUrl(hash, albumId, level = 'low') {
 }
 
 /**
- * 兼容 routes.js /kugou/lyric 的取链入口(该文件冻结，签名保持不变)。
- * v5 响应无内联歌词字段，恒返回 lyrics:'' → 路由按既有形状 404(与 /qq/lyric 同形)。
+ * 酷狗 v5 播放数据适配（签名冻结：既有单测依赖，勿改勿删）。
+ * v5 响应无内联歌词字段 → lyrics 恒为 ''；/kugou/lyric 的歌词已改走
+ * src/kugou-lyric.js 的两步接口，本函数保留原有行为。
  */
 async function getKugouPlayData(hash, albumId) {
   const node = await getKugouV5Data(hash, albumId, '128');

@@ -409,20 +409,28 @@ test('/kugou/url level 按档隔离缓存', async () => {
   assert.notEqual(urlCache.get(`kugou_url:${HASH}:standard`), undefined);
 });
 
-test('/kugou/lyric 校验 400 与 404 形状(v5 无内联歌词)', async () => {
+test('/kugou/lyric 校验 400 与无候选/上游异常降级 404', async () => {
   const r1 = await get('/kugou/lyric');
   assert.equal(r1.status, 400);
 
   const r2 = await get('/kugou/lyric?hash=xyz');
   assert.equal(r2.status, 400);
 
-  stubGateway(v5Payload());
+  const r2b = await get(`/kugou/lyric?hash=${HASH}&albumId=abc`);
+  assert.equal(r2b.status, 400);
+
+  // 两步歌词接口无候选 → 404（不是 500）
+  stubAxiosGet(async (url) => {
+    if (String(url).includes('krcs.kugou.com/search')) return { data: { status: 200, candidates: [] } };
+    throw new Error(`unexpected upstream call: ${url}`);
+  });
   const r3 = await get(`/kugou/lyric?hash=${HASH}&albumId=958706`);
   assert.equal(r3.status, 404);
   assert.equal(r3.body.message, '未找到歌词');
   restores.pop()();
 
-  stubGateway({ status: 2 });
+  // 上游异常（stub 未命中即抛）→ 同样 404，绝不 500
+  stubAxiosGet(async () => { throw new Error('krcs down'); });
   const r4 = await get(`/kugou/lyric?hash=${HASH}&albumId=958706`);
   assert.equal(r4.status, 404);
   assert.equal(r4.body.message, '未找到歌词');
