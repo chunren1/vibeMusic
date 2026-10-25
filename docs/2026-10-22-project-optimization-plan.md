@@ -664,3 +664,27 @@ PLAN 原方案写的是「`contract/` + WireMock/Testcontainers」。实际做�
 **唯一没锁的成功形**：`/kugou/lyric`。当前实现里 `getKugouPlayData()` 的 `lyrics` 恒为空串
 （v5/url 响应无内联歌词字段），成功形不可达——写成功用例就是假测试，故契约里只锁 400/404 并在
 JSON 用 `note` 记录原因，等上游提供字段再补。
+
+### 13.10 2026-10-25 真实发版（19 个提交上线，前后端各一次）
+
+这是本轮所有 P1 改动的第一次真发，两条路径都按新流程走：
+
+| 端 | 命令 | 关键证据 |
+|---|---|---|
+| 后端 | `deploy-backend.sh --apply --from-registry` | 云端只 `docker pull`（不 build、不传 300MB tar）；容器 `org.opencontainers.image.revision` = `7408f40…` 与提交逐字一致；冷启动 66s（Java 25 启动 46.9s）；端口 8082 → 8080；回滚点 `rollback-20261025-144426` |
+| 前端 | `deploy-frontend.sh --apply` | 资产 hash `index-ABMDHpsQ.js` → `index-DEK5eUbs.js`；远端 md5 对包通过；原子切换 + reload；回滚点 `vibemusic.bak-20261025-145223` |
+
+**线上行为验证（不只看健康检查）**：
+
+- `/actuator/health` 200；搜索「晴天」→ `total=107`、`list=5`；推荐 → 8 首。
+- `/api/songs/stream` + `Range: bytes=1000-1999` → **206**、`content-range: bytes 1000-1999/1386996`、
+  `accept-ranges: bytes`、`content-type: audio/mpeg` —— §13.9 新增的契约在线上实测成立。
+- `reconcile-cloud.sh`：10/22 一致、12 项预期差异、**无真漂移**（发版没有把云上文件改漂）。
+
+**一个不算故障但值得记住的现象**：搜索首条标 `platform=qq`、sourceId 却是网易 id（`0039MnYb0qxYhV`）时
+`/stream` 返回 404——日志显示网易取链 400（该曲无可用链，版权/cookie 状态），降级链走完也无结果。
+同一首歌换 kugou / netease 条目都返回 206。**这与本轮改动无关**，但说明"搜索合并后 platform 标注"
+和"取链真实可用性"是两件事，前端不要假设搜索结果一定能播。
+
+**仍不在本仓范围**：P1-7（Android Media3 升级 + 唤醒锁）在 `vibemusic-native` 独立仓库，
+本轮只完成 §12.4 的第一步（播放唤醒），Media3 1.12.x 升级与真机通知键回归需在该仓单独排期。
