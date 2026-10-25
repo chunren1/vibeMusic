@@ -455,11 +455,11 @@
 ### 12.6 仍未做（需单独排期）
 
 - ~~P1-1 JDK 25 + 虚拟线程 spike~~ → 已完成并**决定不开**，见 §13.2
-- P1-6 余下：`strictNullChecks` 开启（预计多文件）、`window.vibeFavIds` 收口
-- ~~P1-8 `SongSearchService` 拆分~~ → 已完成，见 §13.1；`SongPlayService`(485) / `AssistantController`(470) / `RecommendService`(424) 仍待拆
-- P1-10 契约测试（`contract/` + WireMock/Testcontainers）
-- P1-12 镜像 tag=git sha + 云端只 pull（蓝绿与内容校验已具备）
-- 线上部署：本轮所有提交尚未发布到生产
+- ~~P1-6 余下：`strictNullChecks` 开启~~ → 已完成，见 §13.6（`window.vibeFavIds` 实测全仓零引用）
+- ~~P1-8 `SongSearchService` / `SongPlayService` / `AssistantController` / `RecommendService` 拆分~~ → 四刀全部完成，见 §13.1 / §13.8
+- ~~P1-10 契约测试~~ → 网关 16 端点 + 后端信封/Range 契约，见 §13.9；**未引入 WireMock**（不需要，见该节）
+- ~~P1-12 镜像 tag=git sha + 云端只 pull~~ → 已完成，见 §13.5
+- 线上部署：本轮所有提交尚未发布到生产（发版见 §13.10）
 
 ---
 
@@ -594,3 +594,73 @@ program（ESM 全连通），子集灰度不成立；`// @ts-nocheck` 关的是�
 而在 MPlayerView 直接比数字；`Playlist.creator` 实际是对象而非 id；`UserInfo.gender` 有
 `string` / `number` 两种用法。本轮用 `string|number` 联合 + `Number()/String()` 等价包装抹平，
 **运行时行为不变**，但数据形状本身该统一。
+
+### 13.7 P1-8 第四刀：AssistantController（470 → 242）
+
+按 PLAN 的「SSE 编排」轴拆成三个同包 package-private 类：
+
+| 类 | 纯 LOC | 职责 |
+|---|---|---|
+| `AssistantStreamOrchestrator` | 211 | `/stream` 全流程编排：预算计算 → 长度校验 → Key 校验 → 身份解析 → 限流 → 组消息 → WebClient 订阅 → 逐 token 推送 → 终态（done/error 只发一次、complete 幂等、订阅必解绑） |
+| `AssistantClient` | 112 | 同步侧上游调用 `callLLMWithTools`、工具结果提取、读超时包装 |
+| `AssistantRequestIdentity` | 39 | `isApiKeyConfigured` / `markPersistedOnce` / `clientIp` / `isPrivatePeer` / `ipRateKey` + 两个限流配额 |
+
+控制器留 242：`streamChat` 端点（4 行委派）、`chat` 的 Function Calling 循环、
+`buildMessagesWithHistory` / `buildSystemPrompt`（提示词仍只有一处，通过 `MessageAssembler`
+函数接口注入 orchestrator，避免提示词副本漂移）、`degradedChatResult`、4 个 static 委托入口
+（测试直接调）、两个构造器（12 参 `@Autowired` / 10 参便捷，签名与可见性不变）。
+
+**这刀唯一有设计取舍的地方**：`SSE_COMPLETE_GRACE_MS` 与 `MAX_MESSAGE_LENGTH` 这类常量
+原本在控制器里被同步/流式两条路径共用。拆完它们只服务流式，因此跟随进入 orchestrator；
+限流配额 `AI_RATE_LIMIT` / `AI_IP_RATE_LIMIT` 反过来是两条路径共用，必须提到
+`AssistantRequestIdentity` 做唯一事实源——**常量该跟调用方走，还是该留在共用处，判据是"还有几个调用方"**，
+不是"原来在哪个文件"。
+
+**证据**：`mvn -o test -Dtest='*Assistant*'` 24 过；`mvn -o verify` EXIT=0，
+`Tests run: 719, Failures: 0, Errors: 0, Skipped: 1`；测试文件零改动；删掉的 `restTemplate` /
+`webClient` / `objectMapper` / `streamFirstByteTimeoutMs` 四个字段已 grep 主代码+测试无引用。
+
+### 13.8 P1-8 收尾：RecommendService（424 → 75）与四刀总结
+
+| 类 | 纯 LOC | 职责 |
+|---|---|---|
+| `RecommendPersonalizer` | 207 | v3 个性化：随机打底 → Top 歌手并行 fan-out → 随机补足 → seen 回填忽略 → 打乱 |
+| `RecommendCacheStore` | 123 | 结果缓存读写 + 污染校验、平台故障期判定、seen 集合读写与裁剪 |
+| `RecommendGuestBuilder` | 106 | 游客随机 8 首、随机源失败降级、推荐理由/欢迎语文案、离线缓存标记 |
+
+facade 去掉 `@RequiredArgsConstructor`，改显式 7 参 public 构造器——**签名与顺序和生成器完全一致**，
+既有单测直接 `new`，测试零改动。7 个入参即使 facade 已不直接用也照样接收后转交（删参数会让测试编译失败）。
+
+**四刀的统一口径**（后续再拆任何 God class 都按这个来）：
+
+1. **行为快照优先**：只搬不改。搬完用 `sort` + `diff` 对比旧版全部字符串字面量（文案 / 日志 / 缓存 key），
+   逐条一致才算搬对；数值常量（TTL / 上限 / deadline）同理。
+2. **facade 保留测试的直接入口**：测试 `new` 的构造器、直接调的 static/包内方法，签名与可见性一律不动。
+3. **常量跟调用方走，判据是"还有几个调用方"**：只剩一个调用方的常量随调用方进新类；
+   跨类共用的（如 `RECOMMEND_COUNT`、限流配额）留在 facade 或提到共用类做唯一事实源。
+   反过来，迁移后只剩一个调用方的"预留委托方法"要随调用方走，否则本身成了死代码。
+4. **顺序敏感的写操作不上提**：`writeSeenIds` 保持在 shuffle 之前、在 `buildPersonalized` 内部，
+   不上提到编排层——上提会让游客路径也写 seen 键并改变时序。
+
+四刀累计：`SongSearchService` 829→498、`SongPlayService` 485→127、`AssistantController` 470→242、
+`RecommendService` 424→75，共 12 个新类，全部 ≤250 纯 LOC，测试文件零改动。
+
+### 13.9 P1-10 契约测试：不引入 WireMock（覆盖率补齐到 16 端点 + 后端信封/Range）
+
+PLAN 原方案写的是「`contract/` + WireMock/Testcontainers」。实际做下来**两个新依赖都不需要**：
+
+- **网关侧**：`musicapi/test/contract.test.js` 本来就在 axios 层 stub（`stubAxiosGet`），
+  比 WireMock 更轻也更贴近实现（stub 未命中直接抛错 = 天然断言"没有多余的出网请求"）。
+  本轮把 `contract/gateway.contract.json` 从 7 个端点扩到 **16 个**，新增 `/migu/search`、`/migu/url`、
+  `/kugou/search`、`/kugou/url`、`/kugou/lyric`、`/bili/search`、`/bili/url`、`/lyric`、`/personalized`。
+  字段不是照猜，逐个 grep 后端消费方（`SongDtoParser` / `PlatformUrlFetcher` / `SongController`），
+  只锁真读的 key。用例 187 → **196**。
+- **后端侧**：`PublicApiContractTest`（MockMvc，已有）+ 本轮新增 `StreamRangeContractTest`。
+  后者用 `MockHttpServletRequest/Response` 直接驱动 `StreamController`，锁 `/api/songs/stream` 的
+  Range 契约：`bytes=100-199` → 206 + `Content-Range: bytes 100-199/1000` + `Content-Length: 100`；
+  `bytes=0-` → 末端取 `size-1`；无 Range → 200 且**不带** `Content-Range` 但带 `Accept-Ranges: bytes`。
+  播放器 seek 全靠这套响应头，掉了就退化成不可拖动。
+
+**唯一没锁的成功形**：`/kugou/lyric`。当前实现里 `getKugouPlayData()` 的 `lyrics` 恒为空串
+（v5/url 响应无内联歌词字段），成功形不可达——写成功用例就是假测试，故契约里只锁 400/404 并在
+JSON 用 `note` 记录原因，等上游提供字段再补。
