@@ -556,3 +556,41 @@ RSS 多 20~120MB，1.6GB 机器不划算。→ 保持关闭，RUNBOOK 已记录�
 
 **为什么不能只信 tag**：tag 是可变指针（人可以重推同名 tag）。因此把「内容 ↔ 提交」绑定落在镜像 label 上，
 部署时比对 label 而不是比对 tag 名字 —— 与 §12「不信报告信字节」同一原则。
+
+### 13.6 P1-6 收尾：前端 strictNullChecks 全量开启（346 → 0）
+
+PLAN 原估「2–3 人日」。先做错误聚类再动手，发现估时口径不对：
+
+**真实构成**：346 个错误里 323 条 TS2339 全部以 `does not exist on type 'never'` 结尾——
+根因是 **52 个未标注类型的 `ref([])` / `ref(null)`** 在 strict 下塌缩（`ref(null)` 收窄后残留
+类型是 `never` 而非 `null`，所以不是 346 个独立问题，是 52 个声明）。其中
+`stores/auth.js:8` 一行 `Ref<UserInfo|null>` 就吃掉 41 条（含下游 5 个文件）。
+
+**所以做法是「先落类型、后翻开关」**：
+
+1. `src/vibe-models.d.ts`：5 个 ambient interface，字段直接取自报错清单（报错本身就是完整字段表）；
+   `tsconfig.check.json` 的 `include` 补 `src/**/*.d.ts`（原先 `.d.ts` 只靠 `request.js` 的
+   `/// <reference>` 进场）。
+2. 37 处 ref 补 `@type {import('vue').Ref<T>}` —— **纯注释，零运行时**，因此在开关仍为 false 时可独立合入，无红窗。
+3. 23 条残留逐条真修（不压错误）：两处 `getContext('2d')` 后 `if (!ctx) return`、模板
+   `line.text || ''`、`localStorage.getItem() ?? 'null'`、头像首字母 `|| '?'`、
+   4 处 `PlaylistPopup` 的 `v-if` 补 `&& playlistTargetSong`。
+4. 最后翻 `strictNullChecks: true`（**只翻这一个**，`strict` / `noImplicitAny` 不动）。
+
+**一处方案勘误**：`recommend.js:44` / `HomeView:161` / `MSearchView:74` 原本打算用 `?? ''` 修，
+实测修不掉——null 来自形参默认值（`function searchSongs(..., platform = null)`），类型被推成
+`null | undefined`，传 `string` 照样报错。正解是给 API 形参补 `@param {string|null}`（纯类型），
+3 处调用点因此**零运行时改动**，比原方案少 3 处语义变更。
+
+**为什么不按文件灰度**：实测 `include` 只放单个 `.vue` 仍会因 import 图把 `stores/*.js` 拉进
+program（ESM 全连通），子集灰度不成立；`// @ts-nocheck` 关的是整个文件的所有检查（含现有 0 错
+基线的真实检查），属拿已知债换未知债。**结论：全量开，总耗时 3–5 小时，不是人日级。**
+
+**证据**：`npm run typecheck` 0 error、`npm run lint` 0、`npm test` 188 passed / 21 files；
+全仓 `@ts-nocheck` / `@ts-ignore` / `@ts-expect-error` / `as any` 仍为 **0 处**。
+`window.vibeFavIds` 已确认全仓零引用（可勾掉）。
+
+**顺带暴露的问题（未修，需单独立项）**：`LyricLine.time` 在 LyricsView 走 `parseFloat`（当字符串）
+而在 MPlayerView 直接比数字；`Playlist.creator` 实际是对象而非 id；`UserInfo.gender` 有
+`string` / `number` 两种用法。本轮用 `string|number` 联合 + `Number()/String()` 等价包装抹平，
+**运行时行为不变**，但数据形状本身该统一。
