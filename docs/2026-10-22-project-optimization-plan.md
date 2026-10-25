@@ -688,3 +688,116 @@ JSON 用 `note` 记录原因，等上游提供字段再补。
 
 **仍不在本仓范围**：P1-7（Android Media3 升级 + 唤醒锁）在 `vibemusic-native` 独立仓库，
 本轮只完成 §12.4 的第一步（播放唤醒），Media3 1.12.x 升级与真机通知键回归需在该仓单独排期。
+
+### 13.11 P1-7 Media3 升级：1.5.1 → 1.9.0（不是 1.12.x）
+
+**版本判定（实测，纠正 §12 的原计划）**：
+
+| 版本 | 结论 |
+|---|---|
+| 1.11.1（Google Maven 当前最新稳定） | AAR 的 `minCompileSdk=36`，本仓 compileSdk 35 + AGP 8.5.2、本机只装 android-34/35 → **不可用** |
+| 1.12.0-alpha01 | 只是 alpha（2026-10-21）→ **不用** |
+| 1.10.0 / 1.10.1 | 同样 `minCompileSdk=36` → **不可用** |
+| **1.9.0** | `minCompileSdk=35` → **本仓可用的最高稳定线** |
+
+升级结果（commit `c12a820`）：
+
+- 改动**只有一个文件一行**：`gradle/libs.versions.toml` 的 `media3 = "1.5.1"` → `"1.9.0"`。
+- `compileDebugKotlin` 首次即通过，**零代码适配**；`dependencyInsight` 实测
+  common/exoplayer/session/ui/container/datasource/extractor/decoder/database 全链路均解析到 1.9.0。
+- `PlaybackService.kt:592` 的 `.setWakeMode(C.WAKE_MODE_LOCAL)` 签名未变，熄屏保活行为不动。
+- 通知/媒体按钮路径**零改动**（该路径已有两次实装两次回滚的教训，第三次不做）。
+- 单测 943 例全绿、`assembleDebug` 成功（23,166,594 B）；冻结工具链（Gradle 8.10.2 / AGP 8.5.2 /
+  Kotlin 2.0.20 / minSdk 26 / compileSdk 35 / targetSdk 35）一律未动。
+
+**为什么不同时升 compileSdk 36**：targetSdk 36 带前台服务与 edge-to-edge 行为变更，必须真机回归；
+而 1.10+ 相对 1.9 的收益只是若干 ExoPlayer 边缘修复。将来若要 1.11.x，应单独做一批"工具链升级"。
+
+**环境坑（本机，不入库）**：`~/.gradle/gradle.properties` 里 `127.0.0.1:7890` 代理已死
+（`Connect timed out`，直连 dl.google.com 200）。构建前要么起代理要么清掉那两行，否则依赖解析全失败。
+
+### 13.12 2026-10-25 批次 A：风险消除（Flyway validate / 指标语义 / 死配置）
+
+#### 13.12.1 Flyway validate 打开（先验证 checksum，不盲开）
+
+原状态 `validate-on-migrate: false`（`application.yml:52` + `application-docker.yml:14`），
+注释理由是"历史手管期无 checksum 可对"。开之前先把云库真值取回来对：
+
+```
+云库 flyway_schema_history（docker exec vibemusic-mysql，root 密码取自容器 env，不落盘）
+V2 -785574822 / V3 -218907454 / V3.1 -1780997 / V4 604345114
+V5 1237074277 / V6 -1683108146 / V7 663429647 / V8 1953362904
+```
+
+用 Flyway `ChecksumCalculator` 的算法（去 UTF-8 BOM → `readLine` 语义切行 → 逐行 CRC32 →
+`(int)` 截断）算本地 8 个迁移文件，**8/8 与云库完全一致**，V1 是 `<< Flyway Baseline >>` 标记不参与校验。
+
+→ **不需要 `repair`**，直接把两个 profile 的 `validate-on-migrate` 改成 `true`。
+此后改历史迁移文件会在启动时立即失败，不再静默漂移；新增迁移只能追加新版本号。
+（`vibeMusic-backend/AGENTS.md` 里"迁移仅归档、不自动执行 / flyway.enabled:false"是过期说法，同批改正。）
+
+#### 13.12.2 指标语义修正：`api_saved_rate` 是假的
+
+`CacheMonitorController` 原来三行同一个表达式：
+
+```java
+stats.put("cache_hit_rate",  String.format("%.1f%%", redisHits / total * 100));
+stats.put("redis_hit_rate",  String.format("%.1f%%", redisHits / total * 100));
+stats.put("api_saved_rate",  String.format("%.1f%%", redisHits / total * 100));
+```
+
+只有一层 Redis 缓存时，"API 节省率"数学上就等于命中率，所以看板上的第三个数字没有任何新信息。
+改成：唯一比率 `cache_hit_rate` + 绝对数 `api_saved_calls`（因缓存省掉的上游调用次数），
+并补齐**埋了却从未暴露**的计数：`search.pool.rejected`、`search.upstream.all_failed`、
+`play.netease.need_login`、`play.netease.cookie_rotate`。
+
+新增 Gauge `circuit.qq.open`（QQ 熔断开路状态）。关键点：`QqCircuitBreaker.isOpen()` 是**只读**的，
+**刻意不用 `shouldSkip()`**——后者在开路窗口过期时会 `halfOpenProbeInFlight = true` 占用半开探针名额，
+Prometheus 每次抓取（15s）都会偷走一次真实请求的探针机会。这是一个"看起来能复用其实有副作用"的坑。
+
+#### 13.12.3 删死配置：Spring Cache + Caffeine 从未生效
+
+全仓 `@Cacheable` / `@CacheEvict` / `@CachePut` = **0 处**，唯一的 `@EnableCaching` 和
+`CaffeineCacheManager`（`CacheConfig.java`）从落地起就是空转；真实缓存全走 Redis
+（`SongCacheService` / `JsonCacheService` / `RecommendCacheStore`）。删掉 `CacheConfig.java`
+和 pom 里的 `spring-boot-starter-cache` / `caffeine`。
+
+**副作用（值得记）**：删掉 caffeine 后离线构建失败——`error_prone_annotations:2.28.0` 的 jar
+在本机仓库缺失。原因是 caffeine 曾以 provided 依赖把该坐标的**版本**顶到 2.43.0（有 jar），
+移除后 Guava（MinIO 传递依赖）声明的 2.28.0 胜出，而本地只有它的 pom。在线补拉一次即恢复，
+CI 在线不受影响。**教训**：删传递依赖前先确认本地仓库没有"只下了 pom 没下 jar"的坐标。
+
+验证：`mvn -o compile` 通过；搜索/韧性相关 6 个测试类 100 例全绿。commit `3f7d194`。
+
+### 13.13 「接下来还做什么」评估结论（2026-10-25）
+
+逐条实测复核 §5 的 P2 清单，结论是**一半不值得做，而真正的缺口它没列**。
+
+**A. PLAN 漏掉的真实缺口（JaCoCo 实测，722 例全绿后）**
+
+| 类 | 行覆盖 | 风险 |
+|---|---|---|
+| `AiToolService` | **1.9%** (1/52) | AI function calling 两个工具几乎零测试，喂给 LLM 的 map 形状错了就静默乱答 |
+| `UploadController` | **3.9%** (3/76) | 全仓唯一接受外部文件的入口，76 行只测 3 行 |
+| `StorageService` | 28.1% (27/96) | MinIO 上传/删除 |
+| `PlaylistController` | 33.5% | controller 薄，service 已 76%，优先级低 |
+| `AudioProxyService` | 52.1% | Range 转发 |
+
+**B. §5 成立且值得做**：Flyway validate（已做）、14 个 `@RequestBody Map` 无校验（已排）、
+指标语义（已做）、死配置（已做）、网关 `checkJs`（2 人日，31 文件 8297 行无类型检查）。
+
+**C. §5 被实测反驳、不该做**：
+
+| 原候选 | 实测 |
+|---|---|
+| 搜索热 key 缓存缺口 | `SongCacheService` 已有 Redis 二级缓存 TTL 6h + singleflight 锁，不是瓶颈 |
+| 数据库缺索引 | `V1__init.sql` 已内联 10+ 索引，含 `idx_user_played (user_id, played_at DESC)` |
+| 前端包体优化 | 主包 70KB / br 18KB，dist 2.7M 全是静态资源，收益≈0 |
+| Go 流代理试点 | 峰值 70 req/min、2C/1.6G，收益无法量化，风险高 |
+
+**D. 仍值得单独排期**：网关 `checkJs`（2 人日）→ Android Baseline Profile（2 人日 + 真机，
+`baseline-prof.txt` 目前不存在，冷启动 15–30%）→ 前端 a11y（51 个 `@click` div 带 role 的 0 个）。
+
+**E. Android 侧待办**：`media3-ui` 依赖零使用（`androidx.media3.ui` import = 0，代码里 14 处
+`PlayerView` 是自家 enum），可删但**等 1.9.0 验完再动**；vivo 通知中心播放键只能真机取读数。
+
