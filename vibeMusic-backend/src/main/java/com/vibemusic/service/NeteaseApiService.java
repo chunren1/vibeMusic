@@ -369,8 +369,10 @@ public class NeteaseApiService {
     }
 
     /**
-     * 酷狗歌词：网关 /kugou/lyric 复用 getdata 响应内联 lyrics 字段，
-     * 返回与 /qq/lyric 同形 {code, data:{lyric}}。
+     * 酷狗歌词：网关 /kugou/lyric 已改为走酷狗官方两步接口（krcs 搜候选 → lyrics 下 base64 LRC，
+     * 见 musicapi/src/kugou-lyric.js），返回 {code, data:{lyric, song?, singer?}}。
+     * 本方法只读 data.lyric，与 /qq/lyric 同形；albumId 可传 null。
+     * （原注释写的「复用 getdata 内联 lyrics 字段」已过时：该字段恒空，是过去恒 404 的根因。）
      */
     public Map<String, Object> getKugouLyric(String hash, String albumId) {
         URI uri = buildUri("/kugou/lyric", "hash", hash,
