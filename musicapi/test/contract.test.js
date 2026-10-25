@@ -265,3 +265,360 @@ test('/netease/search 契约：data[歌曲字段]，缺 keyword 400', async (t) 
   const [err] = ok.errors;
   await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
 });
+
+// ==================== 独立平台：咪咕 / 酷狗 / B站 / 网易云歌词 / 推荐歌单 ====================
+// 上游依赖（签名/票据/WBI）全部走 stub；stub 未命中即抛错，确保测试绝不触网。
+
+/** 按 URL 子串路由的多路上游 stub：未命中直接抛错（测试若偷偷连真网会红）。 */
+function stubUpstream(routes) {
+  stubAxiosGet(async (url) => {
+    const u = String(url);
+    for (const [needle, resp] of routes) {
+      if (u.includes(needle)) return typeof resp === 'function' ? resp(u) : resp;
+    }
+    throw new Error(`unexpected upstream call: ${u}`);
+  });
+}
+
+const MIGU_CONTENT_ID = '600907000001234567';
+
+function miguSearchPayload() {
+  return {
+    data: {
+      code: '000000',
+      songResultData: {
+        result: [{
+          contentId: MIGU_CONTENT_ID,
+          copyrightId: '600000000009999999',
+          name: '晴天',
+          singers: [{ name: '周杰伦' }],
+          imgItems: [{ img: 'https://cdn.migu.cn/cover.jpg' }],
+          resourceType: '2',
+        }],
+      },
+    },
+  };
+}
+
+test('/migu/search 契约：data[歌曲字段]，缺 keyword 400，上游失败降级空数组', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  let upstreamDown = false;
+  stubUpstream([['migu', () => {
+    if (upstreamDown) throw new Error('migu upstream down');
+    return miguSearchPayload();
+  }]]);
+
+  const ep = '/migu/search';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?keyword=${encodeURIComponent('晴天')}&limit=2`),
+    ok.success
+  );
+  assert.equal(body.data[0].id, MIGU_CONTENT_ID);
+  assert.equal(body.data[0].name, '晴天');
+  assert.equal(body.data[0].duration, 0, '咪咕搜索无单曲时长，实现固定 0');
+
+  // 上游异常：路由仍回 200 + data:[]（后端靠空数组降级），形状与成功契约一致
+  upstreamDown = true;
+  const degraded = await expectContract(
+    `${ep} upstream failure`,
+    await fetch(`${base}${ep}?keyword=${encodeURIComponent('晴天')}`),
+    ok.success
+  );
+  assert.deepEqual(degraded.data, []);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
+});
+
+test('/migu/url 契约：data[{id,url}]，302→签名 URL、无版权→url null，缺参 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const signedUrl = 'https://cdn.migu.cn/audio/signed.mp3?token=FAKE';
+  let paid = false;
+  stubUpstream([['listenSong', () => (paid
+    ? { status: 200, data: { code: '200000' } }
+    : { status: 302, headers: { location: signedUrl } })]]);
+
+  const ep = '/migu/url';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?id=${MIGU_CONTENT_ID}&copyrightId=600000000009999999`),
+    ok.success
+  );
+  assert.equal(body.data[0].id, MIGU_CONTENT_ID);
+  assert.equal(body.data[0].url, signedUrl);
+  assert.equal(body.message, undefined, '该端点无 message 字段（后端不读）');
+
+  // 付费/无版权：上游 200000 → url:null（后端据此走降级）
+  paid = true;
+  const noAuth = await expectContract(`${ep} paid`, await fetch(`${base}${ep}?id=${MIGU_CONTENT_ID}`), ok.success);
+  assert.equal(noAuth.data[0].url, null);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), err);
+});
+
+const KUGOU_HASH = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+function kugouSearchPayload() {
+  return {
+    data: {
+      status: 1,
+      data: {
+        lists: [{
+          FileHash: KUGOU_HASH,
+          OriSongName: '<em>晴天</em>',
+          SingerName: '周杰伦',
+          AlbumName: '叶惠美',
+          AlbumImage: 'https://imge.kugou.com/stdmusic/{size}/cover.jpg',
+          Duration: 240,
+          Privilege: 0,
+          AlbumID: '123456',
+          MixSongID: '789',
+          HQFileHash: '',
+          SQFileHash: '',
+        }],
+      },
+    },
+  };
+}
+
+test('/kugou/search 契约：data[歌曲字段]，缺/超长 keyword 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  stubUpstream([['kugou', kugouSearchPayload()]]);
+
+  const ep = '/kugou/search';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?keyword=${encodeURIComponent('晴天')}&limit=2`),
+    ok.success
+  );
+  assert.equal(body.data[0].id, KUGOU_HASH);
+  assert.equal(body.data[0].name, '晴天', 'em 标签应被剥离');
+  assert.equal(body.data[0].duration, 240000, '秒 → 毫秒');
+  assert.equal(body.data[0].cover, 'https://imge.kugou.com/stdmusic/400/cover.jpg');
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
+  await expectContract(`${ep} keyword too long`, await fetch(`${base}${ep}?keyword=${'x'.repeat(101)}`), err);
+});
+
+test('/kugou/url 契约：data[{id,url}]，探活成功回链、VIP 档直接 null，缺参 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const cdnUrl = 'https://fs.youthandroid2.kugou.com/2026/song.mp3';
+  stubUpstream([
+    ['gateway.kugou.com', { data: { status: 1, url: [cdnUrl], backupUrl: [] } }],
+    ['fs.youthandroid2.kugou.com', { status: 206 }],
+  ]);
+
+  const ep = '/kugou/url';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(`${ep} success`, await fetch(`${base}${ep}?hash=${KUGOU_HASH}`), ok.success);
+  assert.equal(body.data[0].id, KUGOU_HASH);
+  assert.equal(body.data[0].url, cdnUrl);
+
+  // high/super 为 VIP 档：phase 1 直接 url:null，不请求上游（stub 未命中会抛错 → 若真发请求这里会红）
+  const vip = await expectContract(
+    `${ep} vip tier`,
+    await fetch(`${base}${ep}?hash=${KUGOU_HASH}&level=high`),
+    ok.success
+  );
+  assert.equal(vip.data[0].url, null);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing hash`, await fetch(`${base}${ep}`), err);
+  await expectContract(`${ep} invalid hash`, await fetch(`${base}${ep}?hash=not-a-hash`), err);
+});
+
+const BILI_BVID = 'BV1De411p77r';
+
+function biliSpiPayload() {
+  return { data: { code: 0, data: { b_3: 'FAKE-B3', b_4: 'FAKE-B4' } } };
+}
+
+function biliNavPayload() {
+  return {
+    data: {
+      code: 0,
+      data: {
+        wbi_img: {
+          img_url: 'https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png',
+          sub_url: 'https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png',
+        },
+      },
+    },
+  };
+}
+
+function biliSearchPayload() {
+  return {
+    data: {
+      code: 0,
+      data: {
+        result: [{
+          bvid: BILI_BVID,
+          aid: 123456,
+          title: '晴天 - 周杰伦',
+          author: '周杰伦',
+          pic: '//i0.hdslb.com/bfs/archive/cover.jpg',
+          duration: '4:00',
+          play: 123456,
+          danmaku: 789,
+          typename: '音乐',
+        }],
+      },
+    },
+  };
+}
+
+test('/bili/search 契约：data[歌曲字段 + _raw 热度]，缺/超长 keyword 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  stubUpstream([
+    ['/x/frontend/finger/spi', biliSpiPayload()],
+    ['search/type', biliSearchPayload()],
+  ]);
+
+  const ep = '/bili/search';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?keyword=${encodeURIComponent('晴天')}&limit=2`),
+    ok.success
+  );
+  assert.equal(body.data[0].id, BILI_BVID);
+  assert.equal(body.data[0].cover, 'https://i0.hdslb.com/bfs/archive/cover.jpg', '// → https:');
+  assert.equal(body.data[0].duration, 240000, 'mm:ss → 毫秒');
+  // 后端 SongDtoParser 读 _raw.play/_raw.danmaku 参与热度加权
+  assert.equal(body.data[0]._raw.play, 123456);
+  assert.equal(body.data[0]._raw.danmaku, 789);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing keyword`, await fetch(`${base}${ep}`), err);
+  await expectContract(`${ep} keyword too long`, await fetch(`${base}${ep}?keyword=${'x'.repeat(101)}`), err);
+});
+
+test('/bili/url 契约：data[{id,url}]，DASH 取最高带宽、风控 -412 降级 null，缺参 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const low = 'https://upos-sz-mirrorcos.bilivideo.com/low.m4s';
+  const high = 'https://upos-sz-mirrorcos.bilivideo.com/high.m4s';
+  let riskControl = false;
+  stubUpstream([
+    ['/x/player/wbi/playurl', () => (riskControl
+      ? { data: { code: -412, message: '请求被拦截' } }
+      : {
+        data: {
+          code: 0,
+          data: { dash: { audio: [{ baseUrl: low, bandwidth: 132000 }, { baseUrl: high, bandwidth: 192000 }] } },
+        },
+      })],
+    ['/x/web-interface/nav', biliNavPayload()],
+    ['/x/frontend/finger/spi', biliSpiPayload()],
+  ]);
+
+  const ep = '/bili/url';
+  const ok = CONTRACT.endpoints[ep];
+  const trackId = `${BILI_BVID}|12345`; // 复合 id：自带 cid，跳过 pagelist
+  const body = await expectContract(
+    `${ep} success`,
+    await fetch(`${base}${ep}?id=${encodeURIComponent(trackId)}`),
+    ok.success
+  );
+  assert.equal(body.data[0].id, trackId);
+  assert.equal(body.data[0].url, high, '应取 bandwidth 最大伴音轨');
+
+  // 风控 -412：刷新票据重试一次仍失败 → url:null（路由绝不 500）。
+  // 换一个 cid：成功结果已进 urlCache（同 id 会直接命中缓存，绕开降级路径）。
+  riskControl = true;
+  const riskTrackId = `${BILI_BVID}|99999`;
+  const degraded = await expectContract(
+    `${ep} risk control`,
+    await fetch(`${base}${ep}?id=${encodeURIComponent(riskTrackId)}`),
+    ok.success
+  );
+  assert.equal(degraded.data[0].url, null);
+
+  const [err] = ok.errors;
+  await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), err);
+  await expectContract(`${ep} invalid id`, await fetch(`${base}${ep}?id=not-a-bvid`), err);
+});
+
+test('/lyric 契约：code/lrc.lyric（网易云直通），缺参 400，上游异常 500', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const lrc = '[00:01.00]晴天\n';
+  const orig = NeteaseCloudMusicApi.lyric;
+  NeteaseCloudMusicApi.lyric = async () => ({
+    body: { code: 200, lrc: { version: 1, lyric: lrc }, tlyric: { version: 0, lyric: '' } },
+  });
+  restores.push(() => { NeteaseCloudMusicApi.lyric = orig; });
+
+  const ep = '/lyric';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(`${ep} success`, await fetch(`${base}${ep}?id=386038`), ok.success);
+  assert.equal(body.lrc.lyric, lrc);
+
+  const bad = ok.errors.find((e) => e.status === 400);
+  await expectContract(`${ep} missing id`, await fetch(`${base}${ep}`), bad);
+  await expectContract(`${ep} invalid id`, await fetch(`${base}${ep}?id=abc`), bad);
+
+  // 上游抛错：稳定 500 信封（后端 extractLyric 得 null → 空歌词，不崩）
+  NeteaseCloudMusicApi.lyric = async () => { throw new Error('netease lyric down'); };
+  const err500 = ok.errors.find((e) => e.status === 500);
+  await expectContract(`${ep} upstream error`, await fetch(`${base}${ep}?id=386038`), err500);
+});
+
+test('/kugou/lyric 契约：无内联歌词恒定 404，缺/非法 hash 400', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  stubUpstream([['gateway.kugou.com', { data: { status: 1, url: ['https://fs.youthandroid2.kugou.com/x.mp3'] } }]]);
+
+  const ep = '/kugou/lyric';
+  const { errors } = CONTRACT.endpoints[ep];
+  const notFound = errors.find((e) => e.status === 404);
+  const bad = errors.find((e) => e.status === 400);
+
+  // v5/url 响应无歌词字段 → getKugouPlayData().lyrics 恒为 ''，路由恒 404（与 /qq/lyric 同形）
+  const body = await expectContract(`${ep} no lyrics`, await fetch(`${base}${ep}?hash=${KUGOU_HASH}`), notFound);
+  assert.equal(body.code, 404);
+
+  await expectContract(`${ep} missing hash`, await fetch(`${base}${ep}`), bad);
+  await expectContract(`${ep} invalid hash`, await fetch(`${base}${ep}?hash=not-a-hash`), bad);
+});
+
+test('/personalized 契约：result[{id,name,picUrl,playCount}]，上游异常 500', async (t) => {
+  const { server, base } = await startApp();
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const orig = NeteaseCloudMusicApi.personalized;
+  NeteaseCloudMusicApi.personalized = async () => ({
+    body: {
+      code: 200,
+      result: [{
+        id: 123456,
+        name: '华语流行精选',
+        picUrl: 'https://p1.music.126.net/cover.jpg',
+        copywriter: '精选歌单',
+        playCount: 100000,
+      }],
+    },
+  });
+  restores.push(() => { NeteaseCloudMusicApi.personalized = orig; });
+
+  const ep = '/personalized';
+  const ok = CONTRACT.endpoints[ep];
+  const body = await expectContract(`${ep} success`, await fetch(`${base}${ep}?limit=2`), ok.success);
+  assert.equal(body.result[0].name, '华语流行精选');
+  assert.equal(typeof body.result[0].playCount, 'number');
+
+  NeteaseCloudMusicApi.personalized = async () => { throw new Error('netease personalized down'); };
+  const [err] = ok.errors;
+  await expectContract(`${ep} upstream error`, await fetch(`${base}${ep}`), err);
+});

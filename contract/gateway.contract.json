@@ -215,6 +215,239 @@
           }
         }
       ]
+    },
+    "/migu/search": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": [
+            {
+              "id": "string",
+              "name": "string",
+              "artists": "string",
+              "album": "string",
+              "cover": "string",
+              "duration": "number",
+              "vip": "boolean"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/migu/url": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "data": [
+            {
+              "id": "string",
+              "url": "string?"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/kugou/search": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "message": "string",
+          "data": [
+            {
+              "id": "string",
+              "name": "string",
+              "artists": "string",
+              "album": "string",
+              "cover": "string",
+              "duration": "number",
+              "vip": "boolean"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/kugou/url": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "message": "string",
+          "data": [
+            {
+              "id": "string",
+              "url": "string?"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/kugou/lyric": {
+      "note": "getKugouPlayData() 的 lyrics 恒为空串（v5/url 响应无内联歌词字段），故当前实现恒定 404；成功形（data.lyric）在上游提供歌词字段后才会出现，暂不锁。",
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        },
+        {
+          "status": 404,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/bili/search": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "message": "string",
+          "data": [
+            {
+              "id": "string",
+              "name": "string",
+              "artists": "string",
+              "album": "string",
+              "cover": "string",
+              "duration": "number",
+              "vip": "boolean",
+              "_raw": {
+                "play": "number",
+                "danmaku": "number"
+              }
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/bili/url": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "message": "string",
+          "data": [
+            {
+              "id": "string",
+              "url": "string?"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/lyric": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "lrc": {
+            "lyric": "string"
+          }
+        }
+      },
+      "errors": [
+        {
+          "status": 400,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        },
+        {
+          "status": 500,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
+    },
+    "/personalized": {
+      "success": {
+        "status": 200,
+        "body": {
+          "code": "number",
+          "result": [
+            {
+              "id": "any",
+              "name": "string",
+              "picUrl": "string",
+              "copywriter": "string?",
+              "playCount": "number"
+            }
+          ]
+        }
+      },
+      "errors": [
+        {
+          "status": 500,
+          "body": {
+            "code": "number",
+            "message": "string"
+          }
+        }
+      ]
     }
   }
 }
