@@ -467,9 +467,11 @@ jobs:
               print(f"traces processors: {traces_procs}")
           PY
 
-  # ---- Job 6: Docker 镜像构建校验（只 build，绝不 push 到任何 registry）----
-  # 目的：Dockerfile / compose build 配置坏了要在 CI 暴露，而不是等发版在云服务器上才发现
-  #      （cloud 部署 = 在服务器上 compose build，坏 Dockerfile = 坏发版）。
+  # ---- Job 6: Docker 镜像构建（PR 只 build；push/tag 时同时发布到 GHCR）----
+  # 目的：Dockerfile / compose build 配置坏了要在 CI 暴露，而不是等发版在云服务器上才发现。
+  # P1-12：push 事件额外把镜像推到 ghcr.io/<owner>/vibemusic-<svc>:<commit sha>（不可变 tag），
+  #        云端 scripts/deploy-backend.sh --from-registry 只 pull、不在 1.6G 机器上构建/传 300MB tar；
+  #        回滚 = 换 tag。镜像带 org.opencontainers.image.revision label，云端据此验「拉到的就是那个提交」。
   # 覆盖 compose 里真正会被 build 的两个镜像（也是本仓仅有的两个在编镜像）：
   #   musicapi（Express BFF）、backend（Spring Boot，COPY target/*.jar）。
   # 成本取舍：PR 上不跑（省分钟数），只跑 main push / tag / 手动；tag 上跑=发版前先验镜像。
@@ -477,10 +479,13 @@ jobs:
   #   （配置语法已由 infra-lint 用真 nginx -t 校验），该文件无任何 compose 引用，且仓库根
   #   无 .dockerignore → 构建 context 会是整个仓库（含 docker-data/node_modules），白烧几分钟。
   docker-build:
-    name: Docker images (build-only, no push)
+    name: Docker images (build + publish to GHCR)
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -535,14 +540,42 @@ jobs:
           print(f"compose 的 {builds} 处 build 定义指向的 context/Dockerfile 全部存在")
           PY
 
+      # label 是云端唯一的「内容 ↔ 提交」绑定证据：--from-registry 部署会断言它等于 git sha
       - name: Build musicapi image
-        run: docker build -t vibemusic-musicapi:ci ./musicapi
+        run: |
+          docker build \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            -t vibemusic-musicapi:ci ./musicapi
 
       - name: Build backend image
-        run: docker build -t vibemusic-backend:ci ./vibeMusic-backend
+        run: |
+          docker build \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            -t vibemusic-backend:ci ./vibeMusic-backend
 
       # 镜像"真的装进了东西"的旁证：网关入口能过 node 语法检查，后端 jar 在镜像里且非空
       - name: Image payload sanity
         run: |
           docker run --rm --entrypoint node vibemusic-musicapi:ci --check server.js
           docker run --rm --entrypoint sh vibemusic-backend:ci -c 'test -s /app/app.jar'
+
+      # ---- P1-12：发布到 GHCR，tag 只用 commit sha（不可变；不推 latest，避免"tag 动了内容没动"）----
+      - name: Publish images to GHCR (immutable tag = commit sha)
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          OWNER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          SHA="$GITHUB_SHA"
+          printf '%s' "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for svc in backend musicapi; do
+            src="vibemusic-${svc}:ci"
+            dst="ghcr.io/${OWNER}/vibemusic-${svc}:${SHA}"
+            docker tag "$src" "$dst"
+            echo "推 $dst"
+            docker push "$dst"
+          done
+          # 推完立刻回查：manifest 里必须带 revision label 的证据是「镜像存在且可被匿名读取」
+          docker manifest inspect "ghcr.io/${OWNER}/vibemusic-backend:${SHA}" >/dev/null
+          echo "ghcr.io/${OWNER}/vibemusic-backend:${SHA} 已发布"

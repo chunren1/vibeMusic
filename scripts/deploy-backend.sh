@@ -25,6 +25,8 @@
 #   ./scripts/deploy-backend.sh --apply                  # 真发布
 #   ./scripts/deploy-backend.sh --apply --image 2026-10-23
 #   ./scripts/deploy-backend.sh --apply --skip-build     # 复用本机已有镜像 tag
+#   ./scripts/deploy-backend.sh --apply --from-registry  # 云端只 pull CI 产物（tag=完整 commit sha）
+#   ./scripts/deploy-backend.sh --apply --from-registry --image <历史sha>   # 回滚
 #   ./scripts/deploy-backend.sh --apply --health-timeout 420
 # 约定：只走 SSH key（BatchMode，绝不交互要密码）；脚本内不含任何口令——
 #       环境变量一律从现容器 docker inspect 导出（写远端 600 权限 env-file，不上命令行）。
@@ -37,12 +39,21 @@ HOST="${HOST:-root@101.132.167.178}"
 # 镜像 tag 默认用 git sha（P1-12：产物可追溯，回滚不依赖 latest 指针）；
 # 工作区有未提交改动时追加 -dirty，避免"镜像内容与 tag 不一致"的假象。
 GIT_SHA="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo latest)"
-if [ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ]; then
-  echo "WARN: 工作区有未提交改动，镜像 tag 追加 -dirty" >&2
-  GIT_SHA="${GIT_SHA}-dirty"
-fi
+WORKTREE_DIRTY=0
+[ -n "$(git -C "$REPO" status --porcelain 2>/dev/null)" ] && WORKTREE_DIRTY=1
+# -dirty 后缀只在「本机构建」路径有意义（registry 模式用完整 sha，脏工作区推不上去）
+[ "$WORKTREE_DIRTY" -eq 1 ] && GIT_SHA="${GIT_SHA}-dirty"
+IMAGE_EXPLICIT=0
+[ -n "${IMAGE:-}" ] && IMAGE_EXPLICIT=1
 IMAGE="${IMAGE:-$GIT_SHA}"
 SKIP_BUILD=0
+# P1-12：CI 把镜像推到 GHCR（tag=完整 commit sha），云端只 pull、不 build、不传 tar。
+# 默认关（保持既有的 save|load 路径），--from-registry 打开。
+FROM_REGISTRY=0
+REGISTRY_IMG="${REGISTRY_IMG:-ghcr.io/chunren1/vibemusic-backend}"
+# 预期提交：registry 模式下用来校验镜像 label org.opencontainers.image.revision
+FULL_SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo "")"
+EXPECT_REV=""
 HEALTH_TIMEOUT=300
 FORCE=0
 APPLY=0
@@ -75,6 +86,9 @@ usage() {
   --apply               真正执行（默认只打印将执行的命令，零副作用）
   --image TAG           镜像 tag（默认 git sha，或环境变量 IMAGE）
   --skip-build          跳过本地 docker build，复用本机已有的 vibemusic-backend:<TAG>
+  --from-registry       不从本机构建/传 tar：云端直接 docker pull $REGISTRY_IMG:<完整 sha>
+                        （tag 默认=当前 commit 完整 sha；用 --image <sha> 可回滚到历史镜像）
+  --registry IMAGE      registry 镜像名（默认 ghcr.io/chunren1/vibemusic-backend，含 --from-registry）
   --health-timeout N    等新容器 healthy 的秒数上限（默认 300；冷启动约 161s）
   --host USER@IP        目标主机（默认 root@101.132.167.178，或环境变量 HOST）
   --force               内存不足（available < 400MB）时仍然继续
@@ -85,7 +99,8 @@ usage() {
                         例: --set-env 'JAVA_OPTS=-XX:MaxRAMPercentage=60.0 -XX:+UseG1GC'
   -h, --help            本帮助
 
-流程: 1 预检(端口/内存/容器盘点) → 2 本机 docker build → 3 save|gzip|ssh load + 旧 latest 打 rollback 标
+流程: 1 预检(端口/内存/容器盘点) → 2 本机 docker build（--from-registry 时跳过）→
+      3 save|gzip|ssh load + 旧 latest 打 rollback 标（--from-registry 时改为云端 docker pull + 校验 revision label）
       → 4 起 vibemusic-backend-next（备用端口，env/卷/健康检查照抄现容器，现容器不动）
       → 5 轮询 healthy → 6 写 upstream + 首次迁移 nginx 配置 + reload
       → 7 切换后验证（nginx -T / 直连新端口 / 经 nginx 打探针）→ 8 停旧容器、next 改名转正
@@ -99,6 +114,9 @@ while [ $# -gt 0 ]; do
     --apply) APPLY=1 ;;
     --dry-run) APPLY=0 ;;
     --skip-build) SKIP_BUILD=1 ;;
+    --from-registry) FROM_REGISTRY=1 ;;
+    --registry) REGISTRY_IMG="${2:?--registry 需要镜像名}"; FROM_REGISTRY=1; shift ;;
+    --registry=*) REGISTRY_IMG="${1#*=}"; FROM_REGISTRY=1 ;;
     --force) FORCE=1 ;;
     --image) IMAGE="${2:?--image 需要 TAG}"; shift ;;
     --image=*) IMAGE="${1#*=}" ;;
@@ -121,6 +139,25 @@ case "$CPUS_OVERRIDE" in
   '') ;;
   *[!0-9.]*|.*|*.) echo "--cpus 必须是正数（当前: $CPUS_OVERRIDE）" >&2; exit 2 ;;
 esac
+if [ "$FROM_REGISTRY" -eq 0 ] && [ "$WORKTREE_DIRTY" -eq 1 ]; then
+  echo "WARN: 工作区有未提交改动，镜像 tag 追加 -dirty" >&2
+fi
+
+# registry 模式：tag 默认用完整 sha（CI 按完整 sha 推），并据此确定要校验的提交
+if [ "$FROM_REGISTRY" -eq 1 ]; then
+  if [ "$IMAGE_EXPLICIT" -eq 0 ]; then
+    [ -n "$FULL_SHA" ] || { echo "--from-registry 需要 git 仓库以取完整 sha，或显式 --image <sha>" >&2; exit 2; }
+    IMAGE="$FULL_SHA"
+  fi
+  case "$IMAGE" in
+    *-dirty) echo "--from-registry 不接受 -dirty tag（工作区改动不可能在 registry 里）" >&2; exit 2 ;;
+  esac
+  if [ ${#IMAGE} -eq 40 ]; then
+    EXPECT_REV="$IMAGE"
+  else
+    EXPECT_REV="$(git -C "$REPO" rev-parse "$IMAGE" 2>/dev/null || echo "")"
+  fi
+fi
 [ -n "$IMAGE" ] || { echo "--image 不能为空" >&2; exit 2; }
 
 # --set-env 校验：必须是 KEY=VALUE、变量名合法、值里不能有换行/回车。
@@ -220,7 +257,11 @@ verify_image_content() {
 FP_FN_SRC="$(declare -f image_layers_json image_config_sha)"
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
-LOCAL_IMG="vibemusic-backend:$IMAGE"
+if [ "$FROM_REGISTRY" -eq 1 ]; then
+  LOCAL_IMG="$REGISTRY_IMG:$IMAGE"
+else
+  LOCAL_IMG="vibemusic-backend:$IMAGE"
+fi
 # 运行期状态（失败回滚据此决定做什么）
 CUR_PORT=""; NEXT_PORT=""; NET=""; AVAIL_MB=0; SWITCHED=0; NGINX_TOUCHED=0; HEALTH_SECS=0
 
@@ -354,7 +395,11 @@ say "镜像 $LOCAL_IMG | 健康超时 ${HEALTH_TIMEOUT}s | 时间戳 $STAMP"
 # ===========================================================================
 step "1/8 预检：远端容器/端口/内存盘点（只读）"
 if is_dry; then
-  say "  [dry-run] 本地将执行: docker build -t $LOCAL_IMG $BACKEND"
+  if [ "$FROM_REGISTRY" -eq 1 ]; then
+    say "  [dry-run] 云端将执行: docker pull $LOCAL_IMG（不在本机构建、不传 tar）"
+  else
+    say "  [dry-run] 本地将执行: docker build -t $LOCAL_IMG $BACKEND"
+  fi
 fi
 
 # 一次性把远端关键状态读回来（全部只读：docker inspect / free / ss）
@@ -441,6 +486,12 @@ if [ "$NEXT_EXISTS" = "yes" ]; then
 fi
 
 # ===========================================================================
+if [ "$FROM_REGISTRY" -eq 1 ]; then
+  step "2/8 跳过本地构建（--from-registry：镜像由 CI 构建并推到 $REGISTRY_IMG，云端只 pull）"
+  say "  目标镜像: $LOCAL_IMG"
+  say "  期望提交: ${EXPECT_REV:-<未指定，跳过 revision 校验>}"
+  LOCAL_ID="(registry)"
+else
 step "2/8 本地构建镜像（云上只有 1.6G 内存，跑不动 mvn，所以构建放本机）"
 LOCAL_ARCH="$(uname -m)"
 case "$LOCAL_ARCH" in
@@ -475,8 +526,51 @@ else
   LOCAL_SIZE="$(docker image inspect -f '{{.Size}}' "$LOCAL_IMG" | awk '{printf "%.0fMB", $1/1024/1024}')"
   say "  镜像: $LOCAL_IMG  id=${LOCAL_ID:0:19}  $LOCAL_SIZE（id/size 仅展示：跨 Docker 版本会变，3/8 比的是层+Config 内容）"
 fi
+fi
 
 # ===========================================================================
+if [ "$FROM_REGISTRY" -eq 1 ]; then
+step "3/8 从 registry 取镜像（云端只 pull，不 build、不传 tar）+ 旧 latest 保底打标"
+rsh "mkdir -p '$BG_DIR' && chmod 700 '$BG_DIR'"
+if is_dry; then
+  say "  [dry-run] ssh $HOST 'docker pull $LOCAL_IMG'"
+else
+  say "  拉取中（首次约 300MB；分层已命中则只拉差异层）..."
+fi
+
+# 拉完立刻验两件事，任何一项不符就停在 3/8（容器与 nginx 一动没动）：
+#   1) label org.opencontainers.image.revision == 期望提交 —— 证明「拉到的就是那个提交」的产物；
+#      没有这个 label 的镜像不是本仓 CI 产物（或手工 build 漏了 label），一律拒绝部署。
+#   2) 架构 amd64 —— registry 里若混入 arm 产物，拉下来也起不来。
+remote_script <<EOS
+set -euo pipefail
+IMG='$LOCAL_IMG'
+EXPECT_REV='$EXPECT_REV'
+docker pull "\$IMG"
+REV=\$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "\$IMG" 2>/dev/null || true)
+ARCH=\$(docker inspect -f '{{.Architecture}}' "\$IMG" 2>/dev/null || true)
+echo "  远端镜像 \$IMG arch=\${ARCH:-?} revision=\${REV:-<无 label>}"
+[ -n "\$REV" ] || { echo "  !! 镜像缺少 org.opencontainers.image.revision label（非 CI 产物），拒绝部署" >&2; exit 3; }
+if [ -n "\$EXPECT_REV" ] && [ "\$REV" != "\$EXPECT_REV" ]; then
+  echo "  !! label revision=\$REV 与期望提交 \$EXPECT_REV 不一致，拒绝部署" >&2; exit 3
+fi
+case "\$ARCH" in amd64|x86_64) ;; *) echo "  !! 镜像架构 \$ARCH 与云主机 amd64 不一致，拒绝部署" >&2; exit 3 ;; esac
+NEW_ID=\$(docker inspect -f '{{.Id}}' "\$IMG")
+echo "  远端镜像 \$IMG id=\${NEW_ID:0:19}"
+if docker image inspect vibemusic-backend:latest >/dev/null 2>&1; then
+  OLD_ID=\$(docker inspect -f '{{.Id}}' vibemusic-backend:latest)
+  if [ "\$OLD_ID" != "\$NEW_ID" ]; then
+    docker tag vibemusic-backend:latest vibemusic-backend:rollback-$STAMP
+    echo "  旧 latest 已保底: vibemusic-backend:rollback-$STAMP (id=\${OLD_ID:0:19})"
+  else
+    echo "  latest 已指向新镜像，无需保底"
+  fi
+fi
+docker tag "\$IMG" vibemusic-backend:latest
+echo "  latest → \${NEW_ID:0:19}"
+EOS
+
+else
 step "3/8 传镜像（docker save | gzip | ssh 'gunzip | docker load'）+ 旧 latest 保底打标"
 rsh "mkdir -p '$BG_DIR' && chmod 700 '$BG_DIR'"
 
@@ -534,6 +628,7 @@ image_config_sha '$LOCAL_IMG'" || true)"
   verify_image_content "$LOCAL_LAYERS" "$(printf '%s\n' "$REMOTE_FP" | head -1)" \
     "$LOCAL_CFG_SHA" "$(printf '%s\n' "$REMOTE_FP" | tail -1)" \
     || { echo "镜像内容校验失败，中止在 3/8（容器与 nginx 一动没动；远端 latest 已指向该 tag）" >&2; exit 1; }
+fi
 fi
 
 # ===========================================================================
@@ -832,6 +927,11 @@ fi
 say ""
 if is_dry; then say "===== DRY-RUN 推演结果（以下均为计划，未执行）====="; else say "===== 蓝绿部署完成 ====="; fi
 say "镜像        : $LOCAL_IMG（latest 将指向它）"
+if [ "$FROM_REGISTRY" -eq 1 ]; then
+  say "镜像来源    : registry pull（云端未构建；revision=${EXPECT_REV:-<未校验>}）"
+else
+  say "镜像来源    : 本机构建 + save/load（云端未构建）"
+fi
 say "服务端口    : 127.0.0.1:$CUR_PORT → 127.0.0.1:$NEXT_PORT（下次部署自动轮换回 $CUR_PORT）"
 if is_dry; then
   say "健康耗时    : （dry-run 未启动容器；真跑时这段时间旧容器一直在服务，用户无感）"

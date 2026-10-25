@@ -535,3 +535,24 @@ RSS 多 20~120MB，1.6GB 机器不划算。→ 保持关闭，RUNBOOK 已记录�
 > 不够——并集 17 首仍可能因为「只剩一路平台」而让相邻两批 88% 重叠。现改为两档：并集 > 单批
 > 始终断言（轮换彻底失效时必红），并集 ≥ 3×单批 才断言两两 <50%。生产实测并集 24 = 3×8，
 > 强断言照常执行；CI 风控轮次会 skip 并打印三批条数/并集大小，便于下次一眼分清回归与风控。
+
+### 13.5 P1-12：镜像不可变 + 云端只 pull（GHCR）
+
+原方案要「CI 产镜像推到 registry，云端只 pull」。落地时先验了前提，再动代码：
+
+**前提实测（云端 `101.132.167.178`，只读 curl + 3MB 小镜像）**：`ghcr.io/v2/` 401（正常，未认证）、
+`ghcr.io/linuxcontainers/alpine:3.20` **匿名拉取成功**（blob CDN 可达），Docker Hub `registry-1.docker.io`
+反而不通（6s 超时）→ 走 GHCR 可行，走 Docker Hub 不可行。
+
+**改动**：
+
+- `ci.yml` 的 `Docker images` job：job 级 `permissions: packages: write`；两个镜像 `docker build`
+  加 `org.opencontainers.image.revision=$GITHUB_SHA` label；push/tag 事件追加 GHCR 发布，
+  tag **只用完整 commit sha**（不推 `latest`，避免 tag 不动而内容变），推完 `docker manifest inspect` 回查。
+- `scripts/deploy-backend.sh` 新增 `--from-registry` / `--registry`：跳过本机构建与 300MB tar 传输，
+  云端 `docker pull` 后**断言三道前置**（镜像可拉、`revision` label == 期望提交、`Architecture=amd64`），
+  任一不符就停在 3/8（容器与 nginx 一动没动）。回滚 = `--image <历史sha>`，同样只 pull。
+- 默认路径（本机构建 + save/load）保持不变，CI 没跑或失败时可退回；`docs/deploy-backend.md` 补了三路径取舍表。
+
+**为什么不能只信 tag**：tag 是可变指针（人可以重推同名 tag）。因此把「内容 ↔ 提交」绑定落在镜像 label 上，
+部署时比对 label 而不是比对 tag 名字 —— 与 §12「不信报告信字节」同一原则。

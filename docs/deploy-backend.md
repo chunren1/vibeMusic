@@ -181,9 +181,48 @@ ssh root@101.132.167.178 "docker inspect -f '{{range .Config.Env}}{{println .}}{
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `--apply` | 否（dry-run） | 不加只打印，零副作用 |
-| `--image TAG` | `latest` / `$IMAGE` | 镜像 tag，同时用于远端保底命名 |
+| `--image TAG` | git 短 sha（registry 模式=完整 sha） | 镜像 tag，同时用于远端保底命名 |
 | `--skip-build` | 否 | 跳过本机 `docker build`，复用已有 tag |
+| `--from-registry` | 否 | 云端直接 `docker pull ghcr.io/chunren1/vibemusic-backend:<完整 sha>`，不本机构建、不传 tar |
+| `--registry IMAGE` | `ghcr.io/chunren1/vibemusic-backend` | registry 镜像名（隐含 `--from-registry`） |
 | `--health-timeout N` | 300 | 等 next healthy 的秒数上限 |
 | `--host USER@IP` | `root@101.132.167.178` | 目标主机 |
 | `--force` | 否 | available < 400MB 时仍然继续（有风险） |
 | `--set-env KEY=VALUE` | 无 | 覆盖/追加新容器环境变量，可重复、同名后者胜（详见上文「发布时临时改环境变量」） |
+
+## 从 registry 部署（P1-12，云端不构建）
+
+CI 的 `Docker images` job 在 **push/tag** 时把两个镜像推到 GHCR，tag 只用**完整 commit sha**
+（不推 `latest`，避免"tag 没动但内容变了"）：
+
+```
+ghcr.io/chunren1/vibemusic-backend:<40位sha>
+ghcr.io/chunren1/vibemusic-musicapi:<40位sha>
+```
+
+镜像带 `org.opencontainers.image.revision=<sha>` label（`docker build --label`）。
+部署时脚本会断言这个 label 等于目标提交 —— 这是「云端拉到的镜像 ↔ 仓库提交」之间唯一不依赖外部状态的绑定证据。
+
+```bash
+# 发布当前 commit（云端只 pull）
+./scripts/deploy-backend.sh --apply --from-registry
+
+# 回滚到历史镜像（同样是 pull，不重建）
+./scripts/deploy-backend.sh --apply --from-registry --image <40位历史sha>
+```
+
+三条路径的取舍：
+
+| 路径 | 云端做什么 | 适用 |
+|---|---|---|
+| 默认（`docker build` + save/load） | `gunzip \| docker load`，约 300MB 流量 | 本地开发验证、CI 没跑或失败时 |
+| `--skip-build` | 同上 | 已经构建过、想重发同一镜像 |
+| `--from-registry` | `docker pull`（分层命中只拉差异） | 正式发版 / 回滚 |
+
+`--from-registry` 的三道前置校验（任一不过就停在 3/8，容器与 nginx 一动没动）：
+1. 镜像存在且可拉取（匿名拉取即可，实测云端到 `ghcr.io` 及 blob CDN 通）；
+2. `revision` label 非空且等于期望提交 —— 没有 label 的镜像视为「非本仓 CI 产物」，直接拒绝；
+3. `Architecture=amd64`。
+
+⚠ 若 GHCR package 被改成 private，第 1 步会失败；此时要么把 package 可见性改回 public，
+要么在云端 `docker login ghcr.io`（需 PAT，属额外凭据，非必要不做）。
