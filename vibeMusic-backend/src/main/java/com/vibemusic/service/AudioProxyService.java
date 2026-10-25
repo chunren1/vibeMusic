@@ -126,6 +126,12 @@ public class AudioProxyService {
                     if (!response.isCommitted()) response.setStatus(404);
                     return;
                 }
+                // 换源命中时补一个新增响应头（不改任何现有头/响应体/{code,message,data} 信封）：
+                // 前端据此可提示「已自动切换到 <平台> 源」。一次性消费，避免线程复用串请求。
+                String failoverSource = songPlayService.consumeFailoverPlaySource();
+                if (failoverSource != null && !response.isCommitted()) {
+                    response.setHeader("X-Play-Source", failoverSource);
+                }
                 String host = URI.create(audioUrl).getHost();
                 if (!isCdnWhitelisted(host)) {
                     log.warn("SSRF blocked: {} (sourceId={})", host, sourceId);
