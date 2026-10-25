@@ -13,6 +13,7 @@ const player = usePlayerStore()
 const favStore = useFavoriteStore()
 
 const keyword = ref(/** @type {string} */ (route.query.q || ''))
+/** @type {import('vue').Ref<Song[]>} */
 const results = ref([])
 const loading = ref(false)
 const sourceFilter = ref('all')

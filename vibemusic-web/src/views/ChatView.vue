@@ -9,6 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 const player = usePlayerStore()
 const auth = useAuthStore()
 
+/** @type {import('vue').Ref<ChatMessage[]>} */
 const messages = ref([])
 // 消息历史上限：超出丢弃最旧消息，防止长会话内存膨胀（E4）
 const MAX_CHAT_MESSAGES = 200
@@ -20,7 +21,9 @@ function pushMessage(msg) {
 }
 const inputText = ref('')
 const loading = ref(false)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const chatBox = ref(null)
+/** @type {import('vue').Ref<AbortController|null>} */
 const abortCtrl = ref(null)
 
 const greeting = '嗨！我是 vibe 音乐精灵 想听什么歌？过什么心情？告诉我，我来帮你找～'

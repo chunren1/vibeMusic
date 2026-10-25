@@ -15,7 +15,9 @@ const authStore = useAuthStore()
 
 const source = computed(() => route.params.source || 'netease')
 const playlistId = computed(() => route.params.id)
+/** @type {import('vue').Ref<Playlist|null>} */
 const info = ref(null)
+/** @type {import('vue').Ref<Song[]>} */
 const songs = ref([])
 const loading = ref(true)
 const loadError = ref(false)

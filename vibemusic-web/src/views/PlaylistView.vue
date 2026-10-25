@@ -12,7 +12,9 @@ const router = useRouter()
 const favStore = useFavoriteStore()
 const player = usePlayerStore()
 const playlistId = ref(Number(route.params.id) || 0)
+/** @type {import('vue').Ref<Song[]>} */
 const songs = ref([])
+/** @type {import('vue').Ref<Playlist|null>} */
 const info = ref(null)
 const loading = ref(true)
 const loadError = ref(false)
@@ -200,7 +202,7 @@ onMounted(() => loadSongs())
   </div>
 
   <PlaylistPopup
-    v-if="showPlaylistPopup"
+    v-if="showPlaylistPopup && playlistTargetSong"
     :song="playlistTargetSong"
     :exclude-playlist-id="playlistId"
     @close="showPlaylistPopup = false"

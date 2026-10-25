@@ -8,6 +8,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'done'])
 
+/** @type {import('vue').Ref<Playlist[]>} */
 const allPlaylists = ref([])
 const showCreate = ref(false)
 const newName = ref('')

@@ -121,6 +121,7 @@ function createAudioBackground(audioRef) {
   // 后台状态
   const isBackground = ref(false)
   const wasPausedByBg = ref(false)
+  /** @type {import('vue').Ref<number|null>} */
   const bgSince = ref(null)
 
   let rafId = null

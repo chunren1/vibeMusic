@@ -29,10 +29,12 @@ const pwdSuccess = ref(false)
 
 // 头像
 const avatarLoading = ref(false)
+/** @type {import('vue').Ref<HTMLInputElement|null>} */
 const avatarInput = ref(null)
 
 // 背景图
 const bgLoading = ref(false)
+/** @type {import('vue').Ref<HTMLInputElement|null>} */
 const bgInput = ref(null)
 
 // 头像占位图柔色色板
@@ -207,7 +209,7 @@ async function onBgChange(e) {
               <div class="edit-avatar-row">
                 <div class="edit-avatar" @click="triggerAvatar">
                   <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="edit-avatar-img" />
-                  <span v-else class="edit-avatar-text">{{ (auth.user?.nickname || auth.user?.username)[0]?.toUpperCase() }}</span>
+                  <span v-else class="edit-avatar-text">{{ (auth.user?.nickname || auth.user?.username || '?')[0]?.toUpperCase() }}</span>
                   <div v-if="avatarLoading" class="avatar-spinner"></div>
                   <div class="avatar-camera">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>

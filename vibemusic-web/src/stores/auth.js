@@ -5,6 +5,7 @@ import { getMe, logout as apiLogout, updateProfile as apiUpdateProfile, uploadAv
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(getToken())
+  /** @type {import('vue').Ref<UserInfo|null>} */
   const user = ref(null)
   const showLoginModal = ref(false)
   const redirectPath = ref(null)

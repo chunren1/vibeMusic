@@ -8,6 +8,7 @@ import {
 } from '@/api/song'
 
 const router = useRouter()
+/** @type {import('vue').Ref<Playlist[]>} */
 const playlists = ref([])
 const renderKey = ref(0)
 const showCreate = ref(false)

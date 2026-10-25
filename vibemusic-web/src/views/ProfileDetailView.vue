@@ -67,7 +67,7 @@ function genderBadge(g) {
       <div class="detail-avatar-section">
         <div class="detail-avatar">
           <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="detail-avatar-img" />
-          <span v-else class="detail-avatar-text">{{ (auth.user?.nickname || auth.user?.username)[0]?.toUpperCase() }}</span>
+          <span v-else class="detail-avatar-text">{{ (auth.user?.nickname || auth.user?.username || '?')[0]?.toUpperCase() }}</span>
         </div>
         <h2 class="detail-name">{{ auth.user?.nickname || auth.user?.username }}</h2>
         <p class="detail-username">@{{ auth.user?.username }}</p>

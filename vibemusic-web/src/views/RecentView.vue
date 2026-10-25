@@ -8,6 +8,7 @@ import { usePlayerStore } from '@/stores/player'
 
 const favStore = useFavoriteStore()
 const player = usePlayerStore()
+/** @type {import('vue').Ref<Song[]>} */
 const recentSongs = ref([])
 const currentPlayId = ref(null)
 const showPlaylistPopup = ref(false)
@@ -164,7 +165,7 @@ onMounted(() => {
     </div>
   </div>
 
-  <PlaylistPopup v-if="showPlaylistPopup" :song="playlistTargetSong" @close="showPlaylistPopup = false" @done="showPlaylistPopup = false" />
+  <PlaylistPopup v-if="showPlaylistPopup && playlistTargetSong" :song="playlistTargetSong" @close="showPlaylistPopup = false" @done="showPlaylistPopup = false" />
 </template>
 
 <style scoped>

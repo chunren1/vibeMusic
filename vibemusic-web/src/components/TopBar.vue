@@ -9,6 +9,7 @@ const router = useRouter()
 const player = usePlayerStore()
 const authStore = useAuthStore()
 const searchKeyword = ref('')
+/** @type {import('vue').Ref<Song[]>} */
 const searchResults = ref([])
 const searchLoading = ref(false)
 const searchFocused = ref(false)

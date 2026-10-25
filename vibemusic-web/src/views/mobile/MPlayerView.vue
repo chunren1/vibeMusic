@@ -15,6 +15,7 @@ const favStore = useFavoriteStore()
 const audio = store.audio
 
 // 歌词
+/** @type {import('vue').Ref<LyricLine[]>} */
 const lyrics = ref([])
 const loadingLyric = ref(false)
 const currentLyricIdx = ref(-1)
@@ -50,6 +51,7 @@ const showQueuePopup = ref(false)
 
 // 加入歌单
 const showPlaylistPicker = ref(false)
+/** @type {import('vue').Ref<Playlist[]>} */
 const userPlaylists = ref([])
 const addingToPlaylist = ref(null) // 正在添加的歌单ID
 
@@ -118,7 +120,7 @@ function activeIdx() {
   if (!lyrics.value.length) return -1
   const t = audio.currentTime
   for (let i = lyrics.value.length - 1; i >= 0; i--) {
-    if (t >= (lyrics.value[i].time || 0)) return i
+    if (t >= Number(lyrics.value[i].time || 0)) return i
   }
   return -1
 }
@@ -131,6 +133,7 @@ function fmt(s) {
 
 function togglePlay() { store.togglePlay() }
 
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const progressBar = ref(null)
 const isSeeking = ref(false)       // 拖拽动画状态
 const seekPreview = ref('')        // 拖拽时的时间预览

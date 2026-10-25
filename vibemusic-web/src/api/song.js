@@ -13,7 +13,14 @@ export function getBanners() {
   return request.get('/songs/banner')
 }
 
-/** 搜索歌曲（支持分源过滤和分页，自动取消旧请求防竞态） @returns {Promise<any>} */
+/**
+ * 搜索歌曲（支持分源过滤和分页，自动取消旧请求防竞态）
+ * @param {string} keyword
+ * @param {number} [page]
+ * @param {number} [size]
+ * @param {string|null} [platform] 为 null 表示全平台
+ * @returns {Promise<any>}
+ */
 export function searchSongs(keyword, page = 1, size = 20, platform = null) {
   // 取消上一次未完成的搜索请求
   if (searchController) {
@@ -31,7 +38,12 @@ export function getRandomSongs(count = 8) {
   return request.get('/songs/random', { params: { count } })
 }
 
-/** 个性化推荐 @returns {Promise<any>} */
+/**
+ * 个性化推荐
+ * @param {string|null} [deviceId] 匿名设备标识（null=后端按 IP 兜底）
+ * @param {boolean} [refresh]
+ * @returns {Promise<any>}
+ */
 export function getPersonalizedRecommend(deviceId = null, refresh = false) {
   const config = { params: {} }
   if (deviceId) {

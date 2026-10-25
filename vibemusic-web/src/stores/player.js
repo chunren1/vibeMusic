@@ -12,7 +12,7 @@ const VOL_KEY = 'vibe_volume'
 const MODE_KEY = 'vibe_play_mode'
 
 function tryParse(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key)) || fallback } catch { return fallback }
+  try { return JSON.parse(localStorage.getItem(key) ?? 'null') || fallback } catch { return fallback }
 }
 
 /**

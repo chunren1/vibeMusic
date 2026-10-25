@@ -13,6 +13,7 @@
 <script setup>
 import { ref, onErrorCaptured } from 'vue'
 
+/** @type {import('vue').Ref<Error|null>} */
 const error = ref(null)
 
 onErrorCaptured((err, instance, info) => {

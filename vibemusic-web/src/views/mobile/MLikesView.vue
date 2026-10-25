@@ -6,6 +6,7 @@ import { useFavoriteStore } from '@/stores/favorite'
 
 const player = usePlayerStore()
 const favStore = useFavoriteStore()
+/** @type {import('vue').Ref<Song[]>} */
 const songs = ref([])
 const manageMode = ref(false)
 const selectedIds = ref(new Set())

@@ -84,6 +84,7 @@ function setVolumeFromClick(e) {
   if (!(el instanceof HTMLElement)) return
   store.volume = Math.round((e.offsetX / el.offsetWidth) * 100)
 }
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const progressTrack = ref(null)
 const isSeeking = ref(false)
 const seekPreviewTime = ref('')
@@ -140,7 +141,9 @@ function handleDownload(song) {
 
 // 播放列表面板
 const showPlaylist = ref(false)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const playlistPanelRef = ref(null)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const playlistToggleRef = ref(null)
 useClickOutside(playlistPanelRef, () => { showPlaylist.value = false }, { exclude: [playlistToggleRef] })
 function togglePlaylist() { showPlaylist.value = !showPlaylist.value }

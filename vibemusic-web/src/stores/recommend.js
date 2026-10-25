@@ -23,6 +23,7 @@ function getDeviceId() {
  * 共享给桌面端 HomeView.vue 和移动端 MHomeView.vue
  */
 export const useRecommendStore = defineStore('recommend', () => {
+  /** @type {import('vue').Ref<Song[]>} */
   const songs = ref([])
   const greeting = ref('')
   const loading = ref(false)

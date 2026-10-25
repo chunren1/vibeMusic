@@ -42,6 +42,7 @@ function toggleFullscreen() {
 
 // ===== 歌单弹窗 =====
 const showPlaylistPopup = ref(false)
+/** @type {import('vue').Ref<Song|null>} */
 const playlistTargetSong = ref(null)
 function openPlaylistPopup(song) { playlistTargetSong.value = song; showPlaylistPopup.value = true }
 
@@ -94,6 +95,7 @@ onMounted(() => recommendStore.fetchRecommend())
 // ===== 推荐歌单（网易云真实推荐 + 默认卡片兜底） =====
 // 品牌色派生：主绿 + 去饱和深蓝 2 色循环（替代原彩虹六色）
 const playlistColors = ['#31c27c', '#2a6f97', '#1f4e5f']
+/** @type {import('vue').Ref<Playlist[]>} */
 const playlists = ref([])
 const loadingRecommend = ref(false)
 const playlistError = ref(false)
@@ -132,6 +134,7 @@ onMounted(() => fetchPlaylists())
 
 // ===== 搜索下拉框 + 结果页 =====
 const searchKeyword = ref('')
+/** @type {import('vue').Ref<Song[]>} */
 const searchResults = ref([])
 const searchLoading = ref(false)
 const searchFocused = ref(false)
@@ -529,7 +532,7 @@ function addToQueueDesktop(song) {
     </div>
   </div>
   <PlaylistPopup
-    v-if="showPlaylistPopup"
+    v-if="showPlaylistPopup && playlistTargetSong"
     :song="playlistTargetSong"
     @close="showPlaylistPopup = false"
     @done="showPlaylistPopup = false"

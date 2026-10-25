@@ -18,7 +18,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:visible', 'togglePlay', 'prev', 'next', 'seek'])
 
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const lyricsContainer = ref(null)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const lyricsViewEl = ref(null)
 const isFullscreen = ref(false)
 const loadingLyric = ref(false)
@@ -73,6 +75,7 @@ function extractDominantColor(coverUrl) {
       cvs.width = 4
       cvs.height = 4
       const ctx = cvs.getContext('2d')
+      if (!ctx) return // 无 2d 上下文（极端环境）→ 保持现有渐变
       ctx.drawImage(img, 0, 0, 4, 4)
       const { data } = ctx.getImageData(0, 0, 4, 4)
       let r = 0, g = 0, b = 0
@@ -117,6 +120,7 @@ watch(() => props.currentSong.coverUrl, (url) => {
 // ===== 频谱可视化 =====
 // 优先使用全局 AnalyserNode (PlayerBar 创建) 获取真实音频频谱数据
 // 不可用时回退到程序化模拟
+/** @type {import('vue').Ref<HTMLCanvasElement|null>} */
 const spectrumCanvas = ref(null)
 let spectrumRafId = null
 let canvasReady = false
@@ -252,6 +256,7 @@ function drawSpectrum() {
   }
   const cvs = spectrumCanvas.value
   const ctx = cvs.getContext('2d')
+  if (!ctx) return // 无 2d 上下文（极端环境）→ 停止频谱绘制
   const dpr = devicePixelRatio
   const w = cvs.width / dpr   // 全宽 ~1400px
   const h = cvs.height / dpr  // 64px
@@ -336,7 +341,9 @@ const modeLabel = computed(() => player.modeLabels[player.playMode] || '列表�
 
 // ===== 播放列表 =====
 const showPlaylist = ref(false)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const lyricsPlaylistPanelRef = ref(null)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const lyricsPlaylistToggleRef = ref(null)
 useClickOutside(lyricsPlaylistPanelRef, () => { showPlaylist.value = false }, { exclude: [lyricsPlaylistToggleRef] })
 
@@ -374,6 +381,7 @@ async function handleDownload() {
 }
 
 // ===== 歌词 =====
+/** @type {import('vue').Ref<LyricLine[]>} */
 const lyrics = ref([])
 const loadedForId = ref('')
 async function fetchLyric(sourceId) {
@@ -412,8 +420,8 @@ const charFloat = computed(() => {
   if (!lines.length || idx >= lines.length) return 0
   const total = lyricChars.value.length
   if (!total) return 0
-  const start = parseFloat(lines[idx].time || 0)
-  const end = idx + 1 < lines.length ? parseFloat(lines[idx + 1].time || 0) : start + 5
+  const start = parseFloat(String(lines[idx].time || 0))
+  const end = idx + 1 < lines.length ? parseFloat(String(lines[idx + 1].time || 0)) : start + 5
   if (t <= start) return 0
   if (t >= end) return total
   return ((t - start) / (end - start)) * total
@@ -431,6 +439,7 @@ function charAlpha(ci) {
 // ===== D4: mini 封面 → 全屏封面 FLIP 过渡 =====
 // First(记录 PlayerBar mini-cover rect) → Last(视图滑入完成后取 disc rect)
 // → Invert(无过渡置位到起点) → Play(过渡到 identity，ease-out 400ms，仅 transform 合成器友好)
+/** @type {import('vue').Ref<HTMLElement|null>} */
 const discBoxEl = ref(null)
 let flipTimer = null
 
@@ -537,12 +546,12 @@ watch(() => currentTime.value, () => {
   if (!lines.length) { currentLyricIndex.value = 0; return }
   // 时间单调前进时从当前行向后扫（均摊 O(1)），回退（拖进度条）时从末尾反扫
   let idx = Math.min(currentLyricIndex.value, lines.length - 1)
-  if (t >= parseFloat(lines[idx].time || 0)) {
-    while (idx + 1 < lines.length && t >= parseFloat(lines[idx + 1].time || 0)) idx++
+  if (t >= parseFloat(String(lines[idx].time || 0))) {
+    while (idx + 1 < lines.length && t >= parseFloat(String(lines[idx + 1].time || 0))) idx++
   } else {
     idx = 0
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (t >= parseFloat(lines[i].time || 0)) { idx = i; break }
+      if (t >= parseFloat(String(lines[i].time || 0))) { idx = i; break }
     }
   }
   currentLyricIndex.value = idx
@@ -550,7 +559,7 @@ watch(() => currentTime.value, () => {
 
 function scrollToCurrent() {
   if (!lyricsContainer.value) return
-  const items = lyricsContainer.value.querySelectorAll('.lyric-line')
+  const items = /** @type {NodeListOf<HTMLElement>} */ (lyricsContainer.value.querySelectorAll('.lyric-line'))
   const el = items[currentLyricIndex.value]
   if (el) {
     const ch = lyricsContainer.value.clientHeight
@@ -643,7 +652,7 @@ function close() { emit('update:visible', false) }
                 class="lyric-line" :class="{ current: i === currentLyricIndex }"
                 @click="seekLyric(line.time)">
                 <!-- 逐字高亮（连续流动）：每字一个 span，亮度 = charAlpha(ci) 线性插值，相邻字之间平滑过渡 -->
-                <span v-for="(c, ci) in (i === currentLyricIndex ? lyricChars : line.text.split(''))" :key="ci"
+                <span v-for="(c, ci) in (i === currentLyricIndex ? lyricChars : (line.text || '').split(''))" :key="ci"
                   class="ch"
                   :class="{ current: i === currentLyricIndex }"
                   :style="i === currentLyricIndex ? { color: `rgba(255,255,255,${charAlpha(ci).toFixed(3)})` } : null">{{ c }}</span>
