@@ -500,3 +500,15 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 - `/root/vibemusic-map-backup-20261026-1543.tar.gz`
 
 **尚未执行（需单独排期，因涉及停机/重启）**：MySQL 8.0.27 → 8.4 LTS、系统补丁 + 重启、docker 日志轮转（需重建容器）、Spring Boot 4.0 → 4.1 迁移。
+
+### 15.1 接手续做记录（2026-10-26 17:00 前后）
+
+| # | 动作 | 结果 | 验证证据 |
+|---|---|---|---|
+| P0-4 | **MySQL 专用账号 + 收回 `root@'%'`** | 新建 `vibemusic@'%'`，仅授权 `vibemusic.*` 的 DML/DDL（Flyway 需要）；backend 以 `DB_USERNAME=vibemusic` 蓝绿发布 | 容器内 `DB_USERNAME=vibemusic`；`processlist` 显示 vibemusic 连接；`mysqldump` 探针 `dump_ok`；`mysql.user` 仅剩 `root@localhost` |
+| P0-9 | **修 `blog.service`** | `systemctl start` + `enable`（此前 failed 1 个多月，端口 3100 无监听） | `active (running)`、`enabled`、`curl 127.0.0.1:3100` → 200 |
+| P0-5 | 核对：MySQL 已是 **8.4.13**（8.0.27 已升级） | 无需重复执行 | `SELECT VERSION()` = 8.4.13 |
+| P0-7 | 核对：容器日志轮转已生效 | `max-size=20m / max-file=3` | `docker inspect` LogConfig |
+
+**回滚点**：backend `rollback-20261026-165854`；DB 账号口令存 `/root/.vibemusic-bluegreen/db-vibemusic.pass`（600）。
+**剩余**：P0-6 系统补丁生效需重启（`/var/run/reboot-required` = libc6）；已确认四个容器 `unless-stopped`、nginx/docker enabled。
