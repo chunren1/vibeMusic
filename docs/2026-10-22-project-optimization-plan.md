@@ -801,3 +801,118 @@ CI 在线不受影响。**教训**：删传递依赖前先确认本地仓库没�
 **E. Android 侧待办**：`media3-ui` 依赖零使用（`androidx.media3.ui` import = 0，代码里 14 处
 `PlayerView` 是自家 enum），可删但**等 1.9.0 验完再动**；vivo 通知中心播放键只能真机取读数。
 
+### 13.14 2026-10-26 第二批真实发版（产品改进 6 项 + 网关/后端/前端全栈上线）
+
+**上线提交**：`056ae33..c32f22b`（14 个提交）。后端镜像 `ghcr.io/chunren1/vibemusic-backend:c32f22bbadf0895ec488eeeef58ab27a738fcf19`
+（`revision` 标签 = 同一 sha）；网关本地重建；前端 dist 原子替换。
+
+#### A. CI 红了一次，抓到的是真缺陷（`c32f22b`）
+
+`Gateway` job 的清单漂移守卫（`ci.yml:209`）直接红：
+
+```
+ci.yml: 缺 ['kugou-lyric.test.js'] / 多 []
+deploy.yml: 缺 ['kugou-lyric.test.js'] / 多 []
+```
+
+磁盘 18 个网关测试文件，两处清单都只列 16 个——**新增的 `test/kugou-lyric.test.js` 16 例从未在 CI 跑过**。
+本地 `npm test` 是 glob 所以一直绿，CI 走显式 per-file 清单所以静默漏测。补进 `ci.yml` + `deploy.yml`
+（发版门禁复用同一份清单，必须同步），本地 `node --test test/kugou-lyric.test.js` = 16 例全绿，
+重跑 CI `40252664219` 五 job 全绿。
+
+> 教训：**守卫拦住的不是形式问题，是「测试写了但没跑」**。网关加测试文件必须同时改两处清单。
+
+#### B. 网关发版：云端源码树落后，必须整目录同步
+
+云端 `/opt/vibeMusic/musicapi/src/` 实测缺 `upstream.js`、`kugou-lyric.js`，`routes.js`/`search.js` 仍是
+axios 旧版（无 `upstreamGet`、无 `logSafe`）。**只 scp 改动的 3 个文件会让容器启动即崩**（`require('./upstream')` 找不到）。
+
+处置：`tar -czf /opt/vibeMusic/backups/musicapi-src-<TS>.tar.gz -C /opt/vibeMusic/musicapi src` 备份
+→ 整目录替换 → **12 个文件 md5 逐个对平** → `docker compose -f docker-compose.demo.yml build musicapi && up -d musicapi`。
+
+**新坑（已记 RUNBOOK）**：旧 musicapi 容器是 `docker run` 手起的（`docker inspect` 的 Labels 为空），
+`compose up -d` 报 `Conflict. The container name "/vibemusic-musicapi" is already in use`；
+正确顺序是 `docker rm -f vibemusic-musicapi` → `compose up -d musicapi`（compose 文件里已有全部 cookie 环境变量）。
+
+验证（容器内 + 公网）：
+
+| 请求 | 结果 |
+|---|---|
+| `/kugou/lyric?hash=6BC433A2…` | 200，真实 LRC（`[00:01.28]没想到失去的勇气我还留着` 起 20+ 行） |
+| `/kugou/lyric?hash=4753821d…` | 200，21 行带时间轴 |
+
+#### C. 后端蓝绿发版（registry 只 pull）
+
+`./scripts/deploy-backend.sh --apply --from-registry --image c32f22b…`：
+
+| 环节 | 实测 |
+|---|---|
+| 镜像 | `ghcr.io/chunren1/vibemusic-backend:c32f22bb…`，`arch=amd64 revision=c32f22bb…` |
+| 新容器 healthy | **52s**（旧容器全程服务，用户无感） |
+| nginx 切换 | upstream → `127.0.0.1:8082`，`nginx -t` ok，切换后探针 200 |
+| jar 类特征 | `CrossPlatformFailover(.class/$Result)` / `AiPlaylistTools` / `AiToolJson` / `SongPlayService` 均在包内 |
+| 启动日志 | `Successfully validated 10 migrations` → `Schema 'vibemusic' is up to date` → `Started VibeMusicBackendApplication in 45.325 seconds` |
+| 回滚点 | 镜像 `vibemusic-backend:rollback-20261026-091304` + nginx 配置备份 |
+
+`validate-on-migrate: true` 在**生产库实跑通过**（10 个迁移逐条校验），不再只是本地结论。
+
+#### D. 线上行为验证（不信报告信字节）
+
+**1) 点歌 404 跨平台换源 —— 生产实测命中**
+
+```
+GET /api/songs/stream?sourceId=186016&platform=netease&name=晴天&artist=周杰伦
+HTTP/2 200   content-type: audio/mpeg   content-length: 2145846
+accept-ranges: bytes   x-play-source: kugou   x-trace-id: 984f9080c7e5
+```
+
+`186016` 是 RUNBOOK 里登记过的「网易真无版权」曲（`fee=0` + url 空，三个槽都一样），发版前恒 404。
+线上日志完整链路：`版权预检硬拦截: 186016 无可用版权，跳过QQ降级（仍尝试跨平台换源）` →
+`进入跨平台换源` → 命中 kugou → 2,145,846 B 真实音频（ID3 头 `Lavf58.45.100`）。
+
+**2) 换源路径必须支持 Range —— 206 实测**
+
+```
+Range: bytes=0-1023 → HTTP 206  content-range: bytes 0-1023/2145846  x-play-source: kugou
+```
+
+**3) 换源的隐含前提（不是 bug，但要记住）**：不带 `name`/`artist` 时换源无从搜索，直接
+`所有平台均无可用播放链接 → 404`。App/Web 点歌都带这两个参数，所以真实链路不受影响。
+
+**4) 正常曲不误标**：`/api/songs/stream?sourceId=3395949712&platform=netease` → 200 且**无** `x-play-source`。
+
+**5) 酷狗歌词端到端**（此前 `/kugou/lyric` 恒 404）：
+
+```
+GET /api/songs/lyric?sourceId=6BC433A2C149FFC43F8309C73A537601&platform=kugou
+HTTP 200  data=[{time:1.28,text:"没想到失去的勇气我还留着"},{time:8.41,...},...]
+```
+
+后端 → 网关 → 酷狗官方两步接口（krcs 搜候选 → lyrics 下 base64 LRC）整链通。
+
+**6) 搜索平台筛选**（前端筛选条依赖的 `platform` 参数）：
+
+| 请求 | 结果 |
+|---|---|
+| `?keyword=晴天&platform=kugou` | 10 首，platform 集合 = `{kugou}` |
+| `?platform=migu` / `?platform=qq` | 分别只返回 `{migu}` / `{qq}` |
+| 不带 platform | 10 首，集合 = `{kugou, migu, netease, qq}` |
+
+#### E. 前端发版（a11y + 搜索筛选上站）
+
+`./scripts/deploy-frontend.sh --apply`：dist 169 文件，`md5 8e63d7d7cc3a18965ee97a02ddcfcea4`
+本地/远端双向一致，`nginx -t` ok，原子切换 + reload，公网 `index.html` 引用新 chunk 全 200。
+
+**不信 manifest 信字节**：拉公网 `/assets/index-Ci7MXw12.css` 与 `index-DWax95Jj.js` 直接 grep——
+`focus-visible` 命中、`aria-modal` 命中、`aria-valuenow` 命中（`aria-current` 在懒加载的移动端 chunk 里，主包为 0 属正常）。
+
+#### F. 遗留与观察
+
+| 项 | 状态 |
+|---|---|
+| 换源首播耗时 | 8.8s（网易三级取链 + 换源 3s 预算叠加）；可接受但值得后续看是否能把预检与换源并行 |
+| 换源依赖 name/artist | 设计使然，无搜索词不换源；如未来要支持，需从 `sourceId` 反查元信息 |
+| 前端 11 个视图纯 LOC > 250 | 既有技术债，本轮 a11y 只加语义未重构（HomeView 796 / LyricsView 776 / PlaylistDetailView 509 …） |
+| vivo 通知中心播放键 | 仍卡真机 logcat；该路径两次实装两次回滚，README 立规「第三次不做」，代码不动 |
+| 原生 Media3 1.9.0 | 本地 `assembleRelease` 已过（943 例绿、versionCode 91 / 2.0.13-ai / 证书 SHA-256 `873ba7ca…`），**待用户确认 tag 与真机三样后再发** |
+
