@@ -118,7 +118,17 @@ export default defineConfig({
       },
     },
     reportCompressedSize: true,
-    sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL，防源码泄露
+    // 生产不生成 sourcemap。
+    //
+    // 2026-10-26 审计更正：此前是 sourcemap: 'hidden'，注释写「防源码泄露」，但那个判断是错的。
+    // 'hidden' 只做一件事——不往 .js 末尾写 //# sourceMappingURL= 注释；
+    // 它**不会**阻止 .map 文件被 emit 到 dist/assets/，而 dist/assets/ 是整目录部署的，
+    // 于是 25 个 .map（1.6 MB，占 dist 57%）在公网可直接访问，且 sourcesContent 里是 .vue 原文：
+    //   curl https://vibe.cyk666.top/assets/ChatView-C5KrxvEu.js.map -> 200 / 18,592 B
+    // 本项目生产环境明确不引入第三方监控（src/main.js:19 注释），sourcemap **没有任何消费方**，
+    // 属于纯负债。故改为 false。
+    // 若将来接入 Sentry 等需要还原堆栈，不要改回 'hidden'，而应：保留 'hidden' + nginx 拦 `\.map$` 返回 404。
+    sourcemap: false,
   },
   css: {
     devSourcemap: false,
