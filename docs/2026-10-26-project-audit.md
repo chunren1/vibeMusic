@@ -527,3 +527,9 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 **发布备注**：本次蓝绿时 available 仅 350MB（<400 门槛，blog 恢复后内存更紧），按脚本提示用 `--force --health-timeout 420`；healthy 66s，回滚镜像 `rollback-20261026-173816`。**建议后续把 blog 从常驻服务改为按需启动**（当前无任何 nginx/cloudflared 路由指向 3100，常驻约 25-128MB）。
 
 **仍未做（P1）**：P1-12 业务告警（需定 ServerChan 事件口径）、P1-14 依赖扫描进 CI（dependabot/trivy）、P1-16 恢复演练（需临时库）、P1-17 拆 MainActivity（1-2 天）、P1-19 `/opt/vibeMusic` 入 git（含密钥，需先脱敏）。
+
+### 15.3 P1-14 依赖扫描（已做一半）
+
+- 新增 `.github/dependabot.yml`：web / musicapi（npm）、backend（maven）、两个 Dockerfile、GitHub Actions，
+  每周一 09:00 Asia/Shanghai 开 PR，不自动合并；仅 GitHub 生效（Gitee 镜像不支持）。
+- **未做**：trivy 镜像扫描与 `npm audit` 硬门禁——需先跑一轮基线，确认现有告警不会直接卡死 CI，再决定阈值。

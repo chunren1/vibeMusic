@@ -1,0 +1,49 @@
+# 依赖自动升级（审计 P1-14 第一半）。
+# 只开 PR，不自动合并；每周一 09:00 Asia/Shanghai。
+# 注意：Gitee 镜像不支持 Dependabot，PR 只会出现在 GitHub。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /vibemusic-web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: npm
+    directory: /musicapi
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: maven
+    directory: /vibeMusic-backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: docker
+    directory: /vibeMusic-backend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: docker
+    directory: /musicapi
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
