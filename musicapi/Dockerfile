@@ -5,6 +5,10 @@ FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec
 
 WORKDIR /app
 
+# alpine 无 tzdata：内置上海时区文件，确保 TZ=Asia/Shanghai 真生效（审计 P1-15）
+ENV TZ=Asia/Shanghai
+COPY tzdata/Asia/Shanghai /usr/share/zoneinfo/Asia/Shanghai
+
 # 复制依赖描述文件
 COPY package.json package-lock.json ./
 
