@@ -1246,3 +1246,86 @@ Cloudflare 免费版对大陆源站只能走海外节点（大陆节点需要 IC
 `scripts/deploy-backend.sh` 的 `--image` **被静默忽略**（`IMAGE_EXPLICIT` 在参数解析之前就算完了），
 registry 模式下 `IMAGE` 被 `FULL_SHA` 覆盖。后果不是报错，是**回滚命令"成功"了却部署成 HEAD**
 ——最危险的一类失败。已修（`bb7d749`），修前 dry-run 打 `f2e9bf6…`、修后正确打 `91a02ff8…`。
+
+### 13.18 2026-10-26 顺手排掉的两颗雷（musicapi 堆超限 + 全站日志体检）
+
+#### A. musicapi 的 V8 堆上限是 mem_limit 的 2 倍（已修）
+
+**症状不是故障，是隐患**：`docker inspect` 里 `NODE_OPTIONS` 为空，容器内实测
+
+```
+heap_size_limit = 259MB     ← V8 按宿主 1608MB 推导
+mem_limit       = 128MB     ← cgroup 硬上限
+```
+
+Node 看不到 cgroup 限制，会认为还有 259MB 可用、迟迟不做 full GC；真正撞墙时是
+**cgroup OOM kill（SIGKILL，无 GC 机会、无异常日志、无堆栈）**，而不是「heap out of memory」。
+表现就是容器无征兆重启 + 网关整体不可用（搜索/取链全挂）。
+
+**先量后改**（不猜）：
+
+| 指标 | 采样值（6 次 / 60s，稳定） |
+|---|---|
+| `nodejs_heap_size_used_bytes` | 24.2–24.9 MB |
+| `nodejs_heap_size_total_bytes` | 30.2 MB |
+| `process_resident_memory_bytes` | 54.6–55.3 MB |
+| `nodejs_external_memory_bytes` | 4.7 MB |
+
+真实堆需求只有 ~25MB，所以压到 `--max-old-space-size=96`（≈ limit 的 75%）有约 4 倍余量，
+不会把「安静等死」换成「提前 OOM」。
+
+改动：`docker-compose.demo.yml` 的 musicapi `environment` 加 `NODE_OPTIONS: --max-old-space-size=96`
+（仓库与云上 `/opt/vibeMusic/docker-compose.demo.yml` 同步，云上重建前已备份到
+`/root/.vibemusic-bluegreen/docker-compose.demo.yml.bak-20261026-123854`）。
+
+**生效验证（不信配置信字节）**：
+
+```
+容器内 NODE_OPTIONS=[--max-old-space-size=96]
+heap_size_limit=99MB        ← 259 → 99
+rss=42.8MB
+容器 RSS  39.4MiB / 128MiB (30.8%)   ← 改前 83.4MiB (65%)
+健康      starting → healthy 25s，RestartCount=0 OOMKilled=false
+功能      /song/url/v1 返回真实网易链接；经后端 stream 206 + X-Play-Source: kugou
+```
+
+顺带确认 `heap_size_limit=99MB` 低于 `mem_limit=128MB`，留出的 ~29MB 正好给 young gen 之外的
+code/stack/external/glibc arena —— 这就是「V8 的世界观 ≤ cgroup 的世界观」的正确关系。
+
+#### B. 全站 access log 体检：8 个 503 全是爬虫，不是用户受影响
+
+近 12h 327 个请求，状态码 200×198 / 404×78 / 206×26 / 301×10 / **503×8** / 304×4 / 401×3。
+
+8 个 503 全部来自**同一个 IP `45.45.237.97`、同一秒**，路径是 `/.env`、`/debug/vars`、`/env.json`、
+`/.env.prod`、`/service-account.json`、`/config.js`、`/web.config`、`/.env.backup`，
+UA 伪装成 YandexBot / bingbot / ChatGPT-User / PerplexityBot / DeepSeekBot。
+
+即：**扫描器批量探测敏感文件，被拦截后返回 503**（响应体 206 字节，非后端产生；同时段后端零异常）。
+这是**期望行为**，不需要处理。值得庆幸的是这些路径全是 404/503，没有一个返回 200。
+
+78 个 404 里，除 `wp-admin/install.php`、`/nacos/...`、`/.git/HEAD` 等扫描器噪音外，
+两类值得注意：
+
+| 404 | 结论 |
+|---|---|
+| `/api/songs/stream` × 5 | **curl 探针**（UA `curl/8.18.0`，缺 `name`/`artist` 参数 → 无法换源 → 404）。不是 App 用户 |
+| `/uploads/avatars/bg_1_1788970660770.jpg` × 3 | **真人 App 请求**（UA `okhttp/4.12.0`）——见下 |
+
+#### C. 一个真缺陷（数据丢失，已不可挽回，但不会复发）
+
+App 反复请求 `/uploads/avatars/bg_1_1788970660770.jpg` → 404。
+
+排查结论：
+
+1. 上传目录**现在是有持久化卷的**：容器 `/app/uploads` ← 宿主 `/opt/vibeMusic/docker-data/backend/uploads`，
+   `deploy-backend.sh` 的 `VOLS` 会自动照抄现容器挂载，蓝绿切换不会丢文件（这点是好的）。
+2. 但宿主该目录的时间戳是 **Sep 30 18:52** —— 卷是那天才挂上的。
+3. 文件名里的时间戳 `1788970660770` → **2026-09-09**，即上传发生在挂卷之前，
+   文件当时只活在某个容器的可写层里，**容器被替换即永久消失**。
+4. 现在磁盘上只剩 `avatar_1_1790765525615.jpg`（Sep 30 之后上传的，活着）。
+
+所以是**一次性历史数据丢失**，机制已修好、不会复发。残留影响：DB 里 `users.bg_image`
+仍指向那个不存在的文件，App 每次进个人页都白跑一个 404（`GlobalExceptionHandler` 已把它降级为静默 404，
+不会报错弹窗，只是背景图空白）。
+
+处置二选一（都需要你拍板，我不擅自改用户数据）：重新上传一张背景图，或把该字段清空让 App 回默认背景。

@@ -75,6 +75,13 @@ services:
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
+      # Node 在容器里看不到 cgroup 限制，V8 默认按**宿主**内存推导堆上限：
+      # 宿主 1608MB → heap_size_limit 实测 259MB，而 mem_limit 只有 128M。
+      # 于是 V8 觉得宽裕、迟迟不 GC，进程先被 cgroup OOM kill（无 GC 机会、无异常日志）。
+      # 显式压到 96MB（≈ limit 的 75%）让它按 128M 的世界观回收。
+      # 实测依据：heap_used 24.5MB / heap_total 30.2MB / RSS 55MB（2026-10-26 采样 6 次稳定），
+      # 96MB 有约 4 倍余量，不会造成「heap out of memory」。
+      NODE_OPTIONS: --max-old-space-size=96
       MUSIC_QQ_COOKIE: ${MUSIC_QQ_COOKIE:-{}}
       MUSIC_NETEASE_COOKIE: ${MUSIC_NETEASE_COOKIE:-}
       MUSIC_NETEASE_COOKIE_BACKUP: ${MUSIC_NETEASE_COOKIE_BACKUP:-}
