@@ -336,6 +336,21 @@ function onVolumeClick(e) {
   if (window.vibeAudio) { window.vibeAudio.volume = volume.value / 100; window.vibeAudio.muted = false; isMuted.value = false }
 }
 
+/** 音量条键盘操作：←/→（或 ↓/↑）±5，Shift ±10，Home/End 0/100 */
+function onVolumeKey(e) {
+  const step = e.shiftKey ? 10 : 5
+  let v = isMuted.value ? 0 : volume.value
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') v -= step
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') v += step
+  else if (e.key === 'Home') v = 0
+  else if (e.key === 'End') v = 100
+  else return
+  e.preventDefault()
+  v = Math.max(0, Math.min(100, v))
+  volume.value = v
+  if (window.vibeAudio) { window.vibeAudio.volume = v / 100; window.vibeAudio.muted = false; isMuted.value = false }
+}
+
 // ===== 播放模式 =====
 const modeLabel = computed(() => player.modeLabels[player.playMode] || '列表循环')
 
@@ -595,6 +610,20 @@ function onProgressClick(e) {
   if (window.vibeAudio) { window.vibeAudio.currentTime = t; currentTime.value = t }
 }
 
+/** 进度条键盘操作：←/→（或 ↓/↑）±5 秒，Shift ±30 秒，Home/End 首尾 */
+function onProgressKey(e) {
+  const step = e.shiftKey ? 30 : 5
+  let t = currentTime.value
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') t -= step
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') t += step
+  else if (e.key === 'Home') t = 0
+  else if (e.key === 'End') t = props.duration
+  else return
+  e.preventDefault()
+  t = Math.max(0, Math.min(props.duration, t))
+  if (window.vibeAudio) { window.vibeAudio.currentTime = t; currentTime.value = t }
+}
+
 function seekLyric(time) {
   if (window.vibeAudio) window.vibeAudio.currentTime = parseFloat(time)
 }
@@ -671,7 +700,10 @@ function close() { emit('update:visible', false) }
           <!-- 进度条 -->
           <div class="progress-wrap">
             <span class="time">{{ formatTime(currentTime) }}</span>
-            <div class="progress-track" @click="onProgressClick">
+            <div class="progress-track" role="slider" tabindex="0"
+                 aria-label="播放进度" aria-valuemin="0" :aria-valuemax="Math.round(duration)"
+                 :aria-valuenow="Math.round(currentTime)"
+                 @click="onProgressClick" @keydown="onProgressKey">
               <div class="progress-fill" :style="{ width: progressPercent + '%' }">
                 <div class="thumb"></div>
               </div>
@@ -725,7 +757,10 @@ function close() { emit('update:visible', false) }
                   <svg v-if="isMuted || volume === 0" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
                   <svg v-else viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
                 </button>
-                <div class="vol-bar" @click="onVolumeClick">
+                <div class="vol-bar" role="slider" tabindex="0"
+                     aria-label="音量" aria-valuemin="0" aria-valuemax="100"
+                     :aria-valuenow="isMuted ? 0 : Math.round(volume)"
+                     @click="onVolumeClick" @keydown="onVolumeKey">
                   <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
                 </div>
               </div>

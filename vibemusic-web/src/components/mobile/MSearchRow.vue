@@ -52,7 +52,7 @@ function handleDownload() {
 </script>
 
 <template>
-  <div class="m-song-item" :class="{ playing }" @click="playSong">
+  <div class="m-song-item" :class="{ playing }" role="button" tabindex="0" :aria-label="'播放 ' + song.name + (song.artist ? ' - ' + song.artist : '')" @click="playSong" @keydown.enter.prevent="playSong" @keydown.space.prevent="playSong">
     <div class="m-song-cover" :style="song.coverUrl ? { backgroundImage: `url(${song.coverUrl}?param=80y80)` } : { background: '#1a1a2e' }">
       <span v-if="playing" class="m-eq"><span></span><span></span><span></span></span>
     </div>
@@ -63,17 +63,17 @@ function handleDownload() {
       </div>
       <div class="m-song-artist">{{ song.artist }} · {{ fmtSec(song.duration) }}</div>
     </div>
-    <div class="m-song-acts">
-      <button type="button" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="favStore.toggleFav(song)">
+    <div class="m-song-acts" @keydown.stop>
+      <button type="button" :class="{ faved: favStore.isFav(song.sourceId) }" :aria-label="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'" @click.stop="favStore.toggleFav(song)">
         <svg viewBox="0 0 24 24" width="17" height="17" :fill="favStore.isFav(song.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
       </button>
-      <button type="button" @click.stop="addToQueueFn" title="加入队列">
+      <button type="button" @click.stop="addToQueueFn" title="加入队列" aria-label="加入队列">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
-      <button type="button" @click.stop="handleDownload">
+      <button type="button" @click.stop="handleDownload" aria-label="下载">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </button>
-      <button type="button" @click.stop="emit('open-playlist')" title="加入歌单">
+      <button type="button" @click.stop="emit('open-playlist')" title="加入歌单" aria-label="加入歌单">
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"/><path d="M18 2l4 4-8 8-4-1 1-4z"/></svg>
       </button>
     </div>

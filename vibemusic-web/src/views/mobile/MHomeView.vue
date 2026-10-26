@@ -111,21 +111,21 @@ function shuffleSongs() {
   <div class="m-home">
     <!-- 顶部：搜索框 + 用户 -->
     <div class="m-top">
-      <div class="m-search-bar" @click="focusSearch">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <div class="m-search-bar" role="button" tabindex="0" aria-label="搜索歌曲" @click="focusSearch" @keydown.enter.prevent="focusSearch" @keydown.space.prevent="focusSearch">
+        <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span class="m-search-placeholder">搜索歌曲...</span>
       </div>
-      <div class="m-user" @click="authStore.isLoggedIn ? null : authStore.openLogin()">
+      <div class="m-user" role="button" tabindex="0" :aria-label="authStore.isLoggedIn ? '我的' : '登录'" @click="authStore.isLoggedIn ? null : authStore.openLogin()" @keydown.enter.prevent="authStore.isLoggedIn ? null : authStore.openLogin()" @keydown.space.prevent="authStore.isLoggedIn ? null : authStore.openLogin()">
         <span class="m-user-avatar">{{ authStore.user?.nickname?.[0] || authStore.user?.username?.[0] || '?' }}</span>
       </div>
-      <button class="m-fs-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'">
+      <button type="button" class="m-fs-btn" @click.stop="toggleFullscreen" :title="isFullscreen ? '退出全屏' : '全屏'" :aria-label="isFullscreen ? '退出全屏' : '全屏'">
         <svg v-if="!isFullscreen" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
         <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 8 4 3 9 3"/><polyline points="20 16 20 21 15 21"/><line x1="4" y1="3" x2="11" y2="10"/><line x1="20" y1="21" x2="13" y2="14"/></svg>
       </button>
     </div>
 
     <!-- Banner -->
-    <div v-if="slides.length" class="m-banner" @touchstart="onTouchStart" @touchend="onTouchEnd" @click="router.push('/m/search')">
+    <div v-if="slides.length" class="m-banner" role="button" tabindex="0" aria-label="去搜索" @touchstart="onTouchStart" @touchend="onTouchEnd" @click="router.push('/m/search')" @keydown.enter.prevent="router.push('/m/search')" @keydown.space.prevent="router.push('/m/search')">
       <div
         v-for="(s, i) in slides" :key="i"
         class="m-banner-slide" :class="{ active: i === activeSlide }"
@@ -169,7 +169,12 @@ function shuffleSongs() {
         <div v-for="(song, idx) in recommendStore.songs" :key="song.sourceId || idx"
           class="m-song-item tap-scale"
           :class="{ playing: player.currentSong.id === song.sourceId && player.isPlaying }"
-          @click="playSong(song)">
+          role="button"
+          tabindex="0"
+          :aria-label="'播放 ' + song.name + (song.artist ? ' - ' + song.artist : '')"
+          @click="playSong(song)"
+          @keydown.enter.prevent="playSong(song)"
+          @keydown.space.prevent="playSong(song)">
           <div class="m-song-cover"
             v-lazy-img:bg="song.coverUrl ? song.coverUrl + '?param=80y80' : (song.coverColor || '#1a1a2e')">
             <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="m-eq">
@@ -180,11 +185,11 @@ function shuffleSongs() {
             <div class="m-song-name">{{ song.name }}</div>
             <div class="m-song-artist">{{ song.artist }}</div>
           </div>
-          <div class="m-song-acts" @click.stop>
-            <button :class="{ faved: favStore.isFav(song.sourceId) }" @click="favStore.toggleFav(song)">
+          <div class="m-song-acts" @click.stop @keydown.stop>
+            <button type="button" :class="{ faved: favStore.isFav(song.sourceId) }" :aria-label="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'" @click="favStore.toggleFav(song)">
               <svg viewBox="0 0 24 24" width="16" height="16" :fill="favStore.isFav(song.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
             </button>
-            <button @click="openPlaylistPopup(song)" title="加入歌单">
+            <button type="button" @click="openPlaylistPopup(song)" title="加入歌单" aria-label="加入歌单">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"/><path d="M18 2l4 4-8 8-4-1 1-4z"/></svg>
             </button>
           </div>

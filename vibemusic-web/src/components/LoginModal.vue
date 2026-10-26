@@ -2,6 +2,8 @@
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useDialogFocus } from '@/composables/useDialogFocus'
+import { useEscapeKey } from '@/composables/useEscapeKey'
 import request from '@/api/request'
 
 const router = useRouter()
@@ -29,6 +31,12 @@ function close() {
   emit('update:visible', false)
   resetForm()
 }
+
+// 键盘可达：Esc 关闭 + 打开时焦点落在用户名输入框、关闭后回填到触发按钮
+/** @type {import('vue').Ref<HTMLElement|null>} */
+const panelRef = ref(null)
+useEscapeKey(close, () => props.visible)
+useDialogFocus(() => props.visible, panelRef, { initialSelector: '.input' })
 
 // 重置表单
 function resetForm() {
@@ -144,9 +152,16 @@ function toggleMode() {
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="visible" class="modal-overlay" @click="onMaskClick">
-        <div class="modal-content">
+        <div
+          ref="panelRef"
+          class="modal-content"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="isRegister ? '注册' : '登录'"
+          tabindex="-1"
+        >
           <!-- 关闭按钮 -->
-          <button class="close-btn" @click="close">×</button>
+          <button type="button" class="close-btn" @click="close" aria-label="关闭">×</button>
           
           <!-- 标题 -->
           <div class="modal-header">
@@ -213,9 +228,9 @@ function toggleMode() {
           
           <!-- 底部链接 -->
           <div class="modal-footer">
-            <span class="toggle-text" @click="toggleMode">
+            <button type="button" class="toggle-text" @click="toggleMode">
               {{ isRegister ? '已有账号？去登录' : '没有账号？去注册' }}
-            </span>
+            </button>
           </div>
         </div>
       </div>
@@ -367,6 +382,8 @@ function toggleMode() {
   color: #31c27c;
   cursor: pointer;
   transition: color 0.2s;
+  /* 原生 button 复位（视觉与改造前的 span 一致） */
+  border: none; background: none; padding: 0; font-family: inherit; line-height: inherit;
 }
 
 .toggle-text:hover {

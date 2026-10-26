@@ -106,9 +106,9 @@ onMounted(() => {
 
     <div v-if="recentSongs.length > 0" class="song-table">
       <div class="table-header">
-        <span v-if="manageMode" class="th-check" @click="toggleSelectAll" style="cursor:pointer">
-          <svg v-if="allSelected" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
-          <svg v-else viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
+        <span v-if="manageMode" class="th-check" role="button" tabindex="0" :aria-label="allSelected ? '取消全选' : '全选'" :aria-pressed="allSelected" @click="toggleSelectAll" @keydown.enter.prevent="toggleSelectAll" @keydown.space.prevent="toggleSelectAll" style="cursor:pointer">
+          <svg v-if="allSelected" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg v-else aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
         </span>
         <span class="th-index">#</span>
         <span class="th-cover"></span>
@@ -120,7 +120,13 @@ onMounted(() => {
         v-for="(item, idx) in recentSongs" :key="item.sourceId + '_' + idx"
         class="table-row"
         :class="{ playing: currentPlayId === item.sourceId, selected: manageMode && selectedIds.has(item.sourceId + '_' + idx) }"
+        role="button"
+        tabindex="0"
+        :aria-label="(manageMode ? '选择 ' : '播放 ') + (item.songName || '')"
+        :aria-pressed="manageMode ? selectedIds.has(item.sourceId + '_' + idx) : undefined"
         @click="manageMode ? toggleSelect(item.sourceId, idx) : play(item)"
+        @keydown.enter.prevent="manageMode ? toggleSelect(item.sourceId, idx) : play(item)"
+        @keydown.space.prevent="manageMode ? toggleSelect(item.sourceId, idx) : play(item)"
       >
         <span v-if="manageMode" class="td-check">
           <svg v-if="selectedIds.has(item.sourceId + '_' + idx)" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
@@ -138,12 +144,14 @@ onMounted(() => {
           <span class="td-artist">{{ item.artist || '-' }}</span>
         </div>
         <span class="td-time">{{ formatTime(item.playedAt) }}</span>
-        <div v-if="!manageMode" class="td-actions" @click.stop>
+        <div v-if="!manageMode" class="td-actions" @click.stop @keydown.stop>
           <button
+            type="button"
             class="action-btn fav-btn" :class="{ faved: favStore.isFav(item.sourceId) }"
             @click.stop="toggleFav(item)" :title="favStore.isFav(item.sourceId) ? '取消收藏' : '收藏'"
+            :aria-label="favStore.isFav(item.sourceId) ? '取消收藏' : '收藏'"
           ><SvgIcon :name="favStore.isFav(item.sourceId) ? 'star-fill' : 'star'" :size="16" /></button>
-          <button class="action-btn add-btn" @click.stop="openPlaylistPopup(item)" title="加入歌单"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+          <button type="button" class="action-btn add-btn" @click.stop="openPlaylistPopup(item)" title="加入歌单" aria-label="加入歌单"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </div>
     </div>

@@ -1,10 +1,20 @@
 <script setup>
+import { computed, ref } from 'vue'
 import { usePlayerStore } from '@/stores/player'
+import { useDialogFocus } from '@/composables/useDialogFocus'
+import { useEscapeKey } from '@/composables/useEscapeKey'
 
-defineProps({ visible: Boolean })
+const props = defineProps({ visible: Boolean })
 const emit = defineEmits(['close'])
 
 const player = usePlayerStore()
+
+// 键盘可达：Esc 关闭 + 打开时焦点移入队列首项、关闭后回填到触发按钮
+/** @type {import('vue').Ref<HTMLElement|null>} */
+const panelRef = ref(null)
+const isOpen = computed(() => !!props.visible)
+useEscapeKey(() => emit('close'), () => isOpen.value)
+useDialogFocus(isOpen, panelRef, { initialSelector: '.q-item' })
 
 function playSong(song) {
   const idx = player.queue.findIndex(s => s.sourceId === song.sourceId)
@@ -27,14 +37,14 @@ function clearAll() {
   <Teleport to="body">
     <Transition name="qslide">
       <div v-if="visible" class="q-overlay" @click="emit('close')">
-        <div class="q-panel" @click.stop>
+        <div ref="panelRef" class="q-panel" role="dialog" aria-modal="true" aria-label="播放列表" tabindex="-1" @click.stop>
           <!-- 把手 -->
-          <div class="q-handle"></div>
+          <div class="q-handle" aria-hidden="true"></div>
 
           <!-- 标题栏 -->
           <div class="q-header">
             <span class="q-title">播放列表 ({{ player.queue.length }})</span>
-            <button class="q-clear" @click="clearAll">清空</button>
+            <button type="button" class="q-clear" @click="clearAll">清空</button>
           </div>
 
           <!-- 列表 -->
@@ -44,7 +54,12 @@ function clearAll() {
               v-for="(s, i) in player.queue" :key="s.sourceId + '-' + i"
               class="q-item"
               :class="{ current: i === player.currentIdx }"
+              role="button"
+              tabindex="0"
+              :aria-label="'播放 ' + s.name + ' - ' + s.artist"
               @click="playSong(s)"
+              @keydown.enter.prevent="playSong(s)"
+              @keydown.space.prevent="playSong(s)"
             >
               <span class="q-idx">
                 <span v-if="i === player.currentIdx" class="q-eq"><i></i><i></i><i></i></span>
@@ -55,8 +70,8 @@ function clearAll() {
                 <div class="q-name">{{ s.name }}</div>
                 <div class="q-artist">{{ s.artist }}</div>
               </div>
-              <button class="q-remove" @click="removeSong(i, $event)">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              <button type="button" class="q-remove" @click="removeSong(i, $event)" @keydown.stop aria-label="从队列移除">
+                <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
           </div>

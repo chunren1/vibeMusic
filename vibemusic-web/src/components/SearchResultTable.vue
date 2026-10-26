@@ -79,6 +79,11 @@ function openPlaylistPopup(song) {
       v-for="(song, idx) in songs" :key="song.sourceId"
       class="table-row"
       :class="{ playing: player.currentSong.id === song.sourceId }"
+      role="button"
+      tabindex="0"
+      :aria-label="'播放 ' + song.name + ' - ' + (song.artist || '')"
+      @keydown.enter.prevent="playSong(song)"
+      @keydown.space.prevent="playSong(song)"
     >
       <span class="td-index">
         <span v-if="player.currentSong.id === song.sourceId && player.isPlaying" class="playing-eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
@@ -97,15 +102,16 @@ function openPlaylistPopup(song) {
         <div class="song-artist">{{ song.artist }}</div>
       </div>
       <span class="td-time">{{ fmtSec(song.duration) }}</span>
-      <div class="td-actions">
+      <div class="td-actions" @keydown.stop>
         <button
           type="button"
           :class="{ faved: favStore.isFav(song.sourceId) }"
           @click.stop="favStore.toggleFav(song)"
           title="收藏"
+          :aria-label="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'"
         ><SvgIcon :name="favStore.isFav(song.sourceId) ? 'star-fill' : 'star'" :size="14" /></button>
-        <button type="button" @click.stop="addToQueueFn(song)" title="加入队列">+</button>
-        <button type="button" @click.stop="openPlaylistPopup(song)" title="加入歌单"><SvgIcon name="add" :size="14" /></button>
+        <button type="button" @click.stop="addToQueueFn(song)" title="加入队列" aria-label="加入队列">+</button>
+        <button type="button" @click.stop="openPlaylistPopup(song)" title="加入歌单" aria-label="加入歌单"><SvgIcon name="add" :size="14" /></button>
       </div>
     </div>
   </div>

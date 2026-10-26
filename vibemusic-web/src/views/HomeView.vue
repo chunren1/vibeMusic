@@ -390,7 +390,12 @@ function addToQueueDesktop(song) {
           v-for="song in recommendStore.songs"
           :key="song.sourceId"
           class="song-card"
+          role="button"
+          tabindex="0"
+          :aria-label="'播放 ' + song.name + (song.artist ? ' - ' + song.artist : '')"
           @click="playSong(song)"
+          @keydown.enter.prevent="playSong(song)"
+          @keydown.space.prevent="playSong(song)"
         >
           <div class="card-cover" @click="playSong(song)">
             <div
@@ -473,6 +478,11 @@ function addToQueueDesktop(song) {
           :key="song.sourceId"
           class="result-page-item"
           :class="{ playing: currentPlaySong?.sourceId === song.sourceId }"
+          role="button"
+          tabindex="0"
+          :aria-label="'播放 ' + song.name + (song.artist ? ' - ' + song.artist : '')"
+          @keydown.enter.prevent="playSong(song)"
+          @keydown.space.prevent="playSong(song)"
         >
           <span class="rp-index">
             <SvgIcon v-if="currentPlaySong?.sourceId === song.sourceId && isPlaying" class="equalizer" name="equalizer" size="12" />
@@ -497,13 +507,15 @@ function addToQueueDesktop(song) {
           </div>
           <span class="rp-album" @click="playSong(song)">{{ song.album || '-' }}</span>
           <span class="rp-time" @click="playSong(song)">{{ formatDuration(song.duration) }}</span>
-          <div class="rp-actions">
-            <button class="action-btn queue-btn" @click.stop="addToQueueDesktop(song)" title="加入队列">+</button>
+          <div class="rp-actions" @click.stop @keydown.stop>
+            <button type="button" class="action-btn queue-btn" @click.stop="addToQueueDesktop(song)" title="加入队列" aria-label="加入队列">+</button>
             <button
+              type="button"
               class="action-btn fav-btn"
               :class="{ faved: favStore.isFav(song.sourceId) }"
               @click.stop="toggleFav(song)"
               :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'"
+              :aria-label="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'"
             >
               <svg viewBox="0 0 24 24" width="16" height="16" :fill="favStore.isFav(song.sourceId) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
             </button>

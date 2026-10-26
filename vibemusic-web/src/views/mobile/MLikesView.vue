@@ -79,7 +79,14 @@ onMounted(loadLikes)
         class="m-item" :class="{
           playing: !manageMode && player.currentSong.id === s.sourceId && player.isPlaying,
           selected: manageMode && selectedIds.has(s.sourceId)
-        }" @click="manageMode ? toggleSelect(s.sourceId) : play(s)">
+        }"
+        role="button"
+        tabindex="0"
+        :aria-label="(manageMode ? '选择 ' : '播放 ') + (s.songName || '')"
+        :aria-pressed="manageMode ? selectedIds.has(s.sourceId) : undefined"
+        @click="manageMode ? toggleSelect(s.sourceId) : play(s)"
+        @keydown.enter.prevent="manageMode ? toggleSelect(s.sourceId) : play(s)"
+        @keydown.space.prevent="manageMode ? toggleSelect(s.sourceId) : play(s)">
         <div v-if="manageMode" class="m-check">
           <svg v-if="selectedIds.has(s.sourceId)" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#31c27c" stroke-width="2"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
           <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.2)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
@@ -91,7 +98,7 @@ onMounted(loadLikes)
           <div class="m-name">{{ s.songName }}</div>
           <div class="m-artist">{{ s.artist }}</div>
         </div>
-        <button v-if="!manageMode" :class="{ faved: favStore.isFav(s.sourceId) }" @click.stop="favStore.toggleFav(s)">
+        <button v-if="!manageMode" type="button" :class="{ faved: favStore.isFav(s.sourceId) }" @click.stop="favStore.toggleFav(s)" @keydown.stop :aria-label="favStore.isFav(s.sourceId) ? '取消收藏' : '收藏'">
           <svg viewBox="0 0 24 24" width="18" height="18" :fill="favStore.isFav(s.sourceId) ? '#ffc107' : 'none'" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
         </button>
       </div>

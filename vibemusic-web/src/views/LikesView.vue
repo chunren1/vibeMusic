@@ -96,7 +96,13 @@ onMounted(() => {
         v-for="(fav, idx) in favorites" :key="fav.sourceId"
         class="table-row"
         :class="{ playing: currentPlayId === fav.sourceId, selected: manageMode && selectedIds.has(fav.sourceId) }"
+        role="button"
+        tabindex="0"
+        :aria-label="(manageMode ? '选择 ' : '播放 ') + (fav.songName || '')"
+        :aria-pressed="manageMode ? selectedIds.has(fav.sourceId) : undefined"
         @click="manageMode ? toggleSelect(fav.sourceId) : play(fav)"
+        @keydown.enter.prevent="manageMode ? toggleSelect(fav.sourceId) : play(fav)"
+        @keydown.space.prevent="manageMode ? toggleSelect(fav.sourceId) : play(fav)"
       >
         <span v-if="manageMode" class="td-check">
           <svg v-if="selectedIds.has(fav.sourceId)" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
@@ -114,9 +120,9 @@ onMounted(() => {
           <span class="td-artist">{{ fav.artist || '-' }}</span>
         </div>
         <span class="td-time">{{ fav.createdAt ? new Date(fav.createdAt).toLocaleDateString() : '' }}</span>
-        <div v-if="!manageMode" class="td-actions" @click.stop>
-          <button class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'"><SvgIcon :name="favStore.isFav(fav.sourceId) ? 'star-fill' : 'star'" :size="16" /></button>
-          <button class="action-btn add-btn" @click.stop="openPlaylistPopup(fav)" title="加入歌单"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+        <div v-if="!manageMode" class="td-actions" @click.stop @keydown.stop>
+          <button type="button" class="action-btn fav-btn" :class="{ faved: favStore.isFav(fav.sourceId) }" @click.stop="toggleFav(fav)" :title="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'" :aria-label="favStore.isFav(fav.sourceId) ? '取消收藏' : '收藏'"><SvgIcon :name="favStore.isFav(fav.sourceId) ? 'star-fill' : 'star'" :size="16" /></button>
+          <button type="button" class="action-btn add-btn" @click.stop="openPlaylistPopup(fav)" title="加入歌单" aria-label="加入歌单"><svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
         </div>
       </div>
     </div>

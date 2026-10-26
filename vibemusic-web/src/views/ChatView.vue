@@ -132,6 +132,11 @@ onMounted(() => {
                 v-for="song in msg.songs" :key="song.sourceId"
                 class="song-card"
                 :class="{ playing: player.currentSong?.id === song.sourceId && player.isPlaying }"
+                role="button"
+                tabindex="0"
+                :aria-label="'播放 ' + song.name + (song.artist ? ' - ' + song.artist : '')"
+                @keydown.enter.prevent="playSong(song)"
+                @keydown.space.prevent="playSong(song)"
               >
                 <div class="sc-cover" @click="playSong(song)">
                   <img v-if="song.coverUrl" :src="song.coverUrl + '?param=120y120'" loading="lazy" />
@@ -143,7 +148,7 @@ onMounted(() => {
                   <div class="sc-artist">{{ song.artist }}</div>
                 </div>
                 <span class="sc-time">{{ fmtSec(song.duration) }}</span>
-                <button class="sc-add" @click.stop="addToQueue(song)" title="加入队列">+</button>
+                <button type="button" class="sc-add" @click.stop="addToQueue(song)" @keydown.stop title="加入队列" aria-label="加入队列">+</button>
               </div>
             </div>
           </div>

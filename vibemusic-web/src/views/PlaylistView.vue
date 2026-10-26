@@ -170,7 +170,12 @@ onMounted(() => loadSongs())
           v-for="(song, idx) in songs" :key="song.sourceId"
           class="song-row"
           :class="{ playing: player.currentSong?.id === song.sourceId }"
+          role="button"
+          tabindex="0"
+          :aria-label="'播放 ' + song.name + ' - ' + (song.artist || '')"
           @dblclick="play(song)"
+          @keydown.enter.prevent="play(song)"
+          @keydown.space.prevent="play(song)"
         >
           <span class="c-idx">
             <span v-if="player.currentSong?.id === song.sourceId && player.isPlaying" class="eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
@@ -186,12 +191,12 @@ onMounted(() => loadSongs())
             <span class="c-artist">{{ song.artist || '-' }}</span>
           </div>
           <span class="c-time">{{ formatDuration(song.duration) }}</span>
-          <div class="c-actions">
-            <button :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" title="收藏">
+          <div class="c-actions" @keydown.stop>
+            <button type="button" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" title="收藏" :aria-label="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'">
               <SvgIcon :name="favStore.isFav(song.sourceId) ? 'star-fill' : 'star'" :size="14" />
             </button>
-            <button @click.stop="openPlaylistPopup(song)" title="加入其他歌单">+</button>
-            <button class="del" @click.stop="removeSong(song)" title="移除"><SvgIcon name="close" /></button>
+            <button type="button" @click.stop="openPlaylistPopup(song)" title="加入其他歌单" aria-label="加入其他歌单">+</button>
+            <button type="button" class="del" @click.stop="removeSong(song)" title="移除" aria-label="从歌单移除"><SvgIcon name="close" /></button>
           </div>
         </div>
         <div v-if="!songs.length" class="empty-list">歌单里还没有歌曲</div>

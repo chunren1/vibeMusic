@@ -161,17 +161,22 @@ async function handleImport() {
           v-for="(song, idx) in songs" :key="song.id"
           class="song-row"
           :class="{ playing: player.currentSong?.id === song.id }"
+          role="button"
+          tabindex="0"
+          :aria-label="'播放 ' + song.name + ' - ' + (song.artist || '')"
           @dblclick="playSong(song, idx)"
+          @keydown.enter.prevent="playSong(song, idx)"
+          @keydown.space.prevent="playSong(song, idx)"
         >
           <span class="c-idx">
             <span v-if="player.currentSong?.id === song.id && player.isPlaying" class="eq"><span class="eq-bar"></span><span class="eq-bar"></span><span class="eq-bar"></span></span>
             <span v-else>{{ idx + 1 }}</span>
           </span>
-          <div class="c-cover" @click="playSong(song, idx)">
+          <div class="c-cover" @click="playSong(song, idx)" @keydown.stop>
             <img v-if="song.coverUrl" :src="song.coverUrl + '?param=60y60'" class="cover-img" loading="lazy" decoding="async" />
             <SvgIcon v-else name="music" class="cover-icon" :size="14" />
             <!-- E2：圆形播放按钮（Spotify 范式），行 hover 浮现 -->
-            <button class="play-hover" @click.stop="playSong(song, idx)" title="播放">
+            <button type="button" class="play-hover" @click.stop="playSong(song, idx)" title="播放" aria-label="播放">
               <SvgIcon name="play" :size="12" />
             </button>
           </div>
@@ -181,11 +186,13 @@ async function handleImport() {
           </div>
           <span class="c-album" :title="song.album">{{ song.album || '-' }}</span>
           <span class="c-time">{{ fmtSec(song.duration) }}</span>
-          <div class="c-actions">
+          <div class="c-actions" @keydown.stop>
             <button
+              type="button"
               :class="{ faved: favStore.isFav(song.id) }"
               @click.stop="favStore.toggleFav(song)"
               title="收藏"
+              :aria-label="favStore.isFav(song.id) ? '取消收藏' : '收藏'"
             ><SvgIcon :name="favStore.isFav(song.id) ? 'star-fill' : 'star'" :size="14" /></button>
             <button @click.stop="player.addToQueue({
               sourceId: song.id, name: song.name, artist: song.artist || '',

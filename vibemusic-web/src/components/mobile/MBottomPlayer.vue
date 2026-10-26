@@ -68,7 +68,17 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
 </script>
 
 <template>
-  <div v-if="visible" class="mbp m-glass-gold" :style="{ bottom: bottomOffset + 'px' }" @click="goToPlayer">
+  <div
+    v-if="visible"
+    class="mbp m-glass-gold"
+    :style="{ bottom: bottomOffset + 'px' }"
+    role="button"
+    tabindex="0"
+    aria-label="打开播放页"
+    @click="goToPlayer"
+    @keydown.enter.prevent="goToPlayer"
+    @keydown.space.prevent="goToPlayer"
+  >
     <div class="mbp-progress" :style="{ '--progress': store.progress / 100 }"></div>
     <div class="mbp-cover" :style="store.currentSong.coverUrl ? { backgroundImage: `url(${store.currentSong.coverUrl}?param=80y80)` } : {}"></div>
     <div class="mbp-info" @click="goToPlayer">
@@ -76,21 +86,21 @@ function openQueue(e) { e.stopPropagation(); window._openQueuePopup?.() }
       <div class="mbp-artist">{{ store.currentSong.artist }}</div>
     </div>
     <!-- 收藏按钮 -->
-    <button class="mbp-btn sm" :class="{ faved: isFaved }" @click.stop="toggleFav" title="收藏">
+    <button type="button" class="mbp-btn sm" :class="{ faved: isFaved }" @click.stop="toggleFav" @keydown.stop :aria-label="isFaved ? '取消收藏' : '收藏'" title="收藏">
       <SvgIcon :name="isFaved ? 'heart-fill' : 'heart'" :color="isFaved ? '#ff4757' : 'currentColor'" size="18" />
     </button>
     <!-- 右侧图标区（均匀分布） -->
-    <div class="mbp-icons">
-      <button class="mbp-btn sm" @click.stop="clickPrev" title="上一首">
+    <div class="mbp-icons" @keydown.stop>
+      <button type="button" class="mbp-btn sm" @click.stop="clickPrev" title="上一首" aria-label="上一首">
         <SvgIcon name="previous" size="18" />
       </button>
-      <button class="mbp-btn" @click.stop="togglePlayPause">
+      <button type="button" class="mbp-btn" @click.stop="togglePlayPause" :aria-label="store.isPlaying ? '暂停' : '播放'" title="播放/暂停">
         <SvgIcon :name="store.isPlaying ? 'pause' : 'play'" size="24" />
       </button>
-      <button class="mbp-btn sm" @click.stop="clickNext" title="下一首">
+      <button type="button" class="mbp-btn sm" @click.stop="clickNext" title="下一首" aria-label="下一首">
         <SvgIcon name="next" size="18" />
       </button>
-      <button class="mbp-btn sm" @click.stop="openQueue" title="播放列表">
+      <button type="button" class="mbp-btn sm" @click.stop="openQueue" title="播放列表" aria-label="播放列表">
         <SvgIcon name="playlist" size="18" />
       </button>
     </div>

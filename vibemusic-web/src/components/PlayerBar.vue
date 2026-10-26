@@ -5,6 +5,7 @@ import { API_HOST } from '@/api/request'
 import { downloadSong as apiDownload } from '@/api/song'
 import { useAudioBackground } from '@/composables/useAudioBackground'
 import { useClickOutside } from '@/composables/useClickOutside'
+import { useEscapeKey } from '@/composables/useEscapeKey'
 import { usePlayerStore } from '@/stores/player'
 import { useFavoriteStore } from '@/stores/favorite'
 import LyricsView from '@/components/LyricsView.vue'
@@ -113,6 +114,36 @@ function onTrackMouseUp(e) {
   document.removeEventListener('mousemove', onTrackMouseMove)
   document.removeEventListener('mouseup', onTrackMouseUp)
 }
+
+// 进度条键盘操作：方向键 ±5 秒，Home/End 到首尾（role="slider"）
+/** @param {KeyboardEvent} e */
+function onTrackKeydown(e) {
+  const total = store.duration || 0
+  const cur = store.progress / 100
+  const stepSec = 5
+  let next = null
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = cur - stepSec / (total || 1)
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = cur + stepSec / (total || 1)
+  else if (e.key === 'Home') next = 0
+  else if (e.key === 'End') next = 1
+  if (next === null) return
+  e.preventDefault()
+  store.seekTo(Math.max(0, Math.min(1, next)))
+}
+
+// 音量条键盘操作：方向键 ±5%
+/** @param {KeyboardEvent} e */
+function onVolumeKeydown(e) {
+  const step = 5
+  let next = null
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = store.volume - step
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = store.volume + step
+  else if (e.key === 'Home') next = 0
+  else if (e.key === 'End') next = 100
+  if (next === null) return
+  e.preventDefault()
+  store.volume = Math.max(0, Math.min(100, next))
+}
 function toggleMode() { store.toggleMode() }
 function prev() { store.prev() }
 function next() { store.next() }
@@ -147,6 +178,8 @@ const playlistPanelRef = ref(null)
 const playlistToggleRef = ref(null)
 useClickOutside(playlistPanelRef, () => { showPlaylist.value = false }, { exclude: [playlistToggleRef] })
 function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
+// 播放列表面板：Esc 关闭（键盘可达）
+useEscapeKey(() => { showPlaylist.value = false }, () => showPlaylist.value)
 </script>
 
 <template>
@@ -154,7 +187,20 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
     <footer class="bar">
       <div class="progress-wrap">
         <span class="time">{{ store.fmtSec(currentTime) }}</span>
-        <div ref="progressTrack" class="progress-track" :class="{ seeking: isSeeking }" @mousedown="onTrackMouseDown">
+        <div
+          ref="progressTrack"
+          class="progress-track"
+          :class="{ seeking: isSeeking }"
+          role="slider"
+          tabindex="0"
+          aria-label="播放进度"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="Math.round(progress)"
+          :aria-valuetext="store.fmtSec(currentTime) + ' / ' + totalTime"
+          @mousedown="onTrackMouseDown"
+          @keydown="onTrackKeydown"
+        >
           <!-- 拖拽时间气泡 -->
           <div v-if="isSeeking" class="seek-bubble">{{ seekPreviewTime }}</div>
           <!-- 填充条：scaleX 合成器动画；thumb 移出填充条，避免被 scaleX 压扁 -->
@@ -167,15 +213,18 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
 
       <div class="ctrl-wrap">
         <div class="left-info">
-          <div
+          <button
+            type="button"
             class="mini-cover"
             :class="{ active: showLyrics }"
             :style="currentSong.coverUrl ? { backgroundImage: 'url(' + currentSong.coverUrl + '?param=80y80)' } : {}"
+            :aria-pressed="showLyrics"
+            aria-label="歌词"
             @click="showLyrics = !showLyrics"
             title="歌词"
           >
             <SvgIcon v-if="!currentSong.coverUrl" name="music" />
-          </div>
+          </button>
           <div class="mini-song">
             <div class="mini-name-wrap">
               <span class="mini-name">{{ currentSong.title }}</span>
@@ -189,33 +238,43 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
         </div>
 
         <div class="center-ctrl">
-          <button class="ctrl-btn mode-btn" :class="{ active: playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabels[playMode]">
+          <button type="button" class="ctrl-btn mode-btn" :class="{ active: playMode !== 'list-loop' }" @click="toggleMode" :title="modeLabels[playMode]" :aria-label="'播放模式：' + modeLabels[playMode]">
             <SvgIcon :name="playMode" size="22" />
           </button>
-          <button class="ctrl-btn skip" @click="prev" title="上一首">
+          <button type="button" class="ctrl-btn skip" @click="prev" title="上一首" aria-label="上一首">
             <SvgIcon name="previous" size="24" />
           </button>
-          <button class="ctrl-btn main" @click="togglePlay" title="播放/暂停">
+          <button type="button" class="ctrl-btn main" @click="togglePlay" title="播放/暂停" :aria-label="isPlaying ? '暂停' : '播放'">
             <SvgIcon :name="isPlaying ? 'pause' : 'play'" size="24" color="#fff" />
           </button>
-          <button class="ctrl-btn skip" @click="next" title="下一首">
+          <button type="button" class="ctrl-btn skip" @click="next" title="下一首" aria-label="下一首">
             <SvgIcon name="next" size="24" />
           </button>
         </div>
 
         <div class="right-actions">
-          <button class="act-icon" :class="{ downloading: downloadingIds.has(currentSong.id) }" @click="handleDownload(currentSong)" title="下载">
+          <button type="button" class="act-icon" :class="{ downloading: downloadingIds.has(currentSong.id) }" @click="handleDownload(currentSong)" title="下载" aria-label="下载">
             <SvgIcon name="download" size="20" />
           </button>
           <div class="vol-group">
-            <button class="act-icon" @click="toggleMute" title="音量">
+            <button type="button" class="act-icon" @click="toggleMute" title="音量" :aria-label="isMuted || volume === 0 ? '取消静音' : '静音'">
               <SvgIcon :name="isMuted || volume === 0 ? 'volume-mute' : 'volume'" size="20" />
             </button>
-            <div class="vol-bar" @click="setVolumeFromClick">
+            <div
+              class="vol-bar"
+              role="slider"
+              tabindex="0"
+              aria-label="音量"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuenow="isMuted ? 0 : volume"
+              @click="setVolumeFromClick"
+              @keydown="onVolumeKeydown"
+            >
               <div class="vol-fill" :style="{ width: (isMuted ? 0 : volume) + '%' }"></div>
             </div>
           </div>
-          <button ref="playlistToggleRef" class="act-icon" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表">
+          <button ref="playlistToggleRef" type="button" class="act-icon" :class="{ active: showPlaylist }" @click="togglePlaylist" title="播放列表" aria-label="播放列表" :aria-expanded="showPlaylist">
             <SvgIcon name="playlist" size="20" />
           </button>
         </div>
@@ -228,8 +287,8 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
         <div class="panel-header">
           <span>播放队列 ({{ queue.length }})</span>
           <div class="panel-header-actions">
-            <button v-if="queue.length" class="panel-clear-btn" @click="store.clearQueue()">清空</button>
-            <button class="panel-close" @click="showPlaylist = false"><SvgIcon name="close" /></button>
+            <button type="button" v-if="queue.length" class="panel-clear-btn" @click="store.clearQueue()">清空</button>
+            <button type="button" class="panel-close" @click="showPlaylist = false" aria-label="关闭播放队列"><SvgIcon name="close" /></button>
           </div>
         </div>
         <div class="panel-list">
@@ -238,7 +297,12 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
             :key="song.sourceId + '_' + idx"
             class="panel-item"
             :class="{ current: idx === currentIdx }"
+            role="button"
+            tabindex="0"
+            :aria-label="'播放 ' + song.name + ' - ' + song.artist"
             @click="store.playIndex(idx)"
+            @keydown.enter.prevent="store.playIndex(idx)"
+            @keydown.space.prevent="store.playIndex(idx)"
           >
             <div class="pi-cover" :style="song.coverUrl ? { backgroundImage: 'url(' + song.coverUrl + '?param=60y60)' } : {}">
               <SvgIcon v-if="!song.coverUrl" name="music" />
@@ -247,13 +311,13 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
               <span class="pi-name" :class="{ hl: idx === currentIdx }">{{ song.name }}</span>
               <span class="pi-artist">{{ song.artist }}</span>
             </div>
-            <button class="pi-fav" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'">
+            <button type="button" class="pi-fav" :class="{ faved: favStore.isFav(song.sourceId) }" @click.stop="toggleFav(song)" @keydown.stop :title="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'" :aria-label="favStore.isFav(song.sourceId) ? '取消收藏' : '收藏'">
               <SvgIcon :name="favStore.isFav(song.sourceId) ? 'heart-fill' : 'heart'" :color="favStore.isFav(song.sourceId) ? '#ff4757' : 'currentColor'" size="14" />
             </button>
-            <button class="pi-dl" @click.stop="handleDownload(song)" :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'">
+            <button type="button" class="pi-dl" @click.stop="handleDownload(song)" @keydown.stop :title="downloadingIds.has(song.sourceId) ? '下载中' : '下载'" :aria-label="downloadingIds.has(song.sourceId) ? '下载中' : '下载'">
               <SvgIcon name="download" size="12" />
             </button>
-            <button class="pi-remove" @click.stop="store.removeFromQueue(idx)" title="移除"><SvgIcon name="close" /></button>
+            <button type="button" class="pi-remove" @click.stop="store.removeFromQueue(idx)" @keydown.stop title="移除" aria-label="从队列移除"><SvgIcon name="close" /></button>
           </div>
           <div v-if="queue.length === 0" class="panel-empty">播放队列为空</div>
         </div>
@@ -328,6 +392,8 @@ function togglePlaylist() { showPlaylist.value = !showPlaylist.value }
   font-size: 18px; color: #31c27c; cursor: pointer;
   background-size: cover; background-position: center;
   transition: transform .15s;
+  /* 原生 button 复位（视觉与改造前的 div 一致） */
+  border: none; padding: 0;
 }
 .mini-cover:hover { transform: scale(1.08); }
 .mini-cover.active { border: 2px solid rgba(49,194,124,0.5); }

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue'
+import { useEscapeKey } from '@/composables/useEscapeKey'
 
 const props = defineProps({
   message: { type: String, default: '' },
@@ -25,12 +26,15 @@ function dismiss() {
   visible.value = false
   emit('close')
 }
+
+// 键盘可达：Esc 关闭。toast 是临时提示，不抢焦点也不进 Tab 序列（否则会打断用户当前操作）
+useEscapeKey(dismiss, () => visible.value)
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="toast">
-      <div v-if="visible" class="toast" :class="type" @click="dismiss">
+      <div v-if="visible" class="toast" :class="type" role="status" aria-live="polite" @click="dismiss">
         <span>{{ message }}</span>
       </div>
     </Transition>

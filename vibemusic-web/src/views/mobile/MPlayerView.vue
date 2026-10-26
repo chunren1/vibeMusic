@@ -285,7 +285,7 @@ onUnmounted(() => {
 
   <!-- 加入歌单弹窗 -->
   <Teleport to="body">
-    <div v-if="showPlaylistPicker" class="mp-overlay" @click.self="showPlaylistPicker = false">
+    <div v-if="showPlaylistPicker" class="mp-overlay" @click.self="showPlaylistPicker = false" @keydown.esc="showPlaylistPicker = false">
       <div class="mp-picker">
         <div class="mp-picker-hd">
           <span>加入歌单</span>

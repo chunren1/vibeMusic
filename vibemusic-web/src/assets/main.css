@@ -61,7 +61,18 @@ body, #app {
 }
 
 /* -- ===== 可访问性：键盘焦点可见环 ===== -- */
+/* 只在键盘导航时出现（:focus-visible 不匹配鼠标点击），鼠标点按钮不会留环。
+   选择器带标签/属性，特异性高于组件内零散的 outline: none，保证全站不被吃掉。 */
 :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[role="slider"]:focus-visible,
+[role="option"]:focus-visible,
+[tabindex]:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }

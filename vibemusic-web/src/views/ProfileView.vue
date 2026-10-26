@@ -151,8 +151,8 @@ async function onBgChange(e) {
   <div class="profile-page">
     <!-- ========== 未登录 ========== -->
     <div v-if="!auth.isLoggedIn" class="not-login-card">
-      <div class="ghost-avatar" @click="openLogin">?</div>
-      <h2 class="ghost-title" @click="openLogin">点击登录</h2>
+      <div class="ghost-avatar" role="button" tabindex="0" aria-label="登录" @click="openLogin" @keydown.enter.prevent="openLogin" @keydown.space.prevent="openLogin">?</div>
+      <h2 class="ghost-title" role="button" tabindex="0" aria-label="登录" @click="openLogin" @keydown.enter.prevent="openLogin" @keydown.space.prevent="openLogin">点击登录</h2>
       <p class="ghost-sub">登录后同步收藏和歌单</p>
     </div>
 
@@ -169,7 +169,7 @@ async function onBgChange(e) {
       <!-- 用户信息卡片 -->
       <div class="user-info-card">
         <div class="user-info-row">
-          <div class="uic-avatar" @click="router.push('/profile/detail')" title="查看详情">
+          <div class="uic-avatar" role="button" tabindex="0" aria-label="查看个人详情" title="查看详情" @click="router.push('/profile/detail')" @keydown.enter.prevent="router.push('/profile/detail')" @keydown.space.prevent="router.push('/profile/detail')">
             <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="uic-av-img" />
             <span v-else class="uic-av-text" :style="{ background: avatarPlaceholderBg }">{{ avatarInitial }}</span>
           </div>
@@ -186,18 +186,18 @@ async function onBgChange(e) {
 
       <!-- 快捷入口 -->
       <div class="menu-card">
-        <div class="menu-item" @click="router.push('/recent')"><span>最近播放</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
-        <div class="menu-item" @click="router.push('/likes')"><span>我的收藏</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
-        <div class="menu-item" @click="router.push('/playlists')"><span>我的歌单</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
-        <div class="menu-item" @click="showPwdModal = true"><span>修改密码</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
-        <div class="menu-item logout-item" @click="auth.logout()"><span>退出登录</span></div>
+        <div class="menu-item" role="button" tabindex="0" @click="router.push('/recent')" @keydown.enter.prevent="router.push('/recent')" @keydown.space.prevent="router.push('/recent')"><span>最近播放</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item" role="button" tabindex="0" @click="router.push('/likes')" @keydown.enter.prevent="router.push('/likes')" @keydown.space.prevent="router.push('/likes')"><span>我的收藏</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item" role="button" tabindex="0" @click="router.push('/playlists')" @keydown.enter.prevent="router.push('/playlists')" @keydown.space.prevent="router.push('/playlists')"><span>我的歌单</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item" role="button" tabindex="0" @click="showPwdModal = true" @keydown.enter.prevent="showPwdModal = true" @keydown.space.prevent="showPwdModal = true"><span>修改密码</span><SvgIcon name="chevron-right" :size="14" class="arrow" /></div>
+        <div class="menu-item logout-item" role="button" tabindex="0" @click="auth.logout()" @keydown.enter.prevent="auth.logout()" @keydown.space.prevent="auth.logout()"><span>退出登录</span></div>
       </div>
     </template>
 
     <!-- ========== 编辑弹窗 ========== -->
     <Teleport to="body">
       <Transition name="slide">
-        <div v-if="editMode" class="edit-overlay">
+        <div v-if="editMode" class="edit-overlay" @keydown.esc="closeEdit">
           <div class="edit-panel">
             <div class="edit-header">
               <h3>编辑个人资料</h3>
@@ -207,7 +207,7 @@ async function onBgChange(e) {
             <div class="edit-body">
               <!-- 头像 -->
               <div class="edit-avatar-row">
-                <div class="edit-avatar" @click="triggerAvatar">
+                <div class="edit-avatar" role="button" tabindex="0" aria-label="更换头像" @click="triggerAvatar" @keydown.enter.prevent="triggerAvatar" @keydown.space.prevent="triggerAvatar">
                   <img v-if="auth.avatarSrc" :src="auth.avatarSrc" class="edit-avatar-img" />
                   <span v-else class="edit-avatar-text">{{ (auth.user?.nickname || auth.user?.username || '?')[0]?.toUpperCase() }}</span>
                   <div v-if="avatarLoading" class="avatar-spinner"></div>
@@ -222,7 +222,7 @@ async function onBgChange(e) {
               <!-- 背景图 -->
               <div class="form-row">
                 <label>个人页背景</label>
-                <div class="bg-preview" @click="triggerBg">
+                <div class="bg-preview" role="button" tabindex="0" aria-label="上传背景图" @click="triggerBg" @keydown.enter.prevent="triggerBg" @keydown.space.prevent="triggerBg">
                   <img v-if="auth.bgImageSrc" :src="auth.bgImageSrc" class="bg-preview-img" />
                   <div v-else class="bg-preview-empty">
                     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -269,7 +269,7 @@ async function onBgChange(e) {
 
     <!-- 修改密码弹窗 -->
     <Teleport to="body">
-      <div v-if="showPwdModal" class="modal-overlay" @click="showPwdModal = false">
+      <div v-if="showPwdModal" class="modal-overlay" @click="showPwdModal = false" @keydown.esc="showPwdModal = false">
         <div class="modal-box" @click.stop>
           <h3 class="modal-title">修改密码</h3>
           <input v-model="oldPwd" type="password" placeholder="原密码" class="modal-input" />

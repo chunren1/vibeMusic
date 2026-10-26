@@ -154,16 +154,22 @@ onMounted(() => loadPlaylists())
         v-for="pl in playlists" :key="`${renderKey}-${pl.id}`"
         class="playlist-card"
         :class="{ selected: manageMode && selectedIds.has(pl.id) }"
+        role="button"
+        tabindex="0"
+        :aria-label="(manageMode ? '选择 ' : '打开 ') + pl.name"
+        :aria-pressed="manageMode ? selectedIds.has(pl.id) : undefined"
         @click="manageMode ? toggleSelect(pl.id) : goPlaylist(pl)"
+        @keydown.enter.prevent="manageMode ? toggleSelect(pl.id) : goPlaylist(pl)"
+        @keydown.space.prevent="manageMode ? toggleSelect(pl.id) : goPlaylist(pl)"
       >
         <div v-if="manageMode" class="card-check">
-          <svg v-if="selectedIds.has(pl.id)" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
-          <svg v-else viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#999" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
+          <svg v-if="selectedIds.has(pl.id)" aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#31c27c" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg v-else aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#999" stroke-width="1.5"><circle cx="12" cy="12" r="10"/></svg>
         </div>
-        <div v-if="!manageMode" class="card-actions">
-          <button class="ca-btn" title="编辑" @click="openEdit(pl, $event)"><SvgIcon name="edit" :size="14" /></button>
-          <button class="ca-btn" title="置顶" @click="moveToTop(pl, $event)"><SvgIcon name="arrow-up" :size="14" /></button>
-          <button class="ca-btn" title="导出" @click="handleExport(pl, $event)"><SvgIcon name="download" :size="14" /></button>
+        <div v-if="!manageMode" class="card-actions" @keydown.stop>
+          <button type="button" class="ca-btn" title="编辑" aria-label="编辑歌单" @click="openEdit(pl, $event)"><SvgIcon name="edit" :size="14" /></button>
+          <button type="button" class="ca-btn" title="置顶" aria-label="置顶歌单" @click="moveToTop(pl, $event)"><SvgIcon name="arrow-up" :size="14" /></button>
+          <button type="button" class="ca-btn" title="导出" aria-label="导出歌单" @click="handleExport(pl, $event)"><SvgIcon name="download" :size="14" /></button>
         </div>
         <div class="pl-cover">
           <img v-if="pl.coverUrl" :src="pl.coverUrl + '?param=200y200'" class="pl-cover-img" alt="" loading="lazy" />
@@ -188,7 +194,7 @@ onMounted(() => loadPlaylists())
     </div>
 
     <!-- 创建歌单弹窗 -->
-    <div v-if="showCreate" class="overlay" @click.self="showCreate = false">
+    <div v-if="showCreate" class="overlay" @click.self="showCreate = false" @keydown.esc="showCreate = false">
       <div class="dialog">
         <h3>新建歌单</h3>
         <label>歌单名称</label>
@@ -205,7 +211,7 @@ onMounted(() => loadPlaylists())
     </div>
 
     <!-- 编辑歌单弹窗 -->
-    <div v-if="editing" class="overlay" @click.self="editing = false">
+    <div v-if="editing" class="overlay" @click.self="editing = false" @keydown.esc="editing = false">
       <div class="dialog">
         <h3>编辑歌单</h3>
         <label>歌单名称</label>

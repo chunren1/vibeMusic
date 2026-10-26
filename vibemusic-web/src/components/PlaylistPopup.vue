@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { getPlaylists, createPlaylist, addToPlaylist } from '@/api/song'
+import { useDialogFocus } from '@/composables/useDialogFocus'
+import { useEscapeKey } from '@/composables/useEscapeKey'
 
 const props = defineProps({
   song: { type: Object, required: true },
@@ -16,6 +18,14 @@ const newDesc = ref('')
 const creating = ref(false)
 const addingId = ref(null)
 const message = ref('')
+
+// 键盘可达：Esc 关闭 + 打开时焦点移入弹层、关闭后回填到触发元素
+// （本组件由父级 v-if 挂载，挂载即打开）
+/** @type {import('vue').Ref<HTMLElement|null>} */
+const panelRef = ref(null)
+const isOpen = ref(true)
+useEscapeKey(() => emit('close'))
+useDialogFocus(isOpen, panelRef)
 
 // 过滤当前歌单，避免重复添加
 const playlists = computed(() => {
@@ -72,10 +82,10 @@ async function handleAdd(pl) {
 
 <template>
   <div class="popup-overlay" @click.self="emit('close')">
-    <div class="popup-card">
+    <div ref="panelRef" class="popup-card" role="dialog" aria-modal="true" aria-label="添加到歌单" tabindex="-1">
       <div class="popup-header">
         <span>添加到歌单</span>
-        <button class="popup-close" @click="emit('close')"><SvgIcon name="close" /></button>
+        <button type="button" class="popup-close" @click="emit('close')" aria-label="关闭"><SvgIcon name="close" /></button>
       </div>
 
       <div class="popup-body">
@@ -94,21 +104,26 @@ async function handleAdd(pl) {
             v-for="pl in playlists" :key="pl.id"
             class="pl-item"
             :class="{ adding: addingId === pl.id }"
+            role="button"
+            tabindex="0"
+            :aria-label="'添加到歌单 ' + pl.name"
             @click="handleAdd(pl)"
+            @keydown.enter.prevent="handleAdd(pl)"
+            @keydown.space.prevent="handleAdd(pl)"
           >
             <div class="pl-icon"><SvgIcon name="playlist" :size="24" /></div>
             <div class="pl-info">
               <span class="pl-name">{{ pl.name }}</span>
               <span class="pl-count">{{ pl.songCount }} 首</span>
             </div>
-            <span class="pl-add">+</span>
+            <span class="pl-add" aria-hidden="true">+</span>
           </div>
         </div>
 
         <!-- 分割线 + 新建歌单入口 -->
-        <div v-if="!showCreate" class="create-entry" @click="showCreate = true">
+        <button v-if="!showCreate" type="button" class="create-entry" @click="showCreate = true">
           + 新建歌单
-        </div>
+        </button>
 
         <!-- 创建歌单表单 -->
         <div v-if="showCreate" class="create-form">
@@ -169,8 +184,11 @@ async function handleAdd(pl) {
 .pl-item:hover .pl-add { opacity: 1; }
 
 .create-entry {
+  display: block; width: 100%;
   text-align: center; padding: 14px 0; color: var(--primary);
   font-size: 14px; cursor: pointer; border-top: 1px solid var(--bg-hover); margin-top: 8px;
+  /* 原生 button 复位（视觉与改造前的 div 一致） */
+  background: none; border-left: 0; border-right: 0; border-bottom: 0; font-family: inherit;
 }
 .create-entry:hover { color: #28a86b; }
 
