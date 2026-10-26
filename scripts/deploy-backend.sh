@@ -118,8 +118,8 @@ while [ $# -gt 0 ]; do
     --registry) REGISTRY_IMG="${2:?--registry 需要镜像名}"; FROM_REGISTRY=1; shift ;;
     --registry=*) REGISTRY_IMG="${1#*=}"; FROM_REGISTRY=1 ;;
     --force) FORCE=1 ;;
-    --image) IMAGE="${2:?--image 需要 TAG}"; shift ;;
-    --image=*) IMAGE="${1#*=}" ;;
+    --image) IMAGE="${2:?--image 需要 TAG}"; IMAGE_EXPLICIT=1; shift ;;
+    --image=*) IMAGE="${1#*=}"; IMAGE_EXPLICIT=1 ;;
     --health-timeout) HEALTH_TIMEOUT="${2:?--health-timeout 需要秒数}"; shift ;;
     --health-timeout=*) HEALTH_TIMEOUT="${1#*=}" ;;
     --host) HOST="${2:?--host 需要 USER@IP}"; shift ;;
