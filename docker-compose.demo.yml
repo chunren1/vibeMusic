@@ -111,6 +111,10 @@ services:
     container_name: vibemusic-backend
     restart: unless-stopped
     environment:
+      # 时区必须与 mysql 容器一致（mysql 是 CST）。Java 用 LocalDateTime.now() 写
+      # play_history.played_at / updated_at，created_at 走 DB 默认值；两边不一致 = 差 8 小时。
+      # 2026-10-26 线上事故：backend 未声明 TZ（UTC）而 mysql 是 CST，「最近播放」时间全错。
+      TZ: Asia/Shanghai
       DB_HOST: mysql
       DB_USERNAME: root
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}

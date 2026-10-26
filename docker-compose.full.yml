@@ -168,6 +168,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     environment:
+      # 时区与 mysql 容器一致：Java 的 LocalDateTime.now() 与 DB 的 DEFAULT CURRENT_TIMESTAMP
+      # 必须同一时区，否则同一行时间差 8 小时（2026-10-26 线上「最近播放」时间错乱事故）
+      TZ: Asia/Shanghai
       # 数据库
       DB_HOST: mysql
       DB_USERNAME: root

@@ -406,6 +406,36 @@ jobs:
           docker compose -f docker-compose.full.yml config -q
           docker compose -f docker-compose.demo.yml config -q
 
+      - name: Guard backend timezone (TZ contract)
+        run: |
+          # 时区契约：backend 的 JVM 必须与 mysql 容器同一时区（CST）。
+          # 原因（2026-10-26 线上事故）：Java 用 LocalDateTime.now() 写 play_history.played_at /
+          # updated_at，而 created_at 走 MySQL 的 DEFAULT CURRENT_TIMESTAMP。mysql 容器一直是
+          # CST，唯独 backend 没声明 TZ（UTC）→ 同一行两种时间差 8 小时，App「最近播放」全错。
+          # 三份 compose 都要查：本地栈 / full(OTel) 栈 / 云上 demo 栈，任一份漏了都会复发。
+          set -euo pipefail
+          for f in docker-compose.yml docker-compose.full.yml docker-compose.demo.yml; do
+            docker compose -f "$f" config --format json > "/tmp/cfg-$(basename "$f").json"
+          done
+          python3 << 'PY'
+          import json, sys
+
+          files = ["docker-compose.yml", "docker-compose.full.yml", "docker-compose.demo.yml"]
+          bad = []
+          for f in files:
+              with open(f"/tmp/cfg-{f}.json") as fh:
+                  cfg = json.load(fh)
+              env = cfg["services"]["backend"].get("environment") or {}
+              tz = env.get("TZ")
+              print(f"{f}: backend.environment.TZ = {tz!r}")
+              if tz != "Asia/Shanghai":
+                  bad.append(f)
+          if bad:
+              print(f"::error::backend TZ 契约被破坏 {bad}：应为 Asia/Shanghai（见 2026-10-26「最近播放」时间错乱事故）")
+              sys.exit(1)
+          print("backend TZ contract ok")
+          PY
+
       - name: Check nginx config syntax
         run: |
           # dummy 证书 + host 映射，跑真 nginx 做 -t（此前改坏 nginx.conf 不触发任何校验）

@@ -1384,3 +1384,76 @@ App 反复请求 `/uploads/avatars/bg_1_1788970660770.jpg` → 404。
 
 `4a42d29` 全 7 个 job 绿（Frontend / Docker images / API smoke / Infra / Backend Maven verify /
 Backend JDK25 alignment / Gateway 15 files）。
+
+---
+
+### 13.20 2026-10-26 「最近播放」时间错乱 = 容器时区不一致（用户报障，已定位并修）
+
+#### A. 现象
+
+用户报障：App「最近播放」里每首歌的播放时间和实际播放时间对不上。
+
+#### B. 根因：backend 容器 UTC，mysql 容器 CST，同一行里两种时间
+
+先看证据（云上只读查询，2026-10-26 13:34）：
+
+| 容器 | `date` 输出 | 时区 |
+|---|---|---|
+| vibemusic-backend | `2026-10-26 05:33:20 UTC` | **UTC**（compose 里根本没声明 `TZ`） |
+| vibemusic-mysql | `2026-10-26 13:33:20 CST` | CST(+08:00) |
+| vibemusic-redis | `05:33:20 UTC` | UTC（无影响） |
+| vibemusic-musicapi | `05:33:20 UTC` | UTC（写了 `TZ` 但 alpine 缺 tzdata，静默失效；不落库无影响） |
+| 宿主 | `13:33:20 CST` | CST |
+
+`play_history` 最近 8 条，`played_at` 与 CST `NOW()` 的差：
+
+```
+id=519  5:20AM    played_at=2026-10-26 05:32:56   diff=481 分钟
+id=518  ...       2026-10-26 05:30:57             483
+id=517  ...       2026-10-26 05:30:52             483
+...（145 行全表一致偏移，oldest 2026-10-19 07:17:56）
+```
+
+差 481 分钟 = 8 小时 1 分（多出的 1 分钟是查询与写入的时间差），**偏移量精确等于时区差**。
+
+链路：
+
+1. `play_history.played_at` 由 Java 填：`PlayHistoryService` 显式 `setPlayedAt(LocalDateTime.now())`，
+   `MyBatisPlusConfig` 的 `strictInsertFill/strictUpdateFill` 也填 `LocalDateTime.now()`。
+   实体上 `@TableField(fill = FieldFill.INSERT_UPDATE)` **没有** `FieldStrategy.NEVER` → 每次 INSERT 都显式带值。
+   `LocalDateTime` 不带时区，取值 = JVM 默认时区 = 容器 UTC → 存进去的就是 UTC 墙钟时间。
+2. 同一行的 `created_at` 走 `BaseEntity` 的 `insertStrategy = FieldStrategy.NEVER` → 落到 MySQL 的
+   `DEFAULT CURRENT_TIMESTAMP`，mysql 容器是 CST → 反而是对的。
+3. App `HistoryScreen.kt:191-192` 原样打印该字符串（`replace("T"," ").take(16)`），不做时区换算 → 直接显示慢 8 小时。
+
+所以**不是 App 的 bug，也不是 SQL 的 bug，是部署层漏了一个环境变量**。
+补充：Web 端没有「最近播放」页（`vibemusic-web/src` 无对应视图），所以这个问题只在 App 可见，长期没被发现。
+
+#### C. 修法（四层，缺一层就会复发）
+
+| 层 | 改动 | 作用 |
+|---|---|---|
+| 镜像 | `vibeMusic-backend/Dockerfile` 加 `ENV TZ=Asia/Shanghai` | 兜底：任何用这个镜像起的容器都对（镜像自带 tzdata，`/usr/share/zoneinfo/Asia/Shanghai` 实测存在） |
+| 编排 | `docker-compose.yml` / `.full.yml` / `.demo.yml` 的 `backend.environment` 显式 `TZ: Asia/Shanghai` | 显式优于隐式；三份都要，云上用 demo |
+| CI | `ci.yml` Infra job 新增 `Guard backend timezone (TZ contract)` | `docker compose config --format json` + stdlib json 断言三份 compose 的 `backend.environment.TZ == Asia/Shanghai`，缺任一份直接红 |
+| 数据 | `V9__fix_play_history_timezone.sql`：`UPDATE play_history SET played_at = played_at + INTERVAL 8 HOUR` | 把事故期间写入的行整体 +8h；Flyway 只执行一次，天然幂等（比手写 SQL 安全：重跑不会二次平移） |
+
+另加**可观察信号**：`VibeMusicBackendApplication.main()` 启动即打印
+`JVM 时区 = Asia/Shanghai (offset +08:00), 当前时间 = ...`，偏移不是 +08:00 时打 WARN 说明后果
+（`played_at`/`updated_at` 由 Java 写、`created_at` 走 DB 默认，两者不一致会差数小时）。
+下次谁再把 TZ 弄丢，日志第一屏就能看到，不用等用户报障。
+
+为什么全表平移而不是按条件筛选：`played_at` 只有 Java 一条写入路径（见上），事故期间所有行都是 UTC，
+不存在「部分是 CST」的混合。首次发版前整表已 `mysqldump` 备份。
+
+**已知未处理**：`updated_at` 是混合时区（INSERT 走 DB 默认 CST、UPDATE 由 Java 填 UTC），
+没有可靠判据区分，且不参与任何用户可见的时间展示，本次不动（写进 RUNBOOK 备查）。
+
+#### D. 教训（可迁移）
+
+- **`TZ` 写了不等于生效**：alpine 镜像缺 tzdata 会静默忽略 `TZ`（musicapi 就是，`date` 仍 UTC）。
+  验证方式是 `docker exec <c> date`，不是看 compose 文件里有没有那一行。
+- **同一行的时间字段不能有两种来源**：Java 填一个、DB 默认填另一个，时区一错就自相矛盾。
+  新表要么全 Java 填、要么全 DB 填。
+- **`LocalDateTime` + 容器时区 = 隐式耦合**：库里存的是墙钟时间，部署环境变了数据含义就变了。
+  这类字段必须让部署层成为显式契约（本次就是靠 CI 守卫钉住）。
