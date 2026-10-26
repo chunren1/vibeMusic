@@ -916,3 +916,132 @@ HTTP 200  data=[{time:1.28,text:"没想到失去的勇气我还留着"},{time:8.
 | vivo 通知中心播放键 | 仍卡真机 logcat；该路径两次实装两次回滚，README 立规「第三次不做」，代码不动 |
 | 原生 Media3 1.9.0 | 本地 `assembleRelease` 已过（943 例绿、versionCode 91 / 2.0.13-ai / 证书 SHA-256 `873ba7ca…`），**待用户确认 tag 与真机三样后再发** |
 
+
+### 13.15 2026-10-26 第三批：播放链接短缓存 + Redis 配置纠偏（未发版）
+
+§13.14 F 留下的「换源首播 8.8s」不是取链慢，是**每次都要重取**。本轮把它按可验证的最小改动解决，
+同时揪出一个比性能更严重的问题：仓库里的 Redis 模板是**必崩配置**。
+
+#### A. 先纠正一个错前提：MinIO 缓存根本不存在
+
+上一轮设想的「播放链接 tee 到 MinIO」**不成立**，实测三条独立证据：
+
+| 证据 | 实测 |
+|---|---|
+| 生产配置 | `docker-compose.demo.yml` 里 `STORAGE_ENABLED: "false"` |
+| 容器 | 云上 `docker ps -a \| grep -i minio` → **无 minio 容器**（2026-10-23 定案只留 4 个核心容器时已删） |
+| 代码路径 | `STORAGE_ENABLED=false` → `storageService.exists()` 恒 false → `SongPlayService` 的 MinIO 缓存判定**永远为假** |
+
+后果：`/api/songs/stream` 的**每一个 Range 分片**（拖动进度、seek、断线重连都算）都会重跑完整降级链。
+无版权曲（如 `186016`）实测 8.8s，且**每拖一次进度再等一次**。这才是体感来源。
+
+#### B. Redis 配置纠偏：模板 `maxmemory 512mb` > 容器 `mem_limit 128M`
+
+| 位置 | 值 |
+|---|---|
+| 云上 `/opt/vibeMusic/docker-data/redis/redis.conf` | `maxmemory 96mb` / `maxmemory-policy allkeys-lru` |
+| 仓库 `docker-data/redis/redis.conf.example`（改前） | **`maxmemory 512mb`** |
+| 云上 redis 容器 `mem_limit` | `134217728`（128 M） |
+
+模板值比容器限额还大，属**必崩配置**：Redis 不会「多要到内存」，而是会在 LRU 淘汰触发之前
+先被 cgroup OOM kill → 重启 → 缓存全丢（表现为「缓存莫名清空 + 容器重启次数增加」）。
+已把模板改为 `96mb`，并把「为什么必须严格小于 mem_limit」写进注释（本地完整栈 `docker-compose.yml`
+的 redis 是 `768M`，注释里说明可自行调 512mb，避免下次有人照抄生产值到本地）。
+
+**对账为什么不能按 md5**：`redis.conf` 含 `requirepass`，未入库（仓库只有 `.example`），整文件 md5 永远不同。
+`scripts/reconcile-cloud.sh` 新增 **6b 节「Redis 内存指令对账」**，只比对 `maxmemory` / `maxmemory-policy` 两条指令：
+
+```
+Redis 内存指令（redis.conf 含密码不入库，按指令单独对账）
+  · 一致 ✅  maxmemory 96mb maxmemory-policy allkeys-lru
+```
+
+实跑全仓仍为 `10/22 一致，12 项预期差异，无真漂移 ✅`。
+
+**云上容量实测（加缓存前）**：`used_memory 3.81M / 96M`、`DBSIZE 675`、`mem_fragmentation_ratio 1.00`
+—— 加一层播放链接缓存完全够用，不需要动 `maxmemory`。
+
+#### C. 播放链接短缓存（`PlayUrlCache`）
+
+| 设计点 | 取值 | 依据 |
+|---|---|---|
+| Key | `play:url:v1:<userScope>:<platform\|auto>:<sourceId>` | 项目约定「Redis Key 版本化前缀」 |
+| TTL | **90s 固定过期，GET 不续期** | 对齐网关 `musicapi/src/search.js` 的 `urlCache`（`ttl 60s` + `updateAgeOnGet:false`，其注释记录「QQ vkey 实测几分钟内返回 403」） |
+| 缓存内容 | `{url, src}` | `src` = 换源平台，命中时仍要能补 `X-Play-Source` 响应头 |
+| 空值 | **不缓存** | 否则一次 404 会被固化 90s |
+| 失效自愈 | CDN 403/404 → 先 `invalidate` 再抛异常重试 | 见 D |
+
+**为什么 key 必须含 `userScope`**：网易 VIP 曲的播放地址是用**请求者自己的 Cookie** 换来的。
+若只按 `sourceId` 缓存，会把 VIP 地址泄漏给下一个匿名请求——等于绕过付费墙。缺省作用域为 `anon`。
+
+**为什么 TTL 不取更长**：酷狗 URL 实测活得很久（见下），但 QQ vkey 几分钟就 403，
+咪咕签名 URL 还绑出口 IP。取「能覆盖同会话连续 Range 请求」的最短可用值（90s）比取长更安全——
+**过期的 URL 比没有缓存更糟**：它会让 5 次重试全打在同一个死链上。
+
+酷狗换源 URL 有效期实测（云上直连 CDN，`Range: bytes=0-1023`）：
+
+| 形态 | `http://fs.youthandroid2.kugou.com/202610261131/<hash>/v3/.../xxx.mp3` |
+|---|---|
+| 查询参数 | **无**（时效写进路径时间戳） |
+| T+0 … T+1504s（25 分钟探测上限） | 全部 **HTTP 206** |
+
+即酷狗这条**至少活 25 分钟**，但**不因此单独拉长 TTL**：分级 TTL 会让「哪条 URL 什么时候死」变成
+按平台分叉的隐式契约，收益（少几次上游请求）远小于复杂度与 403 风暴风险。留作后续可选优化。
+
+#### D. 403/404 必须先作废缓存，再重试
+
+`AudioProxyService` 原本就是 `MAX_ATTEMPTS = 5` 的重试循环。加缓存后若不改这里，
+**5 次重试会反复命中同一个过期 URL → 把一个本来能自愈的路径变成必死 500**。
+现在 403/404 分支先 `songPlayService.invalidatePlayUrl(sourceId, platform)` 再抛异常：
+
+```java
+if (cdnStatus == 403 || cdnStatus == 404) {
+    songPlayService.invalidatePlayUrl(sourceId, platform);   // ← 新增
+    throw new RuntimeException("CDN returned " + cdnStatus + ", will retry with fresh URL");
+}
+```
+
+#### E. 一个只有加缓存才会暴露的坑：ThreadLocal 串请求
+
+`failoverPlaySource` 是 ThreadLocal，原本在 `resolvePlayUrl` 内部 `remove()`。
+加缓存后**命中路径根本不进 `resolvePlayUrl`**，那句 `remove()` 就不会执行 →
+上一请求残留的换源平台会串到本次响应的 `X-Play-Source` 头（Tomcat 线程复用）。
+已在 `getPlayUrl` 入口无条件 `failoverPlaySource.remove()`，并加了一条专门守这个的测试
+（`cacheHitRestoresFailoverSourceHeader`：缓存命中时 `src` 必须能被正确取回）。
+
+#### F. 测试与门禁
+
+新增 15 例（813 → **828**），全部纯 Mockito / MockRestServiceServer（不启 Spring 上下文，
+与既有 `SongPlay*Test` / `AudioProxyServiceTest` 风格一致）：
+
+| 文件 | 例数 | 守什么 |
+|---|---|---|
+| `PlayUrlCacheTest` | 9 | 键形状（跨用户隔离 / 平台小写归一）、TTL=90s、空值不缓存、作废按同键删 |
+| `SongPlayUrlCacheTest` | 4 | 连续三次取链只打一次上游、作废后必须重新请求、失败不缓存、命中仍补 `X-Play-Source` |
+| `AudioProxyServiceInvalidateTest` | 2 | **接线测试**：403/404 时先 `invalidatePlayUrl` 再重试，第二次拿到新 URL 并写字节（不是 500） |
+
+`mvn -o verify` 全绿（828 例 / 0 失败 / 1 skipped，`All coverage checks have been met`），
+未降 JaCoCo 门槛、未删任何测试。
+
+> 写这组测试时踩到一个自己造的坑：`AudioProxyService` 调的是 **4 参** `getPlayUrl(sourceId,name,artist,platform)`
+> 重载，我最初 mock 了 5 参版本 → 拿到 null 提前 404 返回，`MockRestServiceServer` 报
+> 「0 request(s) executed」。断言失败方向明确（期望的请求一个都没发），没造成假绿。
+
+#### G. Go 流代理正式 deferred（写死触发条件，不再重复讨论）
+
+§2 把它列为备选，§13.13 C 用实测反驳：峰值 70 req/min、backend 297M/768M、2 vCPU，
+真闸是 Hikari 连接池 8 而不是语言。本轮再次确认**不做**，只有满足以下任一条才重启评估：
+
+1. 并发听众持续 ≥50 **且** backend RSS > 600M；
+2. 流 p95 > 2s **且** 已定位到 JVM 线程池/GC（而非上游 CDN）；
+3. 需要把流路径独立出主容器做水平扩展。
+
+#### H. 本轮明确不做
+
+| 项 | 为什么不做 |
+|---|---|
+| 网关全量 `checkJs` | 8,297 行里 JSDoc 仅 18 处，真实成本 3–5 人日 |
+| `MainActivity.kt` 拆分 | 3,625 行单个 `setContent` lambda + 121 个 `remember`，需状态提升，非机械拆分 |
+| 前端视图拆分 | 11 个视图 > 250 纯 LOC，属既有技术债，与本轮无关 |
+| `search.js` 拆分 | 1,220 行，无行为变更需求时拆它是纯风险 |
+| 分级 TTL（按平台） | 见 C：收益小、隐式契约复杂 |
