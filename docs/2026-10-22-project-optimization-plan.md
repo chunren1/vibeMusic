@@ -1457,3 +1457,36 @@ id=517  ...       2026-10-26 05:30:52             483
   新表要么全 Java 填、要么全 DB 填。
 - **`LocalDateTime` + 容器时区 = 隐式耦合**：库里存的是墙钟时间，部署环境变了数据含义就变了。
   这类字段必须让部署层成为显式契约（本次就是靠 CI 守卫钉住）。
+
+#### D. 发版与验证（2026-10-26 14:04–14:15，零停机）
+
+CI run `40275904579` 7 个 job 全绿（含新加的 TZ 契约守卫——**这一步在 runner 上真跑过，
+证明 `docker compose config --format json` 在 ubuntu-latest 可用**），镜像
+`ghcr.io/chunren1/vibemusic-backend:6b5a24763ff09793d8bc6b31834bc54f26781004` 已推送。
+
+发版前先 `mysqldump` 备份整表：`/root/.vibemusic-bluegreen/play_history-20261026-134519.sql`（25 KB / 146 行）。
+
+蓝绿部署（`--apply --from-registry`）：8080 → 8082，新容器 healthy 耗时 **66s**，nginx reload 切流量后
+`经 nginx 探针 → 200`，旧容器删除、复验 200。回滚镜像 `vibemusic-backend:rollback-20261026-140430`。
+
+发版后实测：
+
+| 检查项 | 期望 | 实测 |
+|---|---|---|
+| backend 容器时区 | CST | `2026-10-26 14:14:17 CST`，`TZ=Asia/Shanghai` |
+| mysql 容器时区 | CST | `2026-10-26 14:14:17 CST`（与 backend 同秒） |
+| 启动日志 | 打印 JVM 时区 | `JVM 时区 = Asia/Shanghai (offset +08:00), 当前时间 = 2026-10-26T14:12:42.046` |
+| Flyway V9 | success=1 | `Migrating schema to version "9 - fix play history timezone"` → `Successfully applied 1 migration`，耗时 0.115s |
+| `played_at` 偏移 | 无 8 小时残留 | 全表 `diff_hour` 分布**无 470–500 分钟桶**；最小 0 小时（9 行） |
+| 时间范围 | 整体 +8h | oldest `2026-10-19 07:17:56` → `2026-10-19 15:17:56`；newest → `2026-10-26 13:35:38` |
+| 启动期 ERROR/Exception | 0 | 0 |
+| 公网 API | 200 | `/api/songs/search?keyword=晴天` → `{"code":200,...}`，1.6s（经 Cloudflare） |
+
+**写入路径取证**：启动日志里 `当前时间 = 2026-10-26T14:12:42.046` 正是 `LocalDateTime.now()` 的返回值
+（与容器 `date` 同一秒），也就是 INSERT 时写进 `played_at` 的那个值 —— 现在它等于 CST 墙钟时间。
+
+**一个必须知道的窗口细节**：Flyway 在新容器启动时（14:13:14）就跑完了迁移，而流量在 14:13:40 左右才切过去。
+旧容器在这 ~26 秒里若写入一条记录，那条仍是 UTC，不会被 V9 平移。本次实测该窗口内无新播放
+（newest 仍是 13:35:38），故无漏网行；若将来在高峰期发版，发版后应复查
+`SELECT id, played_at, TIMESTAMPDIFF(MINUTE, played_at, NOW()) FROM play_history ORDER BY id DESC LIMIT 5`，
+出现 ~480 分钟的行手工 +8h 补掉。
