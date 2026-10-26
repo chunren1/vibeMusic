@@ -142,8 +142,10 @@ public class AudioProxyService {
                     applyProxyHeaders(h, host, rangeHeader);
                 }).exchange((clientReq, clientResp) -> {
                     int cdnStatus = clientResp.getStatusCode().value();
-                    // CDN URL 过期 (403) 或资源不存在 (404) → 抛异常触发重试获取新 URL
+                    // CDN URL 过期 (403) 或资源不存在 (404) → 作废短缓存并抛异常触发重试获取新 URL。
+                    // 必须先作废：否则 5 次重试会反复命中同一个死 URL，把可自愈路径变成必死 500。
                     if (cdnStatus == 403 || cdnStatus == 404) {
+                        songPlayService.invalidatePlayUrl(sourceId, platform);
                         throw new RuntimeException("CDN returned " + cdnStatus + ", will retry with fresh URL");
                     }
                     String ct = clientResp.getHeaders().getFirst("Content-Type");

@@ -54,6 +54,9 @@ public class SongPlayService {
 
     private UserService userService;
 
+    /** 播放链接短缓存；可选注入（既有单测直接 new 本类，不走 Spring 上下文）。 */
+    private PlayUrlCache playUrlCache;
+
     public SongPlayService(SongMapper songMapper,
                           NeteaseApiService neteaseApiService,
                           StorageService storageService,
@@ -74,6 +77,12 @@ public class SongPlayService {
         this.userService = userService;
         // BYOC 失效探测在探测类内完成，需同步注入（测试无 Spring 上下文时为 null）
         neteaseUrlProbe.setUserService(userService);
+    }
+
+    /** 可选注入：单测无 Spring 上下文时为 null，此时退化为「无缓存」直取。 */
+    @Autowired(required = false)
+    public void setPlayUrlCache(PlayUrlCache playUrlCache) {
+        this.playUrlCache = playUrlCache;
     }
 
     /**
@@ -130,6 +139,40 @@ public class SongPlayService {
     static final long PLAY_BUDGET_MS = 8000;
 
     public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
+        // 短缓存：同一会话内的连续 Range 请求（拖动进度 / 断线重连）不再重跑整条降级链。
+        // 详见 PlayUrlCache 类注释（TTL 取舍、跨用户隔离、403 失效自愈）。
+        // 先清 ThreadLocal：缓存命中路径不会走 resolvePlayUrl 的那句 remove，
+        // 不清的话上一请求残留的换源平台会串到本次响应头（线程复用）。
+        failoverPlaySource.remove();
+        final Long callerUserId = UserService.getCurrentUserId();
+        final String userScope = callerUserId == null ? null : callerUserId.toString();
+        if (playUrlCache != null) {
+            PlayUrlCache.Entry cached = playUrlCache.get(userScope, platform, sourceId);
+            if (cached != null) {
+                // 换源命中的平台一并缓存：命中时仍要能补 X-Play-Source 头
+                if (cached.src() != null) failoverPlaySource.set(cached.src());
+                return cached.url();
+            }
+        }
+        String url = resolvePlayUrl(sourceId, songName, artist, platform, userCookie);
+        if (playUrlCache != null && url != null) {
+            playUrlCache.put(userScope, platform, sourceId, url, failoverPlaySource.get());
+        }
+        return url;
+    }
+
+    /**
+     * 上游 CDN 返回 403/404（签名 URL 过期）时作废缓存，供 {@link AudioProxyService} 在重试前调用。
+     * 不作废的话 5 次重试会拿到同一个死 URL，把可自愈路径变成必死 500。
+     */
+    public void invalidatePlayUrl(String sourceId, String platform) {
+        if (playUrlCache == null) return;
+        Long callerUserId = UserService.getCurrentUserId();
+        playUrlCache.invalidate(callerUserId == null ? null : callerUserId.toString(), platform, sourceId);
+    }
+
+    /** 实际取链（原 {@code getPlayUrl} 本体，缓存层在外层同名方法）。 */
+    private String resolvePlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
         // 请求线程捕获 userId（异步取链线程读不到 SecurityContext）。
         final Long callerUserId = UserService.getCurrentUserId();
         // 生产链路整体 8s 超时保护（内层 HTTP 5s，见 PLAY_BUDGET_MS 注释）
