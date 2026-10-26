@@ -19,7 +19,7 @@
 | 层 | 实测事实 | 证据 |
 |---|---|---|
 | 边缘 | Cloudflare 免费版橙云 → **Cloudflare Tunnel**（cloudflared active） | `pgrep -a cloudflared` → `tunnel --config /etc/cloudflared/config.yml run`；`cf-ray: …-AMS` |
-| 反代 | **宿主 nginx 1.18.0**（Ubuntu 22.04 自带），只监听 `127.0.0.1:8081` | `nginx -v` → `nginx/1.18.0 (Ubuntu)`；`ss -tlnp` → `127.0.0.1:8081` |
+| 反代 | **宿主 nginx 1.18.0**（Ubuntu 22.04 自带），只监听 `127.0.0.1:<nginx>` | `nginx -v` → `nginx/1.18.0 (Ubuntu)`；`ss -tlnp` → `127.0.0.1:<nginx>` |
 | 前端 | Vue 3.5.32 + **Vite 8.0.8** + Pinia 3.0.4 + axios 1.17，78 文件 / 15,136 行，dist 2.8 MB | `du -sh dist`；`package.json` devDeps |
 | 后端 | Spring Boot **4.0.6**，216 文件 / 30,452 行，19 Controller / 41 Service / 7 Mapper | `pom.xml:8`；`find` 统计 |
 | 运行时 | 编译目标 `java.version=17`，**实际跑 JDK 25.0.4.1 LTS** | `pom.xml:30`；`docker exec … java -version` |
@@ -29,15 +29,15 @@
 | 缓存 | Redis 7.4.11，maxmemory 96 MB / allkeys-lru，**AOF on** | `redis-cli info` |
 | 宿主 | 阿里云 ECS **2 核 / 1,608 MB / 40 GB（49%）/ swap 4 GB（已用 521 MB）** | `free -m`；`df -h`；`cat /proc/loadavg` |
 | 编排 | 生产 **4 容器**（backend 768M、musicapi 128M、mysql 768M、redis 128M）；仓库 12 服务 compose **未部署** | `docker stats`；`docker-compose.yml` |
-| 部署 | GHCR 镜像 + 蓝绿（8082↔upstream 文件切换）；**`/opt/vibeMusic` 不是 git 仓库** | `docker inspect` upstream；`[ -d .git ]` → 否 |
+| 部署 | GHCR 镜像 + 蓝绿（8082↔upstream 文件切换）；**`部署目录` 不是 git 仓库** | `docker inspect` upstream；`[ -d .git ]` → 否 |
 | 流量 | 15 小时 **512 请求**（≈0.01 rps），UA 首位 `okhttp/4.12.0`（Android 客户端 244 次） | `/var/log/nginx/access.log` 全量统计 |
 
 **入口链路真实形态（与仓库文档对照后修正）**：
 
 ```
-用户 → Cloudflare 边缘(AMS) --加密 Tunnel--> cloudflared(宿主) → nginx:8081(loopback)
+用户 → Cloudflare 边缘(AMS) --加密 Tunnel--> cloudflared(宿主) → nginx:<nginx>(loopback)
                                                         ├─ 静态 /var/www/vibemusic
-                                                        └─ proxy → 127.0.0.1:8082 (backend, 蓝绿)
+                                                        └─ proxy → 127.0.0.1:<backend> (backend, 蓝绿)
 ```
 
 源站**完全没有对外监听 443**，也不暴露公网 IP 的 80（除博客 `cyk666.top`）。这是比"源站开 443 + CF Full(Strict)"更省心的做法——免证书续期、免回源 IP 暴露。
@@ -99,8 +99,8 @@
 |---|---|
 | 备份 | `backup-mysql.sh` 每日 03:30，`--single-transaction --quick --routines --triggers`，gzip + `gzip -t` + 尾部 `Dump completed` 校验，保留 14 天 |
 | 备份产物 | **18 份**，最老 `vibemusic-20261012-0330.sql.gz`，日志连续 8 天 `[backup] ok` |
-| 备份位置 | `/opt/vibeMusic/docker-data/backups/mysql` ← **与数据目录同盘** |
-| 副本 | **无异地副本**（`/opt/vibeMusic/backups/` 只有 1 个 musicapi 源码包） |
+| 备份位置 | `部署目录/docker-data/backups/mysql` ← **与数据目录同盘** |
+| 副本 | **无异地副本**（`部署目录/backups/` 只有 1 个 musicapi 源码包） |
 | 数据冗余 | MySQL 单实例无副本；Redis AOF on（重启不丢） |
 | 自愈 | `watchdog.sh` 每 5 分钟；`health-alert.sh` 每分钟 |
 | 告警接收 | ServerChan key 存在；`/var/log/vibemusic-alert.log` 仅 **878 字节** |
@@ -109,7 +109,7 @@
 ### 4.2 异地副本：已落地并在工作（**此处我第一版判断错了，记录更正**）
 
 > ⚠️ **更正记录**：本文件初版写的是「备份与数据同盘、无异地副本，是最大单点风险」。
-> 那是**只看云上就下的结论**——查了 `/opt/vibeMusic/backups/` 和 `~/backups`，漏了 `~/.dsh/backups/`。
+> 那是**只看云上就下的结论**——查了 `部署目录/backups/` 和 `~/backups`，漏了 `~/.dsh/backups/`。
 > 实际项目早已实现拉取式异地备份。**这正是 `lessons/evidence-before-claim.md` 里「未取证不得作结论」的反面教材，保留在此以示警戒。**
 
 **实际状态（实测）**：
@@ -241,7 +241,7 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 |---|---|---|
 | **CI 测试环境与生产运行时不一致** | CI 主 job 用 JDK 17（`pom.xml:30`），生产跑 JDK 25.0.4.1；覆盖率门禁只在 JDK 17 上跑 | 生产专属行为（JDK 21+ 的 GC/虚拟线程/类加载）不受覆盖率保护 |
 | **musicapi Node 版本无人校验** | `package.json` `engines.node>=24`，生产 **v20.19.6**，CI `gateway` job 不校验 musicapi 运行时 | 已存在的漂移；升级 Node 24 时不会有任何测试告诉你哪里断了 |
-| **`/opt/vibeMusic` 不是 git 仓库** | `[ -d .git ]` → 否 | 部署物来源不可追溯；线上改动无法 diff（本次评估就靠"线上文件 vs 仓库文件"逐字节比对才发现 nginx 配置一致——这是运气） |
+| **`部署目录` 不是 git 仓库** | `[ -d .git ]` → 否 | 部署物来源不可追溯；线上改动无法 diff（本次评估就靠"线上文件 vs 仓库文件"逐字节比对才发现 nginx 配置一致——这是运气） |
 | **无 dependabot / codeql / 镜像扫描** | 见 §5 #8 | 依赖腐化静默发生（MySQL 4 年就是活例） |
 | **仓库有两套 nginx 配置，命名不区分用途** | `nginx/nginx.conf`（252 行，容器 1.27 版）vs `deploy/production/nginx/*`（线上真身，与宿主 **diff=0**）。**已核实不是死配置**：`scripts/reconcile-cloud.sh:99` 明确标注「影子配置：生产反代是宿主机 nginx（deploy/production/nginx），仓库版供 CI `nginx -t`」 | 低：不是缺陷，但改错文件的概率高；建议把 `nginx/` 改名 `nginx-ci-syntax-only/` 或在 README 顶部加一句醒目说明 |
 
@@ -330,7 +330,7 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 | 16 | **恢复演练**：从最新备份恢复到临时库 | 从未验证过 | 0.5 天 | RTO 从"未知"变"已知" |
 | 17 | **拆 `MainActivity.kt`（先抽播放器生命周期 + 通知）** | 3,454 行；该类改动已两次回滚 | 1-2 天 | 降低最高风险文件的回归面 |
 | 18 | **删/标注死的 `nginx/nginx.conf`** | 两套配置易改错 | 10 min | 消除误改 |
-| 19 | **`/opt/vibeMusic` 纳入 git**（哪怕只是 `git init` + 每日 commit） | 不是 git 仓库 | 30 min | 线上改动可追溯、可 diff |
+| 19 | **`部署目录` 纳入 git**（哪怕只是 `git init` + 每日 commit） | 不是 git 仓库 | 30 min | 线上改动可追溯、可 diff |
 
 ### P2 —— 季度，按需
 
@@ -487,17 +487,14 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 
 | # | 动作 | 结果 | 验证证据 |
 |---|---|---|---|
-| 1 | **生产关闭 sourcemap + 删除已部署的 25 个 `.map`** | `vibemusic-web/vite.config.js` `sourcemap: 'hidden'` → `false`（附注释说明 `hidden` 为什么无效）；线上 `rm` 25 个文件（先打包到 `/root/vibemusic-map-backup-20261026-1543.tar.gz`，416K / 25 条目可回滚） | dist **2.8M → 1.2M**；源站 `/assets/ChatView-C5KrxvEu.js.map` → **404**；**公网复验** `https://vibe.cyk666.top/assets/*.map` → **404**，而 `/` 与 `/assets/index-DWax95Jj.js` 仍 **200** |
+| 1 | **生产关闭 sourcemap + 删除已部署的 25 个 `.map`** | `vibemusic-web/vite.config.js` `sourcemap: 'hidden'` → `false`（附注释说明 `hidden` 为什么无效）；线上 `rm` 25 个文件（先打包备份，416K / 25 条目可回滚，路径不入库） | dist **2.8M → 1.2M**；源站 `/assets/ChatView-C5KrxvEu.js.map` → **404**；**公网复验** `https://vibe.cyk666.top/assets/*.map` → **404**，而 `/` 与 `/assets/index-DWax95Jj.js` 仍 **200** |
 | 2 | **加 HSTS** | `security.conf` 加 `Strict-Transport-Security: max-age=31536000; includeSubDomains`；**并在 5 个自带 `add_header` 的 location 里逐一补**（避开 nginx `add_header` 不继承的坑） | `nginx -t` 通过；reload 后源站实测 `/`、`/index.html`、`/manifest.json`、`/assets/*.js`、`/api/songs/history` **全部带 HSTS**；**公网复验** `https://vibe.cyk666.top` 响应头含 HSTS |
 | 3 | **限流状态码 503 → 429** | `security.conf` 加 `limit_req_status 429; limit_conn_status 429;` | 配置已生效（`nginx -t` 通过、reload 完成） |
 | 4 | **journal 限额** | `/etc/systemd/journald.conf.d/99-size.conf`：`SystemMaxUse=200M`、`SystemMaxFileSize=50M`；重启 journald | 配置落盘并生效（当前归档 232 MB，后续按上限滚动淘汰） |
 | 5 | **swap 告警阈值 80% → 30%** | `health-alert.sh:SWAP_MAX=30`（原值等于永不告警） | `bash -n` 语法通过；`grep` 确认新值 |
 
-**改动前的备份（全部可回滚）**：
-- `/root/security.conf.bak-20261026-1543`
-- `/root/vibemusic-site.bak-20261026-1543`
-- `/root/health-alert.sh.bak-20261026-1543`
-- `/root/vibemusic-map-backup-20261026-1543.tar.gz`
+**改动前的备份（全部可回滚，路径不入库）**：security.conf、站点配置、health-alert.sh、
+25 个 .map 打包件，均为 2026-10-26 15:43 快照。
 
 **尚未执行（需单独排期，因涉及停机/重启）**：MySQL 8.0.27 → 8.4 LTS、系统补丁 + 重启、docker 日志轮转（需重建容器）、Spring Boot 4.0 → 4.1 迁移。
 
@@ -506,7 +503,7 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 | # | 动作 | 结果 | 验证证据 |
 |---|---|---|---|
 | P0-4 | **MySQL 专用账号 + 收回 `root@'%'`** | 新建 `vibemusic@'%'`，仅授权 `vibemusic.*` 的 DML/DDL（Flyway 需要）；backend 以 `DB_USERNAME=vibemusic` 蓝绿发布 | 容器内 `DB_USERNAME=vibemusic`；`processlist` 显示 vibemusic 连接；`mysqldump` 探针 `dump_ok`；`mysql.user` 仅剩 `root@localhost` |
-| P0-9 | **修 `blog.service`** | `systemctl start` + `enable`（此前 failed 1 个多月，端口 3100 无监听） | `active (running)`、`enabled`、`curl 127.0.0.1:3100` → 200 |
+| P0-9 | **修 `blog.service`** | `systemctl start` + `enable`（此前 failed 1 个多月，端口 3100 无监听） | `active (running)`、`enabled`、`curl 127.0.0.1:<blog>` → 200 |
 | P0-5 | 核对：MySQL 已是 **8.4.13**（8.0.27 已升级） | 无需重复执行 | `SELECT VERSION()` = 8.4.13 |
 | P0-7 | 核对：容器日志轮转已生效 | `max-size=20m / max-file=3` | `docker inspect` LogConfig |
 | P0-6 | **系统补丁生效（重启）** | `reboot` 完成，重启前确认四容器 `unless-stopped`、nginx/docker enabled | 重启后 `reboot-required` 消失；四容器全部 healthy（backend 60s）；`search=200`、HSTS 在、`.map=404`、JVM 时区 CST |
@@ -526,7 +523,7 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 
 **发布备注**：本次蓝绿时 available 仅 350MB（<400 门槛，blog 恢复后内存更紧），按脚本提示用 `--force --health-timeout 420`；healthy 66s，回滚镜像 `rollback-20261026-173816`。**建议后续把 blog 从常驻服务改为按需启动**（当前无任何 nginx/cloudflared 路由指向 3100，常驻约 25-128MB）。
 
-**仍未做（P1）**：P1-12 业务告警（需定 ServerChan 事件口径）、P1-14 依赖扫描进 CI（dependabot/trivy）、P1-16 恢复演练（需临时库）、P1-17 拆 MainActivity（1-2 天）、P1-19 `/opt/vibeMusic` 入 git（需先脱敏）。
+**仍未做（P1）**：P1-12 业务告警（需定 ServerChan 事件口径）、P1-14 依赖扫描进 CI（dependabot/trivy）、P1-16 恢复演练（需临时库）、P1-17 拆 MainActivity（1-2 天）、P1-19 `部署目录` 入 git（需先脱敏）。
 
 ### 15.3 P1-14 依赖扫描（已做一半）
 
