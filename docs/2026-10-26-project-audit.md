@@ -509,8 +509,8 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 | P0-9 | **修 `blog.service`** | `systemctl start` + `enable`（此前 failed 1 个多月，端口 3100 无监听） | `active (running)`、`enabled`、`curl 127.0.0.1:3100` → 200 |
 | P0-5 | 核对：MySQL 已是 **8.4.13**（8.0.27 已升级） | 无需重复执行 | `SELECT VERSION()` = 8.4.13 |
 | P0-7 | 核对：容器日志轮转已生效 | `max-size=20m / max-file=3` | `docker inspect` LogConfig |
-
-**回滚点**：backend `rollback-20261026-165854`；DB 账号口令存 `/root/.vibemusic-bluegreen/db-vibemusic.pass`（600）。
 | P0-6 | **系统补丁生效（重启）** | `reboot` 完成，重启前确认四容器 `unless-stopped`、nginx/docker enabled | 重启后 `reboot-required` 消失；四容器全部 healthy（backend 60s）；`search=200`、HSTS 在、`.map=404`、JVM 时区 CST |
+
+**回滚点**：backend `rollback-20261026-165854`；DB 专用账号口令保存在运维凭据文件（600 权限、不入库，路径见 RUNBOOK）。
 
 **至此 P0 清单 1-10 全部完成。**
