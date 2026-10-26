@@ -6,6 +6,9 @@
 # 规则只使用主栈实际抓取的指标（jobs: vibemusic-backend / musicapi / prometheus / redis）。
 # 依赖 node-exporter（node_filesystem_*、cpu/mem/磁盘）或 cAdvisor（container_*）的规则
 # 已移除；若后续在主栈部署这些 exporter，可按需要恢复对应规则。
+# 2026-10-26：backend 已移除 /actuator/prometheus，本文件中依赖 jvm_* 与
+# up{job="vibemusic-backend"} 的规则（BackendDown / JVM 系列）暂无数据、不会触发。
+# 恢复指标前，先恢复后端依赖/端点与 prometheus.yml 的 vibemusic-backend job。
 groups:
   # ── 服务可用性告警 ──
   - name: service-alerts

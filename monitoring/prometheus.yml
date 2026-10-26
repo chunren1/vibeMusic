@@ -42,13 +42,7 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 
-  # ── 云上应用指标（前置：autossh 增加两条隧道 9102→云127.0.0.1:8080、9103→云127.0.0.1:3000）──
-  - job_name: 'vibemusic-backend'
-    metrics_path: /actuator/prometheus
-    static_configs:
-      - targets: ['host.docker.internal:9102']
-        labels:
-          instance: 'aliyun-ecs'
+  # 2026-10-26：backend /actuator/prometheus 已移除，云上 job 同步下线。
 
   - job_name: 'musicapi'
     static_configs:

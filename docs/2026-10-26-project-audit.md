@@ -519,14 +519,14 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 
 | # | 动作 | 结果 | 验证证据 |
 |---|---|---|---|
-| P1-13 | **nginx 日志补 `$request_time`** | `nginx.conf` 新增 `main_timed` 格式（`rt=`/`urt=`），全局 access_log 切换；改前备份 `/root/nginx.conf.bak-20261026172648` | `nginx -t` 通过、reload 成功；实测日志尾部 `rt=0.000 urt=-` |
+| P1-13 | **nginx 日志补 `$request_time`** | `nginx.conf` 新增 `main_timed` 格式（`rt=`/`urt=`），全局 access_log 切换；改前已备份（备份路径不入库） | `nginx -t` 通过、reload 成功；实测日志尾部 `rt=0.000 urt=-` |
 | P1-15 | **musicapi 时区真生效** | alpine 无 tzdata，`apk` 源在本网络 TLS 不可达；改为镜像内置 `tzdata/Asia/Shanghai`（561B）+ `ENV TZ=Asia/Shanghai` | 新镜像 `vibemusic-musicapi:f433009` 上线；容器 `date` = **CST**；后端可达 `musicapi:3000/health` |
 | P1-18 | **标注影子 nginx 配置** | `nginx/nginx.conf` 头部注明仅 compose demo/full 与 CI 使用，生产反代是宿主机 `/etc/nginx` | 文件头三行说明；引用关系见 `scripts/reconcile-cloud.sh` |
 | P1-11 | **移除无采集方的 Prometheus** | 删 `micrometer-registry-prometheus` 与 `/actuator/prometheus` 暴露；保留 health/metrics/info（prod 仅 health） | `mvn -o verify` 828 全绿；部署 `1f34017` 后 `/actuator/prometheus` → **404**、`/actuator/health` → 200、搜索 200 |
 
 **发布备注**：本次蓝绿时 available 仅 350MB（<400 门槛，blog 恢复后内存更紧），按脚本提示用 `--force --health-timeout 420`；healthy 66s，回滚镜像 `rollback-20261026-173816`。**建议后续把 blog 从常驻服务改为按需启动**（当前无任何 nginx/cloudflared 路由指向 3100，常驻约 25-128MB）。
 
-**仍未做（P1）**：P1-12 业务告警（需定 ServerChan 事件口径）、P1-14 依赖扫描进 CI（dependabot/trivy）、P1-16 恢复演练（需临时库）、P1-17 拆 MainActivity（1-2 天）、P1-19 `/opt/vibeMusic` 入 git（含密钥，需先脱敏）。
+**仍未做（P1）**：P1-12 业务告警（需定 ServerChan 事件口径）、P1-14 依赖扫描进 CI（dependabot/trivy）、P1-16 恢复演练（需临时库）、P1-17 拆 MainActivity（1-2 天）、P1-19 `/opt/vibeMusic` 入 git（需先脱敏）。
 
 ### 15.3 P1-14 依赖扫描（已做一半）
 

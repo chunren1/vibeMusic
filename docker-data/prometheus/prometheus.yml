@@ -17,15 +17,8 @@ rule_files:
 
 # 抓取目标
 scrape_configs:
-  # ── Spring Boot 后端 ──
-  - job_name: 'vibemusic-backend'
-    metrics_path: '/actuator/prometheus'
-    static_configs:
-      - targets:
-          - 'backend:8080'                # [Docker 部署] 通过容器名访问
-        labels:
-          service: 'spring-boot'
-          application: 'vibemusic-backend'
+  # 2026-10-26：backend 已删除 /actuator/prometheus 暴露，采集端同步移除。
+  # 恢复指标前先恢复后端 micrometer-registry-prometheus 依赖与端点。
 
   # ── musicapi Express 网关 ──
   - job_name: 'musicapi'
