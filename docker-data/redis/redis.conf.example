@@ -42,7 +42,14 @@ auto-aof-rewrite-percentage 100
 auto-aof-rewrite-min-size 64mb
 
 # ===== 内存 =====
-maxmemory 512mb
+# 必须严格小于「跑这个配置的那个栈」里 redis 的 mem_limit。
+# 生产栈（docker-compose.demo.yml）mem_limit=128M → 这里取 96mb；
+# 本地完整栈（docker-compose.yml）mem_limit=768M，可自行调到 512mb。
+# 写大了不会「多给内存」——Redis 会在触发 LRU 淘汰之前先被 cgroup OOM kill，
+# 然后重启、缓存全丢（表现为缓存莫名清空 + 容器重启次数增加）。
+# 2026-10-26 对账：云上实际 96mb，仓库模板曾是 512mb（>128M，属必崩配置），已对齐；
+# scripts/reconcile-cloud.sh 6b 节会持续盯住这条指令（整文件含密码，无法按 md5 比对）。
+maxmemory 96mb
 maxmemory-policy allkeys-lru
 
 # ===== 日志 =====

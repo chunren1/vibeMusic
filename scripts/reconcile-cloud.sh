@@ -221,12 +221,35 @@ if [ "${#EXPECTED_HITS[@]}" -gt 0 ]; then
   done
 fi
 
+# ------------------------------------------------------------
+# 6b) Redis 内存指令对账（指令级，非整文件）
+#     redis.conf 含 requirepass，故未入库（仓库只有 .example 模板）→ 整文件
+#     md5 永远不同，进不了 3) 的 MANIFEST。但 maxmemory 与容器 mem_limit 强
+#     耦合：写大了不会「多给内存」，而是先被 cgroup OOM kill（还没轮到 LRU
+#     淘汰），表现为缓存莫名清空 + 容器重启。2026-10-26 发现仓库模板写 512mb
+#     而云上 96mb / 容器 128M，正是这类必崩配置，故单独盯住这两条指令。
+# ------------------------------------------------------------
+redis_directives() { grep -E '^(maxmemory|maxmemory-policy)[[:space:]]' 2>/dev/null | sed 's/[[:space:]]*$//' | sort; }
+REDIS_REPO="$(redis_directives < "$REPO_ROOT/docker-data/redis/redis.conf.example")"
+REDIS_CLOUD="$(ssh_run "grep -E '^(maxmemory|maxmemory-policy)[[:space:]]' /opt/vibeMusic/docker-data/redis/redis.conf 2>/dev/null" 2>/dev/null | sed 's/[[:space:]]*$//' | sort)"
+redis_drift=0
+printf '\nRedis 内存指令（redis.conf 含密码不入库，按指令单独对账）\n'
+if [ -z "$REDIS_CLOUD" ]; then
+  printf '  · 云上读不到 redis.conf —— 跳过（不计漂移）\n'
+elif [ "$REDIS_CLOUD" = "$REDIS_REPO" ]; then
+  printf '  · 一致 ✅  %s\n' "$(printf '%s' "$REDIS_REPO" | tr '\n' ' ')"
+else
+  printf '  · ★漂移 ❌\n      云上: %s\n      仓库: %s\n' \
+    "$(printf '%s' "$REDIS_CLOUD" | tr '\n' ' ')" "$(printf '%s' "$REDIS_REPO" | tr '\n' ' ')"
+  redis_drift=1
+fi
+
 printf '%s\n' '────────────────────────────────────────────────────────────────────────────'
-if [ "$drift" -eq 0 ]; then
+if [ "$drift" -eq 0 ] && [ "$redis_drift" -eq 0 ]; then
   printf '结果：%d/%d 一致，%d 项预期差异，无真漂移 ✅\n\n' "$ok" "$total" "$expected"
   exit 0
 else
   printf '结果：%d 项真漂移 ❌（%d 一致 / %d 预期差异，共 %d；方向只能是 云上 → 仓库，见 docs/cloud-source-of-truth.md）\n\n' \
-    "$drift" "$ok" "$expected" "$total"
+    "$((drift + redis_drift))" "$ok" "$expected" "$total"
   exit 1
 fi
