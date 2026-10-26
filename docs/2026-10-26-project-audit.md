@@ -511,4 +511,6 @@ sourcemap: 'hidden',  // 生成 sourcemap 但产物不含 //# sourceMappingURL�
 | P0-7 | 核对：容器日志轮转已生效 | `max-size=20m / max-file=3` | `docker inspect` LogConfig |
 
 **回滚点**：backend `rollback-20261026-165854`；DB 账号口令存 `/root/.vibemusic-bluegreen/db-vibemusic.pass`（600）。
-**剩余**：P0-6 系统补丁生效需重启（`/var/run/reboot-required` = libc6）；已确认四个容器 `unless-stopped`、nginx/docker enabled。
+| P0-6 | **系统补丁生效（重启）** | `reboot` 完成，重启前确认四容器 `unless-stopped`、nginx/docker enabled | 重启后 `reboot-required` 消失；四容器全部 healthy（backend 60s）；`search=200`、HSTS 在、`.map=404`、JVM 时区 CST |
+
+**至此 P0 清单 1-10 全部完成。**
