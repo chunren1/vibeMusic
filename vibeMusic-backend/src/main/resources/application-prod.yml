@@ -24,7 +24,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus  # 只保留监控必要端点
+        include: health  # 只保留健康检查（无指标采集方）
   endpoint:
     health:
       show-details: never  # 不暴露健康详情

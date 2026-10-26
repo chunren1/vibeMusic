@@ -25,7 +25,7 @@ import java.util.Set;
  * <p>为什么落日志而不是落库：错误上报是<b>低频、突发、无界基数</b>的数据，建表就要考虑分区/清理；
  * 而 `docker logs` 已经是低成本、已备份、可 grep 的通道，配一个专用前缀
  * {@code [CLIENT-ERROR]} 就能查。同时打一个 bounded-cardinality 计数器
- * {@code client.error.reports{kind}}，可在 /actuator/prometheus 看到趋势。</p>
+ * {@code client.error.reports{kind}}，可在 /actuator/metrics 看到趋势。</p>
  *
  * <p>接口刻意<b>无需鉴权</b>（游客态崩溃同样要看），因此必须自带防护：
  * 体积上限、每身份限流、内容二次脱敏、字段长度上限、kind 白名单。</p>

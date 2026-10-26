@@ -143,12 +143,6 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- Micrometer Prometheus 指标导出（监控链路核心） -->
-        <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-registry-prometheus</artifactId>
-        </dependency>
-
         <!-- 注：2026-10-25 移除 spring-boot-starter-cache + caffeine。
              全仓 @Cacheable/@CacheEvict/@CachePut 均为 0 处，唯一的 @EnableCaching 与
              CaffeineCacheManager 声明（原 config/CacheConfig.java）从未生效过；

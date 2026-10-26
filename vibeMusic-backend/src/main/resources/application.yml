@@ -175,12 +175,12 @@ springdoc:
       paths-to-match: '/**'
       packages-to-scan: com.vibemusic
 
-# Actuator 监控: 暴露 health + prometheus + metrics 端点
+# Actuator 监控: 暴露 health + metrics + info 端点（2026-10-26 移除无采集方的 prometheus）
 management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus,metrics,info
+        include: health,metrics,info
   endpoint:
     health:
       show-details: when-authorized
