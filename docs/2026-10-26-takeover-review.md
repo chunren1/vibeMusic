@@ -43,7 +43,7 @@
 
 ### 4.1 必看：安全边界
 1. **`vibemusic-web/vite.config.js`**：确认 `sourcemap:false` 在生产构建生效；确认没有其它路径把 `.map` 带进 dist（PWA `globIgnores`、compression 插件）。验收：`npx vite build && find dist -name '*.map' | wc -l` → 0，`du -sh dist` → ~1.2M。
-2. **MySQL 权限**：`SHOW GRANTS FOR 'vibemusic'@'%'` 应只有 `vibemusic.*` 的 DML/DDL；确认 `root@'%'` 已不存在；确认备份脚本仍走 socket + `root@localhost`（`/opt/vibeMusic/scripts/backup-mysql.sh`），未受影响。
+2. **MySQL 权限**：`SHOW GRANTS FOR 'vibemusic'@'%'` 应只有 `vibemusic.*` 的 DML/DDL；确认 `root@'%'` 已不存在；确认备份脚本仍走 socket + `root@localhost`（部署目录下的 `backup-mysql.sh`（路径见 RUNBOOK）），未受影响。
 3. **`musicapi/tzdata/Asia/Shanghai`**：561B，TZif2 fat，sha256 应与宿主 `/usr/share/zoneinfo/Asia/Shanghai` 一致；`strings` 只应含 `TZif2`/`CST-8`。属于 public domain 数据，注意别误当二进制夹带。
 
 ### 4.2 必看：配置一致性
