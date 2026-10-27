@@ -12,10 +12,16 @@ import {
 const song = (patch) => ({ sourceId: '1', name: 'x', ...patch })
 
 describe('songFilter 平台选项', () => {
-  it('平台选项覆盖后端支持的全部 5 个来源 + 全部', () => {
+  it('平台选项覆盖当前启用的 4 个来源 + 全部（QQ 已按运营停用隐藏）', () => {
     expect(PLATFORM_OPTIONS.map(o => o.value)).toEqual(
-      ['all', 'netease', 'qq', 'migu', 'kugou', 'bilibili'],
+      ['all', 'netease', 'migu', 'kugou', 'bilibili'],
     )
+  })
+
+  it('QQ 不在筛选项里，但角标文案仍可解析（历史收藏仍可能带 qq）', () => {
+    // 停用理由见 songFilter.js 注释：MUSICAPI_QQ_ENABLED=false 时搜索不再有 QQ 结果。
+    expect(PLATFORM_OPTIONS.some(o => o.value === 'qq')).toBe(false)
+    expect(platformLabel('qq')).toBe('QQ')
   })
 
   it('平台角标文案按来源区分，未知来源原样返回', () => {

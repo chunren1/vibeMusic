@@ -7,11 +7,18 @@
 
 /** @typedef {{ value: string, label: string }} FilterOption */
 
-/** 平台筛选项，value 与后端 platform 参数一致；all = 不带参数（全平台） @type {FilterOption[]} */
+/**
+ * 平台筛选项，value 与后端 platform 参数一致；all = 不带参数（全平台） @type {FilterOption[]}
+ *
+ * **QQ 暂时隐藏（2026-10-27）**：QQ 会员到期后网关整体停用该源（MUSICAPI_QQ_ENABLED=false），
+ * 聚合搜索不再返回 QQ 曲目，留着筛选项只会让用户点进空列表、以为搜索坏了。
+ * 恢复方式：把 `{ value: 'qq', label: 'QQ 音乐' }` 加回 netease 之后，并把网关开关设回 true。
+ * 注意 `PLATFORM_LABELS.qq` **必须保留** —— 历史收藏/播放记录里仍有 platform=qq 的条目，
+ * 角标文案不能因为筛选隐藏而退化成裸 'qq'。
+ */
 export const PLATFORM_OPTIONS = [
   { value: 'all', label: '全部平台' },
   { value: 'netease', label: '网易云' },
-  { value: 'qq', label: 'QQ 音乐' },
   { value: 'migu', label: '咪咕' },
   { value: 'kugou', label: '酷狗' },
   { value: 'bilibili', label: 'B站' },

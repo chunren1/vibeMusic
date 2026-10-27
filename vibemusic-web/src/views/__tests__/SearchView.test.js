@@ -29,8 +29,10 @@ const SONGS = [
   { sourceId: '456', name: '青花瓷', artist: '周杰伦', coverUrl: '', platform: 'qq', duration: 240 },
 ]
 
-const QQ_ONLY = [
-  { sourceId: '456', name: '青花瓷 (QQ)', artist: '周杰伦', coverUrl: '', platform: 'qq', duration: 240 },
+// QQ 平台项 2026-10-27 起从筛选条隐藏（源停用），平台交互用例统一改用咪咕。
+// QQ 数据仍保留在 SONGS 里，用于验证历史条目的平台角标照常渲染。
+const MIGU_ONLY = [
+  { sourceId: '789', name: '青花瓷 (咪咕)', artist: '周杰伦', coverUrl: '', platform: 'migu', duration: 240 },
 ]
 
 const DURATION_SONGS = [
@@ -125,14 +127,14 @@ describe('SearchView 结果筛选', () => {
     await vi.waitFor(() => expect(searchSongs).toHaveBeenCalled(), { timeout: 1500 })
     await flushPromises()
 
-    searchSongs.mockResolvedValue({ data: { list: QQ_ONLY, total: 1 } })
-    await chip(wrapper, 'QQ 音乐').trigger('click')
+    searchSongs.mockResolvedValue({ data: { list: MIGU_ONLY, total: 1 } })
+    await chip(wrapper, '咪咕').trigger('click')
     await flushPromises()
 
-    expect(searchSongs).toHaveBeenLastCalledWith('青花瓷', 1, 40, 'qq')
-    expect(chip(wrapper, 'QQ 音乐').attributes('aria-pressed')).toBe('true')
+    expect(searchSongs).toHaveBeenLastCalledWith('青花瓷', 1, 40, 'migu')
+    expect(chip(wrapper, '咪咕').attributes('aria-pressed')).toBe('true')
     expect(wrapper.findAll('.table-row')).toHaveLength(1)
-    expect(wrapper.find('.table-row').text()).toContain('QQ')
+    expect(wrapper.find('.table-row').text()).toContain('咪咕')
   })
 
   it('切回「全部平台」不再带 platform 参数', async () => {
@@ -141,7 +143,7 @@ describe('SearchView 结果筛选', () => {
     await vi.waitFor(() => expect(searchSongs).toHaveBeenCalled(), { timeout: 1500 })
     await flushPromises()
 
-    await chip(wrapper, 'QQ 音乐').trigger('click')
+    await chip(wrapper, '咪咕').trigger('click')
     await flushPromises()
     await chip(wrapper, '全部平台').trigger('click')
     await flushPromises()
@@ -173,7 +175,7 @@ describe('SearchView 结果筛选', () => {
     await vi.waitFor(() => expect(searchSongs).toHaveBeenCalled(), { timeout: 1500 })
     await flushPromises()
 
-    await chip(wrapper, 'QQ 音乐').trigger('click')
+    await chip(wrapper, '咪咕').trigger('click')
     await flushPromises()
     await chip(wrapper, '3 分钟内').trigger('click')
     await flushPromises()
@@ -195,9 +197,9 @@ describe('SearchView 结果筛选', () => {
     await vi.waitFor(() => expect(searchSongs).toHaveBeenCalled(), { timeout: 1500 })
     await flushPromises()
 
-    await chip(wrapper, 'QQ 音乐').trigger('click')
+    await chip(wrapper, '咪咕').trigger('click')
     await flushPromises()
-    expect(searchSongs).toHaveBeenLastCalledWith('青花瓷', 1, 40, 'qq')
+    expect(searchSongs).toHaveBeenLastCalledWith('青花瓷', 1, 40, 'migu')
 
     await wrapper.find('.filter-clear').trigger('click')
     await flushPromises()

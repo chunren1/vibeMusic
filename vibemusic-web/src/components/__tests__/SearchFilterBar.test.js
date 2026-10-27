@@ -15,15 +15,16 @@ function chip(wrapper, label) {
 }
 
 describe('SearchFilterBar', () => {
-  it('渲染 6 个平台项 + 4 个时长项，全部是原生 button（键盘可达）', () => {
+  it('渲染 5 个平台项 + 4 个时长项，全部是原生 button（键盘可达）', () => {
     const wrapper = mountBar()
     const chips = wrapper.findAll('.filter-chip')
 
-    expect(chips).toHaveLength(10)
+    // QQ 平台项 2026-10-27 起隐藏（源停用），故 5 个平台项而非 6 个。
+    expect(chips).toHaveLength(9)
     expect(chips.every(c => c.element.tagName === 'BUTTON')).toBe(true)
     expect(chips.every(c => c.attributes('type') === 'button')).toBe(true)
     expect(chips.map(c => c.text())).toEqual([
-      '全部平台', '网易云', 'QQ 音乐', '咪咕', '酷狗', 'B站',
+      '全部平台', '网易云', '咪咕', '酷狗', 'B站',
       '全部时长', '3 分钟内', '3-5 分钟', '5 分钟以上',
     ])
   })
@@ -32,11 +33,11 @@ describe('SearchFilterBar', () => {
     const wrapper = mountBar()
     expect(chip(wrapper, '全部平台').attributes('aria-pressed')).toBe('true')
     expect(chip(wrapper, '全部时长').attributes('aria-pressed')).toBe('true')
-    expect(chip(wrapper, 'QQ 音乐').attributes('aria-pressed')).toBe('false')
+    expect(chip(wrapper, '咪咕').attributes('aria-pressed')).toBe('false')
   })
 
   it('点击平台项 emit update:platform', async () => {
-    const wrapper = mountBar({ platform: 'qq' })
+    const wrapper = mountBar({ platform: 'migu' })
     await chip(wrapper, '酷狗').trigger('click')
     expect(wrapper.emitted('update:platform')).toEqual([['kugou']])
   })
@@ -51,7 +52,7 @@ describe('SearchFilterBar', () => {
     const plain = mountBar()
     expect(plain.find('.filter-clear').exists()).toBe(false)
 
-    const filtered = mountBar({ platform: 'qq' })
+    const filtered = mountBar({ platform: 'migu' })
     await filtered.find('.filter-clear').trigger('click')
     expect(filtered.emitted('clear')).toHaveLength(1)
   })
