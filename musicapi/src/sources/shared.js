@@ -21,8 +21,19 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * 日志单行化：剥离 CR/LF，防止上游/用户输入伪造日志行（CWE-117）。
+ *
+ * 2026-10-27 pass 2 下沉到这里：原先 search.js 与 routes.js 各有一份**完全相同的实现**，
+ * 拆分后 4 个源文件都要用，留在 search.js 会逼 sources/* 反向 require（正是循环依赖的来源）。
+ */
+function logSafe(value) {
+  return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ');
+}
+
 module.exports = {
   UPSTREAM_TIMEOUT,
   SEARCH_TOTAL_BUDGET,
   withTimeout,
+  logSafe,
 };

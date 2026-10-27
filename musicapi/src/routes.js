@@ -25,15 +25,12 @@ const {
 } = require('./scoring');
 const { searchNetease, searchQQ, searchMigu, getMiguUrl, searchKugou, getKugouUrl, searchBili, getBiliUrl, isBiliTrackId, searchCache, urlCache, UPSTREAM_TIMEOUT, withTimeout } = require('./search');
 const { fetchKugouLyric, parseKugouLyricDuration } = require('./kugou-lyric');
+// logSafe 与各源共用同一实现（原先本文件与 search.js 各有一份副本）。
+const { logSafe } = require('./sources/shared');
 const { searchLimiter, urlLimiter } = require('./rate-limiters');
 
 // 500 统一话术：细节只进 writeLog，不回传调用方（与全局错误处理器口径一致）
 const GENERIC_500 = '服务繁忙，请稍后重试';
-
-/** 日志单行化（CWE-117）：用户可控文本落日志前剥离 CR/LF。 */
-function logSafe(value) {
-  return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ');
-}
 
 // Express 4 默认 query parser 下 ?k=a&k=b 解析为数组；?k[x]=1 解析为对象。
 // 统一取首个标量，缺失/非法由各路由判 400（此前数组直接 .trim() 抛 TypeError → 500 泄漏堆栈文本）。
