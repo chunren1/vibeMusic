@@ -5,7 +5,12 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.0.6</version>
+        <!-- 2026-10-27：4.0.6 → 4.1.2。
+             依据 api.spring.io/projects/spring-boot/generations：
+               4.0.x OSS 支持止 2026-12-31（商业止 2027-12-31）
+               4.1.x OSS 支持止 2027-07-31（商业止 2028-07-31）
+             4.0 线末补丁为 4.0.9，已不再更新；4.1.2 是当前 GA。 -->
+        <version>4.1.2</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.vibeMusic</groupId>
@@ -65,8 +70,11 @@
         <!-- MyBatis-Plus -->
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-            <version>3.5.9</version>
+            <!-- 2026-10-27：spring-boot3-starter 3.5.9 → spring-boot4-starter 3.5.18。
+                 依据 baomidou 官方安装文档：Spring Boot 4 支持自 3.5.13 起，
+                 且必须使用 spring-boot4-starter（spring-boot3-starter 跑在 SB4 上属官方矩阵外）。 -->
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+            <version>3.5.18</version>
         </dependency>
 
         <!-- JWT (jjwt) -->

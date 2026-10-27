@@ -45,7 +45,7 @@ class ChatMemoryServiceTest {
         chatMemoryService.appendMessage(null, "user", "B 的消息", "device-B");
 
         ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-        verify(valueOps, times(2)).set(keyCaptor.capture(), anyString(), any());
+        verify(valueOps, times(2)).set(keyCaptor.capture(), anyString(), any(java.time.Duration.class));
         List<String> keys = keyCaptor.getAllValues();
         assertEquals("chat:session:anon:device-A", keys.get(0));
         assertEquals("chat:session:anon:device-B", keys.get(1));
@@ -72,7 +72,7 @@ class ChatMemoryServiceTest {
     void shouldKeepLoggedInKeyUnchanged() {
         chatMemoryService.appendMessage(42L, "user", "hello", "device-A");
 
-        verify(valueOps).set(eq("chat:session:42"), anyString(), any());
+        verify(valueOps).set(eq("chat:session:42"), anyString(), any(java.time.Duration.class));
     }
 
     @Test
@@ -89,7 +89,7 @@ class ChatMemoryServiceTest {
     void shouldSanitizeMaliciousId() {
         chatMemoryService.appendMessage(null, "user", "hi", "../../evil key:*\n");
 
-        verify(valueOps).set(eq("chat:session:anon:evilkey"), anyString(), any());
+        verify(valueOps).set(eq("chat:session:anon:evilkey"), anyString(), any(java.time.Duration.class));
     }
 
     @Test
@@ -97,7 +97,7 @@ class ChatMemoryServiceTest {
     void shouldFallbackToAnon() {
         chatMemoryService.appendMessage(null, "user", "hi", null);
 
-        verify(valueOps).set(eq("chat:session:anon:anon"), anyString(), any());
+        verify(valueOps).set(eq("chat:session:anon:anon"), anyString(), any(java.time.Duration.class));
     }
 
     @Test
@@ -108,7 +108,7 @@ class ChatMemoryServiceTest {
         assertTrue(chatMemoryService.getHistory(null, "device-X").isEmpty());
 
         doThrow(new RuntimeException("redis down")).when(valueOps)
-                .set(anyString(), anyString(), any());
+                .set(anyString(), anyString(), any(java.time.Duration.class));
         assertDoesNotThrow(() -> chatMemoryService.appendMessage(1L, "user", "hi", null));
         doThrow(new RuntimeException("redis down")).when(stringRedisTemplate).delete(anyString());
         assertDoesNotThrow(() -> chatMemoryService.clearHistory(1L, null));
@@ -128,7 +128,7 @@ class ChatMemoryServiceTest {
         chatMemoryService.appendMessage(9L, "assistant", "new", null);
 
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
-        verify(valueOps).set(eq("chat:session:9"), jsonCaptor.capture(), any());
+        verify(valueOps).set(eq("chat:session:9"), jsonCaptor.capture(), any(java.time.Duration.class));
         String saved = jsonCaptor.getValue();
         assertTrue(saved.contains("\"content\":\"new\""), "新消息应保留");
         assertFalse(saved.contains("\"content\":\"m0\""), "最旧消息应被裁掉");
