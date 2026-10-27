@@ -86,7 +86,17 @@ async function searchQQ(keyword, limit) {
       timeoutMs: UPSTREAM_TIMEOUT,
     });
     const list = resp.data?.search?.data?.body?.song?.list;
+    // 口径修正（2026-10-27）：这里原本只有一条分支，把「上游报错」和「查无结果」混为一谈。
+    // 实测 QQ 的成功响应就是 code:0（见 test/search-qq.test.js 的 NEW_SAMPLE），
+    // 而「查无结果」在旧生产 18 小时里出现了 11 次（周杰伦/陈奕迅/民谣/轻音乐…）。
+    // 若一律记失败，连续 3 个冷门词就会把 QQ 熔断 60s，属于典型误熔断。
+    // 现在按码分流：成功码 + 空列表 = 空结果（不计账），其余码 = 真异常（计账）。
+    const codeOk = resp.data?.code === 0 || resp.data?.code === '0' || resp.data?.code === '000000';
     if (!Array.isArray(list) || list.length === 0) {
+      if (codeOk) {
+        writeLog('degradation', 'WARN', `QQ搜索空结果: keyword=${logSafe(keyword)}`);
+        return [];
+      }
       writeLog('degradation', 'WARN', `QQ搜索异常: code=${resp.data?.code}, keyword=${logSafe(keyword)}`);
       return failOutcome('qq', 'upstream-code=' + (resp.data?.code ?? 'null'));
     }

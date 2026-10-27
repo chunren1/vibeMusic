@@ -37,6 +37,54 @@ const NEW_SAMPLE = {
   },
 };
 
+// ---- 熔断记账口径（2026-10-27）：空结果不得被当成上游故障 ----
+// 背景：QQ 的成功响应 code 就是 0（见上面 NEW_SAMPLE），而「查无结果」在生产里
+// 18 小时出现 11 次。若一律记失败，连续 3 个冷门词就会熔断 QQ 60s —— 典型误熔断。
+const sourceHealth = require('../src/source-health');
+
+function qqFailures() {
+  return sourceHealth.snapshot().sources.find((s) => s.name === 'qq').consecutiveFailures;
+}
+
+test('QQ 成功码 + 空列表 → 空结果，不计失败', async () => {
+  sourceHealth.reset();
+  const restore = stubAxiosGet(async () => ({ data: { code: 0, search: { data: { body: { song: { list: [] } } } } } }));
+  try {
+    assert.deepEqual(await searchQQ('查无此歌xyz', 10), []);
+    assert.equal(qqFailures(), 0, '空结果不应计入连续失败');
+  } finally { restore(); }
+});
+
+test("QQ 旧成功码 '000000' + 空列表 → 同样不计失败", async () => {
+  sourceHealth.reset();
+  const restore = stubAxiosGet(async () => ({ data: { code: '000000', search: { data: { body: { song: { list: [] } } } } } }));
+  try {
+    assert.deepEqual(await searchQQ('查无此歌xyz', 10), []);
+    assert.equal(qqFailures(), 0);
+  } finally { restore(); }
+});
+
+test('QQ 非成功码 + 空列表 → 记为上游异常（真故障要能被熔断）', async () => {
+  sourceHealth.reset();
+  const restore = stubAxiosGet(async () => ({ data: { code: 500, search: { data: { body: { song: { list: [] } } } } } }));
+  try {
+    assert.deepEqual(await searchQQ('周杰伦', 10), []);
+    assert.equal(qqFailures(), 1);
+  } finally { restore(); }
+});
+
+test('QQ 网络异常 → 记为失败并返回空数组', async () => {
+  sourceHealth.reset();
+  const restore = stubAxiosGet(async () => { throw new Error('ECONNRESET'); });
+  try {
+    assert.deepEqual(await searchQQ('周杰伦', 10), []);
+    assert.equal(qqFailures(), 1);
+    // upstream.js 会把 axios 错误包成自己的文案（"upstream qq/search unknown after 0ms"），
+    // 所以这里只断言「有错误摘要」而不是原始 ECONNRESET 文本。
+    assert.match(sourceHealth.snapshot().sources.find((s) => s.name === 'qq').lastError, /qq\/search/);
+  } finally { restore(); }
+});
+
 function stubAxiosGet(impl) {
   const orig = axios.get;
   axios.get = impl;
