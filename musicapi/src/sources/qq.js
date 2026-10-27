@@ -98,7 +98,8 @@ async function probeQQSearch() {
   // 都经 qqRequestHeaders() 附加 Cookie，而 buildQQSearchRequest 是匿名的——
   // 不补这一步，Cookie 过期时探针仍会报"✅ QQ音乐 Cookie 正常"（历史误报口径）。
   try {
-    const cookieStr = getQQCookieString();
+    // 必须经 cookieHelper() 在**调用时**取（顶层解构会拿到 undefined，见文件头循环 require 说明）。
+    const cookieStr = cookieHelper().getQQCookieString();
     if (cookieStr) headers.Cookie = cookieStr;
   } catch (e) {
     writeLog('cookie', 'WARN', `QQ 探针附加 Cookie 失败，按匿名探针继续: ${e.message}`);

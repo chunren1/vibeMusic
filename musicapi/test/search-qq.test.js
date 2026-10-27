@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const axios = require('axios');
-const { searchQQ, mapQQSong } = require('../src/search');
+const { searchQQ, mapQQSong, probeQQSearch } = require('../src/search');
 
 const NEW_SAMPLE = {
   code: 0,
@@ -113,6 +113,29 @@ test('MUSICAPI_QQ_ENABLED=true 时行为与默认一致（恢复只需改环境�
   } finally {
     if (prev === undefined) delete process.env.MUSICAPI_QQ_ENABLED;
     else process.env.MUSICAPI_QQ_ENABLED = prev;
+    restore();
+  }
+});
+
+// ---- 健康探针口径（2026-10-27 拆分回归）：探针必须与取链链路一样带 Cookie ----
+// 拆分时 probeQQSearch 的 getQQCookieString 忘了改成 cookieHelper() 调用，
+// 结果是 ReferenceError 被 catch 吃掉 → 探针变匿名 → Cookie 过期时仍报"正常"（历史误报口径）。
+// 这条用例直接断言请求头里出现 Cookie，删掉修复即红。
+test('probeQQSearch 附加 QQ Cookie（探针与真实取链同口径）', async () => {
+  const cookie = require('../src/cookie');
+  const orig = cookie.getQQCookieString;
+  cookie.getQQCookieString = () => 'uin=o1; qqmusic_key=TESTKEY';
+  let seenHeaders;
+  const restore = stubAxiosGet(async (url, opts) => {
+    seenHeaders = opts.headers;
+    return { data: { code: 0, search: { data: { body: { song: { list: [{ mid: 'x', name: 'y' }] } } } } } };
+  });
+  try {
+    const r = await probeQQSearch();
+    assert.equal(r.ok, true, '探针应判定结构有效');
+    assert.match(String(seenHeaders.Cookie || ''), /qqmusic_key=TESTKEY/, '探针必须带 Cookie，否则过期检测失效');
+  } finally {
+    cookie.getQQCookieString = orig;
     restore();
   }
 });
