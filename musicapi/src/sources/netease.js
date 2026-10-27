@@ -10,9 +10,22 @@
 
 const lib = require('NeteaseCloudMusicApi');
 const { UPSTREAM_TIMEOUT, SEARCH_TOTAL_BUDGET, withTimeout } = require('./shared');
-const { withNeteaseCookie } = require('../cookie');
 const { writeLog } = require('../logger');
 const { okOutcome, failOutcome } = require('../source-health');
+
+// ==================== 循环 require 陷阱（2026-10-27 实测踩到）====================
+// 冷启动链路是 cookie.js(121 行 require cookie-probe) → cookie-probe.js → 本文件 → cookie.js。
+// 也就是说**本文件被加载时 cookie.js 还没执行完**。此时：
+//   ① 顶层解构 `const { withNeteaseCookie } = require('../cookie')` 拿到的是 undefined；
+//   ② 连"先拿 module 对象、用时再取属性"也救不了 —— cookie.js 结尾是
+//      `module.exports = {...}` 整体替换，加载时捕获的那个对象永远停在空壳。
+// 后果不是报错而是**静默降级**：makeParam 抛 TypeError 被 call() 的重试/吞错链路吃掉，
+// 4 条策略全失败，最终只留一行 all-strategies-failed，表现为"网易云永远搜不到歌"。
+// 因此这里坚持**调用时**再 require（Node 有模块缓存，成本只是一次 Map 查找）。
+// 回归守卫：test/netease-cold-start.test.js 用独立子进程复现冷启动顺序。
+function cookieHelper() {
+  return require('../cookie');
+}
 
 /** 上游是否存在该 API。取代调用点直接对第三方库做 typeof 内省。 */
 function isKnown(apiName) {
@@ -94,7 +107,7 @@ async function searchNetease(keyword, limit, req) {
 
   const makeParam = (withCookie) => {
     const base = { keywords: keyword, limit, type: 1 }
-    return withCookie ? withNeteaseCookie(base, req) : base
+    return withCookie ? cookieHelper().withNeteaseCookie(base, req) : base
   }
 
   // 策略链: cloudsearch(cookie) → search(cookie) → cloudsearch(无cookie) → search(无cookie)
