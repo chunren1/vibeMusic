@@ -196,6 +196,11 @@ jobs:
           cache: npm
           cache-dependency-path: musicapi/package-lock.json
 
+      # 运行时契约（2026-10-27 审计 P2）：engines / Dockerfile 的 FROM node:<major> /
+      # 当前 runner 三处主版本必须一致。此前只有人肉约定，没人核对。
+      - name: Guard — node runtime contract (engines ↔ Dockerfile ↔ runner)
+        run: node scripts/verify-runtime.mjs
+
       - name: Install dependencies
         run: npm ci
 
