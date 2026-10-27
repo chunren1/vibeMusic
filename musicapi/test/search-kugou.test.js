@@ -135,6 +135,9 @@ test('searchKugou 走 complexsearch v2：签名参数齐全，归一化形状正
   assert.equal(seenParams.page, '1');
   assert.equal(seenParams.pagesize, '20');
   assert.equal(seenParams.platform, 'AndroidFilter');
+  // 2026-10-27 实测：privilegefilter='0' 时热门词(周杰伦)前 20 条有 19 条 Privilege=10，
+  // 客户端过滤后只剩 1 条 → 表现为"酷狗搜不到歌"。必须发 '1'(只回免费档)。
+  assert.equal(seenParams.privilegefilter, '1');
   assert.match(seenParams.signature, /^[a-f0-9]{32}$/);
   assert.ok(typeof seenParams.mid === 'string' && seenParams.mid.length > 0);
 

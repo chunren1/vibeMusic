@@ -31,6 +31,11 @@ const {
 //     MixSongID/ID + HQFileHash/SQFileHash + Privilege + Duration(秒)。
 //     实测 Privilege 分布：0(免费)/8(免费,128k 可播)/10(付费, v5 status=2
 //     fail_process pkg/buy)；网关只收录 0/8(沿用 v3 时代 privilege 0/8 口径)。
+//     ⚠ 2026-10-27 实测：privilegefilter=0 时上游按热度原样返回，热门关键词
+//     (如「周杰伦」)前 20 条里 19 条 Privilege=10 → 客户端过滤后只剩 1 条，
+//     表现为"酷狗搜不到歌"。改发 privilegefilter=1(上游只回免费档)后同词 20/20
+//     全是 Privilege=0 且 v5/url 取链实测可播。故此处固定 '1'，客户端 0/8 过滤
+//     保留作兜底(上游若忽略该参数仍有第二道闸)。
 //   Play: GET https://gateway.kugou.com/v5/url (Lite profile)
 //     params {hash=lower(FileHash), album_id, album_audio_id=0(网关 routes.js 冻结,
 //       无 MixSongID 透传字段；上游接受 0, live 验证 status=1 且 CDN URL 内嵌
@@ -118,7 +123,7 @@ async function searchKugou(keyword, limit) {
       platform: 'AndroidFilter',
       tag: 'em',
       iscorrection: '1',
-      privilegefilter: '0',
+      privilegefilter: '1', // 只回免费档：'0' 时热门词前 20 条有 19 条付费(见顶部注释)
       area_code: '1',
       topicfull: '1',
     };
@@ -140,10 +145,17 @@ async function searchKugou(keyword, limit) {
       writeLog('degradation', 'WARN', `酷狗搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
-    return okOutcome('kugou', list
+    // 过滤后为空必须留痕：上游 status=1 且 lists 非空时，下面两道闸(Privilege/hash)
+    // 若把整页滤光，过去是**静默返回 []**（无任何日志），排查只能靠逐级手测。
+    const picked = list
       .filter((s) => s && /^[a-f0-9]{32}$/i.test(String(s.FileHash || s.hash || ''))
         && (s.Privilege === 0 || s.Privilege === 8))
-      .map(mapKugouSong));
+      .map(mapKugouSong);
+    if (picked.length === 0) {
+      writeLog('degradation', 'WARN', `酷狗搜索结果全被过滤: keyword=${logSafe(keyword)}, 上游 ${list.length} 条无一可播`);
+      return [];
+    }
+    return okOutcome('kugou', picked);
   } catch (error) {
     writeLog('degradation', 'ERROR', `酷狗搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
     return failOutcome('kugou', error.message);

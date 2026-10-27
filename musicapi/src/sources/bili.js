@@ -147,11 +147,18 @@ async function searchBili(keyword, limit) {
       writeLog('degradation', 'WARN', `B站搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
-    return okOutcome('bili', list
+    // 同酷狗：上游 code=0 且 result 非空，但 bvid/单曲两道过滤把整页滤光时
+    // 过去是静默返回 []，排查只能逐级手测 —— 这里补一条可观测信号。
+    const picked = list
       .filter((s) => s && /^BV[a-zA-Z0-9]+$/.test(String(s.bvid || '')))
       .map(mapBiliVideo)
       .filter(isBiliSingle)
-      .slice(0, limit));
+      .slice(0, limit);
+    if (picked.length === 0) {
+      writeLog('degradation', 'WARN', `B站搜索结果全被过滤: keyword=${logSafe(keyword)}, 上游 ${list.length} 条无一单曲`);
+      return [];
+    }
+    return okOutcome('bili', picked);
   } catch (error) {
     writeLog('degradation', 'ERROR', `B站搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
     return failOutcome('bili', error.message);
