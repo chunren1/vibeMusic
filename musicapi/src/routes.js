@@ -3,7 +3,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
+// 网易云源适配器：全仓唯一 require 第三方库的地方（隔离墙，见 src/sources/netease.js）。
+// 测试仍可直接改库对象上的方法（同一 module 实例），此处每次调用都取当前属性值。
+const netease = require('./sources/netease');
+// 每源熔断闸门 + /source-health 快照（口径见 src/source-health.js 文件头）
+const sourceHealth = require('./source-health');
 const { upstreamGet, describeUrl } = require('./upstream');
 
 const config = require('./config-loader');
@@ -315,8 +319,8 @@ function registerRoutes(app) {
 
       // ---- 并行请求上游 ----
       const [neteaseSongs, qqSongs] = await Promise.all([
-        searchNetease(kw, maxRank, req),
-        searchQQ(kw, maxRank),
+        sourceHealth.guard('netease', () => searchNetease(kw, maxRank, req)),
+        sourceHealth.guard('qq', () => searchQQ(kw, maxRank)),
       ]);
 
       // ---- 计算得分 ----
@@ -447,6 +451,23 @@ function registerRoutes(app) {
     });
   });
 
+  /**
+   * 每源健康度 + 熔断状态（与 /cookie-status 同一鉴权口径：只给运维/内部调用）。
+   * 为什么需要它：源挂了以前只能靠「用户说搜不到歌」或翻 degradation 日志发现；
+   * 熔断打开后搜索会静默少一个源，没有这个端点就完全不可见。
+   */
+  app.get('/source-health', (req, res) => {
+    if (!canRefreshCookie(req)) {
+      writeLog('access', 'WARN', `[/source-health] 拒绝非授权访问: ${clientIp(req)}`);
+      return res.status(403).json({ code: 403, message: 'Forbidden', data: null });
+    }
+    res.json({
+      code: 200,
+      data: sourceHealth.snapshot(),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // 网易共享 Cookie 按需快切（内网调用：后端共享链路 need-login 时触发）。
   // 同门禁（令牌或无令牌本机）；先复探当前槽位，健康不切换；响应只含 switched/active，绝不含凭证。
   // force=true（查询串或 JSON body）走"能力感知"强制快切：重探两槽位的登录 + 播放能力，
@@ -476,7 +497,7 @@ function registerRoutes(app) {
       if (!id) return res.status(400).json({ code: 400, message: 'id is required' });
       if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
       const result = await withTimeout(
-        NeteaseCloudMusicApi.lyric(cookie.withNeteaseCookie({ id }, req)),
+        netease.invoke('lyric', cookie.withNeteaseCookie({ id }, req)),
         UPSTREAM_TIMEOUT, 'netease/lyric'
       );
       sendUpstreamBody(res, result.body);
@@ -493,7 +514,7 @@ function registerRoutes(app) {
       if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
       if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
       const result = await withTimeout(
-        NeteaseCloudMusicApi.song_url_v1(cookie.withNeteaseCookie({ id, level }, req)),
+        netease.invoke('song_url_v1', cookie.withNeteaseCookie({ id, level }, req)),
         UPSTREAM_TIMEOUT, 'netease/song_url_v1'
       );
       sendUpstreamBody(res, result.body);
@@ -507,7 +528,7 @@ function registerRoutes(app) {
     try {
       const limit = firstQuery(req.query.limit) ?? 10;
       const result = await withTimeout(
-        NeteaseCloudMusicApi.personalized(cookie.withNeteaseCookie({ limit }, req)),
+        netease.invoke('personalized', cookie.withNeteaseCookie({ limit }, req)),
         UPSTREAM_TIMEOUT, 'netease/personalized'
       );
       sendUpstreamBody(res, result.body);
@@ -525,7 +546,7 @@ function registerRoutes(app) {
       const limit = firstQuery(req.query.limit) ?? 20;
       if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
       // searchNetease 内部已有 SEARCH_TOTAL_BUDGET 总预算（12s 降级为空），此处不再叠加外层超时
-      const songs = await searchNetease(keyword, parseInt(limit), req);
+      const songs = await sourceHealth.guard('netease', () => searchNetease(keyword, parseInt(limit), req));
       res.json({ code: 200, data: songs });
     } catch (error) {
       writeLog('api', 'ERROR', `[/netease/search] ${error.message}`);
@@ -538,7 +559,7 @@ function registerRoutes(app) {
       const keyword = queryStr(req.query.keyword);
       const limit = firstQuery(req.query.limit) ?? 20;
       if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
-      const songs = await searchQQ(keyword, parseInt(limit));
+      const songs = await sourceHealth.guard('qq', () => searchQQ(keyword, parseInt(limit)));
       res.json({ code: 200, data: songs });
     } catch (error) {
       writeLog('api', 'ERROR', `[/qq/search] ${error.message}`);
@@ -551,7 +572,7 @@ function registerRoutes(app) {
       const keyword = queryStr(req.query.keyword);
       const limit = firstQuery(req.query.limit) ?? 20;
       if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
-      const songs = await searchMigu(keyword, parseInt(limit));
+      const songs = await sourceHealth.guard('migu', () => searchMigu(keyword, parseInt(limit)));
       res.json({ code: 200, data: songs });
     } catch (error) {
       writeLog('api', 'ERROR', `[/migu/search] ${error.message}`);
@@ -589,7 +610,7 @@ function registerRoutes(app) {
       if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
       if (keyword.length > 100) return res.status(400).json({ code: 400, message: 'keyword too long (max 100 chars)' });
       const safeLimit = Math.min(Math.max(1, parseInt(limit) || 20), 50);
-      const songs = await searchKugou(keyword, safeLimit);
+      const songs = await sourceHealth.guard('kugou', () => searchKugou(keyword, safeLimit));
       res.json({ code: 200, message: 'success', data: songs });
     } catch (error) {
       writeLog('api', 'ERROR', `[/kugou/search] ${error.message}`);
@@ -639,7 +660,7 @@ function registerRoutes(app) {
       if (!keyword) return res.status(400).json({ code: 400, message: 'keyword required' });
       if (keyword.length > 100) return res.status(400).json({ code: 400, message: 'keyword too long (max 100 chars)' });
       const safeLimit = Math.min(Math.max(1, parseInt(limit) || 20), 50);
-      const songs = await searchBili(keyword, safeLimit);
+      const songs = await sourceHealth.guard('bili', () => searchBili(keyword, safeLimit));
       res.json({ code: 200, message: 'success', data: songs });
     } catch (error) {
       writeLog('api', 'ERROR', `[/bili/search] ${error.message}`);
@@ -709,9 +730,9 @@ function registerRoutes(app) {
         return res.status(403).json({ code: 403, message: `API ${apiName} not allowed` });
       }
       const params = cookie.withNeteaseCookie(sanitizeNeteaseParams(req.query, req.body), req);
-      if (typeof NeteaseCloudMusicApi[apiName] === 'function') {
+      if (netease.isKnown(apiName)) {
         const result = await withTimeout(
-          NeteaseCloudMusicApi[apiName](params),
+          netease.invoke(apiName, params),
           UPSTREAM_TIMEOUT, `netease/${apiName}`
         );
         sendUpstreamBody(res, result.body);

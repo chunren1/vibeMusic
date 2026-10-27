@@ -93,6 +93,38 @@ test('G3 无令牌本机语义不变：localhost 仍可调 cookie-status', async
   assert.equal(r.body.code, 200);
 });
 
+// ---- 2026-10-27 新增 /source-health：与 /cookie-status 共用 canRefreshCookie 门禁 ----
+// 为什么放这里：这个文件已经起好了 app + 令牌开关，/source-health 的鉴权口径与
+// /cookie-status 完全一致，复制一份 harness 只会让两处慢慢漂移。
+test('/source-health 匿名 403：{code,message,data} 同形', async () => {
+  const r = await fetch(`${base}/source-health`);
+  assert.equal(r.status, 403);
+  assert.deepEqual(await r.json(), { code: 403, message: 'Forbidden', data: null });
+});
+
+test('/source-health 带令牌 200：固定 5 个源 + summary 自洽', async () => {
+  const r = await fetch(`${base}/source-health?token=t-secret`);
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.code, 200);
+  const { summary, sources } = body.data;
+  assert.deepEqual(sources.map((s) => s.name), ['netease', 'qq', 'migu', 'kugou', 'bili']);
+  for (const s of sources) {
+    assert.ok(['closed', 'degraded', 'open'].includes(s.state), `${s.name} 状态非法: ${s.state}`);
+    assert.equal(typeof s.consecutiveFailures, 'number');
+    assert.equal(typeof s.openRemainingMs, 'number');
+  }
+  assert.equal(summary.total, sources.length);
+  assert.equal(summary.open + summary.degraded + summary.healthy, summary.total);
+});
+
+test('/source-health 无令牌本机语义不变（与 cookie-status 一致）', async () => {
+  delete process.env.MUSICAPI_ADMIN_TOKEN;
+  const r = await fetch(`${base}/source-health`);
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).code, 200);
+});
+
 // ---- G4：脱敏函数（键清单硬编码 + 与生产导出一致性；形态含 k=v 与 JSON） ----
 const KNOWN_SENSITIVE_KEYS = [
   'uin', 'qqmusic_key', 'MUSIC_U', 'qm_keyst',

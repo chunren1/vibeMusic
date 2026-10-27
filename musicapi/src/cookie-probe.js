@@ -14,7 +14,8 @@
 // 该库不支持 AbortSignal（实测 request.js 无 signal 透传），只能用 Promise.race；
 // 超时后把状态标记为 failed(timeout)，并对上游 promise 挂 noop catch，
 // 防止迟到 reject 变成 unhandledRejection 打断进程。
-const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
+// 走隔离墙，不直接碰第三方库（见 src/sources/netease.js）
+const netease = require('./sources/netease');
 const config = require('./config-loader');
 const { writeLog } = require('./logger');
 
@@ -143,7 +144,7 @@ async function probeNeteaseLogin(cookieStr, opts = {}) {
   const startedAt = Date.now();
   try {
     const res = await withHardTimeout(
-      () => NeteaseCloudMusicApi.cloudsearch({ keywords: '周杰伦', limit: 1, type: 1, cookie: cookieStr }),
+      () => netease.invoke('cloudsearch', { keywords: '周杰伦', limit: 1, type: 1, cookie: cookieStr }),
       timeoutMs, 'cloudsearch'
     );
     const ok = !!(res && res.body && res.body.code === 200 && res.body.result);
@@ -169,7 +170,7 @@ async function probeNeteasePlayback(cookieStr, opts = {}) {
   const startedAt = Date.now();
   try {
     const res = await withHardTimeout(
-      () => NeteaseCloudMusicApi.song_url_v1({ id, level, cookie: cookieStr }),
+      () => netease.invoke('song_url_v1', { id, level, cookie: cookieStr }),
       timeoutMs, 'song_url_v1'
     );
     const ok = isPlayableUrlPayload(res && res.body);

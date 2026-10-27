@@ -1,29 +1,22 @@
-// ==================== 上游 API 搜索代理 ====================
 const crypto = require('crypto');
 
 /** 日志单行化：剥离 CR/LF，防止上游/用户输入伪造日志行（CWE-117）。 */
 function logSafe(value) {
   return String(value == null ? '' : value).replace(/[\r\n]+/g, ' ');
 }
-const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { LRUCache } = require('lru-cache');
 const { withNeteaseCookie, getQQCookieString } = require('./cookie');
 const { writeLog } = require('./logger');
 const { upstreamGet } = require('./upstream');
+// 每源熔断/健康度记账（口径见 src/source-health.js 文件头）
+const { okOutcome, failOutcome } = require('./source-health');
+// 超时常量与 withTimeout 已下沉到 sources/shared.js（避免 sources/* ↔ search.js 循环 require）；
+// 这里 re-export 保持旧契约 —— routes.js 仍从 './search' 取这两个名字。
+const { UPSTREAM_TIMEOUT, SEARCH_TOTAL_BUDGET, withTimeout } = require('./sources/shared');
+// 网易云源适配器（全仓唯一 require 第三方库的地方）。searchNetease 的实现已搬过去，
+// 这里 re-export 保持旧契约 —— routes.js / cookie.js 仍从 './search' 取。
+const { searchNetease } = require('./sources/netease');
 
-// ==================== 上游 API 超时控制 ====================
-const UPSTREAM_TIMEOUT = 10000; // 10s（单次上游调用上限）
-// 搜索策略链总预算：网易云 4 策略串行（各 10s）最坏约 40s，
-// 此处设总预算 12s 早退——降级顺序不变，只是超时后不再继续试剩余策略。
-const SEARCH_TOTAL_BUDGET = 12000; // 12s
-
-function withTimeout(promise, ms, label) {
-  let timer
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Upstream timeout: ${label} (${ms}ms)`)), ms)
-  })
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer))
-}
 
 // ==================== LRU 缓存（使用 lru-cache 库） ====================
 
@@ -47,110 +40,6 @@ const urlCache = new LRUCache({
   updateAgeOnGet: false,
 });
 
-// ==================== 辅助: 搜索函数 (增强版) ====================
-
-async function searchNetease(keyword, limit, req) {
-  const extractSongs = (result) => {
-    if (!result || result.body.code !== 200) return null
-    const songs = result.body?.result?.songs || result.body?.result?.songs
-    if (!songs?.length) return null
-    return songs.map(s => {
-      // 封面提取：兼容多种字段 + HTTP→HTTPS 升级(移动端HTTPS页面不拦截)
-      let cover = ''
-      if (s.al && s.al.picUrl) {
-        cover = s.al.picUrl
-      } else if (s.album && s.album.picUrl) {
-        cover = s.album.picUrl
-      } else if (s.album && s.album.blurPicUrl) {
-        cover = s.album.blurPicUrl
-      } else if (s.al && s.al.pic_str) {
-        cover = `https://p2.music.126.net/${s.al.pic_str}.jpg`
-      } else if (s.al && s.al.pic) {
-        cover = `https://p2.music.126.net/${s.al.pic}.jpg`
-      }
-      // 网易云 CDN 支持 HTTPS，强制升级避免移动端混合内容拦截
-      if (cover.startsWith('http://')) {
-        cover = cover.replace('http://', 'https://')
-      }
-      // 译名/别名：网易把中文译名放在 tns（翻译名），alia 多为空。
-      // 不透传会让「中文搜英文歌」彻底失配（原版曲名是英文，中文查询命中不了）。
-      const aliasList = []
-        .concat(Array.isArray(s.tns) ? s.tns : [])
-        .concat(Array.isArray(s.alia) ? s.alia : [])
-        .map(x => String(x == null ? '' : x).trim())
-        .filter(Boolean)
-      return {
-        id: s.id, name: s.name,
-        artists: (s.ar || s.artists || []).map(a => a.name).join(' / ') || '未知歌手',
-        album: s.al ? s.al.name : (s.album ? s.album.name : ''),
-        cover,
-        duration: s.dt || 0,
-        vip: (s.fee === 1 || s.fee === 4 || s.fee === 8 || s.st === -1),
-        alias: aliasList,
-        _raw: { playCount: s.pop || 0 },
-      }
-    })
-  }
-
-  // 尝试一个 API 调用（带重试）
-  const call = async (apiFn, params, name) => {
-    for (let i = 0; i <= 2; i++) {
-      try {
-        const r = await apiFn(params)
-        const songs = extractSongs(r)
-        if (songs) return songs
-        if (i < 2) await new Promise(r => setTimeout(r, 500 * (i + 1)))
-      } catch (e) {
-        if (i < 2) {
-          await new Promise(r => setTimeout(r, 500 * (i + 1)))
-        } else {
-          throw e
-        }
-      }
-    }
-    return []
-  }
-
-  const makeParam = (withCookie) => {
-    const base = { keywords: keyword, limit, type: 1 }
-    return withCookie ? withNeteaseCookie(base, req) : base
-  }
-
-  // 策略链: cloudsearch(cookie) → search(cookie) → cloudsearch(无cookie) → search(无cookie)
-  // 总预算 SEARCH_TOTAL_BUDGET 内串行降级，超时即早退（降级顺序不变）。
-  const strategies = [
-    ['cloudsearch', true],
-    ['search', true],
-    ['cloudsearch', false],
-    ['search', false],
-  ]
-
-  const runStrategies = (async () => {
-    for (const [fnName, withCookie] of strategies) {
-      const fn = NeteaseCloudMusicApi[fnName]
-      if (!fn) continue
-      try {
-        const result = await withTimeout(
-          call(fn, makeParam(withCookie), fnName + (withCookie ? '+cookie' : '-cookie')),
-          UPSTREAM_TIMEOUT, 'netease/' + fnName
-        )
-        if (result.length > 0) return result
-      } catch (e) {
-        // 继续下一种策略（仅所有策略失败时打印一次）
-      }
-    }
-
-    console.error('[Netease] 所有搜索策略均失败，请检查 Cookie / 网络')
-    return []
-  })()
-
-  try {
-    return await withTimeout(runStrategies, SEARCH_TOTAL_BUDGET, 'netease/search-total')
-  } catch (e) {
-    writeLog('degradation', 'ERROR', `网易云搜索总预算超时(${SEARCH_TOTAL_BUDGET}ms)，降级为空: ${e.message}`)
-    return []
-  }
-}
 
 function mapQQSong(s) {
   let cover = '';
@@ -199,12 +88,12 @@ async function searchQQ(keyword, limit) {
     const list = resp.data?.search?.data?.body?.song?.list;
     if (!Array.isArray(list) || list.length === 0) {
       writeLog('degradation', 'WARN', `QQ搜索异常: code=${resp.data?.code}, keyword=${logSafe(keyword)}`);
-      return [];
+      return failOutcome('qq', 'upstream-code=' + (resp.data?.code ?? 'null'));
     }
-    return list.map(mapQQSong);
+    return okOutcome('qq', list.map(mapQQSong));
   } catch (error) {
     writeLog('degradation', 'ERROR', `QQ搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
-    return [];
+    return failOutcome('qq', error.message);
   }
 }
 
@@ -302,17 +191,17 @@ async function searchMigu(keyword, limit) {
     const body = resp.data;
     if (!body || body.code !== '000000') {
       writeLog('degradation', 'WARN', `咪咕搜索异常: code=${body && body.code}, keyword=${logSafe(keyword)}`);
-      return [];
+      return failOutcome('migu', 'upstream-code=' + (body && body.code));
     }
     const list = body.songResultData && body.songResultData.result;
     if (!Array.isArray(list) || list.length === 0) {
       writeLog('degradation', 'WARN', `咪咕搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
-    return list.map(mapMiguSong);
+    return okOutcome('migu', list.map(mapMiguSong));
   } catch (error) {
     writeLog('degradation', 'ERROR', `咪咕搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
-    return [];
+    return failOutcome('migu', error.message);
   }
 }
 
@@ -540,20 +429,20 @@ async function searchKugou(keyword, limit) {
     const body = resp.data;
     if (!body || body.status !== 1) {
       writeLog('degradation', 'WARN', `酷狗搜索异常: status=${body && body.status}, keyword=${logSafe(keyword)}`);
-      return [];
+      return failOutcome('kugou', 'upstream-status=' + (body && body.status));
     }
     const list = body.data && body.data.lists;
     if (!Array.isArray(list) || list.length === 0) {
       writeLog('degradation', 'WARN', `酷狗搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
-    return list
+    return okOutcome('kugou', list
       .filter((s) => s && /^[a-f0-9]{32}$/i.test(String(s.FileHash || s.hash || ''))
         && (s.Privilege === 0 || s.Privilege === 8))
-      .map(mapKugouSong);
+      .map(mapKugouSong));
   } catch (error) {
     writeLog('degradation', 'ERROR', `酷狗搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
-    return [];
+    return failOutcome('kugou', error.message);
   }
 }
 
@@ -1096,21 +985,21 @@ async function searchBili(keyword, limit) {
     const body = resp.data;
     if (!body || body.code !== 0) {
       writeLog('degradation', 'WARN', `B站搜索异常: code=${body && body.code}, keyword=${logSafe(keyword)}`);
-      return [];
+      return failOutcome('bili', 'upstream-code=' + (body && body.code));
     }
     const list = body.data && body.data.result;
     if (!Array.isArray(list) || list.length === 0) {
       writeLog('degradation', 'WARN', `B站搜索空结果: keyword=${logSafe(keyword)}`);
       return [];
     }
-    return list
+    return okOutcome('bili', list
       .filter((s) => s && /^BV[a-zA-Z0-9]+$/.test(String(s.bvid || '')))
       .map(mapBiliVideo)
       .filter(isBiliSingle)
-      .slice(0, limit);
+      .slice(0, limit));
   } catch (error) {
     writeLog('degradation', 'ERROR', `B站搜索失败: keyword=${logSafe(keyword)}, ${logSafe(error.message)}`);
-    return [];
+    return failOutcome('bili', error.message);
   }
 }
 

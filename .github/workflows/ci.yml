@@ -259,6 +259,7 @@ jobs:
             test/search-kugou.test.js \
             test/search-migu.test.js \
             test/search-qq.test.js \
+            test/source-health.test.js \
             test/upstream.test.js \
             test/vip-health-metrics.test.js
 
