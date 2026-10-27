@@ -108,6 +108,10 @@ services:
       # 音乐平台 Cookie（从 .env 注入）
       MUSIC_QQ_COOKIE: ${MUSIC_QQ_COOKIE:-{}}
       MUSIC_NETEASE_COOKIE: ${MUSIC_NETEASE_COOKIE:-}
+      # QQ 源总开关（2026-10-27 会员到期后停用）：false/0/off 关闭，默认开启。
+      # 关闭只影响搜索聚合（/source-health 显示 disabled），端点/取链/歌词代码全部保留；
+      # 充值后改回 true 重启 musicapi 即恢复，无需改代码。
+      MUSICAPI_QQ_ENABLED: ${MUSICAPI_QQ_ENABLED:-true}
     ports:
       - "127.0.0.1:3000:3000"
     networks:
