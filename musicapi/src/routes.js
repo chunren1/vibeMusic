@@ -277,6 +277,10 @@ async function fetchQQLyric(songmid) {
 }
 
 function registerRoutes(app) {
+  // 停用源标注（配置在进程内不可变，注册时算一次即可）。
+  // 让 /source-health 能把「人主动关的源」与「上游坏了的源」区分开。
+  sourceHealth.setDisabledSources(config.isQQEnabled() ? [] : ['qq']);
+
   // ==================== 聚合搜索主入口 ====================
 
   /**

@@ -8,6 +8,7 @@ const { LRUCache } = require('lru-cache');
 const { withNeteaseCookie, getQQCookieString } = require('./cookie');
 const { writeLog } = require('./logger');
 const { upstreamGet } = require('./upstream');
+const config = require('./config-loader');
 // 每源熔断/健康度记账（口径见 src/source-health.js 文件头）
 const { okOutcome, failOutcome } = require('./source-health');
 // 超时常量与 withTimeout 已下沉到 sources/shared.js（避免 sources/* ↔ search.js 循环 require）；
@@ -77,6 +78,12 @@ function buildQQSearchRequest(keyword, limit) {
 }
 
 async function searchQQ(keyword, limit) {
+  // QQ 源总开关（2026-10-27）：会员到期后该源大量曲目不可播，运营上先整体跳过。
+  // 拦在这里而不是 routes 调用点 —— 聚合搜索与单源端点 /qq/search 都走本函数，一处覆盖。
+  // 代码、端点、取链、歌词全部保留；MUSICAPI_QQ_ENABLED=true 重启即恢复。
+  // 刻意不记账（既不算成功也不算失败）：停用不是故障，不该污染熔断计数与告警。
+  if (!config.isQQEnabled()) return [];
+
   const { url, params, headers } = buildQQSearchRequest(keyword, limit);
   try {
     const resp = await upstreamGet(url, {

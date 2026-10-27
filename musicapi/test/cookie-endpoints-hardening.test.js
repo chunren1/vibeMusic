@@ -110,12 +110,12 @@ test('/source-health 带令牌 200：固定 5 个源 + summary 自洽', async ()
   const { summary, sources } = body.data;
   assert.deepEqual(sources.map((s) => s.name), ['netease', 'qq', 'migu', 'kugou', 'bili']);
   for (const s of sources) {
-    assert.ok(['closed', 'degraded', 'open'].includes(s.state), `${s.name} 状态非法: ${s.state}`);
+    assert.ok(['closed', 'degraded', 'open', 'disabled'].includes(s.state), `${s.name} 状态非法: ${s.state}`);
     assert.equal(typeof s.consecutiveFailures, 'number');
     assert.equal(typeof s.openRemainingMs, 'number');
   }
   assert.equal(summary.total, sources.length);
-  assert.equal(summary.open + summary.degraded + summary.healthy, summary.total);
+  assert.equal(summary.open + summary.degraded + summary.disabled + summary.healthy, summary.total);
 });
 
 test('/source-health 无令牌本机语义不变（与 cookie-status 一致）', async () => {

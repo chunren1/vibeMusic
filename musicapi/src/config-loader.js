@@ -53,6 +53,15 @@ module.exports = {
     true
   ),
 
+  // QQ 音乐源开关（2026-10-27）。QQ 会员到期后该源大量曲目不可播，
+  // 先把整个源停用（聚合搜索不再混入 QQ 结果），**代码与端点全部保留**：
+  // 充值后把 MUSICAPI_QQ_ENABLED 设回 true 重启容器即可恢复，不需要改代码。
+  // 做成函数而不是静态值：测试需要在同进程内切换开关，静态值会读到 require 时的旧环境。
+  isQQEnabled: () => parseBool(
+    localConfig.qqEnabled !== undefined ? localConfig.qqEnabled : process.env.MUSICAPI_QQ_ENABLED,
+    true,
+  ),
+
   // 允许的网易云 API 方法白名单
   neteaseApis: localConfig.neteaseApis || [
     'cloudsearch', 'search', 'song_url_v1', 'song_detail', 'lyric',

@@ -20,6 +20,16 @@ const SOURCES = ['netease', 'qq', 'migu', 'kugou', 'bili'];
 
 const state = new Map();
 
+// 被运营停用的源（如 QQ 会员到期后整体跳过）。与"熔断"分开表示：
+// 熔断是上游坏了（会自动恢复），disabled 是人主动关的（不会自动恢复）。
+// 不放进 state：它不是运行期状态，是配置，reset() 不该清掉。
+let disabledSources = new Set();
+
+/** 标注停用源（启动时按配置调一次）。传空数组即全部恢复。 */
+function setDisabledSources(names = []) {
+  disabledSources = new Set(names);
+}
+
 function blank() {
   return {
     consecutiveFailures: 0,
@@ -107,9 +117,10 @@ function snapshot(now = Date.now()) {
   const rows = SOURCES.map((name) => {
     const s = state.get(name) || blank();
     const open = !!(s.openedAt && now - s.openedAt < OPEN_MS);
+    const disabled = disabledSources.has(name);
     return {
       name,
-      state: open ? 'open' : (s.consecutiveFailures > 0 ? 'degraded' : 'closed'),
+      state: disabled ? 'disabled' : (open ? 'open' : (s.consecutiveFailures > 0 ? 'degraded' : 'closed')),
       consecutiveFailures: s.consecutiveFailures,
       openRemainingMs: open ? Math.max(0, OPEN_MS - (now - s.openedAt)) : 0,
       lastError: s.lastError,
@@ -120,12 +131,13 @@ function snapshot(now = Date.now()) {
       totalFail: s.totalFail,
     };
   });
-  const openCount = rows.filter((r) => r.state === 'open').length;
   return {
     summary: {
       total: rows.length,
-      open: openCount,
+      open: rows.filter((r) => r.state === 'open').length,
       degraded: rows.filter((r) => r.state === 'degraded').length,
+      disabled: rows.filter((r) => r.state === 'disabled').length,
+      // healthy 只数真正在服役且正常的源 —— 停用的不算"健康"，否则运维会被误导。
       healthy: rows.filter((r) => r.state === 'closed').length,
     },
     sources: rows,
@@ -147,5 +159,6 @@ module.exports = {
   okOutcome,
   failOutcome,
   snapshot,
+  setDisabledSources,
   reset,
 };

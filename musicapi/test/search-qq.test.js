@@ -85,6 +85,38 @@ test('QQ 网络异常 → 记为失败并返回空数组', async () => {
   } finally { restore(); }
 });
 
+// ---- QQ 源总开关（2026-10-27）：会员到期后整体跳过，代码保留 ----
+test('MUSICAPI_QQ_ENABLED=false 时 searchQQ 直接返回空且不打上游', async () => {
+  sourceHealth.reset();
+  let called = 0;
+  const restore = stubAxiosGet(async () => { called += 1; return { data: NEW_SAMPLE }; });
+  const prev = process.env.MUSICAPI_QQ_ENABLED;
+  process.env.MUSICAPI_QQ_ENABLED = 'false';
+  try {
+    assert.deepEqual(await searchQQ('周杰伦', 10), []);
+    assert.equal(called, 0, '停用后不应再打 QQ 上游');
+    assert.equal(qqFailures(), 0, '停用不是故障，不应记熔断失败');
+  } finally {
+    if (prev === undefined) delete process.env.MUSICAPI_QQ_ENABLED;
+    else process.env.MUSICAPI_QQ_ENABLED = prev;
+    restore();
+  }
+});
+
+test('MUSICAPI_QQ_ENABLED=true 时行为与默认一致（恢复只需改环境变量）', async () => {
+  sourceHealth.reset();
+  const restore = stubAxiosGet(async () => ({ data: NEW_SAMPLE }));
+  const prev = process.env.MUSICAPI_QQ_ENABLED;
+  process.env.MUSICAPI_QQ_ENABLED = 'true';
+  try {
+    assert.equal((await searchQQ('周杰伦', 10)).length, 2);
+  } finally {
+    if (prev === undefined) delete process.env.MUSICAPI_QQ_ENABLED;
+    else process.env.MUSICAPI_QQ_ENABLED = prev;
+    restore();
+  }
+});
+
 function stubAxiosGet(impl) {
   const orig = axios.get;
   axios.get = impl;

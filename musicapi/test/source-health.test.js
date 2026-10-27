@@ -19,6 +19,7 @@ const {
   okOutcome,
   failOutcome,
   snapshot,
+  setDisabledSources,
   reset,
 } = require('../src/source-health');
 
@@ -133,7 +134,33 @@ describe('快照口径', () => {
     assert.equal(summary.open, 1);
     assert.equal(summary.degraded, 1);
     assert.equal(summary.healthy, 3);
-    assert.equal(summary.open + summary.degraded + summary.healthy, summary.total);
+    assert.equal(summary.disabled, 0);
+    assert.equal(summary.open + summary.degraded + summary.disabled + summary.healthy, summary.total);
+  });
+
+  it('停用源标为 disabled，不计入 healthy（运维不该把它看成健康）', () => {
+    setDisabledSources(['qq']);
+    try {
+      const { summary, sources } = snapshot();
+      const qq = sources.find((s) => s.name === 'qq');
+      assert.equal(qq.state, 'disabled');
+      assert.equal(summary.disabled, 1);
+      assert.equal(summary.healthy, SOURCES.length - 1);
+      assert.equal(summary.open + summary.degraded + summary.disabled + summary.healthy, summary.total);
+    } finally {
+      setDisabledSources([]);
+    }
+  });
+
+  it('disabled 与 open 互斥：停用的源即使熔断打开也显示 disabled', () => {
+    for (let i = 0; i < FAIL_THRESHOLD; i++) recordOutcome('qq', false, { reason: 'x' });
+    assert.equal(isOpen('qq'), true);
+    setDisabledSources(['qq']);
+    try {
+      assert.equal(snapshot().sources.find((s) => s.name === 'qq').state, 'disabled');
+    } finally {
+      setDisabledSources([]);
+    }
   });
 
   it('reset 清空全部状态', () => {
