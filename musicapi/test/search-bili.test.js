@@ -138,6 +138,18 @@ test('parseBiliDuration 解析 M:SS/H:MM:SS/秒数，非法回 0', () => {
 });
 
 // ---- 搜索 ----
+test('searchBili 小 limit 过采到 20 条再本地截断（前排合集不至于滤光）', async () => {
+  const { calls, restore } = stubBili();
+  try {
+    const songs = await searchBili('少年', 3);
+    const searchCall = calls.find((c) => c.url.includes('/search/type'));
+    assert.equal(searchCall.params.page_size, 20);
+    assert.ok(songs.length <= 3);
+  } finally {
+    restore();
+  }
+});
+
 test('searchBili 归一化形状：BV 过滤/em 去标签/封面 https/时长毫秒', async () => {
   const { restore, calls } = stubBili();
   try {

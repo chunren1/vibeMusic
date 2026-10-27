@@ -48,6 +48,12 @@ const BILI_COMPILATION_KEYWORDS = ['串烧', '合集', '盘点', '连播', '联�
 //     bilibili-API-collect 同款无签模式已验证)，改发 tids:3 只收音乐区，
 //     从源头收窄到单曲形态；若上游忽略该参数，时长+标题规则仍独立生效。
 const BILI_MUSIC_TID = 3;
+// 上游单页上限 50。小 limit 时必须**过采**：单曲过滤发生在取回之后，
+// 而音乐区按 totalrank 排序时热门歌手前排全是合集/串烧（实测「周杰伦」page_size=5
+// 前 5 条全是 100 首合集 → 过滤后 0 条；page_size=20 才有 4 条单曲）。
+// 故取 max(limit, 20)，再在本地 slice 回 limit —— 否则 limit=3/5 会"看起来 B站没结果"。
+const BILI_MAX_PAGE_SIZE = 50;
+const BILI_MIN_FETCH = 20;
 
 /** 纯 bvid 或复合 bvid|cid(有 cid 跳过 view)。裸数字 aid 一律拒绝。 */
 function isBiliTrackId(id) {
@@ -122,13 +128,15 @@ function isBiliSingle(track) {
 async function searchBili(keyword, limit) {
   try {
     const buvid = await ensureBiliBuvid();
+    // 过采：过滤在本地做，小 limit 直发上游会因前排合集而全军覆没（见 BILI_MIN_FETCH 注释）
+    const fetchSize = Math.min(BILI_MAX_PAGE_SIZE, Math.max(Number(limit) || 0, BILI_MIN_FETCH));
     const resp = await upstreamGet(BILI_SEARCH_URL, {
       label: 'bili/search',
       params: {
         search_type: 'video',
         keyword,
         page: 1,
-        page_size: limit,
+        page_size: fetchSize,
         order: 'totalrank',
         duration: 0,
         tids: BILI_MUSIC_TID,
