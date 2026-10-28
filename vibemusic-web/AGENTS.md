@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE — vibemusic-web
 
 **Generated:** 2026-08-13
-**Scope:** Vue 3.5 + Vite 8 + Pinia + Vue Router + Axios 前端（纯 JS，有 eslint flat config + Vitest + vue-tsc 类型检查门禁，不做 TS 迁移）。Capacitor Android 打包（android/，appId com.vibemusic.app）。src/ 共 67 文件。
+**Scope:** Vue 3.5 + Vite 8 + Pinia + Vue Router + Axios 前端（纯 JS，有 eslint flat config + Vitest + vue-tsc 类型检查门禁，不做 TS 迁移）。原生 App 在独立仓 vibemusic-native。src/ 共 67 文件。
 
 ## STRUCTURE
 ```
@@ -25,7 +25,7 @@ src/
 4. **播放器架构**：`stores/player.js` 全局单例 Audio（window.vibeAudio）+ 队列/localStorage 持久化（vibe_queue/idx/current_song/playback_time/volume/play_mode，300ms 防抖+flushSave）+ error 重试 2 次切歌 + AudioContext Analyser（window._vibeAnalyser）+ song-change CustomEvent + 大量 window.vibe* 全局（vibePlay/vibeNext/vibeAddToQueue…）供移动端调用。**新增播放入口需同步暴露 window.* 全局**。后台播放：`composables/useAudioBackground.js`（Page Visibility 不暂停 + 三层切歌检测 + Media Session + Worker 心跳 + Wake Lock）。
 5. **store 职责**：auth=内存 token(禁 localStorage)+tryRestoreSession(httpOnly cookie→getMe→refresh)；favorite=favIds Set 乐观更新回滚；recommend=首页推荐(deviceId localStorage, 失败降级 getRandomSongs)。
 6. **测试**：Vitest 4 + @vue/test-utils 2，jsdom，`__tests__/` 与源码同目录（components/stores/views），`*.test.js` 命名，全局 mock 在 `src/test-setup.js`，Pinia 测试用 `setActivePinia(createPinia())`。脚本：npm test (vitest run) / test:watch / test:coverage。
-7. **其他**：v-lazy-img 指令懒加载（禁止同元素同时用 :style）；vite 生产 terser drop_console(log/info/debug)+manualChunks(vue-core/pinia/axios/capacitor/vendor)；移动端样式在 `assets/mobile-theme.css`（--m-* 变量）；搜索用 AbortController 取消旧请求防竞态。
+7. **其他**：v-lazy-img 指令懒加载（禁止同元素同时用 :style）；vite 生产 terser drop_console(log/info/debug)+manualChunks(vue-core/pinia/axios/vendor)；移动端样式在 `assets/mobile-theme.css`（--m-* 变量）；搜索用 AbortController 取消旧请求防竞态。
 
 ## ANTI-PATTERNS
 - 组件内直接 import axios 或 fetch —— 必须走 api/ 层。

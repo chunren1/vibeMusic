@@ -93,10 +93,6 @@ Thumbs.db
 .vscode/
 
 # Android 构建产物
-vibemusic-web/android/app/build/
-vibemusic-web/android/capacitor*
-vibemusic-web/android/.gradle/
-vibemusic-web/android/gradle/wrapper/gradle-wrapper.jar
 
 # ES IK 插件 (应在 Docker 构建时下载)
 docker-data/elasticsearch/plugins/
