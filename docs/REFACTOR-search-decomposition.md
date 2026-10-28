@@ -19,7 +19,7 @@
 5. 记录「试听 ≠ 可播」判定点的**真实坐标**（已有的口头描述是错的，见 §5）；
 6. 记录停手判据与时间线。
 
-**为什么新建本文件而不是续写既有文档**：已 grep `docs/` 全部 markdown，`OPTIMIZATION-PLAN.md`、`architecture-review-2026-09-16.md`、各 `code-review-round*.md`、`musicapi-gateway-review-report-2026-09-14.md` 均**不含**本主题（关键词 `SourceWeightRegistry` / `SearchResultMerger` / `SearchFanout` / `SearchCacheGate` / `PlatformSongFetcher` / `HotKeywordPrewarmer` / `SearchMetrics` 在整个仓库零命中；`architecture-review-2026-09-16.md:212` 反而建议把 `SongCacheService` **并回** `SongSearchService`）。`docs/archive/PROJECT-AUDIT.md` 只提过线程池问题，与本主题无关。故本次新建，命名沿用 `docs/` 现有的 `UPPER-PREFIX-topic.md` 风格（先例：`OPTIMIZATION-PLAN.md`、`TESTCASE-playback-chain.md`、`DEPLOY.md`）。
+**为什么新建本文件而不是续写既有文档**：已 grep `docs/` 全部 markdown（含 2026-09 批次的历史审查报告，该批已于 2026-10-28 清理，见 git 历史），`SourceWeightRegistry` / `SearchResultMerger` / `SearchFanout` / `SearchCacheGate` / `PlatformSongFetcher` / `HotKeywordPrewarmer` / `SearchMetrics` 在整个仓库零命中。`docs/archive/PROJECT-AUDIT.md` 只提过线程池问题，与本主题无关。故本次新建，命名沿用 `docs/` 现有的 `UPPER-PREFIX-topic.md` 风格（先例：`TESTCASE-playback-chain.md`、`DEPLOY.md`）。
 
 ---
 
