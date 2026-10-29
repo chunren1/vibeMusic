@@ -12,7 +12,6 @@
 | `nginx/security.conf` | `/etc/nginx/conf.d/security.conf` | `41134f2e…` | 生产安全头 + `limit_req_zone` / `limit_conn_zone` |
 | `cloudflared/config.yml` | `/etc/cloudflared/config.yml` | `2ecc5f2f…` | Cloudflare Tunnel ingress（cyk666.top / www / vibe / monitor / ai） |
 | `crontab.txt` | root `crontab -l` | — | 每日 03:30 备份、每 5 分钟看门狗 |
-| `systemd/blog.service` | `/etc/systemd/system/blog.service` | `5929b6cc…` | 博客 Next.js 服务。**保持 `disabled`，勿再启用**：nginx 无任何路由指向 3100，它常驻只会吃掉 ~300MB 内存，把蓝绿部署的 400MB 内存闸门压到需要 `--force`（2026-10-27 事故根因，见 `docs/2026-10-26-takeover-review.md` §8） |
 
 ## 重要：这些**不是** `nginx/nginx.conf`
 
@@ -20,6 +19,10 @@
 生产**不使用**它。本目录下的才是线上生效的系统 nginx 配置。
 两者监听端口、上游地址、证书、前端根目录都不同，**不要互相覆盖、不要合并**。
 详见 `docs/cloud-source-of-truth.md` §4 与 `nginx/README.md`。
+
+> **blog.service 已移除（2026-10-29）**：`/etc/systemd/system/blog.service`、`/opt/blog`、`/opt/blog-srv`
+> 均已从云上删除（该服务从 9 月部署起就没接过 nginx 路由，公网从未可达，只白吃 ~140MB 内存）。
+> 本目录不再有 `systemd/` 子目录；历史内容见 git 记录与 `docs/2026-10-26-takeover-review.md` §8。
 
 ## 发版（将来）
 

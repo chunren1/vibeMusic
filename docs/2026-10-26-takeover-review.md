@@ -111,6 +111,14 @@ curl -4 -s -o /dev/null -w '%{http_code}\n' 'https://vibe.cyk666.top/api/songs/s
 **遗留判断**：博客功能未下线（`/opt/blog`、`/opt/blog-srv` 都还在），只是不再常驻。
 真要恢复，必须先给它一条 nginx 路由 + 重新算内存账（1608MB 机器上 backend 768M + blog ~300M 会顶到闸门）。
 
+**2026-10-29 收尾：已彻底移除，不再"只是停用"**。用户确认该项目废弃，于是删掉
+`/etc/systemd/system/blog.service`（含 `daemon-reload`）、`/opt/blog`（601M，源码+SQLite+9 篇 md）、
+`/opt/blog-srv`（58M，Next.js standalone 产物），云上共回收 659M 磁盘；`3100` 确认无监听。
+删前两份归档在本地：`~/backups/blog-nextjs-server-20261029.tar.gz`（云上源码+data，1.1M）、
+`~/backups/blog-nextjs-20261029/blog-src.tar.gz`（本机同名项目，1.3M）。
+**注**：本机 `~/projects/blog` 那个 Next.js 项目从来没有 GitHub 仓库（无 remote），14 个提交只存在于本机，
+已随删除一并归档。
+
 ### 8.2 MySQL 迁移/运行账号拆分 → 已完成（Flyway 走 migrator，运行账号 DML-only）
 
 **做了什么**
