@@ -58,7 +58,7 @@ jobs:
       run:
         working-directory: vibeMusic-backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -104,7 +104,7 @@ jobs:
       run:
         working-directory: vibeMusic-backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 25 (与线上 runtime 对齐)
         uses: actions/setup-java@v4
@@ -129,7 +129,7 @@ jobs:
       run:
         working-directory: vibemusic-web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -188,7 +188,7 @@ jobs:
       run:
         working-directory: musicapi
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -293,7 +293,7 @@ jobs:
           --health-cmd="redis-cli ping"
           --health-interval=10s --health-timeout=5s --health-retries=10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -407,7 +407,7 @@ jobs:
       FLYWAY_PASSWORD: ci-lint-placeholder
       BACKUP_PASSWORD: ci-lint-placeholder
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 注意：compose 里的 ${VAR:?} 必填变量在 CI 无 .env 时必须给占位值，否则 config 直接 exit 1。
       # 2026-10-29 事故：0bc20fc 给 demo 加了 FLYWAY_PASSWORD 却没同步本 job 的 env，
@@ -537,7 +537,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
