@@ -8,8 +8,8 @@
 
 | 本目录文件 | 云上真实路径 | md5 | 说明 |
 |---|---|---|---|
-| `nginx/vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic` | `57c17b97…` | **生产 vhost**：`vibe.cyk666.top`，`127.0.0.1:8081` → 静态 `/var/www/vibemusic` + `/api/` → `127.0.0.1:8080` |
-| `nginx/security.conf` | `/etc/nginx/conf.d/security.conf` | `41134f2e…` | 生产安全头 + `limit_req_zone` / `limit_conn_zone` |
+| `nginx/vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic` | `719d8fc5…` | **生产 vhost**：`vibe.cyk666.top`，`127.0.0.1:8081` → 静态 `/var/www/vibemusic` + `/api/` → `127.0.0.1:8080` |
+| `nginx/security.conf` | `/etc/nginx/conf.d/security.conf` | `667bb81d…` | 生产安全头 + `limit_req_zone` / `limit_conn_zone` |
 | `cloudflared/config.yml` | `/etc/cloudflared/config.yml` | `2ecc5f2f…` | Cloudflare Tunnel ingress（cyk666.top / www / vibe / monitor / ai） |
 | `crontab.txt` | root `crontab -l` | — | 每日 03:30 备份、每 5 分钟看门狗 |
 
@@ -28,6 +28,16 @@
 
 严格按 `docs/cloud-source-of-truth.md` §6 执行：**先备份 → 传 → `nginx -t` → 才 `reload`**。
 顺序不能反；`nginx -t` 失败时**绝不** reload。
+
+## 2026-10-29 回填（云上 → 仓库）
+
+`nginx/vibemusic-site.conf` / `nginx/security.conf` 此前与云上漂移：云上 2026-10-26 审计时直接补的
+HSTS（`Strict-Transport-Security`，5 处）+ `limit_req_status 429` / `limit_conn_status 429`
+（默认 503 会被误判成服务故障）从未回到仓库。本次按「对账方向 = 云上 → 仓库」逐字节回填
+（125 / 18 行，md5 见上表），`scripts/reconcile-cloud.sh` 复核为 **0 项真漂移**。
+
+和下面「只读镜像」不矛盾：**发现漂移时以云上为准回填**（云上才是正在生效的配置）；
+**之后要改配置，仍然先在仓库改 → 评审 → 按 §6 上云**。改完当场同步仓库，否则下次对账又变 2 项漂移。
 
 ## 禁忌
 
