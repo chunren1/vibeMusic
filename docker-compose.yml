@@ -33,6 +33,11 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required see .env.example}
       MYSQL_DATABASE: vibemusic
+      # 供 02-users.sh 建号使用：与 backend 共用同一份口令，避免两处各写一遍
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
+      FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
+      # 只有带 mysql-backup 服务的栈才需要；不传则脚本跳过备份账号
+      BACKUP_PASSWORD: ${BACKUP_PASSWORD:?BACKUP_PASSWORD is required see .env.example}
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
       TZ: Asia/Shanghai
@@ -45,6 +50,8 @@ services:
       - ./docker-data/mysql/data:/var/lib/mysql
       # 初始化 SQL（首次启动自动执行）
       - ./vibeMusic-backend/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      # 首次初始化建号：vibemusic(DML) / vibemusic_migrator(DML+DDL)（可选 vibemusic_backup 只读）
+      - ./vibeMusic-backend/sql/init-users.sh:/docker-entrypoint-initdb.d/02-users.sh:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -168,8 +175,12 @@ services:
       TZ: Asia/Shanghai
       # 数据库
       DB_HOST: mysql
-      DB_USERNAME: root
+      # 运行账号只给 DML（2026-10-29 拆分，与 docker-compose.demo.yml 一致）
+      DB_USERNAME: ${DB_USERNAME:-vibemusic}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
+      # Flyway 用独立迁移账号（DDL+DML）；不配这两项 Flyway 会退回主 DataSource 账号 → 新迁移直接失败
+      SPRING_FLYWAY_USER: ${FLYWAY_USER:-vibemusic_migrator}
+      SPRING_FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
       # Redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -352,7 +363,8 @@ services:
     logging: *default-logging
     <<: *resources-small
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required see .env.example}
+      # 备份账号只读：不再用 root（生产已 DROP root@'%'，-u root 走 TCP 必失败）
+      MYSQL_PWD: ${BACKUP_PASSWORD:?BACKUP_PASSWORD is required see .env.example}
       TZ: Asia/Shanghai
     entrypoint: ["/bin/bash", "-c", "
       trap 'echo \"[BACKUP] 收到信号，正在退出...\"; exit 0' SIGTERM SIGINT;
@@ -364,7 +376,8 @@ services:
           ts=$$(date +%Y%m%d-%H%M%S);
           outfile=/backup/vibemusic-$$ts.sql.gz;
           set -o pipefail;
-          mysqldump -h mysql -u root -p$$MYSQL_ROOT_PASSWORD --single-transaction --routines --triggers vibemusic | gzip > $$outfile;
+          # 口令走 MYSQL_PWD 环境变量，不上命令行；--no-tablespaces 见脚本头注释
+          mysqldump -h mysql -u vibemusic_backup --single-transaction --routines --triggers --no-tablespaces vibemusic | gzip > $$outfile;
           dump_rc=$$?;
           set +o pipefail;
           if [ $$dump_rc -eq 0 ]; then

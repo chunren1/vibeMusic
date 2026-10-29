@@ -16,12 +16,17 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required see .env.example}
       MYSQL_DATABASE: vibemusic
+      # 供 02-users.sh 建号使用：与 backend 共用同一份口令，避免两处各写一遍
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
+      FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
       TZ: Asia/Shanghai
     ports:
       - "127.0.0.1:3306:3306"
     volumes:
       - ./docker-data/mysql/data:/var/lib/mysql
       - ./vibeMusic-backend/sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      # 首次初始化建号：vibemusic(DML) / vibemusic_migrator(DML+DDL)（可选 vibemusic_backup 只读）
+      - ./vibeMusic-backend/sql/init-users.sh:/docker-entrypoint-initdb.d/02-users.sh:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -122,6 +127,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
       # Flyway 用独立迁移账号（DDL+DML）；运行账号 vibemusic 已降为 DML-only。
       # 不配这两项时 Flyway 会退回主 DataSource 账号 → 有 DDL 需求时启动失败，故显式声明。
+      # 收益边界：防误操作 + 收窄 SQLi 的 DDL 面；**不等于**"被攻破也改不了表结构"——
+      # migrator 口令就在本容器 env 里，RCE 能读到。见 docs/2026-10-26-takeover-review.md §8.4。
       SPRING_FLYWAY_USER: ${FLYWAY_USER:-vibemusic_migrator}
       SPRING_FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
       REDIS_HOST: redis

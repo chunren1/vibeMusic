@@ -163,3 +163,69 @@ curl -4 -s -o /dev/null -w '%{http_code}\n' 'https://vibe.cyk666.top/api/songs/s
 - 部署脚本已提示：**以后别再跑 `docker compose up -d backend`**（容器名/端口冲突，且会重建容器）。
 - `vibemusic_migrator` 口令目前同时存在于云上 `.env`（600）与新容器 env 里，未进仓库；
   轮换时改 `ALTER USER` + 改 `.env` + 重新部署（`--set-env`）三处。
+
+### 8.3 外部复审 M1/M2 → 已修（2026-10-29）
+
+外部复审（范围 `0bc20fc`/`6cc5e24` + Android `774b35f`/`13a4451`/`a10cf97`/`2a985af`）提了两条 Medium，均已处理。
+
+#### M1 · 「最小权限收益」表述不成立 → 改口径，不拆 init job
+
+**问题**：`.env.example` 原文写「应用被攻破也改不了表结构」。这不成立 ——
+`FLYWAY_PASSWORD` 通过 `SPRING_FLYWAY_PASSWORD` 注入**后端同一个容器**，
+RCE 后 `cat /proc/self/environ` 就能拿到 migrator 凭证，照样 DDL。
+
+**已改**（表述层，不改架构）：
+
+| 位置 | 改动 |
+|---|---|
+| `.env.example` | 收益改为三条可验证的：① 防误操作（运行连接执行 DDL → `ERROR 1142`）② 收窄 SQLi 的 DDL 面（注入点复用运行账号连接池）③ 迁移失败/锁不占运行账号；并显式写「**不是**被攻破也改不了」+ 指向本节 |
+| `docker-compose.demo.yml` backend 段 | 同上，补两行「收益边界」注释 |
+| 云上 `docker-compose.demo.yml` | 同步（md5 `dabb1d4a…`，与仓库一致；未重启任何容器） |
+
+**为什么暂不拆独立 init job**：把 Flyway 拆成一次性容器（`flyway` 镜像 + `depends_on` + 迁移完退出）确实能
+让后端容器彻底不持有 DDL 凭证。但代价是：三份 compose 各加一个 service、本地 `up` 的启动顺序多一层依赖、
+迁移失败的错误要在另一个容器里看；而本项目 DDL 面很窄（11 个迁移，追加式，历史文件禁止改）。
+按「先要能用的结果」原则，先改口径留记录；要做时以本节为设计起点。
+
+#### M2 · 另两份 compose 仍是 root 账号 → 三份统一 + 建号脚本入库
+
+**问题**：`docker-compose.yml:171` / `docker-compose.full.yml:176` 还是 `DB_USERNAME: root` 且无
+`SPRING_FLYWAY_*`；`mysql-backup` 用 `mysqldump -h mysql -u root`（TCP）。账号拆分只落在 demo 一份，
+与「QQ 开关只改一份 compose」是同一类漂移。
+
+**事实修正（实测，不照抄复审结论）**：`mysql:8.4` 官方镜像**首次初始化默认会建 `root@'%'`** ——
+本地空卷起栈时 `-u root` 其实能连上。真实风险是另两条：
+1. **复用已 DROP `root@'%'` 的库**（生产就是这种状态）时，`docker-compose.yml` / `.full.yml` 直接 1045；
+2. 本地栈用 root 与生产权限模型不一致 —— 本地跑得通、线上才炸（这正是漂移的危害）。
+
+**已改**：
+
+| 文件 | 改动 |
+|---|---|
+| `vibeMusic-backend/sql/init-users.sh` | **新增**。initdb 时建三个号：`vibemusic`(DML) / `vibemusic_migrator`(DML+DDL) / `vibemusic_backup`(只读备份，`BACKUP_PASSWORD` 未传则跳过)。幂等：`CREATE USER IF NOT EXISTS` + `ALTER USER`，可反复跑（兼做口令同步） |
+| 三份 compose 的 `mysql` | 挂载 `02-users.sh`；传 `DB_PASSWORD`/`FLYWAY_PASSWORD`（`.full.yml`/`.yml` 另传 `BACKUP_PASSWORD`） |
+| `docker-compose.yml` / `.full.yml` backend | `DB_USERNAME: ${DB_USERNAME:-vibemusic}` + `SPRING_FLYWAY_USER/PASSWORD` |
+| 同上 `mysql-backup` | 改 `-u vibemusic_backup` + `--no-tablespaces`，口令走 `MYSQL_PWD` 环境变量（不上命令行） |
+| `scripts/create-db-users.sh` | **新增**。存量卷（`docker-data/mysql/data` 已存在，initdb 不再执行）一条命令补建账号：`./scripts/create-db-users.sh` |
+
+**验证（本机 mysql:8.4 + mysql:8.0 客户端容器，跨容器 TCP，2026-10-29）**：
+
+| 验证项 | 命令/现象 |
+|---|---|
+| initdb 自动建号 | 空卷起栈日志 `running /docker-entrypoint-initdb.d/02-users.sh` → `mysql.user` 出现 3 个账号 |
+| 运行账号不能 DDL | `CREATE TABLE vibemusic.zz_probe` → `ERROR 1142 (42000): CREATE command denied to user 'vibemusic'@'172.19.0.3'` |
+| 运行账号 DML 正常 | `SELECT count(*) FROM users` = 1；`INSERT`/`DELETE` 成功 |
+| 迁移账号能 DDL | `CREATE TABLE` / `ALTER TABLE ... ADD COLUMN` / `DROP TABLE` 全成功，探针表残留 0 |
+| 备份账号能 dump | `mysqldump --single-transaction --routines --triggers --no-tablespaces` → rc=0、stderr 空、2029 B |
+| **备份真能还原** | 解压灌进探针库：表数 6 = 原库 6、`users` 行数 1 = 1，探针库已 drop |
+| 缺 `--no-tablespaces` 会怎样 | 非 root 无 `PROCESS` 权限 → stderr 报 `Access denied ... for this operation when trying to dump tablespaces`（rc 仍 0，dump 不完整）—— 所以这项不能省 |
+| 存量卷补建 | 只有表没有账号的容器跑 `./scripts/create-db-users.sh` → 三个账号出现，`SHOW GRANTS` 与预期一致 |
+| 口令轮换 | 改 `DB_PASSWORD` 重跑脚本 → 新口令可登录、旧口令 `ERROR 1045` |
+| 三份 compose 可解析 | `docker compose --env-file <dummy> config --quiet` 三份均退出 0；渲染后 backend `DB_USERNAME=vibemusic`、`SPRING_FLYWAY_USER=vibemusic_migrator`，mysql-backup dump 命令为 `-u vibemusic_backup ... --no-tablespaces` |
+
+**没动的地方（有意）**：`scripts/backup-mysql.sh`（云上 cron 03:30 用，走容器内 socket + root）
+不动 —— 宿主机 root 操作自己的库不属于「应用最小权限」范畴；改它需要新增账号依赖，收益为零。
+
+**残留（未改，记一笔）**：`.env.docker` 是**未纳入 git** 的旧模板（7 月 19 日，内容仍是 `DB_USERNAME=root`），
+云上那份还是 `777` 权限。它不是有效配置源（`.env.example` 才是），但谁要是 `cp .env.docker .env` 就会退回 root。
+建议后续二选一：删掉，或改成指向 `.env.example` 的一行说明。本次不动是因为它不在版本管理里，改了也不会同步到任何地方。
