@@ -9,7 +9,8 @@ services:
       options:
         max-size: "20m"
         max-file: "3"
-    image: mysql:8.0
+    # 云上实际跑的就是 8.4（2026-10-29 对齐：此前仓库写 8.0，与线上不符）
+    image: mysql:8.4
     container_name: vibemusic-mysql
     restart: unless-stopped
     environment:
@@ -126,6 +127,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:
+      ES_URI: "" # ES 已下线：仅占位（空值致启动崩溃，勿改非空）
       MINIO_ENDPOINT: "http://127.0.0.1:9000" # MinIO已下线:仅StorageService-init占位,空值致启动崩溃,勿改空
       MINIO_ACCESS_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
       MINIO_SECRET_KEY: "placeholder" # MinIO已下线:仅init占位,勿改空
