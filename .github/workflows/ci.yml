@@ -404,14 +404,26 @@ jobs:
       MINIO_ROOT_PASSWORD: ci-lint-placeholder
       MINIO_ACCESS_KEY: ci-lint-placeholder
       MINIO_SECRET_KEY: ci-lint-placeholder
+      FLYWAY_PASSWORD: ci-lint-placeholder
+      BACKUP_PASSWORD: ci-lint-placeholder
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint docker-compose (syntax only, no env needed)
+      # 注意：compose 里的 ${VAR:?} 必填变量在 CI 无 .env 时必须给占位值，否则 config 直接 exit 1。
+      # 2026-10-29 事故：0bc20fc 给 demo 加了 FLYWAY_PASSWORD 却没同步本 job 的 env，
+      # 于是这个步骤静默变红（后续又叠了我新加的 BACKUP_PASSWORD）。所以下面**自动抽取**必填变量，
+      # 以后 compose 再加 ${X:?} 不需要再改 CI。
+      - name: Lint docker-compose (syntax + auto-filled required vars)
         run: |
-          docker compose -f docker-compose.yml config -q
-          docker compose -f docker-compose.full.yml config -q
-          docker compose -f docker-compose.demo.yml config -q
+          set -euo pipefail
+          while read -r v; do
+            [ -n "$v" ] && export "$v=ci-lint-placeholder"
+          done < <(grep -ohE '\$\{[A-Z_][A-Z0-9_]*:\?' docker-compose*.yml \
+                     | sed -E 's/^\$\{//; s/:\?$//' | sort -u)
+          for f in docker-compose.yml docker-compose.full.yml docker-compose.demo.yml; do
+            docker compose -f "$f" config -q
+            echo "OK: $f"
+          done
 
       - name: Guard backend timezone (TZ contract)
         run: |
@@ -542,17 +554,13 @@ jobs:
           COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
       - name: Check every compose build context / Dockerfile exists
-        env:
-          JWT_SECRET: ci-lint-placeholder
-          GRAFANA_ADMIN_USER: ci-lint-placeholder
-          GRAFANA_ADMIN_PASSWORD: ci-lint-placeholder
-          MYSQL_ROOT_PASSWORD: ci-lint-placeholder
-          DB_PASSWORD: ci-lint-placeholder
-          MINIO_ROOT_USER: ci-lint-placeholder
-          MINIO_ROOT_PASSWORD: ci-lint-placeholder
-          MINIO_ACCESS_KEY: ci-lint-placeholder
-          MINIO_SECRET_KEY: ci-lint-placeholder
+        # 必填变量自动补占位（同 infra-lint 的 lint 步骤）：compose 新增 ${X:?} 时本步骤不会静默变红
         run: |
+          set -euo pipefail
+          while read -r v; do
+            [ -n "$v" ] && export "$v=ci-lint-placeholder"
+          done < <(grep -ohE '\$\{[A-Z_][A-Z0-9_]*:\?' docker-compose*.yml \
+                     | sed -E 's/^\$\{//; s/:\?$//' | sort -u)
           python3 << 'PY'
           import json, os, subprocess, sys
 
