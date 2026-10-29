@@ -116,8 +116,13 @@ services:
       # 2026-10-26 线上事故：backend 未声明 TZ（UTC）而 mysql 是 CST，「最近播放」时间全错。
       TZ: Asia/Shanghai
       DB_HOST: mysql
-      DB_USERNAME: root
+      # 运行账号只给 DML（2026-10-29 拆分）；DDL 归 migrator，见下面 SPRING_FLYWAY_*
+      DB_USERNAME: ${DB_USERNAME:-vibemusic}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
+      # Flyway 用独立迁移账号（DDL+DML）；运行账号 vibemusic 已降为 DML-only。
+      # 不配这两项时 Flyway 会退回主 DataSource 账号 → 有 DDL 需求时启动失败，故显式声明。
+      SPRING_FLYWAY_USER: ${FLYWAY_USER:-vibemusic_migrator}
+      SPRING_FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:

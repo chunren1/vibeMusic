@@ -12,6 +12,7 @@
 | `nginx/security.conf` | `/etc/nginx/conf.d/security.conf` | `41134f2e…` | 生产安全头 + `limit_req_zone` / `limit_conn_zone` |
 | `cloudflared/config.yml` | `/etc/cloudflared/config.yml` | `2ecc5f2f…` | Cloudflare Tunnel ingress（cyk666.top / www / vibe / monitor / ai） |
 | `crontab.txt` | root `crontab -l` | — | 每日 03:30 备份、每 5 分钟看门狗 |
+| `systemd/blog.service` | `/etc/systemd/system/blog.service` | `5929b6cc…` | 博客 Next.js 服务。**保持 `disabled`，勿再启用**：nginx 无任何路由指向 3100，它常驻只会吃掉 ~300MB 内存，把蓝绿部署的 400MB 内存闸门压到需要 `--force`（2026-10-27 事故根因，见 `docs/2026-10-26-takeover-review.md` §8） |
 
 ## 重要：这些**不是** `nginx/nginx.conf`
 

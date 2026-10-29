@@ -94,4 +94,64 @@ curl -4 -s -o /dev/null -w '%{http_code}\n' 'https://vibe.cyk666.top/api/songs/s
 
 ## 8. 审查结论
 
-（待审查 Agent 填写）
+> 2026-10-29 补：§6 里两条「已知偏差」已处理，结论与证据如下（均为云端实测，不是看报告）。
+
+### 8.1 `--force` 绕过内存门禁 → 已自然解除（blog 停用 + 纳管）
+
+**根因确认**（2026-10-29 实测）：
+
+- `systemctl is-enabled blog` = `disabled`、`is-active` = `failed`（2026-10-27 10:29:16 停，`status=143`）；
+- `grep -rn 3100 /etc/nginx/` 为空 —— **nginx 没有任何路由指向 3100**，博客常驻纯属白吃内存；
+- 蓝绿 dry-run 内存闸门：`available 642~676MB ≥ 400MB`，**不再需要 `--force`**。
+
+**纳管**：`/etc/systemd/system/blog.service` 逐字节纳入仓库
+`deploy/production/systemd/blog.service`（md5 `5929b6cc825c72688edc7528d0f4d198`，405 B），
+并在 `deploy/production/README.md` 注明「保持 disabled，勿再启用」。
+
+**遗留判断**：博客功能未下线（`/opt/blog`、`/opt/blog-srv` 都还在），只是不再常驻。
+真要恢复，必须先给它一条 nginx 路由 + 重新算内存账（1608MB 机器上 backend 768M + blog ~300M 会顶到闸门）。
+
+### 8.2 MySQL 迁移/运行账号拆分 → 已完成（Flyway 走 migrator，运行账号 DML-only）
+
+**做了什么**
+
+1. 新建 `vibemusic_migrator@'%'`：`SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,REFERENCES,INDEX,ALTER ON vibemusic.*`。
+2. 运行账号 `vibemusic@'%'` 保留 `SELECT,INSERT,UPDATE,DELETE`，其余 `REVOKE`（建号 SQL 见 `.env.example` 注释）。
+3. 注入方式：`SPRING_FLYWAY_USER` / `SPRING_FLYWAY_PASSWORD`（Boot 4.1.2 relaxed binding →
+   `spring.flyway.user/password`；Flyway 从主 DataSource 派生 url，只覆盖凭据，**不需要** `spring.flyway.url`）。
+4. 云上 `/opt/vibeMusic/.env`：新增 `FLYWAY_USER` / `FLYWAY_PASSWORD`，并把漂移的
+   `DB_USERNAME=root` 改回 `vibemusic`（`root@'%'` 早已不存在，`docker compose up` 会直接连不上）。
+5. `docker-compose.demo.yml` backend 段：`DB_USERNAME: ${DB_USERNAME:-vibemusic}` + 两个 `SPRING_FLYWAY_*`
+   （改前备份 `.env.bak-20261029-121506` / `docker-compose.demo.yml.bak-20261029-121506`）。
+6. 蓝绿部署：`--apply --skip-build --image 41bf3f5 --set-env SPRING_FLYWAY_USER=... --set-env SPRING_FLYWAY_PASSWORD=...`，
+   **healthy 63s、零停机**（旧容器一直服务到 upstream 切完）。
+
+**证据（关键，逐条可复现）**
+
+| 断言 | 证据 |
+|---|---|
+| Flyway 用 migrator 连库 | `performance_schema.accounts`：`vibemusic_migrator@172.19.0.6` `TOTAL_CONNECTIONS=1`；同 IP 的 `vibemusic` 是新容器（236 次），旧容器是 `172.19.0.4`（696 次）。**该账号此前从未被使用过，唯一一次连接就发生在这次启动** |
+| Flyway 真的跑完校验 | 后端日志：`Database: jdbc:mysql://mysql:3306/vibemusic (MySQL 8.4)` / `Successfully validated 11 migrations (00:00.249s)` / `Schema 'vibemusic' is up to date` |
+| 运行账号不能再改表 | 用容器里的 `DB_PASSWORD` 以 `vibemusic` 登录：`CREATE TABLE vibemusic.zz_priv_probe` → `ERROR 1142 (42000): CREATE command denied to user 'vibemusic'@'127.0.0.1'`（无残留表） |
+| 运行账号 DML 正常 | 同一账号 `SELECT COUNT(*) FROM song` 成功、`UPDATE song SET name=name WHERE 1=0` 成功（`affected=0`） |
+| 线上没受影响 | 公网 `GET /api/songs/search?...` = **200**；容器 `healthy`、`restarts=0`、近 8 分钟日志无 error/exception；`information_schema` 行数与改前一致（`play_history 159` / `playlist 31` / `playlist_song 987` / `users 5`） |
+| 两份 compose 的 DB 段已一致 | 云上 `docker-compose.demo.yml` md5 `a892d8f3…`，仓库同步了同样的两处改动 |
+
+**取证方法备注（下次别再用 1 秒轮询 `processlist`）**：Flyway 的 validate 只有 249ms，
+1 秒采样几乎必然漏掉。`performance_schema.accounts.TOTAL_CONNECTIONS` 是累计值、不随连接关闭消失，
+才是确定性的证据；`events_statements_history` 在连接关闭后也不可靠（本次实测为空）。
+
+**回滚方式**
+
+- 配置：`cp -a /opt/vibeMusic/.env.bak-20261029-121506 /opt/vibeMusic/.env`（compose 同理）。
+- 容器：`docker tag vibemusic-backend:rollback-<ts> vibemusic-backend:latest` 后重跑部署脚本；
+  或直接改回 upstream 端口（脚本打印过 `sed -i 's#server 127.0.0.1:8082;#...8080;#'` 那条命令）。
+- 权限：`GRANT CREATE, DROP, REFERENCES, INDEX, ALTER ON vibemusic.* TO 'vibemusic'@'%';`
+
+**遗留**
+
+- 两份 `docker-compose.demo.yml` 仍有其它漂移（改后云上 175 行 / 仓库 188 行：`TZ`、`mysql:8.0` vs `8.4`、
+  fail-fast 默认值等），本次只改 backend 的 DB/Flyway 段，未整文件覆盖。
+- 部署脚本已提示：**以后别再跑 `docker compose up -d backend`**（容器名/端口冲突，且会重建容器）。
+- `vibemusic_migrator` 口令目前同时存在于云上 `.env`（600）与新容器 env 里，未进仓库；
+  轮换时改 `ALTER USER` + 改 `.env` + 重新部署（`--set-env`）三处。

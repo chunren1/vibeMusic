@@ -1,0 +1,18 @@
+[Unit]
+Description=vibeMusic Blog (Next.js standalone)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/blog-srv/.next/standalone
+Environment=PORT=3100
+Environment=HOSTNAME=0.0.0.0
+Environment=DATA_DIR=/opt/blog/data
+Environment=NODE_ENV=production
+ExecStart=/root/.nvm/versions/node/v22.23.2/bin/node server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
