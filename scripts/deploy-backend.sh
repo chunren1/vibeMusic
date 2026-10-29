@@ -17,6 +17,10 @@
 #   改前自动备份 *.bak-<时间戳>；nginx -t 不过就整体还原。之后每次部署只改 upstream 里的端口，幂等跳过。
 #   判断依据：sites-enabled/vibemusic 里已出现 vibemusic_backend 字样即视为已迁移。
 #
+# 数据库迁移（2026-10-29 起）：蓝绿前先跑一台 --rm 一次性容器（FlywayOnlyApplication）做迁移，
+#   失败就中止，线上一点不动。新 backend 容器**不再注入** SPRING_FLYWAY_USER/PASSWORD，
+#   只保留 DML 账号 —— 于是「后端被攻破也改不了表结构」才真正成立。迁移凭证只来自云端 .env。
+#
 # 端口轮换：现容器绑哪个端口就从候选里挑下一个空闲端口（8080/8082/8083/8084）。
 #           8081 明确排除——宿主机 nginx 自己 listen 127.0.0.1:8081（实测占用，别抢）。
 #
@@ -70,6 +74,9 @@ SITE="/etc/nginx/sites-enabled/vibemusic"
 UPSTREAM_CONF="/etc/nginx/conf.d/vibemusic-backend-upstream.conf"
 BG_DIR="/root/.vibemusic-bluegreen"
 ENVFILE="$BG_DIR/next.env"
+# 生产 .env：**唯一**的迁移凭证来源（4/9 的迁移容器从这里取 FLYWAY_USER/FLYWAY_PASSWORD）。
+# 不从现容器 inspect 取：新后端已不带 FLYWAY_*，下次部署时现容器里就没有了。
+PROD_ENV_FILE="${PROD_ENV_FILE:-/opt/vibeMusic/.env}"
 # 站点只 listen 在 127.0.0.1:8081（Cloudflare 隧道回源），验证切换走这里
 PROBE_URL="${PROBE_URL:-http://127.0.0.1:8081}"
 PROBE_HOST="${PROBE_HOST:-vibe.cyk666.top}"
@@ -393,7 +400,7 @@ fi
 say "镜像 $LOCAL_IMG | 健康超时 ${HEALTH_TIMEOUT}s | 时间戳 $STAMP"
 
 # ===========================================================================
-step "1/8 预检：远端容器/端口/内存盘点（只读）"
+step "1/9 预检：远端容器/端口/内存盘点（只读）"
 if is_dry; then
   if [ "$FROM_REGISTRY" -eq 1 ]; then
     say "  [dry-run] 云端将执行: docker pull $LOCAL_IMG（不在本机构建、不传 tar）"
@@ -487,12 +494,12 @@ fi
 
 # ===========================================================================
 if [ "$FROM_REGISTRY" -eq 1 ]; then
-  step "2/8 跳过本地构建（--from-registry：镜像由 CI 构建并推到 $REGISTRY_IMG，云端只 pull）"
+  step "2/9 跳过本地构建（--from-registry：镜像由 CI 构建并推到 $REGISTRY_IMG，云端只 pull）"
   say "  目标镜像: $LOCAL_IMG"
   say "  期望提交: ${EXPECT_REV:-<未指定，跳过 revision 校验>}"
   LOCAL_ID="(registry)"
 else
-step "2/8 本地构建镜像（云上只有 1.6G 内存，跑不动 mvn，所以构建放本机）"
+step "2/9 本地构建镜像（云上只有 1.6G 内存，跑不动 mvn，所以构建放本机）"
 LOCAL_ARCH="$(uname -m)"
 case "$LOCAL_ARCH" in
   x86_64|amd64) ;;
@@ -524,13 +531,13 @@ if is_dry; then
 else
   LOCAL_ID="$(docker inspect -f '{{.Id}}' "$LOCAL_IMG")"
   LOCAL_SIZE="$(docker image inspect -f '{{.Size}}' "$LOCAL_IMG" | awk '{printf "%.0fMB", $1/1024/1024}')"
-  say "  镜像: $LOCAL_IMG  id=${LOCAL_ID:0:19}  $LOCAL_SIZE（id/size 仅展示：跨 Docker 版本会变，3/8 比的是层+Config 内容）"
+  say "  镜像: $LOCAL_IMG  id=${LOCAL_ID:0:19}  $LOCAL_SIZE（id/size 仅展示：跨 Docker 版本会变，3/9 比的是层+Config 内容）"
 fi
 fi
 
 # ===========================================================================
 if [ "$FROM_REGISTRY" -eq 1 ]; then
-step "3/8 从 registry 取镜像（云端只 pull，不 build、不传 tar）+ 旧 latest 保底打标"
+step "3/9 从 registry 取镜像（云端只 pull，不 build、不传 tar）+ 旧 latest 保底打标"
 rsh "mkdir -p '$BG_DIR' && chmod 700 '$BG_DIR'"
 if is_dry; then
   say "  [dry-run] ssh $HOST 'docker pull $LOCAL_IMG'"
@@ -538,7 +545,7 @@ else
   say "  拉取中（首次约 300MB；分层已命中则只拉差异层）..."
 fi
 
-# 拉完立刻验两件事，任何一项不符就停在 3/8（容器与 nginx 一动没动）：
+# 拉完立刻验两件事，任何一项不符就停在 3/9（容器与 nginx 一动没动）：
 #   1) label org.opencontainers.image.revision == 期望提交 —— 证明「拉到的就是那个提交」的产物；
 #      没有这个 label 的镜像不是本仓 CI 产物（或手工 build 漏了 label），一律拒绝部署。
 #   2) 架构 amd64 —— registry 里若混入 arm 产物，拉下来也起不来。
@@ -571,7 +578,7 @@ echo "  latest → \${NEW_ID:0:19}"
 EOS
 
 else
-step "3/8 传镜像（docker save | gzip | ssh 'gunzip | docker load'）+ 旧 latest 保底打标"
+step "3/9 传镜像（docker save | gzip | ssh 'gunzip | docker load'）+ 旧 latest 保底打标"
 rsh "mkdir -p '$BG_DIR' && chmod 700 '$BG_DIR'"
 
 if is_dry; then
@@ -617,7 +624,7 @@ image_config_sha '$LOCAL_IMG'" 2>/dev/null || true)"
     say "  dry-run 只读预校验（不传镜像，比的是云端现有该 tag 的内容）："
     verify_image_content "$LOCAL_LAYERS" "$(printf '%s\n' "$REMOTE_FP" | head -1)" \
       "$LOCAL_CFG_SHA" "$(printf '%s\n' "$REMOTE_FP" | tail -1)" \
-      || say "  ↑ dry-run 不中止：真跑时会在传输后重新校验，不一致就停在 3/8（容器/nginx 不动）"
+      || say "  ↑ dry-run 不中止：真跑时会在传输后重新校验，不一致就停在 3/9（容器/nginx 不动）"
   else
     say "  [dry-run] 将校验: 远端层清单 + Config 摘要 == 本地（传输完成后进行；当前取不到云端该 tag 或本地镜像）"
   fi
@@ -627,12 +634,92 @@ image_layers_json '$LOCAL_IMG'
 image_config_sha '$LOCAL_IMG'" || true)"
   verify_image_content "$LOCAL_LAYERS" "$(printf '%s\n' "$REMOTE_FP" | head -1)" \
     "$LOCAL_CFG_SHA" "$(printf '%s\n' "$REMOTE_FP" | tail -1)" \
-    || { echo "镜像内容校验失败，中止在 3/8（容器与 nginx 一动没动；远端 latest 已指向该 tag）" >&2; exit 1; }
+    || { echo "镜像内容校验失败，中止在 3/9（容器与 nginx 一动没动；远端 latest 已指向该 tag）" >&2; exit 1; }
 fi
 fi
 
 # ===========================================================================
-step "4/8 起新容器 $NEXT_NAME（127.0.0.1:$NEXT_PORT→8080，现有容器不动）"
+step "4/9 数据库迁移（独立一次性容器，跑完即退；失败则不切流量，线上一点没变）"
+say "  为什么单独一步：migrator 账号有 DDL 权限。它一旦注进长期运行的 backend 容器，"
+say "  应用被 RCE 后读 /proc/self/environ 就能拿到 DDL 凭证 —— 那样「最小权限」只是纸面。"
+say "  所以：迁移由 --rm 容器跑完即退，新 backend 只保留 DML 账号（SPRING_FLYWAY_ENABLED=false）。"
+say "  凭证来源：云端 /opt/vibeMusic/.env 的 FLYWAY_USER/FLYWAY_PASSWORD（写 600 env-file，不上命令行）；"
+say "            连接参数照抄现容器的 DB_HOST/DB_USERNAME/DB_PASSWORD。"
+if is_dry; then
+  say "  [dry-run] 将执行: docker run --rm --name vibemusic-flyway-init --network $NET --memory 256m \\"
+  say "              --env-file <600 权限临时文件> --entrypoint sh $LOCAL_IMG -c \\"
+  say "              'java \$JAVA_OPTS -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar PropertiesLauncher'"
+  say "  [dry-run] 退出码非 0 → 直接中止（不起新容器、nginx 不动）"
+else
+set +e
+remote_script <<EOS
+set -euo pipefail
+C='$CUR_NAME'
+IMG='$LOCAL_IMG'
+NET='$NET'
+MIGENV='$BG_DIR/flyway.env'
+PRODENV='$PROD_ENV_FILE'
+mkdir -p '$BG_DIR' && chmod 700 '$BG_DIR'
+umask 077
+
+[ -r "\$PRODENV" ] || { echo "预检失败：读不到 \$PRODENV（迁移凭证来源）" >&2; exit 1; }
+
+# 1) 连接参数照抄现容器（与线上完全一致），只挑 DB_* 三项
+{
+  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "\$C" | grep -E '^(DB_HOST|DB_USERNAME|DB_PASSWORD)=' || true
+  # 2) 迁移凭证从云端 .env 取 —— 不能从现容器取：新 backend 已不带 FLYWAY_*，
+  #    下次部署时现容器里就没有它们了（这次能取到只是过渡期的巧合）。
+  grep -E '^(FLYWAY_USER|FLYWAY_PASSWORD)=' "\$PRODENV" || true
+} > "\$MIGENV"
+
+# 3) 缺关键项就停：宁可部署失败，也不要"以为迁了其实没迁"
+MISSING=""
+grep -q '^DB_HOST='        "\$MIGENV" || echo 'DB_HOST=mysql' >> "\$MIGENV"
+grep -q '^DB_USERNAME='    "\$MIGENV" || echo 'DB_USERNAME=vibemusic' >> "\$MIGENV"
+grep -q '^FLYWAY_USER='    "\$MIGENV" || echo 'FLYWAY_USER=vibemusic_migrator' >> "\$MIGENV"
+for k in DB_PASSWORD FLYWAY_PASSWORD; do
+  grep -q "^\$k=" "\$MIGENV" || MISSING="\$MISSING \$k"
+done
+if [ -n "\$MISSING" ]; then
+  echo "预检失败：迁移环境缺\$MISSING（检查 \$PRODENV 与现容器 env）" >&2
+  rm -f "\$MIGENV"
+  exit 1
+fi
+{
+  echo 'SPRING_PROFILES_ACTIVE=docker'
+  echo 'TZ=Asia/Shanghai'
+  echo 'JAVA_OPTS=-XX:MaxRAMPercentage=70.0 -XX:+UseG1GC'
+} >> "\$MIGENV"
+chmod 600 "\$MIGENV"
+echo "  迁移容器 env（只列名）: \$(cut -d= -f1 "\$MIGENV" | tr '\n' ' ')"
+
+# 4) 跑迁移：--rm 保证不留垃圾容器；退出码就是迁移结果
+docker rm -f vibemusic-flyway-init >/dev/null 2>&1 || true
+set +e
+docker run --rm --name vibemusic-flyway-init --network "\$NET" \
+  --memory 256m --cpus 0.5 --env-file "\$MIGENV" \
+  --entrypoint sh "\$IMG" \
+  -c 'exec java \$JAVA_OPTS -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar org.springframework.boot.loader.launch.PropertiesLauncher'
+MIG_RC=\$?
+set -e
+rm -f "\$MIGENV"
+if [ "\$MIG_RC" -ne 0 ]; then
+  echo "迁移失败（rc=\$MIG_RC）：未起新容器、nginx 未动，线上仍是 \$C" >&2
+  exit 1
+fi
+echo "  迁移完成（rc=0），schema 已是最新"
+EOS
+RC=$?
+set -e
+if [ "$RC" -ne 0 ]; then
+  echo "数据库迁移失败（rc=$RC）：部署已中止，线上未变（$CUR_NAME 仍在 127.0.0.1:$CUR_PORT 服务）" >&2
+  echo "排查看上面迁移容器输出（常见：migrator 缺 DDL/ROUTINE 权限、迁移 SQL 报错、schema 校验不一致）" >&2
+  exit 1
+fi
+fi
+
+# ===========================================================================
+step "5/9 起新容器 $NEXT_NAME（127.0.0.1:$NEXT_PORT→8080，现有容器不动）"
 say "  配置来源：docker inspect $CUR_NAME —— 环境变量（排除 PATH/JAVA_HOME/LANG 等基础项）、卷、网络、"
 say "            健康检查、mem_limit/cpus、日志轮转全部照抄，保证新容器与线上等价。"
 if [ "$SET_ENV_COUNT" -gt 0 ]; then
@@ -672,6 +759,15 @@ docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "\$C" \
 $MERGE_FN_SRC
 merge_env_file "\$ENVF.raw" "\$ENVF" $SET_ENV_ARGS
 rm -f "\$ENVF.raw"
+# 新容器不再持有 DDL 凭证（迁移已由 4/9 的一次性容器做完）。
+# 必须在这里剥：现容器 env 里还留着 SPRING_FLYWAY_USER/PASSWORD，不剥就会原样带到新容器，
+# 拆 flyway-init 等于白拆。--set-env 传进来的同名项也一并剥掉（口令轮换只改云端 .env）。
+if grep -qE '^SPRING_FLYWAY_(USER|PASSWORD)=' "\$ENVF"; then
+  echo "  剥离 SPRING_FLYWAY_USER/PASSWORD（新容器只保留 DML 账号；迁移凭证只在 4/9 那次性容器里用过）"
+  grep -Ev '^SPRING_FLYWAY_(USER|PASSWORD)=' "\$ENVF" > "\$ENVF.tmp"
+  mv "\$ENVF.tmp" "\$ENVF"
+fi
+grep -q '^SPRING_FLYWAY_ENABLED=' "\$ENVF" || echo 'SPRING_FLYWAY_ENABLED=false' >> "\$ENVF"
 chmod 600 "\$ENVF"
 echo "  环境变量 \$(wc -l < "\$ENVF") 条（其中 --set-env 覆盖 $SET_ENV_COUNT 项，已去重；只列名，值不入日志）: \$(cut -d= -f1 "\$ENVF" | tr '\n' ' ')"
 
@@ -753,7 +849,7 @@ if [ "$RC" -ne 0 ]; then
 fi
 
 # ===========================================================================
-step "5/8 等新容器 healthy（上限 ${HEALTH_TIMEOUT}s；冷启动约 161s）"
+step "6/9 等新容器 healthy（上限 ${HEALTH_TIMEOUT}s；冷启动约 161s）"
 if is_dry; then
   say "  [dry-run] 将每 10s 轮询: docker inspect -f '{{.State.Health.Status}}' $NEXT_NAME"
   say "  [dry-run] 直到 healthy 或超过 ${HEALTH_TIMEOUT}s；超时则 docker rm -f $NEXT_NAME 并退出非 0（线上一点没变）"
@@ -814,7 +910,7 @@ else
 fi
 
 # ===========================================================================
-step "6/8 切流量：写 upstream + 首次迁移 nginx 配置 + nginx -t + reload"
+step "7/9 切流量：写 upstream + 首次迁移 nginx 配置 + nginx -t + reload"
 if [ "$SITE_MIGRATED" = "yes" ]; then
   say "  sites-enabled/vibemusic 已含 vibemusic_backend（迁移过一次），本次只改 upstream 端口（幂等）"
 else
@@ -877,7 +973,7 @@ else
 fi
 
 # ===========================================================================
-step "7/8 切换后验证（不信 reload 成功，要看到流量真的到新端口）"
+step "8/9 切换后验证（不信 reload 成功，要看到流量真的到新端口）"
 if is_dry; then
   say "  [dry-run] 将校验: nginx -T 里 upstream vibemusic_backend → server 127.0.0.1:$NEXT_PORT"
   say "  [dry-run] 将校验: 直连 http://127.0.0.1:$NEXT_PORT/actuator/health == 200"
@@ -901,7 +997,7 @@ else
 fi
 
 # ===========================================================================
-step "8/8 收尾：停旧容器、next 转正、清理"
+step "9/9 收尾：停旧容器、next 转正、清理"
 if is_dry; then
   say "  [dry-run] docker rename $CUR_NAME ${CUR_NAME}-old-$STAMP"
   say "  [dry-run] docker stop -t 30 ${CUR_NAME}-old-$STAMP && docker rm ${CUR_NAME}-old-$STAMP"

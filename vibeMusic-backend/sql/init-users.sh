@@ -47,7 +47,10 @@ FLYWAY_PW=$(sql_escape "$FLYWAY_PASSWORD")
   echo "-- 迁移账号：DML + DDL（Flyway 建表/改表用）"
   echo "CREATE USER IF NOT EXISTS 'vibemusic_migrator'@'%' IDENTIFIED BY '${FLYWAY_PW}';"
   echo "ALTER USER 'vibemusic_migrator'@'%' IDENTIFIED BY '${FLYWAY_PW}';"
-  echo "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON vibemusic.* TO 'vibemusic_migrator'@'%';"
+  # CREATE/ALTER ROUTINE + EXECUTE：V3/V6 用 CREATE PROCEDURE 做幂等迁移（先建临时过程、改完 DROP）。
+  # 少了这三项，Flyway 在**空库**上跑会死在 V3：`alter routine command denied ... migrate_v3`
+  # （2026-10-29 实测；云上没炸只是因为 schema 早已 up to date，属于「迟早炸」）。
+  echo "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES, CREATE ROUTINE, ALTER ROUTINE, EXECUTE ON vibemusic.* TO 'vibemusic_migrator'@'%';"
 
   # 备份账号可选：只有带 mysql-backup 服务的栈（docker-compose.yml / .full.yml）才传这个变量。
   # 云上 demo 栈不跑备份容器，不传就跳过，避免为一个用不到的账号增加必填项。

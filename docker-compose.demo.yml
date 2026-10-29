@@ -104,6 +104,52 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── 一次性迁移容器（2026-10-29）───────────────────────────────────────────
+  # 为什么单独一个服务：migrator 账号有 DDL 权限。它一旦作为环境变量注进**长期运行**的
+  # backend 容器，应用被 RCE 后读 /proc/self/environ 就能拿到 DDL 凭证，「最小权限」只是纸面。
+  # 拆成一次性容器后：迁移跑完即退，backend 只留 DML 账号，「被攻破也改不了表结构」才成立。
+  #
+  # 为什么复用 backend 镜像而不是 flyway/flyway：迁移 SQL 在 jar 的 db/migration 里，
+  # 用 flyway 镜像就得挂载一份目录 —— 挂载目录和 jar 内谁是真源没人天天核对，等于新增漂移源。
+  # 这里只换入口（FlywayOnlyApplication 仅 import DataSource + Flyway，跑完 exit）。
+  # ⚠️ 存量数据卷（账号还是旧的那套）先跑 ./scripts/create-db-users.sh，否则这里 Access denied
+  #    并因为 depends_on 把 backend 一起拦住（initdb 只在空卷执行，老卷不会自动建号）。
+  flyway-init:
+    build:
+      context: ./vibeMusic-backend
+      dockerfile: Dockerfile
+    image: vibemusic-backend:latest
+    container_name: vibemusic-flyway-init
+    # 一次性：退出码非 0 时 backend 的 depends_on 会拦住启动
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    environment:
+      TZ: Asia/Shanghai
+      DB_HOST: mysql
+      # DataSource 用运行账号（Flyway 的 DDL 走下面的 SPRING_FLYWAY_*），语义与线上一致
+      DB_USERNAME: ${DB_USERNAME:-vibemusic}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
+      SPRING_FLYWAY_USER: ${FLYWAY_USER:-vibemusic_migrator}
+      SPRING_FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
+      SPRING_PROFILES_ACTIVE: docker
+      # 迁移容器不跑业务，堆/元空间给足余量即可（云上 1.6G，必须能和后端串行共存）
+      JAVA_OPTS: "-XX:MaxRAMPercentage=70.0 -XX:+UseG1GC"
+    entrypoint:
+      - sh
+      - -c
+      # $$ 必须双写：compose 会把 $VAR 当宿主环境变量插值（单写会变成空串，JVM 参数全丢，
+      # 实测 2026-10-29：单写时构建日志刷 `The "JAVA_OPTS" variable is not set`，容器内 java 无任何 -XX 参数）
+      - exec java $$JAVA_OPTS -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar org.springframework.boot.loader.launch.PropertiesLauncher
+    mem_limit: 256M
+    cpus: 0.5
+    networks: [vibemusic-net]
+    depends_on:
+      mysql: {condition: service_healthy}
+
   backend:
     logging:
       driver: json-file
@@ -122,15 +168,14 @@ services:
       # 2026-10-26 线上事故：backend 未声明 TZ（UTC）而 mysql 是 CST，「最近播放」时间全错。
       TZ: Asia/Shanghai
       DB_HOST: mysql
-      # 运行账号只给 DML（2026-10-29 拆分）；DDL 归 migrator，见下面 SPRING_FLYWAY_*
+      # 运行账号只给 DML（2026-10-29 拆分）；DDL 归 migrator，且只在 flyway-init 一次性容器里用
       DB_USERNAME: ${DB_USERNAME:-vibemusic}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required see .env.example}
-      # Flyway 用独立迁移账号（DDL+DML）；运行账号 vibemusic 已降为 DML-only。
-      # 不配这两项时 Flyway 会退回主 DataSource 账号 → 有 DDL 需求时启动失败，故显式声明。
-      # 收益边界：防误操作 + 收窄 SQLi 的 DDL 面；**不等于**"被攻破也改不了表结构"——
-      # migrator 口令就在本容器 env 里，RCE 能读到。见 docs/2026-10-26-takeover-review.md §8.4。
-      SPRING_FLYWAY_USER: ${FLYWAY_USER:-vibemusic_migrator}
-      SPRING_FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:?FLYWAY_PASSWORD is required see .env.example}
+      # 迁移已拆到独立的 flyway-init 服务（见本文件 flyway-init 段）：本容器**不再持有 migrator 凭证**，
+      # DDL 只在那台一次性容器里发生 —— 于是「后端被攻破也改不了表结构」才真正成立。
+      # 这里必须显式关闭自动迁移：否则有人绕过 flyway-init 直接起 backend 时，Flyway 会静默跳过
+      # （运行账号没有 DDL，真跑起来反而会失败得更晚、更难懂）。
+      SPRING_FLYWAY_ENABLED: "false"
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD:
@@ -166,6 +211,8 @@ services:
       mysql: {condition: service_healthy}
       redis: {condition: service_healthy}
       musicapi: {condition: service_started}
+      # 迁移容器必须先成功退出；失败则 backend 不启动（fail closed，不会带着旧 schema 跑新代码）
+      flyway-init: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health/liveness"]
       interval: 15s

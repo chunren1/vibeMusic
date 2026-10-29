@@ -182,10 +182,8 @@ RCE 后 `cat /proc/self/environ` 就能拿到 migrator 凭证，照样 DDL。
 | `docker-compose.demo.yml` backend 段 | 同上，补两行「收益边界」注释 |
 | 云上 `docker-compose.demo.yml` | 同步（md5 `dabb1d4a…`，与仓库一致；未重启任何容器） |
 
-**为什么暂不拆独立 init job**：把 Flyway 拆成一次性容器（`flyway` 镜像 + `depends_on` + 迁移完退出）确实能
-让后端容器彻底不持有 DDL 凭证。但代价是：三份 compose 各加一个 service、本地 `up` 的启动顺序多一层依赖、
-迁移失败的错误要在另一个容器里看；而本项目 DDL 面很窄（11 个迁移，追加式，历史文件禁止改）。
-按「先要能用的结果」原则，先改口径留记录；要做时以本节为设计起点。
+**独立 init job 已实施（2026-10-29，见 §8.4）**：先按「改口径」落了表述，随后确认要做，
+实现与验证记录在 §8.4。本节保留当时的权衡记录，便于回溯为什么一开始判断「不做」。
 
 #### M2 · 另两份 compose 仍是 root 账号 → 三份统一 + 建号脚本入库
 
@@ -229,3 +227,59 @@ RCE 后 `cat /proc/self/environ` 就能拿到 migrator 凭证，照样 DDL。
 **残留（未改，记一笔）**：`.env.docker` 是**未纳入 git** 的旧模板（7 月 19 日，内容仍是 `DB_USERNAME=root`），
 云上那份还是 `777` 权限。它不是有效配置源（`.env.example` 才是），但谁要是 `cp .env.docker .env` 就会退回 root。
 建议后续二选一：删掉，或改成指向 `.env.example` 的一行说明。本次不动是因为它不在版本管理里，改了也不会同步到任何地方。
+
+### 8.4 Flyway 独立 init job → 已实施（2026-10-29）
+
+**目标**：让长期运行的 backend 容器**不持有** DDL 凭证。§8.3 的 M1 只改了表述（承认 migrator 口令在
+同一容器 env 里，RCE 可读），本次把架构真正改到位。
+
+#### 方案（选了 B，不是 A）
+
+| 方案 | 做法 | 结论 |
+|---|---|---|
+| A · `flyway/flyway` 官方镜像 + 挂载 `db/migration` | 简单，但迁移 SQL 的真源是 jar 里的 `db/migration` | **否** —— 挂载目录和 jar 内谁是真源没人天天核对，等于新增一个漂移源 |
+| B · 复用 backend 镜像 + 换入口 | 新增 `FlywayOnlyApplication`，只 import DataSource + Flyway，跑完 `System.exit` | **采用** |
+
+`FlywayOnlyApplication`（`vibeMusic-backend/src/main/java/com/vibemusic/bootstrap/FlywayOnlyApplication.java`）
+刻意**不用** `@SpringBootApplication`：那会 `@ComponentScan` 整个 `com.vibemusic`，把 Service/Controller/
+定时任务/Redis 全拉起来 —— 迁移容器永不退出，部署脚本会一直等。启动方式（fat jar 换主类，`java -jar` 做不到）：
+
+```
+java -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication \
+     -cp app.jar org.springframework.boot.loader.launch.PropertiesLauncher
+```
+
+防回归：`FlywayOnlyApplicationTest` 用 `ApplicationContextRunner` 断言「业务 bean 不存在、bean 定义数 < 30」
+—— 有人图省事改成 `@SpringBootApplication` 会立刻红。
+
+#### 落地位置
+
+| 位置 | 改动 |
+|---|---|
+| 三份 compose | 新增 `flyway-init` service（复用 `vibemusic-backend:latest`，`restart: "no"`，`mem_limit 256M`/`cpus 0.5`，`depends_on: mysql: service_healthy`）；backend 改 `SPRING_FLYWAY_ENABLED: "false"` 并**删掉** `SPRING_FLYWAY_USER/PASSWORD`；backend `depends_on` 加 `flyway-init: service_completed_successfully`（迁移失败 → 后端不启动，fail closed） |
+| `scripts/deploy-backend.sh` | 新增 **4/9 数据库迁移**（8 步 → 9 步）：`docker run --rm` 跑一次性容器，退出码非 0 直接中止（不起新容器、nginx 不动）；5/9 起新容器时**剥离** `SPRING_FLYWAY_USER/PASSWORD` 并补 `SPRING_FLYWAY_ENABLED=false` |
+| 云上 `vibemusic_migrator` | 补 `CREATE ROUTINE / ALTER ROUTINE / EXECUTE`（V3/V6 用 `CREATE PROCEDURE`，缺了空库必死） |
+| `vibeMusic-backend/sql/init-users.sh` | 同上补权限，并注明原因 |
+
+**迁移凭证来源**：只从云端 `/opt/vibeMusic/.env` 的 `FLYWAY_USER`/`FLYWAY_PASSWORD` 取（600，写临时
+env-file，不上命令行）。**不从现容器 inspect 取** —— 新后端已不带这两个变量，下次部署时现容器里就没有了。
+口令轮换因此简化成「改 `.env` 一处 + 重新部署」。
+
+#### 验证（本机 docker，2026-10-29）
+
+| 验证项 | 结果 |
+|---|---|
+| 单测 `FlywayOnlyApplicationTest` | 1 例通过（不扫描业务组件、bean 数 < 30） |
+| 直接跑入口（真实 mysql:8.4） | 空库 → 10 个迁移、退出码 0；二次跑 `Schema up to date` 退出码 0；错口令退出码 1 |
+| compose 语义（独立 e2e 栈） | `flyway-init` 退出 0 后 backend 才启动；库内 8 表 + `flyway_schema_history` 10 行 |
+| **fail closed** | `FLYWAY_PASSWORD` 故意给错 → flyway-init `exit 1`，backend 停在 `created` 状态**从未启动**，库内无 `flyway_schema_history`（失败不留半截） |
+| `JAVA_OPTS` 真的进 JVM | `-XshowSettings:vm` 实测 `Max. Heap Size 180.00M` = 256M limit × 70%（**踩坑**：compose 的 `$JAVA_OPTS` 必须写成 `$$JAVA_OPTS`，单写会被 compose 当宿主变量插值成空串，JVM 参数全丢，日志刷 `The "JAVA_OPTS" variable is not set`） |
+| 三份 compose 可解析 | `config -q` 三份退出 0；渲染后 backend 只剩 `SPRING_FLYWAY_ENABLED`，`flyway-init` entrypoint 含 `FlywayOnlyApplication` |
+
+#### 收益边界（诚实口径）
+
+- **成立**：后端容器被 RCE 后读 `/proc/self/environ` **拿不到** DDL 凭证 —— 这是本次唯一真正兑现的承诺。
+- **仍不成立**：迁移容器自身（`--rm`，存在几秒）持有 migrator 口令；`docker inspect` 该容器能看到 env。
+  窗口极短且需要宿主机权限，风险可接受，但别把它说成「零暴露」。
+- **不再成立的说法**：「迁移失败不影响线上」—— 现在是 fail closed，迁移失败则新版本根本不上线
+  （这是有意的：宁可不上，也不要带着旧 schema 跑新代码）。

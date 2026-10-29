@@ -455,6 +455,49 @@ jobs:
           print("backend TZ contract ok")
           PY
 
+      - name: Guard DDL 凭证不进 backend 容器（Flyway init job 契约）
+        run: |
+          # 契约（2026-10-29 拆 flyway-init 时立的）：DDL 凭证只允许出现在一次性迁移容器里。
+          # 为什么必须机器守：只要有人图省事把 SPRING_FLYWAY_PASSWORD 加回 backend，
+          # 「后端被攻破也改不了表结构」立刻变回假话，而线上行为毫无变化 —— 人和测试都发现不了。
+          # 复用上一步已渲染好的 /tmp/cfg-*.json（同样已自动补过必填变量占位）。
+          python3 << 'PY'
+          import json, sys
+
+          files = ["docker-compose.yml", "docker-compose.full.yml", "docker-compose.demo.yml"]
+          bad = []
+          for f in files:
+              with open(f"/tmp/cfg-{f}.json") as fh:
+                  cfg = json.load(fh)
+              services = cfg["services"]
+              env = services["backend"].get("environment") or {}
+              leaked = sorted(k for k in env if k in ("SPRING_FLYWAY_USER", "SPRING_FLYWAY_PASSWORD"))
+              enabled = str(env.get("SPRING_FLYWAY_ENABLED", "")).lower()
+              deps = services["backend"].get("depends_on") or {}
+              mig_dep = (deps.get("flyway-init") or {}).get("condition")
+              mig = services.get("flyway-init") or {}
+              mig_env = mig.get("environment") or {}
+              print(f"{f}: backend FLYWAY 变量={sorted(k for k in env if 'FLYWAY' in k)} "
+                    f"depends_on.flyway-init={mig_dep!r}")
+              if leaked:
+                  bad.append(f"{f}: backend 仍持有 {leaked}（DDL 凭证泄漏回长期容器）")
+              if enabled != "false":
+                  bad.append(f"{f}: backend 未设 SPRING_FLYWAY_ENABLED=false（实际 {enabled!r}）")
+              if mig_dep != "service_completed_successfully":
+                  bad.append(f"{f}: backend.depends_on.flyway-init 不是 service_completed_successfully")
+              if not mig:
+                  bad.append(f"{f}: 缺 flyway-init service")
+              elif "FlywayOnlyApplication" not in json.dumps(mig.get("entrypoint") or []):
+                  bad.append(f"{f}: flyway-init 入口不是 FlywayOnlyApplication（别改成 @SpringBootApplication）")
+              elif "SPRING_FLYWAY_PASSWORD" not in mig_env:
+                  bad.append(f"{f}: flyway-init 缺 SPRING_FLYWAY_PASSWORD")
+          if bad:
+              for b in bad:
+                  print(f"::error::{b}")
+              sys.exit(1)
+          print("DDL 凭证隔离契约 ok")
+          PY
+
       - name: Check nginx config syntax
         run: |
           # dummy 证书 + host 映射，跑真 nginx 做 -t（此前改坏 nginx.conf 不触发任何校验）
