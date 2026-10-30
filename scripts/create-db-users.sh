@@ -9,6 +9,7 @@
 #   ./scripts/create-db-users.sh                  # 默认容器 vibemusic-mysql，读 ./.env
 #   ./scripts/create-db-users.sh -c 别的容器名
 #   ./scripts/create-db-users.sh -f /opt/vibeMusic/.env
+#   ./scripts/create-db-users.sh -m docker-compose.full.yml   # 指定要启动的 compose 文件
 #
 # 幂等：内部用 CREATE USER IF NOT EXISTS + ALTER USER，可反复执行（同时会把口令同步成 .env 里的值）。
 # ==========================================
@@ -16,13 +17,15 @@ set -euo pipefail
 
 CONTAINER="vibemusic-mysql"
 ENV_FILE=".env"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 SCRIPT="vibeMusic-backend/sql/init-users.sh"
 
-while getopts "c:f:" opt; do
+while getopts "c:f:m:" opt; do
   case "$opt" in
     c) CONTAINER="$OPTARG" ;;
     f) ENV_FILE="$OPTARG" ;;
-    *) echo "用法: $0 [-c 容器名] [-f env文件]" >&2; exit 2 ;;
+    m) COMPOSE_FILE="$OPTARG" ;;
+    *) echo "用法: $0 [-c 容器名] [-f env文件] [-m compose文件]" >&2; exit 2 ;;
   esac
 done
 
@@ -30,20 +33,31 @@ done
 [ -f "$SCRIPT" ]   || { echo "[错误] 找不到 $SCRIPT（请在仓库根目录执行）" >&2; exit 1; }
 
 # 容器没起就自己起（存量卷场景：不建号直接 up 会在 flyway-init 处 1045，被 depends_on 连带拦住）
-if ! docker inspect "$CONTAINER" >/dev/null 2>&1 \
-   || [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" != "true" ]]; then
-  echo "==> 容器 $CONTAINER 未运行，先起 mysql（等 healthy，上限 120s）"
-  docker compose up -d mysql
+# 已存在但停止 → 直接 docker start，避免 compose 按文件重建/改名；
+# 不存在 → 按 -m 指定的 compose 文件起，避免在 full/demo 栈里误起默认栈的 mysql。
+if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
+  echo "==> 容器 $CONTAINER 不存在，用 $COMPOSE_FILE 启动 mysql（等 healthy，上限 120s）"
+  docker compose -f "$COMPOSE_FILE" up -d mysql
+elif [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" != "true" ]]; then
+  echo "==> 容器 $CONTAINER 已存在但未运行，docker start（等 healthy，上限 120s）"
+  docker start "$CONTAINER" >/dev/null
+fi
+
+if [[ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" != "healthy" ]]; then
   for _ in $(seq 1 60); do
     [[ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" == "healthy" ]] && break
     sleep 2
   done
-  [[ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" == "healthy" ]] \
-    || { echo "[错误] $CONTAINER 120s 内未 healthy，先看 docker logs $CONTAINER" >&2; exit 1; }
 fi
+[[ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" == "healthy" ]] \
+  || { echo "[错误] $CONTAINER 120s 内未 healthy，先看 docker logs $CONTAINER" >&2; exit 1; }
 
 # 只取需要的键，不 source 整个 .env（避免执行里面的任何内容）
-get() { sed -n "s/^$1=//p" "$ENV_FILE" | head -1; }
+# 去掉 .env 里常见的成对引号，避免把引号本身当成口令的一部分
+get() {
+  sed -n "s/^$1=//p" "$ENV_FILE" | head -1 \
+    | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+}
 
 MYSQL_ROOT_PASSWORD=$(get MYSQL_ROOT_PASSWORD)
 DB_PASSWORD=$(get DB_PASSWORD)

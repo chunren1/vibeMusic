@@ -32,8 +32,14 @@ set -eo pipefail
 : "${DB_PASSWORD:?DB_PASSWORD 未传入（运行账号口令）}"
 : "${FLYWAY_PASSWORD:?FLYWAY_PASSWORD 未传入（迁移账号口令）}"
 
-# SQL 单引号转义：口令里出现 ' 时不能把语句截断
-sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
+# SQL 单引号/反斜杠转义：口令里出现 ' 或 \ 时不能把语句截断或改变字面值
+# （MySQL 默认开启反斜杠转义；把 \ 写成 \\ 才能得到原字符）
+sql_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/''/g"; }
+
+# 换行会把 SQL 语句截断，直接拒绝（.env 里也用不到多行口令）
+case "${DB_PASSWORD}${FLYWAY_PASSWORD}" in
+  *$'\n'*) echo "[02-users] 口令不能包含换行" >&2; exit 1 ;;
+esac
 
 DB_PW=$(sql_escape "$DB_PASSWORD")
 FLYWAY_PW=$(sql_escape "$FLYWAY_PASSWORD")
