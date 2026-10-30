@@ -28,7 +28,19 @@ done
 
 [ -f "$ENV_FILE" ] || { echo "[错误] 找不到 $ENV_FILE（用 -f 指定）" >&2; exit 1; }
 [ -f "$SCRIPT" ]   || { echo "[错误] 找不到 $SCRIPT（请在仓库根目录执行）" >&2; exit 1; }
-docker inspect "$CONTAINER" >/dev/null 2>&1 || { echo "[错误] 容器 $CONTAINER 不存在或未运行" >&2; exit 1; }
+
+# 容器没起就自己起（存量卷场景：不建号直接 up 会在 flyway-init 处 1045，被 depends_on 连带拦住）
+if ! docker inspect "$CONTAINER" >/dev/null 2>&1 \
+   || [[ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" != "true" ]]; then
+  echo "==> 容器 $CONTAINER 未运行，先起 mysql（等 healthy，上限 120s）"
+  docker compose up -d mysql
+  for _ in $(seq 1 60); do
+    [[ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" == "healthy" ]] && break
+    sleep 2
+  done
+  [[ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" == "healthy" ]] \
+    || { echo "[错误] $CONTAINER 120s 内未 healthy，先看 docker logs $CONTAINER" >&2; exit 1; }
+fi
 
 # 只取需要的键，不 source 整个 .env（避免执行里面的任何内容）
 get() { sed -n "s/^$1=//p" "$ENV_FILE" | head -1; }

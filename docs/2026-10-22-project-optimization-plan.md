@@ -286,7 +286,7 @@
 
 ### 11.2 零停机部署（蓝绿，已实弹通过）
 
-`scripts/deploy-backend.sh`（8 步，默认 dry-run，`--apply` 才真动）：本机构建 → `docker save|gzip|ssh load`（**比层 + Config 内容，不比 image ID**——跨 Docker 版本 load 会规范化 config，ID 必然变，29.1.3→29.7.2 实测踩到）→ 起 `vibemusic-backend-next` 到空闲端口（8080/8082/8083/8084 轮换，**8081 被宿主 nginx 占用**）→ 等 healthy → 写 upstream + 首次幂等迁移 nginx + `nginx -t` + reload → 验证流量真的改道 → 停旧容器、next 转正。
+`scripts/deploy-backend.sh`（**9 步**，默认 dry-run，`--apply` 才真动）：本机构建（或 `--from-registry` 只 pull）→ `docker save|gzip|ssh load`（**比层 + Config 内容，不比 image ID**——跨 Docker 版本 load 会规范化 config，ID 必然变，29.1.3→29.7.2 实测踩到）→ **4/9 跑一次性迁移容器**（`--rm`，用 `/opt/vibeMusic/.env` 的 `FLYWAY_USER/FLYWAY_PASSWORD`；退出码非 0 立即中止，流量一点没切）→ 起 `vibemusic-backend-next` 到空闲端口（8080/8082/8083/8084 轮换，**8081 被宿主 nginx 占用**）→ 等 healthy → 写 upstream + 首次幂等迁移 nginx + `nginx -t` + reload → 验证流量真的改道 → 停旧容器、next 转正。
 
 | 项目 | 实测 |
 |---|---|
