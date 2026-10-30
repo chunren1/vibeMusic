@@ -36,9 +36,10 @@ set -eo pipefail
 # （MySQL 默认开启反斜杠转义；把 \ 写成 \\ 才能得到原字符）
 sql_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/''/g"; }
 
-# 换行会把 SQL 语句截断，直接拒绝（.env 里也用不到多行口令）
-case "${DB_PASSWORD}${FLYWAY_PASSWORD}" in
-  *$'\n'*) echo "[02-users] 口令不能包含换行" >&2; exit 1 ;;
+# 换行/回车会把 SQL 语句截断，直接拒绝（.env 里也用不到多行口令）
+# 注意 BACKUP_PASSWORD 是可选项，但一旦提供就同样要过这个闸
+case "${DB_PASSWORD}${FLYWAY_PASSWORD}${BACKUP_PASSWORD:-}" in
+  *$'\n'*|*$'\r'*) echo "[02-users] 口令不能包含换行/回车" >&2; exit 1 ;;
 esac
 
 DB_PW=$(sql_escape "$DB_PASSWORD")

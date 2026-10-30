@@ -53,10 +53,15 @@ fi
   || { echo "[错误] $CONTAINER 120s 内未 healthy，先看 docker logs $CONTAINER" >&2; exit 1; }
 
 # 只取需要的键，不 source 整个 .env（避免执行里面的任何内容）
-# 去掉 .env 里常见的成对引号，避免把引号本身当成口令的一部分
+# 只剥**成对**的引号：口令本身以引号结尾（如 abc'）时不能被静默削掉字符
 get() {
-  sed -n "s/^$1=//p" "$ENV_FILE" | head -1 \
-    | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+  local v
+  v=$(sed -n "s/^$1=//p" "$ENV_FILE" | head -1)
+  case "$v" in
+    \"*\") v=${v#\"}; v=${v%\"} ;;
+    \'*\') v=${v#\'}; v=${v%\'} ;;
+  esac
+  printf '%s' "$v"
 }
 
 MYSQL_ROOT_PASSWORD=$(get MYSQL_ROOT_PASSWORD)

@@ -37,8 +37,8 @@
 
 ```bash
 sql_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/''/g"; }
-case "${DB_PASSWORD}${FLYWAY_PASSWORD}" in
-  *$'\n'*) echo "[02-users] 口令不能包含换行" >&2; exit 1 ;;
+case "${DB_PASSWORD}${FLYWAY_PASSWORD}${BACKUP_PASSWORD:-}" in
+  *$'\n'*|*$'\r'*) echo "[02-users] 口令不能包含换行/回车" >&2; exit 1 ;;
 esac
 ```
 
@@ -109,8 +109,8 @@ esac
 ## 6. 已知边界（审查时请确认口径）
 
 1. **`create-db-users.sh` 仍假设容器有 healthcheck**；无 HEALTHCHECK 的容器会等满 120s 后报错。当前 mysql 镜像有，够用。
-2. **`get()` 去引号是启发式**：如果口令本身以引号结尾且未成对，会被误删；生成口令时避免首尾引号即可。
-3. **`init-users.sh` 不处理 `\0` 与控制字符**；`.env` 不支持多行，换行已拒绝。
+2. **`get()` 已改为只剥成对引号**：单侧引号（如 `abc'`）会保留；仍是启发式，`.env` 里请使用成对引号或不加引号。
+3. **`init-users.sh` 已拒绝换行/回车（含 BACKUP_PASSWORD）**；`\0` 与控制字符仍不处理。
 4. **CI required check 未配置**：需要 GitHub 仓库设置，代码改不了；建议把 infra-lint 设为必需。
 5. **HSTS `includeSubDomains` 未验证全部子域**：需确认 `ai/monitor` 等均 HTTPS；本轮未改 nginx。
 6. **Android 取消测试是同步抛 `CancellationException`**，没有覆盖“真实 scope cancel 时正在挂起”的路径；语义等价，但如需更强证据可加 `awaitCancellation` + `cancelAndJoin` 用例。
