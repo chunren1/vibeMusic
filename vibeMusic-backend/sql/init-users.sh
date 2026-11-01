@@ -76,8 +76,13 @@ FLYWAY_PW=$(sql_escape "$FLYWAY_PASSWORD")
 
 echo "[02-users] 已建号：vibemusic(DML) / vibemusic_migrator(DML+DDL)${BACKUP_PASSWORD:+ / vibemusic_backup(只读备份)}"
 
-# 只有由 initdb 自动触发时才提示「存量库怎么补」，手工执行时不必再自我指路
-case "$0" in
+# 只有由 initdb 自动触发时才提示「存量库怎么补」，手工执行时不必再自我指路。
+# 判据用 BASH_SOURCE 而不是 $0：若挂载进来的文件丢了可执行位（umask 不对、Windows 侧克隆等），
+# mysql 官方 entrypoint 会 `. "$f"` **source** 执行，此时 $0 仍是 /usr/local/bin/docker-entrypoint.sh，
+# 老的 `case "$0"` 就漏判了（2026-11-01 修）。仓库里现在是 755，走的是 `"$f"` 执行分支，
+# 两种情形 ${BASH_SOURCE:-$0} 都指向本文件，所以行为只会更稳、不会变。
+# 写成 ${BASH_SOURCE:-$0}（不写下标）是刻意的：dash 里没有 BASH_SOURCE，加下标会 Bad substitution 直接炸。
+case "${BASH_SOURCE:-$0}" in
   /docker-entrypoint-initdb.d/*)
     echo "[02-users] 其它已存在的库（initdb 不会再跑）补建账号："
     echo "           ./scripts/create-db-users.sh        # 在仓库根目录，读 ./.env，docker cp + exec 本脚本"

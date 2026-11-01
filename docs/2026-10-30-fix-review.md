@@ -127,7 +127,7 @@ esac
 ## 8. 审查结论
 
 > 审查日期 2026-11-01。审查对象为 `f22b1c3`（主仓）与 `4fa0b9e`（Android 仓），**不是**当前 HEAD 的全量审查。
-> 结论：**Approve（可合并）**，无 P0/P1，不需要额外回归；本轮只改了一处事实性注释。
+> 结论：**Approve（可合并）**，无 P0/P1，不需要额外回归。审查后落地的 P3 小修共 5 处（主仓 2：`case` 判据、多余 `|| true`；Android 仓 3：两处「19 处」注释、`AGENTS.md` 文件数），逐条记在 8.2；`GRANT` 不 `REVOKE` 一项有意保留，理由见 8.4。
 
 ### 8.1 审查清单逐条核对
 
@@ -147,11 +147,11 @@ esac
 | 级别 | 位置 | 问题 | 处理 |
 |---|---|---|---|
 | **P2** | `vibeMusic-backend/sql/init-users.sh:22-25`（原） | 注释写「把 Flyway 拆成独立 init job **未实施**」，与 `2c13c54` 已实施的事实冲突；照此注释会误判「backend 仍持有 DDL 凭证」，进而低估/高估安全边界 | **本轮已修**：改成「DDL 凭证只出现在一次性迁移容器里」+ 诚实补一句「migrator 口令仍在云端 `.env`，防的是应用层 RCE 不是主机失守」 |
-| P3 | `init-users.sh:48-70` | 只 `GRANT` 不 `REVOKE`：若历史账号权限比现在大，重复执行本脚本**不会收紧** | 未改。云端实测已是正确权限集（见 8.3），属未来风险；真要收紧应单独写 REVOKE 并对齐三份 compose |
-| P3 | `MainActivity.kt:1660`、`ApiActionRunner.kt:10` | 两处注释写「19 处」，实际 `api.launch(` 调用点为 **17 处**（`ApiActionRunnerTest.kt:15` 写的 17 才对） | 未改。跨仓（native）改动，随下次 native 提交一并带上 |
-| P3 | `vibemusic-native/AGENTS.md:28` | 写「60 个 `.kt` / 91 个测试」，实测 **62 / 93** | 未改。该文件人手维护且明令禁止 agent 自动改写，需用户确认 |
-| P3 | `scripts/create-db-users.sh:70` | `$(get BACKUP_PASSWORD \|\| true)` 里的 `\|\| true` 无实际作用：`get` 用 `sed -n`，缺键也返回 0 | 未改。误导性写法，不影响行为 |
-| P3 | `init-users.sh:78` | `case "$0"` 想判「是否由 initdb 触发」，但被 entrypoint `source` 时 `$0` 是 entrypoint 路径，分支不会命中 | 未改。只影响一行提示语是否打印 |
+| P3 | `init-users.sh:48-70` | 只 `GRANT` 不 `REVOKE`：若历史账号权限比现在大，重复执行本脚本**不会收紧** | **未改（有意保留）**。云端实测已是正确权限集（见 8.3），属未来风险；加 REVOKE 要同时对齐三份 compose 与 `create-db-users.sh`，且一旦写错会当场收掉运行账号权限 —— 收益低于风险，留待专门一轮 |
+| P3 | `MainActivity.kt:1661`、`ApiActionRunner.kt:10` | 两处注释写「19 处」，实际 `api.launch(` 调用点为 **17 处**（`ApiActionRunnerTest.kt:15` 写的 17 才对） | **本轮已修**（native 仓，与 `AGENTS.md` 数字同一次提交；1075 例重跑见提交说明） |
+| P3 | `vibemusic-native/AGENTS.md:28` | 写「60 个 `.kt` / 91 个测试」，实测 **62 / 93** | **本轮已修**（经用户「把任务都做完」授权；仅改两个数字，未动正文） |
+| P3 | `scripts/create-db-users.sh:70` | `$(get BACKUP_PASSWORD \|\| true)` 里的 `\|\| true` 无实际作用：`get` 用 `sed -n`，缺键也返回 0；反过来若 `get` 真失败，`\|\| true` 会把错误吞成「口令为空」继续往下跑 | **本轮已修**：去掉 `\|\| true`。缺键时 `BACKUP_PASSWORD` 仍为空串（与之前等价），但真实错误不再被掩盖 |
+| P3 | `init-users.sh:78`（原 `case "$0"`） | 想判「是否由 initdb 触发」。**修正原判断**：仓库里该文件是 **755**，entrypoint 走 `"$f"` 执行分支，`$0` 就是 `/docker-entrypoint-initdb.d/02-users.sh`，其实**会命中**；真正会漏判的是「挂载后丢了可执行位 → entrypoint 改 `. "$f"` source」那条路（`$0` 变成 entrypoint 路径） | **本轮已修**：改判 `${BASH_SOURCE:-$0}`，两种情形都指向本文件；刻意不写下标，dash 里无 `BASH_SOURCE` 也能安全回退（`sh -n` 通过） |
 
 ### 8.3 本轮额外取证（与修复本身无关，但支撑结论）
 
@@ -160,15 +160,14 @@ esac
 | 云端账号权限是否真如脚本所述 | `docker exec vibemusic-mysql … SHOW GRANTS` | `vibemusic`：仅 `SELECT,INSERT,UPDATE,DELETE`；`vibemusic_migrator`：上述 + `CREATE,DROP,REFERENCES,INDEX,ALTER,EXECUTE,CREATE ROUTINE,ALTER ROUTINE`；无 `vibemusic_backup`（demo 栈不跑备份容器）→ **与脚本一致** |
 | 云上 demo compose 是否含 flyway-init | `md5sum` + `docker compose config --quiet` | 已同步为仓库版（`0994d5b5…`，244 行），`config` rc=0，服务清单含 `flyway-init`；**运行中 4 个容器未动** |
 | 部署一致性对账 | `scripts/reconcile-cloud.sh` | 11/22 一致、11 项预期差异、**0 真漂移** |
+| `case` 判据 A/B（2026-11-01，一次性 `mysql:8.0` 容器 + 空数据目录，跑完即删） | 同一脚本分别以 **755**（entrypoint `running`）和 **644**（entrypoint `sourcing`）挂进 `/docker-entrypoint-initdb.d/` | **755**：新旧版都打印提示（`$0` 就是脚本路径，老写法本就命中）；**644**：旧版只输出「已建号」**不打印**提示，新版正常打印 → 老写法在 source 分支漏判已复现，修复有效；两轮均建出 `vibemusic` / `vibemusic_migrator` 两账号 |
 
 ### 8.4 未修项与理由
 
-1. **跨仓注释（17 vs 19）**：属 native 仓，改它要单独提交并跑 1075 例，与本轮「运维收尾」范围不符。
-2. **`AGENTS.md` 数字（60/91 → 62/93）**：该文件头明确「禁止让 agent 自动改写本文件」，须用户确认。
-3. **REVOKE / `|| true` / `case $0`**：三处都不改变当前行为，改它们会扩大本次改动面；已在此记录，下次触碰对应文件时一并处理。
+1. **`GRANT` 不 `REVOKE`**：见 8.2。云端权限集已正确，加 REVOKE 的收益是防未来漂移，但写错的代价是当场收掉运行账号权限，且要同步三份 compose + 两个建号脚本 —— 单独一轮做，本轮不夹带。
 
 ### 8.5 结论
 
 - 无 P0/P1，**不需要额外回归**。
-- 主仓本轮仅一处注释改动，`bash -n vibeMusic-backend/sql/init-users.sh` 通过；未改 Java，无需重跑 829 例。
-- Android 仓本轮未改动。
+- 主仓本轮：`init-users.sh` 一处注释纠偏 + 一处 `case` 判据修正 + `create-db-users.sh` 去掉无意义的 `|| true`；两个脚本 `bash -n` / `sh -n` 均通过；未改 Java，无需重跑 829 例。
+- Android 仓本轮：两处「19 处 → 17 处」注释 + `AGENTS.md` 文件数 60/91 → 62/93；改动纯注释/文档，仍按仓规跑 `testDebugUnitTest` 全量（1075 例）。
