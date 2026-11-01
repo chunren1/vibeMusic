@@ -47,6 +47,58 @@ esac
 DB_PW=$(sql_escape "$DB_PASSWORD")
 FLYWAY_PW=$(sql_escape "$FLYWAY_PASSWORD")
 
+# ── 收紧历史权限（2026-11-01）───────────────────────────────────────────────
+# 老版本只 GRANT 不 REVOKE：账号权限一旦被手工放大过（GRANT ALL、WITH GRANT OPTION），
+# 重跑本脚本不会收回，等于「最小权限」只是首次建号时的承诺。
+# 失败方向是刻意的「宁可收不干净」：GRANT 全在前面先落，这里只撤多余的单项权限，
+# 绝不 REVOKE ALL 再重发 —— 后者一旦语句出错，账号会被清空，后端当场 1045。
+# 只处理库级权限（vibemusic.*）；全局权限不归这个脚本管。
+#
+# MySQL 8 库级权限全集：SHOW GRANTS 对 `GRANT ALL ON db.*` 只回一行 "ALL PRIVILEGES"，
+# 看不出具体项，所以这里按全集展开再求差集（2026-11-01 在 mysql:8.0.46 实测）。
+ALL_DB_PRIVS="SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|REFERENCES|INDEX|ALTER|CREATE TEMPORARY TABLES|LOCK TABLES|EXECUTE|CREATE VIEW|SHOW VIEW|CREATE ROUTINE|ALTER ROUTINE|EVENT|TRIGGER"
+
+db_privs() {  # $1=账号 → 现有库级权限，一行一个
+  MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot -N \
+    -e "SHOW GRANTS FOR '$1'@'%'" 2>/dev/null \
+    | sed -n 's/^GRANT \(.*\) ON `vibemusic`\.\* TO .*/\1/p' \
+    | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | sort -u
+}
+has_grant_option() {  # $1=账号 → 库级是否带 WITH GRANT OPTION
+  MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot -N \
+    -e "SHOW GRANTS FOR '$1'@'%'" 2>/dev/null \
+    | grep -q 'ON `vibemusic`\.\* TO .*WITH GRANT OPTION'
+}
+revoke_extras() {  # $1=账号，其余=应保留的权限；只输出要执行的 REVOKE
+  local acct="$1"; shift
+  local keep=" $* " extra
+  extra=$(db_privs "$acct" | awk -v keep="$keep" 'NF && index(keep, " " $0 " ") == 0' | paste -sd, -)
+  case "$extra" in
+    *ALL\ PRIVILEGES*)
+      # 展开成全集的差集；单条 REVOKE 撤掉具体项，账号仍保有一开始 GRANT 的那套
+      extra=$(printf '%s\n' "$ALL_DB_PRIVS" | tr '|' '\n' \
+        | awk -v keep="$keep" 'index(keep, " " $0 " ") == 0' | paste -sd, -)
+      ;;
+  esac
+  if [ -n "$extra" ]; then
+    echo "-- 收紧 $acct：撤销历史多余的库级权限（$extra）"
+    echo "REVOKE $extra ON vibemusic.* FROM '$acct'@'%';"
+  fi
+  if has_grant_option "$acct"; then
+    echo "-- 收紧 $acct：撤销库级 WITH GRANT OPTION（否则它能把自己的权限转授出去）"
+    echo "REVOKE GRANT OPTION ON vibemusic.* FROM '$acct'@'%';"
+  fi
+}
+
+# 差集要在 SQL 块之前算好：此时读到的还是「GRANT 之前」的权限，减掉应保留项就是历史多余项。
+REVOKE_SQL=$(
+  revoke_extras vibemusic SELECT INSERT UPDATE DELETE
+  revoke_extras vibemusic_migrator SELECT INSERT UPDATE DELETE CREATE ALTER DROP INDEX REFERENCES CREATE ROUTINE ALTER ROUTINE EXECUTE
+  if [ -n "${BACKUP_PASSWORD:-}" ]; then
+    revoke_extras vibemusic_backup SELECT SHOW VIEW TRIGGER EVENT LOCK TABLES
+  fi
+)
+
 {
   echo "-- 运行账号：只给 DML"
   echo "CREATE USER IF NOT EXISTS 'vibemusic'@'%' IDENTIFIED BY '${DB_PW}';"
@@ -71,10 +123,21 @@ FLYWAY_PW=$(sql_escape "$FLYWAY_PASSWORD")
     echo "GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES ON vibemusic.* TO 'vibemusic_backup'@'%';"
   fi
 
+  # 收紧历史权限放在最后：这段若因语法/解析问题出错，前面账号与口令已经就绪，
+  # 后端不会因为「权限没收干净」而起不来（最坏只是权限仍偏大，属可接受的失败方向）。
+  if [ -n "$REVOKE_SQL" ]; then
+    echo "-- 收紧历史权限（只撤销多余项，需要的权限已在上面 GRANT 过）"
+    printf '%s\n' "$REVOKE_SQL"
+  fi
+
   echo "FLUSH PRIVILEGES;"
 } | MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql --protocol=socket -uroot
 
 echo "[02-users] 已建号：vibemusic(DML) / vibemusic_migrator(DML+DDL)${BACKUP_PASSWORD:+ / vibemusic_backup(只读备份)}"
+if [ -n "$REVOKE_SQL" ]; then
+  echo "[02-users] 已收紧历史权限（明细如下，需要的权限不受影响）：" >&2
+  printf '%s\n' "$REVOKE_SQL" | grep '^--' | sed 's/^-- /           /' >&2
+fi
 
 # 只有由 initdb 自动触发时才提示「存量库怎么补」，手工执行时不必再自我指路。
 # 判据用 BASH_SOURCE 而不是 $0：若挂载进来的文件丢了可执行位（umask 不对、Windows 侧克隆等），

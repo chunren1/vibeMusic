@@ -127,7 +127,7 @@ esac
 ## 8. 审查结论
 
 > 审查日期 2026-11-01。审查对象为 `f22b1c3`（主仓）与 `4fa0b9e`（Android 仓），**不是**当前 HEAD 的全量审查。
-> 结论：**Approve（可合并）**，无 P0/P1，不需要额外回归。审查后落地的 P3 小修共 5 处（主仓 2：`case` 判据、多余 `|| true`；Android 仓 3：两处「19 处」注释、`AGENTS.md` 文件数），逐条记在 8.2；`GRANT` 不 `REVOKE` 一项有意保留，理由见 8.4。
+> 结论：**Approve（可合并）**，无 P0/P1，不需要额外回归。审查后落地的 P3 小修共 6 处（主仓 3：`case` 判据、多余 `|| true`、权限收紧 REVOKE；Android 仓 3：两处「19 处」注释、`AGENTS.md` 文件数），逐条记在 8.2，实测证据在 8.3。
 
 ### 8.1 审查清单逐条核对
 
@@ -147,7 +147,7 @@ esac
 | 级别 | 位置 | 问题 | 处理 |
 |---|---|---|---|
 | **P2** | `vibeMusic-backend/sql/init-users.sh:22-25`（原） | 注释写「把 Flyway 拆成独立 init job **未实施**」，与 `2c13c54` 已实施的事实冲突；照此注释会误判「backend 仍持有 DDL 凭证」，进而低估/高估安全边界 | **本轮已修**：改成「DDL 凭证只出现在一次性迁移容器里」+ 诚实补一句「migrator 口令仍在云端 `.env`，防的是应用层 RCE 不是主机失守」 |
-| P3 | `init-users.sh:48-70` | 只 `GRANT` 不 `REVOKE`：若历史账号权限比现在大，重复执行本脚本**不会收紧** | **未改（有意保留）**。云端实测已是正确权限集（见 8.3），属未来风险；加 REVOKE 要同时对齐三份 compose 与 `create-db-users.sh`，且一旦写错会当场收掉运行账号权限 —— 收益低于风险，留待专门一轮 |
+| P3 | `init-users.sh:48-70` | 只 `GRANT` 不 `REVOKE`：若历史账号权限比现在大（`GRANT ALL`、`WITH GRANT OPTION`），重复执行本脚本**不会收紧** | **本轮已修**：GRANT 全部在前、收紧段在最后，只按差集撤多余项（绝不 `REVOKE ALL` 再重发 —— 那样一旦语句出错账号会被清空，后端当场 1045）；`ALL PRIVILEGES` 按 MySQL 8 库级全集展开求差集；`WITH GRANT OPTION` 单独撤。实测见 8.3 |
 | P3 | `MainActivity.kt:1661`、`ApiActionRunner.kt:10` | 两处注释写「19 处」，实际 `api.launch(` 调用点为 **17 处**（`ApiActionRunnerTest.kt:15` 写的 17 才对） | **本轮已修**（native 仓，与 `AGENTS.md` 数字同一次提交；1075 例重跑见提交说明） |
 | P3 | `vibemusic-native/AGENTS.md:28` | 写「60 个 `.kt` / 91 个测试」，实测 **62 / 93** | **本轮已修**（经用户「把任务都做完」授权；仅改两个数字，未动正文） |
 | P3 | `scripts/create-db-users.sh:70` | `$(get BACKUP_PASSWORD \|\| true)` 里的 `\|\| true` 无实际作用：`get` 用 `sed -n`，缺键也返回 0；反过来若 `get` 真失败，`\|\| true` 会把错误吞成「口令为空」继续往下跑 | **本轮已修**：去掉 `\|\| true`。缺键时 `BACKUP_PASSWORD` 仍为空串（与之前等价），但真实错误不再被掩盖 |
@@ -161,13 +161,19 @@ esac
 | 云上 demo compose 是否含 flyway-init | `md5sum` + `docker compose config --quiet` | 已同步为仓库版（`0994d5b5…`，244 行），`config` rc=0，服务清单含 `flyway-init`；**运行中 4 个容器未动** |
 | 部署一致性对账 | `scripts/reconcile-cloud.sh` | 11/22 一致、11 项预期差异、**0 真漂移** |
 | `case` 判据 A/B（2026-11-01，一次性 `mysql:8.0` 容器 + 空数据目录，跑完即删） | 同一脚本分别以 **755**（entrypoint `running`）和 **644**（entrypoint `sourcing`）挂进 `/docker-entrypoint-initdb.d/` | **755**：新旧版都打印提示（`$0` 就是脚本路径，老写法本就命中）；**644**：旧版只输出「已建号」**不打印**提示，新版正常打印 → 老写法在 source 分支漏判已复现，修复有效；两轮均建出 `vibemusic` / `vibemusic_migrator` 两账号 |
+| 权限收紧 A/B（2026-11-01，一次性 `mysql:8.0.46` 容器，跑完即删） | 先造「历史权限被放大」现场：`GRANT ALL PRIVILEGES ON vibemusic.* ... WITH GRANT OPTION`，再跑 `init-users.sh` | 收紧后 `SHOW GRANTS` **逐项等于**目标集：运行账号 `DELETE,INSERT,SELECT,UPDATE`；迁移账号 `ALTER,ALTER ROUTINE,CREATE,CREATE ROUTINE,DELETE,DROP,EXECUTE,INDEX,INSERT,REFERENCES,SELECT,UPDATE`；备份账号 `EVENT,LOCK TABLES,SELECT,SHOW VIEW,TRIGGER`；`GRANT OPTION` 残留 0。行为校验：运行账号 `CREATE TABLE` → `ERROR 1142`，迁移账号建删表成功，备份账号写被拒 |
+| 同上·幂等 | 连跑两次 | 第二次 **0 条 REVOKE、0 条 ERROR**，权限集不变 |
+| 同上·局部多余 | 只额外 `GRANT CREATE` 给运行账号 | 只撤 `CREATE`，DML 四项不动 |
+| 同上·全新库 | `DROP USER` 后重跑 | 三个账号按目标集重建，0 ERROR |
+| 本地真实路径 | 在跑着的本地栈执行 `scripts/create-db-users.sh` | 走完 `docker cp` + `docker exec bash` 全流程，RC=0；本地账号本就是目标集 → **无 REVOKE 摘要**（符合预期）；后端仍 `healthy`、`/actuator/health/liveness` 200 |
 
 ### 8.4 未修项与理由
 
-1. **`GRANT` 不 `REVOKE`**：见 8.2。云端权限集已正确，加 REVOKE 的收益是防未来漂移，但写错的代价是当场收掉运行账号权限，且要同步三份 compose + 两个建号脚本 —— 单独一轮做，本轮不夹带。
+无。原「`GRANT` 不 `REVOKE`」一项已在本轮实现（8.2），云端权限集本就正确，故线上无需执行；
+下次建号（新环境 / 存量卷补建）时新逻辑自动生效。
 
 ### 8.5 结论
 
 - 无 P0/P1，**不需要额外回归**。
-- 主仓本轮：`init-users.sh` 一处注释纠偏 + 一处 `case` 判据修正 + `create-db-users.sh` 去掉无意义的 `|| true`；两个脚本 `bash -n` / `sh -n` 均通过；未改 Java，无需重跑 829 例。
+- 主仓本轮：`init-users.sh` 注释纠偏 + `case` 判据修正 + 新增权限收紧（差集 REVOKE）+ `create-db-users.sh` 去掉无意义的 `|| true`；两个脚本 `bash -n` / `sh -n` 均通过；未改 Java，无需重跑 829 例。
 - Android 仓本轮：两处「19 处 → 17 处」注释 + `AGENTS.md` 文件数 60/91 → 62/93；改动纯注释/文档，仍按仓规跑 `testDebugUnitTest` 全量（1075 例）。
