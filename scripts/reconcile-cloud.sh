@@ -79,6 +79,8 @@ scripts/health_check.py|scripts/health_check.py|/opt/vibeMusic/scripts/health_ch
 scripts/health-alert.sh|scripts/health-alert.sh|/opt/vibeMusic/scripts/health-alert.sh
 scripts/adversarial-chaos.sh|scripts/adversarial-chaos.sh|/opt/vibeMusic/scripts/adversarial-chaos.sh
 scripts/adversarial-security.sh|scripts/adversarial-security.sh|/opt/vibeMusic/scripts/adversarial-security.sh
+scripts/create-db-users.sh|scripts/create-db-users.sh|/opt/vibeMusic/scripts/create-db-users.sh
+vibeMusic-backend/sql/init-users.sh|vibeMusic-backend/sql/init-users.sh|/opt/vibeMusic/vibeMusic-backend/sql/init-users.sh
 monitoring/prometheus.yml|monitoring/prometheus.yml|/opt/vibeMusic/monitoring/prometheus.yml
 monitoring/docker-compose.yml|monitoring/docker-compose.yml|/opt/vibeMusic/monitoring/docker-compose.yml
 monitoring/blackbox.yml|monitoring/blackbox.yml|/opt/vibeMusic/monitoring/blackbox.yml
