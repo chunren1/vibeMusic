@@ -19,10 +19,12 @@
 #                       → 备份容器不需要 root（以前用 -u root 走 TCP，
 #                         而 root@'%' 在生产已被删除，备份会直接失败）
 #
-# ⚠️ 不是「应用被攻破也改不了表结构」：migrator 口令通过 SPRING_FLYWAY_PASSWORD
-#    注入后端**同一个容器**，RCE 后读 process.env 就能拿到，照样能 DDL。
-#    真要做到那一点，得把 Flyway 拆成独立的 init job（未实施，见
-#    docs/2026-10-26-takeover-review.md §8.4）。
+# 边界（2026-10-30 更新）：DDL 凭证只出现在**一次性迁移容器**里（compose 的
+# flyway-init 段 + scripts/deploy-backend.sh 的 4/9 步），长期运行的 backend 已置
+# SPRING_FLYWAY_ENABLED=false 且不再持有 FLYWAY_*。因此「后端被攻破也改不了表结构」
+# 成立的前提是迁移容器退出后不留 env 文件 —— 部署脚本用 600 权限临时 env-file，
+# 跑完即删。诚实补一句：migrator 口令本身仍在云端 /opt/vibeMusic/.env 里，
+# 能读宿主机的人照样拿得到，这一层防的是应用层 RCE，不是主机失守。
 # ==========================================
 # 注意：镜像的 docker-entrypoint 对非可执行 .sh 是 `source` 执行（不会 fork），
 # 所以这里不能 `set -u` —— 会把 -u 泄漏给 entrypoint 后续步骤。`-e` 是它本来就有的。

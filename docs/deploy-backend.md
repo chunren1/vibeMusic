@@ -87,6 +87,17 @@ sh: can't open '': No such file or directory
 1. `mapfile` 两侧都过 `sed '/^$/d'`；
 2. 等 healthy 的循环里读 `RestartCount`，`> 3` 立即打印日志、删容器、退出（线上不动）。
 
+### 附：部署日志里单独一行 `sh: 0: cannot open : No such file`（2026-11-01 结案）
+
+历史部署日志在「起新容器」步骤里出现过**一行**独立 stderr：`sh: 0: cannot open : No such file`（rc=0，部署照常成功）。排查结论：
+
+- 该文案是 **dash 收到空脚本名**时的报错，即 `sh ""`（本机实测 rc=2，文案逐字一致）；`sh -c ""` 不会报。
+- 仓库里唯一已知能造出空脚本名的位置就是上面那个 `mapfile` 尾空串，已在 `0386759`（2026-10-23）用 `sed '/^$/d'` 修掉。
+- 2026-11-01 复验：线上现容器 `Entrypoint=["sh"]`、`Cmd=["-c","exec java $JAVA_OPTS -jar app.jar"]`，无空元素；把脚本的 env 采集段原样搬到云端执行，rc=0 且无该行 → **当前脚本不可复现**。
+- 该行出现的那次日志是 8 步版本（`2c13c54` 之前），且 rc=0、8 步全部走完、线上服务未受影响。
+
+结论：**无害、已收敛**。若再次出现，用 `bash -x scripts/deploy-backend.sh` 抓清楚是哪个远端命令产生的 —— 脚本自身的 `sh` 调用点只有两处 `--entrypoint sh`（`4/9` 迁移容器、`5/9` 重建启动命令），都紧跟 `-c '<脚本>'`，构造不出空脚本名，可直接排除。
+
 ## ⚠ 首次 `--apply` 会改一次宿主 nginx 配置
 
 全程只此一次动 `/etc/nginx`：

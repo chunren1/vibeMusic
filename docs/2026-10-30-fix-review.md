@@ -126,4 +126,49 @@ esac
 
 ## 8. 审查结论
 
-（待审查 Agent 填写）
+> 审查日期 2026-11-01。审查对象为 `f22b1c3`（主仓）与 `4fa0b9e`（Android 仓），**不是**当前 HEAD 的全量审查。
+> 结论：**Approve（可合并）**，无 P0/P1，不需要额外回归；本轮只改了一处事实性注释。
+
+### 8.1 审查清单逐条核对
+
+| # | 审查项 | 结论 | 证据 |
+|---|---|---|---|
+| 1 | `create-db-users.sh`：`docker start` 分支、`-m` 路径、健康等待是否在所有分支执行 | **通过** | 健康等待在 `if/elif` **之外**（`scripts/create-db-users.sh:46-53`），start 与 compose up 两条路都会等；`-m` 显式传给 `docker compose -f`（`:40`），文件不存在时 compose 自身非 0，配合 `set -euo pipefail`（`:16`）直接退出，不会静默起错栈 |
+| 2 | `init-users.sh`：转义顺序 | **通过** | `sql_escape` 先 `s/\\/\\\\/g` 再 `s/'/''/g`（`vibeMusic-backend/sql/init-users.sh:37`）。顺序正确：若先处理引号，后加的 `\` 会被再次加倍 |
+| 3 | `init-users.sh`：`case` 拼接是否漏检换行 | **通过** | `:41-43` 三个变量拼成一个串再匹配 `*$'\n'*|*$'\r'*`，任一含换行即命中；`BACKUP_PASSWORD` 用 `${BACKUP_PASSWORD:-}` 参与拼接，未提供时不误报 |
+| 4 | `init-users.sh`：`ALTER USER` 幂等 | **通过** | `CREATE USER IF NOT EXISTS` + `ALTER USER`（`:50-51`、`:55-56`、`:67-68`）可反复执行；`FLUSH PRIVILEGES`（`:72`）在 GRANT 之后属冗余，但无害 |
+| 5 | `ApiActionRunner.kt`：`CancellationException` 是否在 `Exception` 之前 | **通过** | `ApiActionRunner.kt:44-47` 的 `catch (e: CancellationException) { throw e }` 位于 `:52` 的 `catch (e: Exception)` 之前；`finally`（`:54-56`）仍执行，busy/loading 复位语义保留 |
+| 6 | `ApiActionRunnerTest.kt`：用例能否真的抓到「吞取消」回归 | **通过** | `ApiActionRunnerTest.kt:117-127`。`CancellationException` 是 `Exception` 子类，把 `:44-47` 删掉后它会落进通用分支 → `onError` 被调用 → `assertNull("取消不应弹业务错误", rec.error)` 失败。**该用例是有效回归门，不是摆设** |
+| 7 | `deploy-backend.md` 的 expand/contract 是否与脚本顺序一致 | **通过** | 脚本 `step "4/9 数据库迁移…"`（`scripts/deploy-backend.sh:642`）→ `5/9 起新容器`（`:722`）→ `7/9 切流量`（`:913`）；文档 `docs/deploy-backend.md:117-124` 描述的正是「迁移先于切流量、schema 需同时服务两个版本」 |
+| 8 | 文档计数 1075 是否与实测一致 | **通过** | `README.md:18,67` 与 `AGENTS.md:14,19` 均为 1075；测试目录实测 **93 个 `.kt`**（`find app/src/test -name '*.kt' \| wc -l`），与「93 个测试文件」一致 |
+
+### 8.2 本轮新发现（按严重度）
+
+| 级别 | 位置 | 问题 | 处理 |
+|---|---|---|---|
+| **P2** | `vibeMusic-backend/sql/init-users.sh:22-25`（原） | 注释写「把 Flyway 拆成独立 init job **未实施**」，与 `2c13c54` 已实施的事实冲突；照此注释会误判「backend 仍持有 DDL 凭证」，进而低估/高估安全边界 | **本轮已修**：改成「DDL 凭证只出现在一次性迁移容器里」+ 诚实补一句「migrator 口令仍在云端 `.env`，防的是应用层 RCE 不是主机失守」 |
+| P3 | `init-users.sh:48-70` | 只 `GRANT` 不 `REVOKE`：若历史账号权限比现在大，重复执行本脚本**不会收紧** | 未改。云端实测已是正确权限集（见 8.3），属未来风险；真要收紧应单独写 REVOKE 并对齐三份 compose |
+| P3 | `MainActivity.kt:1660`、`ApiActionRunner.kt:10` | 两处注释写「19 处」，实际 `api.launch(` 调用点为 **17 处**（`ApiActionRunnerTest.kt:15` 写的 17 才对） | 未改。跨仓（native）改动，随下次 native 提交一并带上 |
+| P3 | `vibemusic-native/AGENTS.md:28` | 写「60 个 `.kt` / 91 个测试」，实测 **62 / 93** | 未改。该文件人手维护且明令禁止 agent 自动改写，需用户确认 |
+| P3 | `scripts/create-db-users.sh:70` | `$(get BACKUP_PASSWORD \|\| true)` 里的 `\|\| true` 无实际作用：`get` 用 `sed -n`，缺键也返回 0 | 未改。误导性写法，不影响行为 |
+| P3 | `init-users.sh:78` | `case "$0"` 想判「是否由 initdb 触发」，但被 entrypoint `source` 时 `$0` 是 entrypoint 路径，分支不会命中 | 未改。只影响一行提示语是否打印 |
+
+### 8.3 本轮额外取证（与修复本身无关，但支撑结论）
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 云端账号权限是否真如脚本所述 | `docker exec vibemusic-mysql … SHOW GRANTS` | `vibemusic`：仅 `SELECT,INSERT,UPDATE,DELETE`；`vibemusic_migrator`：上述 + `CREATE,DROP,REFERENCES,INDEX,ALTER,EXECUTE,CREATE ROUTINE,ALTER ROUTINE`；无 `vibemusic_backup`（demo 栈不跑备份容器）→ **与脚本一致** |
+| 云上 demo compose 是否含 flyway-init | `md5sum` + `docker compose config --quiet` | 已同步为仓库版（`0994d5b5…`，244 行），`config` rc=0，服务清单含 `flyway-init`；**运行中 4 个容器未动** |
+| 部署一致性对账 | `scripts/reconcile-cloud.sh` | 11/22 一致、11 项预期差异、**0 真漂移** |
+
+### 8.4 未修项与理由
+
+1. **跨仓注释（17 vs 19）**：属 native 仓，改它要单独提交并跑 1075 例，与本轮「运维收尾」范围不符。
+2. **`AGENTS.md` 数字（60/91 → 62/93）**：该文件头明确「禁止让 agent 自动改写本文件」，须用户确认。
+3. **REVOKE / `|| true` / `case $0`**：三处都不改变当前行为，改它们会扩大本次改动面；已在此记录，下次触碰对应文件时一并处理。
+
+### 8.5 结论
+
+- 无 P0/P1，**不需要额外回归**。
+- 主仓本轮仅一处注释改动，`bash -n vibeMusic-backend/sql/init-users.sh` 通过；未改 Java，无需重跑 829 例。
+- Android 仓本轮未改动。
