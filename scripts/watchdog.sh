@@ -10,10 +10,13 @@
 #      它们本来就有 healthcheck，之前却没进这个循环。
 #   2) 同一容器两次重启至少间隔 30 分钟：原实现每 5 分钟重启一次，
 #      一个起不来的容器会变成 288 次/天的重启风暴，在 1.6G 机器上反而拖垮其他服务。
-#   3) 日志超过 1MB 自动截断：/var/log 被撑满会连带影响 health-alert 写日志。
+#   3) 日志超过 1MB 自动截断；日志写入改为"打开一次 fd、之后只写 fd"，
+#      路径在运行期被替换也不会影响已打开的写入。
 set -u
 
-LOG_DIR=/var/log/vibeMusic
+# /var/lib 的父目录本身不是组可写的，攻击者无法把整个目录换掉；
+# 对比 /var/log（Debian 默认 root:syslog 0775）从根上少了"替换目录/文件"这一层。
+LOG_DIR=/var/lib/vibeMusic
 LOG=$LOG_DIR/vibemusic-watchdog.log
 STATE=/var/run/vibemusic-watchdog.state
 MIN_AGE=360          # 启动 6 分钟内不判（JVM/Node 预热期会被误判 unhealthy）
@@ -29,9 +32,10 @@ log_fail() {
     fi
 }
 
-# 日志放进 root 独占目录（0750）。
-# 根因是 /var/log 在 Debian 默认 root:syslog 0775：只做 [ -L ] 检查挡不住 TOCTOU——
-# 组内账号可以在"检查"和"写入"之间把文件换成符号链接。目录不可写，这条路才真正断掉。
+log() {
+    printf '%s %s\n' "$(date '+%F %T')" "$*" >&3
+}
+
 mkdir -p "$LOG_DIR" 2>/dev/null || { log_fail "无法创建日志目录 $LOG_DIR"; exit 1; }
 
 # 先判链接、再 chmod：mkdir -p 遇到"指向目录的符号链接"同样返回 0，
@@ -50,19 +54,15 @@ if [ "$dir_meta" != "root 750" ]; then
     exit 1
 fi
 
-# 文件本身仍是链接（历史残留/人为替换）就拒绝，并让 cron 看到失败而不是静默成功
 if [ -L "$LOG" ] || [ -L "$STATE" ]; then
     log_fail "日志或状态文件是符号链接，拒绝写入"
     exit 1
 fi
 
-# 异常退出（INT/TERM/被 OOM 杀掉前的 EXIT）时清掉轮转临时文件，避免残留
 trap 'rm -f "$TMPFILE"' EXIT
 trap 'rm -f "$TMPFILE"; exit 130' INT TERM
 
-# 日志滚动：只留尾部 256KB，避免无限增长。
-# 临时文件必须用 mktemp 生成不可预测的名字：固定名 + /var/log 组可写时，
-# 同组账号可预置同名符号链接，让 root 的 ">" 写到任意文件上（CWE-59）。
+# 日志滚动：只留尾部 256KB。临时文件用 mktemp（不可预测、O_EXCL、同目录同文件系统）。
 if [ -f "$LOG" ]; then
     size=$(wc -c < "$LOG" 2>/dev/null || echo 0)
     if [ "$size" -gt "$MAX_LOG_BYTES" ]; then
@@ -80,12 +80,17 @@ if [ -f "$LOG" ]; then
     fi
 fi
 
+# 打开一次拿到 fd，后续只往 fd 写：
+# 即使 $LOG 在运行期被替换成符号链接，写入也落在打开时的 inode 上，
+# "检查—写入"之间的 TOCTOU 窗口对追加路径不再成立。
+exec 3>>"$LOG" || { log_fail "无法打开日志 $LOG"; exit 1; }
+
 last_restart() {
     grep "^$1 " "$STATE" 2>/dev/null | tail -1 | awk '{print $2}'
 }
 
 record_restart() {
-    echo "$1 $(date +%s)" >> "$STATE"
+    printf '%s %s\n' "$1" "$(date +%s)" >> "$STATE"
 }
 
 for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis; do
@@ -99,9 +104,9 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
 
     started=$(docker inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null) || continue
     # date 解析失败就跳过本容器：set -u 下算术操作数为空会让整个脚本退出，
-    # 后面的容器与日志滚动就都不执行了（宁可少判一个，也别整轮失效）
+    # 后面的容器都不再检查（宁可少判一个，也别整轮失效）
     if ! started_epoch=$(date -d "$started" +%s 2>/dev/null); then
-        echo "$(date '+%F %T') watchdog: $name 的 StartedAt 无法解析（$started），跳过本轮" >> "$LOG"
+        log "watchdog: $name 的 StartedAt 无法解析（$started），跳过本轮"
         continue
     fi
     secs=$(( $(date +%s) - started_epoch ))
@@ -111,15 +116,15 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
     prev=$(last_restart "$name")
     prev=${prev:-0}
     if [ $(( now - prev )) -lt "$MIN_INTERVAL" ]; then
-        echo "$(date '+%F %T') watchdog: $name unhealthy ${secs}s，但距上次重启不足 ${MIN_INTERVAL}s，跳过" >> "$LOG"
+        log "watchdog: $name unhealthy ${secs}s，但距上次重启不足 ${MIN_INTERVAL}s，跳过"
         continue
     fi
 
-    echo "$(date '+%F %T') watchdog: $name unhealthy ${secs}s → restart" >> "$LOG"
+    log "watchdog: $name unhealthy ${secs}s → restart"
     docker unpause "$name" 2>/dev/null || true
     if docker restart "$name" >/dev/null 2>&1; then
         record_restart "$name"
     else
-        echo "$(date '+%F %T') watchdog: $name restart 失败" >> "$LOG"
+        log "watchdog: $name restart 失败"
     fi
 done
