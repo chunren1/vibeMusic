@@ -19,11 +19,25 @@ MIN_AGE=360          # 启动 6 分钟内不判（JVM/Node 预热期会被误判
 MIN_INTERVAL=1800    # 同一容器两次重启的最小间隔（秒）
 MAX_LOG_BYTES=1048576
 
-# 日志滚动：只留尾部 256KB，避免无限增长
+# 防御：本脚本以 root 运行，若日志/状态文件被替换成符号链接，绝不跟随写入
+[ -L "$LOG" ] && exit 0
+[ -L "$STATE" ] && exit 0
+
+# 日志滚动：只留尾部 256KB，避免无限增长。
+# 临时文件必须用 mktemp 生成不可预测的名字：固定名 + /var/log 组可写时，
+# 同组账号可预置同名符号链接，让 root 的 ">" 写到任意文件上（CWE-59）。
 if [ -f "$LOG" ]; then
     size=$(wc -c < "$LOG" 2>/dev/null || echo 0)
     if [ "$size" -gt "$MAX_LOG_BYTES" ]; then
-        tail -c 262144 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+        tmp=$(mktemp "$LOG.XXXXXX" 2>/dev/null) || tmp=""
+        if [ -n "$tmp" ]; then
+            if tail -c 262144 "$LOG" > "$tmp" 2>/dev/null; then
+                chmod 0640 "$tmp" 2>/dev/null || true
+                mv -f "$tmp" "$LOG"
+            else
+                rm -f "$tmp"
+            fi
+        fi
     fi
 fi
 
@@ -45,7 +59,10 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
     esac
 
     started=$(docker inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null) || continue
-    secs=$(( $(date +%s) - $(date -d "$started" +%s) ))
+    # date 解析失败就跳过本容器：set -u 下算术操作数为空会让整个脚本退出，
+    # 后面的容器与日志滚动就都不执行了（宁可少判一个，也别整轮失效）
+    started_epoch=$(date -d "$started" +%s 2>/dev/null) || continue
+    secs=$(( $(date +%s) - started_epoch ))
     [ "$secs" -gt "$MIN_AGE" ] || continue
 
     now=$(date +%s)
