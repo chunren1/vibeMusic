@@ -21,21 +21,44 @@ MIN_INTERVAL=1800    # 同一容器两次重启的最小间隔（秒）
 MAX_LOG_BYTES=1048576
 TMPFILE=""
 
+log_fail() {
+    if command -v logger >/dev/null 2>&1; then
+        logger -t vibemusic-watchdog "$*"
+    else
+        printf '%s\n' "$*" >&2
+    fi
+}
+
 # 日志放进 root 独占目录（0750）。
 # 根因是 /var/log 在 Debian 默认 root:syslog 0775：只做 [ -L ] 检查挡不住 TOCTOU——
 # 组内账号可以在"检查"和"写入"之间把文件换成符号链接。目录不可写，这条路才真正断掉。
-mkdir -p "$LOG_DIR" 2>/dev/null || true
+mkdir -p "$LOG_DIR" 2>/dev/null || { log_fail "无法创建日志目录 $LOG_DIR"; exit 1; }
+
+# 先判链接、再 chmod：mkdir -p 遇到"指向目录的符号链接"同样返回 0，
+# 若先 chmod，权限会跟着链接落到攻击者指定的目标上。
+if [ -L "$LOG_DIR" ]; then
+    log_fail "日志目录 $LOG_DIR 是符号链接，拒绝写入"
+    exit 1
+fi
+
 chmod 0750 "$LOG_DIR" 2>/dev/null || true
-[ -d "$LOG_DIR" ] || exit 1
+
+# 复查真实属性：属主必须是 root、组/其他不可写（chmod 失败时不会静默继续）
+dir_meta=$(stat -c '%U %a' "$LOG_DIR" 2>/dev/null) || dir_meta=""
+if [ "$dir_meta" != "root 750" ]; then
+    log_fail "日志目录 $LOG_DIR 属性异常（当前 ${dir_meta:-unknown}），拒绝写入"
+    exit 1
+fi
 
 # 文件本身仍是链接（历史残留/人为替换）就拒绝，并让 cron 看到失败而不是静默成功
 if [ -L "$LOG" ] || [ -L "$STATE" ]; then
-    command -v logger >/dev/null 2>&1 && logger -t vibemusic-watchdog "日志或状态文件是符号链接，拒绝写入"
+    log_fail "日志或状态文件是符号链接，拒绝写入"
     exit 1
 fi
 
 # 异常退出（INT/TERM/被 OOM 杀掉前的 EXIT）时清掉轮转临时文件，避免残留
-trap 'rm -f "$TMPFILE"' EXIT INT TERM
+trap 'rm -f "$TMPFILE"' EXIT
+trap 'rm -f "$TMPFILE"; exit 130' INT TERM
 
 # 日志滚动：只留尾部 256KB，避免无限增长。
 # 临时文件必须用 mktemp 生成不可预测的名字：固定名 + /var/log 组可写时，
