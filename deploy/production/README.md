@@ -45,3 +45,26 @@ HSTS（`Strict-Transport-Security`，5 处）+ `limit_req_status 429` / `limit_c
 - 别 `docker compose down -v` / 别 `docker system prune`。
 - 别把 `/root/.cloudflared/*.json`（隧道私钥）或云上 `.env`（生产密钥）提交进仓库。
 - 本目录**只读镜像**：改动应先在仓库改、评审、再按 §6 发上云，而不是反过来。
+
+## 新机重建：守护与自启清单（2026-11-03 补）
+
+本目录只镜像"配置文件"；systemd 单元由系统包与云上手工维护，仓库不存副本。
+换机或重装后按此表逐项核对——缺任何一项都可能出现"容器都 healthy，但机器一重启整站起不来"。
+
+| 项 | 期望 | 核对命令 |
+|---|---|---|
+| Docker 自启 | enabled + active | `systemctl is-enabled docker && systemctl is-active docker` |
+| 容器自愈 | 全部 `unless-stopped` | `docker inspect -f '{{.Name}} {{.HostConfig.RestartPolicy.Name}}' $(docker ps -aq)` |
+| 健康检查 | backend / musicapi / mysql / redis 均 healthy | `docker ps --format '{{.Names}}\t{{.Status}}'` |
+| 看门狗 | cron 每 5 分钟 | `crontab -l | grep watchdog` |
+| 告警 | cron 每分钟且 key 可读 | `crontab -l | grep health-alert; test -r /etc/vibeMusic/serverchan.key && echo key-ok` |
+| 隧道 | cloudflared enabled + active | `systemctl is-enabled cloudflared && systemctl is-active cloudflared` |
+| Nginx | enabled 且配置合法 | `systemctl is-enabled nginx && nginx -t` |
+| cron | enabled + active | `systemctl is-enabled cron && systemctl is-active cron` |
+
+补充说明：
+
+- `watchdog.sh` 覆盖 backend / musicapi / mysql / redis 四个容器：unhealthy 且启动超过 6 分钟才重启，
+  同一容器两次重启至少间隔 30 分钟（避免 5 分钟一次的重启风暴）。
+- `health-alert.sh` 除容器状态外，还会报 healthcheck=unhealthy、OOMKilled 与"一小时内重启 ≥3 次"的崩溃循环。
+- 两张日志：`/var/log/vibemusic-watchdog.log`（重启动作）、`/var/log/vibemusic-alert.log`（推送与恢复）。

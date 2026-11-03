@@ -71,10 +71,29 @@ if docker inspect -f '{{.State.Running}}' vibemusic-backend 2>/dev/null | grep -
     curl -sf --max-time 5 -o /dev/null "$HEALTH_URL" || PROBLEMS+=("backend 健康检查失败")
 fi
 
-# 2) 关键容器
+# 2) 关键容器：运行状态 + 健康状态 + OOM + 崩溃循环
+#    restart 策略只在"进程退出"时生效；容器 running 但 healthcheck=unhealthy 时
+#    Docker 不会做任何事，watchdog 负责重启、本脚本负责把这件事说出来。
+NOW_EPOCH=$(date +%s)
 for c in $CONTAINERS; do
-    st=$(docker inspect -f '{{.State.Status}}' "$c" 2>/dev/null || echo missing)
+    info=$(docker inspect -f '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}|{{.State.StartedAt}}' "$c" 2>/dev/null)
+    if [ -z "$info" ]; then
+        PROBLEMS+=("$c 不存在或无法 inspect")
+        continue
+    fi
+    IFS='|' read -r st health restarts oom started <<<"$info"
     [ "$st" = "running" ] || PROBLEMS+=("$c 状态=$st")
+    [ "$health" = "unhealthy" ] && PROBLEMS+=("$c 健康检查 unhealthy")
+    [ "$oom" = "true" ] && PROBLEMS+=("$c 上次退出为 OOM（容器内存超限）")
+    case "$restarts" in
+        ''|*[!0-9]*) ;;
+        *)
+            if [ "$restarts" -ge 3 ]; then
+                up=$(( NOW_EPOCH - $(date -d "$started" +%s 2>/dev/null || echo "$NOW_EPOCH") ))
+                [ "$up" -lt 3600 ] && PROBLEMS+=("$c 一小时内重启 ${restarts} 次（疑似崩溃循环）")
+            fi
+            ;;
+    esac
 done
 
 # 3) 磁盘
