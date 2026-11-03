@@ -67,4 +67,6 @@ HSTS（`Strict-Transport-Security`，5 处）+ `limit_req_status 429` / `limit_c
 - `watchdog.sh` 覆盖 backend / musicapi / mysql / redis 四个容器：unhealthy 且启动超过 6 分钟才重启，
   同一容器两次重启至少间隔 30 分钟（避免 5 分钟一次的重启风暴）。
 - `health-alert.sh` 除容器状态外，还会报 healthcheck=unhealthy、OOMKilled 与"一小时内重启 ≥3 次"的崩溃循环。
-- 两张日志：`/var/log/vibemusic-watchdog.log`（重启动作）、`/var/log/vibemusic-alert.log`（推送与恢复）。
+- 两张日志：`/var/log/vibeMusic/vibemusic-watchdog.log`（重启动作）与 `/var/log/vibemusic-alert.log`（推送与恢复）。
+  前者 2026-11-03 迁到 `root:root 0750` 的私有目录，旧路径 `/var/log/vibemusic-watchdog.log` 不再写入
+  （原因是 /var/log 默认 `root:syslog 0775`，组内账号可在检查与写入之间替换符号链接）。

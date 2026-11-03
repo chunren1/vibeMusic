@@ -13,15 +13,29 @@
 #   3) 日志超过 1MB 自动截断：/var/log 被撑满会连带影响 health-alert 写日志。
 set -u
 
-LOG=/var/log/vibemusic-watchdog.log
+LOG_DIR=/var/log/vibeMusic
+LOG=$LOG_DIR/vibemusic-watchdog.log
 STATE=/var/run/vibemusic-watchdog.state
 MIN_AGE=360          # 启动 6 分钟内不判（JVM/Node 预热期会被误判 unhealthy）
 MIN_INTERVAL=1800    # 同一容器两次重启的最小间隔（秒）
 MAX_LOG_BYTES=1048576
+TMPFILE=""
 
-# 防御：本脚本以 root 运行，若日志/状态文件被替换成符号链接，绝不跟随写入
-[ -L "$LOG" ] && exit 0
-[ -L "$STATE" ] && exit 0
+# 日志放进 root 独占目录（0750）。
+# 根因是 /var/log 在 Debian 默认 root:syslog 0775：只做 [ -L ] 检查挡不住 TOCTOU——
+# 组内账号可以在"检查"和"写入"之间把文件换成符号链接。目录不可写，这条路才真正断掉。
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+chmod 0750 "$LOG_DIR" 2>/dev/null || true
+[ -d "$LOG_DIR" ] || exit 1
+
+# 文件本身仍是链接（历史残留/人为替换）就拒绝，并让 cron 看到失败而不是静默成功
+if [ -L "$LOG" ] || [ -L "$STATE" ]; then
+    command -v logger >/dev/null 2>&1 && logger -t vibemusic-watchdog "日志或状态文件是符号链接，拒绝写入"
+    exit 1
+fi
+
+# 异常退出（INT/TERM/被 OOM 杀掉前的 EXIT）时清掉轮转临时文件，避免残留
+trap 'rm -f "$TMPFILE"' EXIT INT TERM
 
 # 日志滚动：只留尾部 256KB，避免无限增长。
 # 临时文件必须用 mktemp 生成不可预测的名字：固定名 + /var/log 组可写时，
@@ -31,12 +45,14 @@ if [ -f "$LOG" ]; then
     if [ "$size" -gt "$MAX_LOG_BYTES" ]; then
         tmp=$(mktemp "$LOG.XXXXXX" 2>/dev/null) || tmp=""
         if [ -n "$tmp" ]; then
+            TMPFILE="$tmp"
             if tail -c 262144 "$LOG" > "$tmp" 2>/dev/null; then
                 chmod 0640 "$tmp" 2>/dev/null || true
-                mv -f "$tmp" "$LOG"
+                mv -f "$tmp" "$LOG" || rm -f "$tmp"
             else
                 rm -f "$tmp"
             fi
+            TMPFILE=""
         fi
     fi
 fi
@@ -61,7 +77,10 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
     started=$(docker inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null) || continue
     # date 解析失败就跳过本容器：set -u 下算术操作数为空会让整个脚本退出，
     # 后面的容器与日志滚动就都不执行了（宁可少判一个，也别整轮失效）
-    started_epoch=$(date -d "$started" +%s 2>/dev/null) || continue
+    if ! started_epoch=$(date -d "$started" +%s 2>/dev/null); then
+        echo "$(date '+%F %T') watchdog: $name 的 StartedAt 无法解析（$started），跳过本轮" >> "$LOG"
+        continue
+    fi
     secs=$(( $(date +%s) - started_epoch ))
     [ "$secs" -gt "$MIN_AGE" ] || continue
 
