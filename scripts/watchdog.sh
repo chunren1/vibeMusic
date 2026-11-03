@@ -36,6 +36,16 @@ log() {
     printf '%s %s\n' "$(date '+%F %T')" "$*" >&3
 }
 
+# docker 调用统一加超时：dockerd 卡死时原实现会让整轮挂住，
+# 而本轮持着 flock，下一轮只会 exit 0 —— 看门狗就此"静默停摆"。
+dk() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 30 docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
 mkdir -p "$LOG_DIR" 2>/dev/null || { log_fail "无法创建日志目录 $LOG_DIR"; exit 1; }
 
 # 先判链接、再 chmod：mkdir -p 遇到"指向目录的符号链接"同样返回 0，
@@ -61,9 +71,19 @@ fi
 
 # 并发互斥：轮转、重启判定都是"读-改-写"，两轮重叠会互相截断并丢日志，
 # 也会让 MIN_INTERVAL 失效（两边都读到旧时间戳，各重启一次）。
-# 拿不到锁说明上一轮还没跑完，直接退出即可，下一轮 cron 会再来。
+#
+# 锁文件必须放在 $LOG_DIR（已校验 root:root 0750），不能放 /var/run：
+# flock 只要求持有"可读 fd"即可取 LOCK_EX，0644 的锁文件任何本地账号都能
+# `flock -n 锁 -c 'sleep 86400'` 把看门狗永久挡在门外，且失败路径不写日志。
 if command -v flock >/dev/null 2>&1; then
-    exec 9>"${STATE}.lock" || exit 1
+    LOCK=$LOG_DIR/watchdog.lock
+    # 同 exec：探测失败要用子 shell 承接，否则 dash 直接退出、兜底不可达
+    if ! ( : >> "$LOCK" ) 2>/dev/null; then
+        log_fail "无法创建锁文件 $LOCK"
+        exit 1
+    fi
+    chmod 0600 "$LOCK" 2>/dev/null || true
+    exec 9>>"$LOCK"
     flock -n 9 || exit 0
 fi
 
@@ -111,7 +131,7 @@ record_restart() {
 }
 
 for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis; do
-    state=$(docker inspect --format '{{.State.Status}}|{{.State.Health.Status}}' "$name" 2>/dev/null) || continue
+    state=$(dk inspect --format '{{.State.Status}}|{{.State.Health.Status}}' "$name" 2>/dev/null) || continue
 
     # 只处理 running 且明确 unhealthy；没有 healthcheck 的容器这里天然跳过
     case "$state" in
@@ -119,7 +139,7 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
         *) continue ;;
     esac
 
-    started=$(docker inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null) || continue
+    started=$(dk inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null) || continue
     # date 解析失败就跳过本容器：set -u 下算术操作数为空会让整个脚本退出，
     # 后面的容器都不再检查（宁可少判一个，也别整轮失效）
     if ! started_epoch=$(date -d "$started" +%s 2>/dev/null); then
@@ -138,8 +158,8 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
     fi
 
     log "watchdog: $name unhealthy ${secs}s → restart"
-    docker unpause "$name" 2>/dev/null || true
-    if docker restart "$name" >/dev/null 2>&1; then
+    dk unpause "$name" 2>/dev/null || true
+    if dk restart "$name" >/dev/null 2>&1; then
         record_restart "$name"
     else
         log "watchdog: $name restart 失败"
