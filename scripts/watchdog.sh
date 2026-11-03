@@ -46,6 +46,16 @@ dk() {
     fi
 }
 
+# 重启单独放宽到 120s：MySQL 启动 + InnoDB 恢复经常超过 30s，
+# 按 inspect 的 30s 截断会把"正在正常重启"误判成失败。
+dk_restart() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 120 docker restart "$1" >/dev/null 2>&1
+    else
+        docker restart "$1" >/dev/null 2>&1
+    fi
+}
+
 mkdir -p "$LOG_DIR" 2>/dev/null || { log_fail "无法创建日志目录 $LOG_DIR"; exit 1; }
 
 # 先判链接、再 chmod：mkdir -p 遇到"指向目录的符号链接"同样返回 0，
@@ -159,9 +169,14 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
 
     log "watchdog: $name unhealthy ${secs}s → restart"
     dk unpause "$name" 2>/dev/null || true
-    if dk restart "$name" >/dev/null 2>&1; then
-        record_restart "$name"
-    else
-        log "watchdog: $name restart 失败"
-    fi
+    dk_restart "$name"
+    rc=$?
+    # 无论成败都记时间戳：原来只在成功时记账，超时(124)/失败会让 MIN_INTERVAL 失效，
+    # 持续不健康时会退化成每 5-10 分钟重启一次——正是本脚本要防的重启风暴。
+    record_restart "$name"
+    case "$rc" in
+        0) ;;
+        124) log "watchdog: $name restart 超时（120s），已计入退避" ;;
+        *) log "watchdog: $name restart 失败（rc=$rc），已计入退避" ;;
+    esac
 done
