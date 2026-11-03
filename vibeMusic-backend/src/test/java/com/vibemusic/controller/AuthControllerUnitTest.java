@@ -323,10 +323,11 @@ class AuthControllerUnitTest {
         @Test
         @DisplayName("未登录访问 /me → 401")
         void shouldRejectUnauthenticatedMe() {
-            Result<Map<String, Object>> result = controller.me();
+            var resp = controller.me();
 
-            assertEquals(401, result.getCode());
-            assertEquals("未登录", result.getMessage());
+            assertEquals(401, resp.getStatusCode().value());
+            assertEquals(401, resp.getBody().getCode());
+            assertEquals("未登录", resp.getBody().getMessage());
             verifyNoInteractions(userService);
         }
 
@@ -336,8 +337,10 @@ class AuthControllerUnitTest {
             loginAs(user());
             when(userService.findById(1L)).thenReturn(user());
 
-            Result<Map<String, Object>> result = controller.me();
+            var resp = controller.me();
+            Result<Map<String, Object>> result = resp.getBody();
 
+            assertEquals(200, resp.getStatusCode().value());
             assertEquals(200, result.getCode());
             assertEquals(1L, result.getData().get("userId"));
             assertEquals("testuser", result.getData().get("username"));

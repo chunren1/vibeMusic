@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.Valid;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -107,13 +109,17 @@ public class AuthController {
 
     @GetMapping("/me")
     @Operation(summary = "获取当前用户信息")
-    public Result<Map<String, Object>> me() {
+    public ResponseEntity<Result<Map<String, Object>>> me() {
         Long userId = UserService.getCurrentUserId();
-        if (userId == null) return Result.error(401, "未登录");
+        if (userId == null) {
+            // 未登录用 HTTP 401，而不是 200 + 信封 code=401：
+            // 后者会让网关监控、CDN 统计与探活把未认证请求算作成功。
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Result.error(401, "未登录"));
+        }
 
         User user = userService.findById(userId);
         Map<String, Object> data = buildUserDataFromEntity(user);
-        return Result.ok(data);
+        return ResponseEntity.ok(Result.ok(data));
     }
 
     @PostMapping("/change-password")

@@ -30,6 +30,9 @@ import java.util.stream.Collectors;
 @Tag(name = "歌曲", description = "搜索、Banner、歌词")
 public class SongController {
 
+    /** 单页上限：防止 size=1000 这类请求把聚合池整个吐出来。 */
+    private static final int MAX_PAGE_SIZE = 50;
+
     private final SongSearchService songSearchService;
     private final NeteaseApiService neteaseApiService;
     private final JsonCacheService cache;
@@ -76,7 +79,11 @@ public class SongController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "40") int size,
             @RequestParam(required = false) String platform) {
-        return Result.ok(songSearchService.search(keyword, page, size, platform));
+        // 夹取分页参数：负数/0 会让下游 LIMIT 计算异常，过大的 size 会把整页结果撑爆
+        // （单页上限 50 与前端默认 20、后端默认 40 兼容）。
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        return Result.ok(songSearchService.search(keyword, safePage, safeSize, platform));
     }
 
     /** 热门搜索关键词（App 热搜云端同步用；静态表，与搜索预热/纠错共用同一份） */

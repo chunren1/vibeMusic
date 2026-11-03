@@ -105,10 +105,10 @@ class AuthControllerTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("GET /api/auth/me → 未登录返回错误")
+    @DisplayName("GET /api/auth/me → 未登录返回 HTTP 401")
     void shouldReturnErrorWhenNotLoggedIn() throws Exception {
         mockMvc.perform(get("/api/auth/me"))
-                .andExpect(status().isOk())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(401));
     }
 }

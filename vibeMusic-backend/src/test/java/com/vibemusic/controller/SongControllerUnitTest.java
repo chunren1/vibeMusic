@@ -191,4 +191,14 @@ class SongControllerUnitTest {
         assertEquals("♪", lines.get(0).get("text"));
         assertEquals("有词", lines.get(1).get("text"));
     }
+
+    @Test
+    @DisplayName("分页参数越界 → 夹到 1~50，负数不会传进下游")
+    void shouldClampPagingParams() {
+        controller.search("周杰伦", 0, 1000, null);
+        verify(songSearchService).search("周杰伦", 1, 50, null);
+
+        controller.search("周杰伦", -3, -1, null);
+        verify(songSearchService).search("周杰伦", 1, 1, null);
+    }
 }

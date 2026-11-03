@@ -65,6 +65,17 @@ class SongControllerTest extends BaseTest {
         }
 
         @Test
+        @DisplayName("page 非数字 → 400（MethodArgumentTypeMismatch 分支），不再是 500")
+        void shouldRejectNonNumericPage() throws Exception {
+            mockMvc.perform(get("/api/songs/search")
+                            .param("keyword", "周杰伦")
+                            .param("page", "abc"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(400))
+                    .andExpect(jsonPath("$.message", containsString("参数格式错误")));
+        }
+
+        @Test
         @DisplayName("搜索 keyword 超 100 字符 → 方法级校验 400（handleConstraintViolation 分支）")
         void shouldRejectOverlongKeyword() throws Exception {
             mockMvc.perform(get("/api/songs/search")

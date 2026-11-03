@@ -94,6 +94,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 查询参数类型不匹配（如 page=abc）。
+     *
+     * <p>Spring 抛 MethodArgumentTypeMismatchException，若不显式处理会落到兜底 500，
+     * 把"用户传错参数"误报成"服务端故障"，也让监控噪声变大。
+     */
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleTypeMismatch(
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException ex) {
+        return Result.error(400, "参数格式错误: " + ex.getName());
+    }
+
+    /**
      * HTTP 方法不支持
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
