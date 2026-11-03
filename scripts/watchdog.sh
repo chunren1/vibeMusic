@@ -59,6 +59,14 @@ if [ -L "$LOG" ] || [ -L "$STATE" ]; then
     exit 1
 fi
 
+# 并发互斥：轮转、重启判定都是"读-改-写"，两轮重叠会互相截断并丢日志，
+# 也会让 MIN_INTERVAL 失效（两边都读到旧时间戳，各重启一次）。
+# 拿不到锁说明上一轮还没跑完，直接退出即可，下一轮 cron 会再来。
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"${STATE}.lock" || exit 1
+    flock -n 9 || exit 0
+fi
+
 trap 'rm -f "$TMPFILE"' EXIT
 trap 'rm -f "$TMPFILE"; exit 130' INT TERM
 
@@ -83,7 +91,16 @@ fi
 # 打开一次拿到 fd，后续只往 fd 写：
 # 即使 $LOG 在运行期被替换成符号链接，写入也落在打开时的 inode 上，
 # "检查—写入"之间的 TOCTOU 窗口对追加路径不再成立。
-exec 3>>"$LOG" || { log_fail "无法打开日志 $LOG"; exit 1; }
+#
+# 注意：dash 下 `exec 3>>文件` 失败属于特殊内建的重定向错误，会**直接退出**，
+# `|| { ...; }` 这个兜底根本不会执行（bash 才会）。所以先用一次普通重定向探测可达性。
+# `:` 与 exec 一样是特殊内建，重定向失败会让 shell 直接退出；放进子 shell 才能被 if 捕获。
+if ! ( : >> "$LOG" ) 2>/dev/null; then
+    log_fail "无法写入日志 $LOG"
+    exit 1
+fi
+chmod 0640 "$LOG" 2>/dev/null || true   # 首次创建受 umask 影响是 0644，统一收紧
+exec 3>>"$LOG"
 
 last_restart() {
     grep "^$1 " "$STATE" 2>/dev/null | tail -1 | awk '{print $2}'
