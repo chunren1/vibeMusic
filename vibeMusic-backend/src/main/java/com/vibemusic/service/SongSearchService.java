@@ -379,10 +379,10 @@ public class SongSearchService {
             long redisCost = System.currentTimeMillis() - redisStart;
             log.info("[CACHE-LAYER] Redis 命中: keyword='{}', page={}, totalCost={}ms",
                     kw, page, redisCost);
-            int from = (page - 1) * size;
-            int to = Math.min(from + size, cached.size());
-            if (from >= cached.size()) return SearchResult.of(Collections.emptyList(), cached.size(), page, size, "redis",
+            int from = pageFrom(page, size, cached.size());
+            if (from < 0) return SearchResult.of(Collections.emptyList(), cached.size(), page, size, "redis",
                     cached.isEmpty() ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, false) : null);
+            int to = Math.min(from + size, cached.size());
             return SearchResult.of(cached.subList(from, to), cached.size(), page, size, "redis");
         }
         long redisCost = System.currentTimeMillis() - redisStart;
@@ -421,10 +421,10 @@ public class SongSearchService {
                     retried = cacheService.getSearchCache(allCacheKey);
                     if (retried != null) {
                         log.info("[CACHE-LAYER] 等待后命中单飞结果: keyword='{}', round={}, waited={}ms", kw, round + 1, backoff);
-                        int from = (page - 1) * size;
-                        int to = Math.min(from + size, retried.size());
-                        if (from >= retried.size()) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis",
+                        int from = pageFrom(page, size, retried.size());
+                        if (from < 0) return SearchResult.of(Collections.emptyList(), retried.size(), page, size, "redis",
                                 retried.isEmpty() ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, false) : null);
+                        int to = Math.min(from + size, retried.size());
                         return SearchResult.of(retried.subList(from, to), retried.size(), page, size, "redis");
                     }
                 }
@@ -444,12 +444,24 @@ public class SongSearchService {
         String suggestion = resultList.isEmpty()
                 ? SearchQueryHints.suggestForEmpty(kw, HOT_KEYWORDS, outcome.allUpstreamFailed())
                 : null;
-        int from = (page - 1) * size;
-        int to = Math.min(from + size, resultList.size());
-        if (from >= resultList.size())
+        int from = pageFrom(page, size, resultList.size());
+        if (from < 0)
             return SearchResult.of(Collections.emptyList(), resultList.size(), page, size, "api", suggestion);
+        int to = Math.min(from + size, resultList.size());
         searchTimer.record(System.currentTimeMillis() - searchStart, TimeUnit.MILLISECONDS);
         return SearchResult.of(resultList.subList(from, to), resultList.size(), page, size, "api");
+    }
+
+    /**
+     * 计算分页起始下标；页码越界返回 -1。
+     *
+     * <p>用 long 计算偏移：{@code (page-1)*size} 在 page=5000万、size=50 时会 int 溢出成负数，
+     * 随后的 {@code subList(负数, to)} 抛 IndexOutOfBoundsException，最终被兜底成 500——
+     * 把"用户传了个离谱页码"误报成服务端故障。
+     */
+    private static int pageFrom(int page, int size, int total) {
+        long from = (long) (Math.max(page, 1) - 1) * Math.max(size, 1);
+        return from >= total ? -1 : (int) from;
     }
 
     /**

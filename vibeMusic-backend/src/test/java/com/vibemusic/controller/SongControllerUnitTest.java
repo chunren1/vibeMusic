@@ -193,6 +193,13 @@ class SongControllerUnitTest {
     }
 
     @Test
+    @DisplayName("超大页码 → 夹到 1000，避免下游偏移溢出")
+    void shouldClampHugePage() {
+        controller.search("周杰伦", 50_000_000, 50, null);
+        verify(songSearchService).search("周杰伦", 1000, 50, null);
+    }
+
+    @Test
     @DisplayName("分页参数越界 → 夹到 1~50，负数不会传进下游")
     void shouldClampPagingParams() {
         controller.search("周杰伦", 0, 1000, null);

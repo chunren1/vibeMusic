@@ -109,6 +109,18 @@ class SongSearchServiceTest {
             verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
             verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
         }
+
+        @Test @DisplayName("超大页码不应溢出：返回空列表而不是 IndexOutOfBounds")
+        void shouldReturnEmptyForOverflowingPage() {
+            List<SongDTO> cached = List.of(createSong("1", "晴天", "周杰伦"));
+            when(cacheService.getSearchCache(eq("晴天:all"))).thenReturn(cached);
+
+            // (page-1)*size 若用 int 计算会溢出成负数，旧实现会在 subList 抛 IndexOutOfBounds
+            SearchResult result = songSearchService.search("晴天", 50_000_000, 50);
+
+            assertEquals("redis", result.getSource());
+            assertTrue(result.getList().isEmpty());
+        }
     }
 
     @Nested @DisplayName("L3: API 实时搜索")

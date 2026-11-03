@@ -33,6 +33,9 @@ public class SongController {
     /** 单页上限：防止 size=1000 这类请求把聚合池整个吐出来。 */
     private static final int MAX_PAGE_SIZE = 50;
 
+    /** 页码上限：再大也不会命中任何结果，却会让下游的分页偏移计算溢出。 */
+    private static final int MAX_PAGE_NUMBER = 1000;
+
     private final SongSearchService songSearchService;
     private final NeteaseApiService neteaseApiService;
     private final JsonCacheService cache;
@@ -81,7 +84,7 @@ public class SongController {
             @RequestParam(required = false) String platform) {
         // 夹取分页参数：负数/0 会让下游 LIMIT 计算异常，过大的 size 会把整页结果撑爆
         // （单页上限 50 与前端默认 20、后端默认 40 兼容）。
-        int safePage = Math.max(page, 1);
+        int safePage = Math.min(Math.max(page, 1), MAX_PAGE_NUMBER);
         int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
         return Result.ok(songSearchService.search(keyword, safePage, safeSize, platform));
     }
