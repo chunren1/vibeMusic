@@ -531,9 +531,9 @@ else
       say "  [dry-run] jar 早于源码（$NEWER），将先执行: (cd $BACKEND && ./mvnw -o -q package -DskipTests)"
     else
       say "  target jar 早于源码（$NEWER），先重新打包"
-      # 本段处于 set -uo pipefail（无 -e），打包失败不会自动中止；
-      # 若不显式判返回码，下一行重新 glob 仍会拿到旧 jar，照样 docker build，
-      # 等于把"tag 新、内容旧"在异常路径上又复现一遍。
+      # 本脚本顶层是 set -euo pipefail，打包失败本就会中止。
+      # 显式判返回码是为了不依赖 -e 的隐式语义（函数、子 shell、管道组合下容易被改坏），
+      # 同时给出"为什么停"的准话，而不是让调用者对着一条 set -e 的静默退出猜。
       if ! ( cd "$BACKEND" && ./mvnw -o -q package -DskipTests ); then
         echo "重新打包失败，中止部署（避免用旧 jar 构建出 tag 新、内容旧的镜像）" >&2
         exit 1
@@ -668,7 +668,7 @@ say "            连接参数照抄现容器的 DB_HOST/DB_USERNAME/DB_PASSWORD�
 if is_dry; then
   say "  [dry-run] 将执行: docker run --rm --name vibemusic-flyway-init --network $NET --memory 512m --cpus 1.5 \\"
   say "              --env-file <600 权限临时文件> --entrypoint sh $LOCAL_IMG -c \\"
-  say "              'java \$JAVA_OPTS -Djava.security.egd=file:/dev/urandom -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar PropertiesLauncher'"
+  say "              'exec java \$JAVA_OPTS -Djava.security.egd=file:/dev/urandom -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar org.springframework.boot.loader.launch.PropertiesLauncher'"
   say "  [dry-run] 退出码非 0 → 直接中止（不起新容器、nginx 不动）"
 else
 set +e
