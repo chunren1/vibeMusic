@@ -574,13 +574,16 @@ class AuthControllerUnitTest {
             assertEquals(200, result.getCode());
             assertEquals("已退出", result.getData());
             verifyNoInteractions(redis);
-            assertEquals(2, resp.getCookies().length, "应清除 VIBE_TOKEN / VIBE_REFRESH");
+            assertEquals(3, resp.getCookies().length, "应清除 VIBE_TOKEN / 新路径与旧路径的 VIBE_REFRESH");
+            List<String> refreshPaths = new java.util.ArrayList<>();
             for (Cookie c : resp.getCookies()) {
                 assertEquals(0, c.getMaxAge());
                 // 删除指令的 path 必须与写入时一致，否则浏览器不会真正删除
                 if ("VIBE_TOKEN".equals(c.getName())) assertEquals("/", c.getPath());
-                if ("VIBE_REFRESH".equals(c.getName())) assertEquals("/api/auth", c.getPath());
+                if ("VIBE_REFRESH".equals(c.getName())) refreshPaths.add(c.getPath());
             }
+            assertTrue(refreshPaths.containsAll(List.of("/api/auth", "/api/auth/refresh")),
+                    "新路径与迁移期旧路径都要删除，实际=" + refreshPaths);
         }
 
         @Test

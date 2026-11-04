@@ -174,6 +174,10 @@ public class AuthController {
         // 清除 Cookie
         clearCookie(response, "VIBE_TOKEN", "/");
         clearCookie(response, "VIBE_REFRESH", "/api/auth");
+        // 迁移期清理：2026-11-04 之前写入的 refresh Cookie 路径为 /api/auth/refresh，
+        // 同名不同 Path 互不覆盖，不单独下发删除指令会残留到自然过期（最长 7 天）。
+        // 存量会话过期后（2026-12 之后）可移除本条。
+        clearCookie(response, "VIBE_REFRESH", "/api/auth/refresh");
         // 保持幂等：即使吊销只落到本地表（Redis 不可用），客户端体验不变
         return Result.ok("已退出");
     }
