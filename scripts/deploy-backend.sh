@@ -531,7 +531,13 @@ else
       say "  [dry-run] jar 早于源码（$NEWER），将先执行: (cd $BACKEND && ./mvnw -o -q package -DskipTests)"
     else
       say "  target jar 早于源码（$NEWER），先重新打包"
-      ( cd "$BACKEND" && ./mvnw -o -q package -DskipTests )
+      # 本段处于 set -uo pipefail（无 -e），打包失败不会自动中止；
+      # 若不显式判返回码，下一行重新 glob 仍会拿到旧 jar，照样 docker build，
+      # 等于把"tag 新、内容旧"在异常路径上又复现一遍。
+      if ! ( cd "$BACKEND" && ./mvnw -o -q package -DskipTests ); then
+        echo "重新打包失败，中止部署（避免用旧 jar 构建出 tag 新、内容旧的镜像）" >&2
+        exit 1
+      fi
       JAR="$(ls -1 "$BACKEND"/target/*.jar 2>/dev/null | head -1 || true)"
     fi
   fi
@@ -660,9 +666,9 @@ say "  所以：迁移由 --rm 容器跑完即退，新 backend 只保留 DML �
 say "  凭证来源：云端 /opt/vibeMusic/.env 的 FLYWAY_USER/FLYWAY_PASSWORD（写 600 env-file，不上命令行）；"
 say "            连接参数照抄现容器的 DB_HOST/DB_USERNAME/DB_PASSWORD。"
 if is_dry; then
-  say "  [dry-run] 将执行: docker run --rm --name vibemusic-flyway-init --network $NET --memory 256m \\"
+  say "  [dry-run] 将执行: docker run --rm --name vibemusic-flyway-init --network $NET --memory 512m --cpus 1.5 \\"
   say "              --env-file <600 权限临时文件> --entrypoint sh $LOCAL_IMG -c \\"
-  say "              'java \$JAVA_OPTS -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar PropertiesLauncher'"
+  say "              'java \$JAVA_OPTS -Djava.security.egd=file:/dev/urandom -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar PropertiesLauncher'"
   say "  [dry-run] 退出码非 0 → 直接中止（不起新容器、nginx 不动）"
 else
 set +e
@@ -674,6 +680,9 @@ NET='$NET'
 MIGENV='$BG_DIR/flyway.env'
 PRODENV='$PROD_ENV_FILE'
 mkdir -p '$BG_DIR' && chmod 700 '$BG_DIR'
+# SSH 断线（SIGHUP）或脚本被 kill 时，后面的 rm -f 走不到，
+# 含 DB/FLYWAY 口令的 env 文件会留在盘上。EXIT trap 兜住所有退出路径（重复删除无害）。
+trap 'rm -f "\$MIGENV"' EXIT
 umask 077
 
 [ -r "\$PRODENV" ] || { echo "预检失败：读不到 \$PRODENV（迁移凭证来源）" >&2; exit 1; }
