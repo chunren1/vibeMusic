@@ -141,12 +141,39 @@ record_restart() {
 }
 
 for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis; do
-    state=$(dk inspect --format '{{.State.Status}}|{{.State.Health.Status}}' "$name" 2>/dev/null) || continue
+    state=$(dk inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$name" 2>/dev/null) || continue
 
-    # 只处理 running 且明确 unhealthy；没有 healthcheck 的容器这里天然跳过
-    case "$state" in
-        *unhealthy*) ;;
-        *) continue ;;
+    st=${state%%|*}
+    health=${state#*|}
+
+    # 三类状态需要区分对待：
+    #   1) running + unhealthy —— healthcheck 判死但进程还在，Docker 的 restart 策略不管这种
+    #      （它只管"进程退出"），重启是本脚本的主职责；没有 healthcheck 的容器天然跳过。
+    #   2) exited / dead —— 进程已不在。这是 2026-11-03 之前漏掉的一类：`docker restart`
+    #      在 stop 阶段成功、start 阶段超时（120s）时，容器就停在 exited，而原实现只匹配
+    #      unhealthy，于是数据库一直躺着，直到人看到半小时后的告警。
+    #   3) restarting —— Docker 自己正在按策略退避重试，此时再 `docker restart` 只会打断
+    #      它的退避并重置计数，所以只记录、不介入。
+    case "$st" in
+        running)
+            [ "$health" = "unhealthy" ] || continue
+            ;;
+        exited|dead)
+            # 只接管"本该活着"的容器。restart policy = no 说明它是一次性的或人工管理的
+            # （migrate 容器、临时排查容器），强行拉起只会覆盖人的意图。
+            policy=$(dk inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$name" 2>/dev/null) || policy=""
+            case "$policy" in
+                no|'')
+                    log "watchdog: $name 状态=$st（重启策略=${policy:-unknown}），不自动拉起"
+                    continue
+                    ;;
+            esac
+            ;;
+        restarting)
+            log "watchdog: $name 处于 restarting（Docker 正在按重启策略重试），本轮不介入"
+            continue
+            ;;
+        *) continue ;;   # created / paused / removing：状态未定或人为操作，不猜
     esac
 
     started=$(dk inspect --format '{{.State.StartedAt}}' "$name" 2>/dev/null) || continue
@@ -157,23 +184,30 @@ for name in vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis
         continue
     fi
     secs=$(( $(date +%s) - started_epoch ))
+    [ "$secs" -ge 0 ] || secs=0            # 时钟回跳时算出的负秒数不参与判断
     [ "$secs" -gt "$MIN_AGE" ] || continue
 
     now=$(date +%s)
     prev=$(last_restart "$name")
-    prev=${prev:-0}
-    if [ $(( now - prev )) -lt "$MIN_INTERVAL" ]; then
-        log "watchdog: $name unhealthy ${secs}s，但距上次重启不足 ${MIN_INTERVAL}s，跳过"
+    # 状态文件被写坏（非数字/空行）时，dash 的算术展开会直接退出整个脚本，
+    # 后面的容器一个都不再检查，且不写任何日志——所以先做字符校验，异常值按"从未重启"处理。
+    case "$prev" in
+        ''|*[!0-9]*) prev=0 ;;
+    esac
+    since=$(( now - prev ))
+    [ "$since" -ge 0 ] || since=0          # 时间戳在未来（时钟回跳/手工改）时放行，别永久卡死
+    if [ "$since" -lt "$MIN_INTERVAL" ]; then
+        log "watchdog: $name ${st}/${health} ${secs}s，距上次重启 ${since}s 不足 ${MIN_INTERVAL}s，跳过"
         continue
     fi
 
-    log "watchdog: $name unhealthy ${secs}s → restart"
+    log "watchdog: $name ${st}/${health} ${secs}s → restart"
+    # 先记账、再重启：重启过程中被 SIGKILL / OOM / cron 杀掉时时间戳已经落盘，
+    # 下一轮不会对同一次故障再补一刀（"失败也要计入退避"的最后一个漏洞）。
+    record_restart "$name"
     dk unpause "$name" 2>/dev/null || true
     dk_restart "$name"
     rc=$?
-    # 无论成败都记时间戳：原来只在成功时记账，超时(124)/失败会让 MIN_INTERVAL 失效，
-    # 持续不健康时会退化成每 5-10 分钟重启一次——正是本脚本要防的重启风暴。
-    record_restart "$name"
     case "$rc" in
         0) ;;
         124) log "watchdog: $name restart 超时（120s），已计入退避" ;;
