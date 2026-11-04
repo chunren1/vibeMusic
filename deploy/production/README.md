@@ -8,7 +8,8 @@
 
 | 本目录文件 | 云上真实路径 | md5 | 说明 |
 |---|---|---|---|
-| `nginx/vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic` | `719d8fc5…` | **生产 vhost**：`vibe.cyk666.top`，`127.0.0.1:8081` → 静态 `/var/www/vibemusic` + `/api/` → `127.0.0.1:8080` |
+| `nginx/vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic` | 待上云（2026-11-04 改 `$fwd_proto`） | **生产 vhost**：`vibe.cyk666.top`，`127.0.0.1:8081` → 静态 `/var/www/vibemusic` + `/api/` → `127.0.0.1:8080` |
+| `nginx/forwarded-proto.conf` | `/etc/nginx/conf.d/forwarded-proto.conf` | 待上云（新增） | `map` 还原 `X-Forwarded-Proto`（cloudflared 进来是 http，`$scheme` 不可用） |
 | `nginx/security.conf` | `/etc/nginx/conf.d/security.conf` | `667bb81d…` | 生产安全头 + `limit_req_zone` / `limit_conn_zone` |
 | `cloudflared/config.yml` | `/etc/cloudflared/config.yml` | `2ecc5f2f…` | Cloudflare Tunnel ingress（cyk666.top / www / vibe / monitor / ai） |
 | `crontab.txt` | root `crontab -l` | — | 每日 03:30 备份、每 5 分钟看门狗 |
@@ -38,6 +39,19 @@ HSTS（`Strict-Transport-Security`，5 处）+ `limit_req_status 429` / `limit_c
 
 和下面「只读镜像」不矛盾：**发现漂移时以云上为准回填**（云上才是正在生效的配置）；
 **之后要改配置，仍然先在仓库改 → 评审 → 按 §6 上云**。改完当场同步仓库，否则下次对账又变 2 项漂移。
+
+## 2026-11-04 变更：Cookie 的 Secure 标志
+
+线上 Cookie 一直没有 `Secure`：nginx 用 `$scheme` 覆盖 `X-Forwarded-Proto`，而 cloudflared 从
+`127.0.0.1` 进来，`$scheme` 恒为 `http`，后端因此认为请求不是 https。
+
+改动两处，需**同时**上云（只上其一会让 `$fwd_proto` 未定义，`nginx -t` 直接报错）：
+
+1. 新增 `nginx/forwarded-proto.conf` → `/etc/nginx/conf.d/forwarded-proto.conf`（含 `map $http_x_forwarded_proto $fwd_proto`）
+2. `nginx/vibemusic-site.conf` 的 `/api/` 与 `/uploads/` 两处 `X-Forwarded-Proto $scheme` → `$fwd_proto`
+
+上线后验证：浏览器登录 → DevTools → Application → Cookies，`VIBE_TOKEN` / `VIBE_REFRESH` 应出现 Secure 勾选；
+`curl -sI` 看 `strict-transport-security` 仍在（security.conf 未改动）。
 
 ## 禁忌
 
