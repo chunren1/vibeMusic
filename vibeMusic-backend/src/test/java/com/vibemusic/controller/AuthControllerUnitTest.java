@@ -575,7 +575,12 @@ class AuthControllerUnitTest {
             assertEquals("已退出", result.getData());
             verifyNoInteractions(redis);
             assertEquals(2, resp.getCookies().length, "应清除 VIBE_TOKEN / VIBE_REFRESH");
-            for (Cookie c : resp.getCookies()) assertEquals(0, c.getMaxAge());
+            for (Cookie c : resp.getCookies()) {
+                assertEquals(0, c.getMaxAge());
+                // 删除指令的 path 必须与写入时一致，否则浏览器不会真正删除
+                if ("VIBE_TOKEN".equals(c.getName())) assertEquals("/", c.getPath());
+                if ("VIBE_REFRESH".equals(c.getName())) assertEquals("/api/auth", c.getPath());
+            }
         }
 
         @Test
@@ -808,7 +813,7 @@ class AuthControllerUnitTest {
             String cookies = setCookies(resp);
             assertTrue(cookies.contains("VIBE_TOKEN=access-token"));
             assertTrue(cookies.contains("VIBE_REFRESH=refresh-token"));
-            assertTrue(cookies.contains("Path=/api/auth/refresh"), "refresh cookie 必须限制路径");
+            assertTrue(cookies.contains("Path=/api/auth;"), "refresh cookie 必须限制在 auth 路径（logout 需读取并清除）");
         }
     }
 }

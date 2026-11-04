@@ -172,8 +172,8 @@ public class AuthController {
         if (refreshToken != null) tokenBlacklistService.revoke(refreshToken);
 
         // 清除 Cookie
-        clearCookie(response, "VIBE_TOKEN");
-        clearCookie(response, "VIBE_REFRESH");
+        clearCookie(response, "VIBE_TOKEN", "/");
+        clearCookie(response, "VIBE_REFRESH", "/api/auth");
         // 保持幂等：即使吊销只落到本地表（Redis 不可用），客户端体验不变
         return Result.ok("已退出");
     }
@@ -225,16 +225,19 @@ public class AuthController {
         response.addHeader("Set-Cookie",
                 String.format("VIBE_TOKEN=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
                         accessToken, jwtUtils.getAccessExpiration() / 1000, secure));
-        // Refresh token: 7d, 仅 /api/auth/refresh 路径可读取
+        // Refresh token: 7d, 限制在 /api/auth 下——refresh 与 logout 都在该前缀内，
+        // 登出时才读得到它并吊销；若收窄到 /api/auth/refresh，logout 请求不携带该 Cookie，
+        // 既无法吊销，也无法用同名同路径的删除指令清除。
         response.addHeader("Set-Cookie",
-                String.format("VIBE_REFRESH=%s; Path=/api/auth/refresh; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                String.format("VIBE_REFRESH=%s; Path=/api/auth; Max-Age=%d; HttpOnly; SameSite=Lax%s",
                         refreshToken, jwtUtils.getRefreshExpiration() / 1000, secure));
     }
 
-    private void clearCookie(HttpServletResponse response, String name) {
+    private void clearCookie(HttpServletResponse response, String name, String path) {
         Cookie cookie = new Cookie(name, "");
         cookie.setHttpOnly(true);
-        cookie.setPath("/");
+        // 删除 Cookie 要求 name + domain + path 三者与写入时一致，否则浏览器忽略该指令
+        cookie.setPath(path);
         cookie.setMaxAge(0);
         response.addCookie(cookie);
     }
