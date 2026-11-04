@@ -521,6 +521,20 @@ else
     echo "找不到 $BACKEND/target/*.jar —— 先打包再发版：cd vibeMusic-backend && ./mvnw package -DskipTests" >&2
     exit 1
   fi
+  # 陈旧 jar 防护（2026-11-04 事故）：只有存在性检查是不够的。
+  # 实测 0d260b2 镜像里的 AuthController.class 停留在 10-29，线上 /auth/me 仍返回 200，
+  # 而镜像 tag 是最新 sha —— 因为 target 里躺着一个旧 jar，Dockerfile 照样 COPY 进去。
+  # 只要源码或 pom 比 jar 新，就重新打包，避免"tag 新、内容旧"。
+  NEWER="$(find "$BACKEND/src/main" "$BACKEND/pom.xml" -type f -newer "$JAR" -print -quit 2>/dev/null || true)"
+  if [ -n "$NEWER" ]; then
+    if is_dry; then
+      say "  [dry-run] jar 早于源码（$NEWER），将先执行: (cd $BACKEND && ./mvnw -o -q package -DskipTests)"
+    else
+      say "  target jar 早于源码（$NEWER），先重新打包"
+      ( cd "$BACKEND" && ./mvnw -o -q package -DskipTests )
+      JAR="$(ls -1 "$BACKEND"/target/*.jar 2>/dev/null | head -1 || true)"
+    fi
+  fi
   say "  构建上下文 $BACKEND（jar: $(basename "$JAR")）"
   run docker build -t "$LOCAL_IMG" "$BACKEND"
 fi
@@ -694,12 +708,17 @@ chmod 600 "\$MIGENV"
 echo "  迁移容器 env（只列名）: \$(cut -d= -f1 "\$MIGENV" | tr '\n' ' ')"
 
 # 4) 跑迁移：--rm 保证不留垃圾容器；退出码就是迁移结果
+#
+# 资源配额（2026-11-04 修正）：原为 256m / 0.5 核，实测在 JDK 25 下 JVM 初始化 + TLS 握手
+# 超过 MySQL 服务端 connect_timeout=10s，被服务端先掐断，报 afterHandshake CommTimeout；
+# 此时 TCP 与 DNS 都正常（同网络 nc 秒通），迁移脚本本身也无问题。给到 512m / 1.5 核后
+# 15 秒完成。--cpus 与后端容器（1.5 核）对齐，避免"配置相同、配额不同"的隐性问题。
 docker rm -f vibemusic-flyway-init >/dev/null 2>&1 || true
 set +e
 docker run --rm --name vibemusic-flyway-init --network "\$NET" \
-  --memory 256m --cpus 0.5 --env-file "\$MIGENV" \
+  --memory 512m --cpus 1.5 --env-file "\$MIGENV" \
   --entrypoint sh "\$IMG" \
-  -c 'exec java \$JAVA_OPTS -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar org.springframework.boot.loader.launch.PropertiesLauncher'
+  -c 'exec java \$JAVA_OPTS -Djava.security.egd=file:/dev/urandom -Dloader.main=com.vibemusic.bootstrap.FlywayOnlyApplication -cp app.jar org.springframework.boot.loader.launch.PropertiesLauncher'
 MIG_RC=\$?
 set -e
 rm -f "\$MIGENV"
