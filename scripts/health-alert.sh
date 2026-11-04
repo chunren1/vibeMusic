@@ -20,6 +20,19 @@ SWAP_MAX=30          # swap 使用率上限 %（2026-10-26 审计改：原 80% �
 CONTAINERS="vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis"
 MUSICAPI_PORT="${MUSICAPI_PORT:-3000}"   # musicapi 固定绑 127.0.0.1:3000（compose 内网）
 COOKIE_STATUS_URL="http://127.0.0.1:${MUSICAPI_PORT}/cookie-status"
+RESTART_STATE=/var/run/vibemusic-alert-restarts.state   # 每容器重启计数窗口基线
+
+# docker CLI 统一加超时。原实现所有 docker 调用都是无上限的：dockerd 一旦卡住，
+# 本轮就永远不返回，而 cron 每分钟还会再起一轮 —— 在 1.6G 的机器上，
+# 这是能最快把内存吃干的方式（watchdog 已于 2026-11-03 加过同样的保护，这里补上）。
+DK_TIMEOUT=10
+dk() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$DK_TIMEOUT" docker "$@"
+    else
+        docker "$@"
+    fi
+}
 
 # ---------------------------------------------------------------------------
 # 后端探活端口（2026-10-23 修：蓝绿部署后端口会在 8080/8082/8083/8084 之间轮换，
@@ -53,6 +66,40 @@ HEALTH_URL="http://127.0.0.1:${BACKEND_PORT}/actuator/health"
 
 log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG"; }
 
+# 日志轮转：与 watchdog 同口径（超过 1MB 只留尾部 256KB）。
+# 原实现只追加不轮转，每分钟一轮、每轮至少一行，一年 20MB+；这个文件落在 /var/log，
+# 而本脚本自己就会报"根分区使用率 ≥85%"——把自己的日志撑成告警原因是最难查的一种。
+rotate_log() {
+    [ -f "$LOG" ] || return 0
+    local size
+    size=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    case "$size" in ''|*[!0-9]*) return 0 ;; esac
+    [ "$size" -gt 1048576 ] || return 0
+    local tmp
+    tmp=$(mktemp "$LOG.XXXXXX" 2>/dev/null) || return 0
+    if tail -c 262144 "$LOG" > "$tmp" 2>/dev/null; then
+        chmod 0640 "$tmp" 2>/dev/null || true
+        mv -f "$tmp" "$LOG" 2>/dev/null || rm -f "$tmp"
+    else
+        rm -f "$tmp"
+    fi
+}
+
+# 并发互斥：cron 每分钟一轮，而一轮里 docker / curl / python 的耗时都不受控。
+# 上一轮没结束时又起一轮，会出现两轮同时读状态文件、同时推送（重复告警），
+# 以及两轮同时重写重启计数基线（计数丢一段）。拿不到锁就退出：本轮由持锁者代表。
+if command -v flock >/dev/null 2>&1; then
+    LOCK_FILE=/var/run/vibemusic-alert.lock
+    if : >> "$LOCK_FILE" 2>/dev/null; then
+        chmod 0600 "$LOCK_FILE" 2>/dev/null || true
+        exec 9>>"$LOCK_FILE"
+        flock -n 9 || exit 0
+    fi
+fi
+
+# 轮转放在取锁之后：两轮同时抓日志会让后一轮读到已截断的文件头
+rotate_log
+
 send() {
     local title="$1" body="$2"
     [ -r "$KEY_FILE" ] || { log "WARN key 文件不可读，跳过推送"; return 1; }
@@ -63,11 +110,12 @@ send() {
 }
 
 PROBLEMS=()
+RESTARTS_NEW=()
 
 # 1) 后端存活
-docker inspect -f '{{.State.Running}}' vibemusic-backend 2>/dev/null | grep -q true \
-    || PROBLEMS+=("backend 容器未运行")
-if docker inspect -f '{{.State.Running}}' vibemusic-backend 2>/dev/null | grep -q true; then
+#    容器"在不在跑"由第 2 项统一报告（同一容器原来被 inspect 三次、且"未运行"会被报两遍），
+#    这里只做 HTTP 探活。
+if dk inspect -f '{{.State.Running}}' vibemusic-backend 2>/dev/null | grep -q true; then
     curl -sf --max-time 5 -o /dev/null "$HEALTH_URL" || PROBLEMS+=("backend 健康检查失败")
 fi
 
@@ -76,24 +124,39 @@ fi
 #    Docker 不会做任何事，watchdog 负责重启、本脚本负责把这件事说出来。
 NOW_EPOCH=$(date +%s)
 for c in $CONTAINERS; do
-    info=$(docker inspect -f '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}|{{.State.StartedAt}}' "$c" 2>/dev/null)
+    info=$(dk inspect -f '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.RestartCount}}|{{.State.OOMKilled}}' "$c" 2>/dev/null)
     if [ -z "$info" ]; then
         PROBLEMS+=("$c 不存在或无法 inspect")
         continue
     fi
-    IFS='|' read -r st health restarts oom started <<<"$info"
+    IFS='|' read -r st health restarts oom <<<"$info"
     [ "$st" = "running" ] || PROBLEMS+=("$c 状态=$st")
     [ "$health" = "unhealthy" ] && PROBLEMS+=("$c 健康检查 unhealthy")
-    [ "$oom" = "true" ] && PROBLEMS+=("$c 上次退出为 OOM（容器内存超限）")
+    # OOMKilled 在容器重新启动时会被清零，running 状态下它几乎总是 false；
+    # 只在非 running 时读它，避免把 stale 值当成新故障。
+    [ "$oom" = "true" ] && [ "$st" != "running" ] && PROBLEMS+=("$c 上次退出为 OOM（容器内存超限）")
     case "$restarts" in
-        ''|*[!0-9]*) ;;
-        *)
-            if [ "$restarts" -ge 3 ]; then
-                up=$(( NOW_EPOCH - $(date -d "$started" +%s 2>/dev/null || echo "$NOW_EPOCH") ))
-                [ "$up" -lt 3600 ] && PROBLEMS+=("$c 一小时内重启 ${restarts} 次（疑似崩溃循环）")
-            fi
-            ;;
+        ''|*[!0-9]*) restarts="" ;;
     esac
+    if [ -n "$restarts" ]; then
+        # 崩溃循环判据不能用「累计 RestartCount + 一小时内」：
+        # watchdog 自己重启一次、或运维手动 `docker restart`，都会让健康容器重新落进
+        # "一小时内重启 ≥3 次"，而真正一分钟崩三次的容器反而可能因为窗口滑动被漏掉。
+        # 改为记录窗口基线（since_epoch, base_count），只统计**窗口内新增**的重启次数。
+        base_line=$(awk -v c="$c" '$1==c{print $2" "$3}' "$RESTART_STATE" 2>/dev/null | tail -1)
+        base_epoch=${base_line%% *}
+        base_count=${base_line##* }
+        case "$base_epoch" in ''|*[!0-9]*) base_epoch=$NOW_EPOCH ;; esac
+        case "$base_count" in ''|*[!0-9]*) base_count=$restarts ;; esac
+        # 容器被重建（compose up 重建会归零 RestartCount）或窗口已过一小时 → 重设基线
+        if [ "$restarts" -lt "$base_count" ] || [ $(( NOW_EPOCH - base_epoch )) -ge 3600 ]; then
+            base_epoch=$NOW_EPOCH
+            base_count=$restarts
+        fi
+        delta=$(( restarts - base_count ))
+        [ "$delta" -ge 3 ] && PROBLEMS+=("$c 一小时内新增重启 ${delta} 次（疑似崩溃循环）")
+        RESTARTS_NEW+=("$c $base_epoch $base_count")
+    fi
 done
 
 # 3) 磁盘
@@ -116,8 +179,13 @@ fi
 # 探活失败（端点非 200 / 无 python3）只记日志，不推送：musicapi 容器是否活着由第 2 项覆盖，
 # 这里再报一次就是同一故障双重告警。
 probe_cookie_status() {
-    local json
-    json=$(curl -s --max-time 5 "$COOKIE_STATUS_URL" 2>/dev/null) || { printf 'ERR'; return 0; }
+    local raw json http
+    raw=$(curl -s --max-time 5 -w '\n%{http_code}' "$COOKIE_STATUS_URL" 2>/dev/null) || { printf 'ERR'; return 0; }
+    http=${raw##*$'\n'}
+    json=${raw%$'\n'*}
+    # 403 = 端点要求管理令牌。必须与"探活无结果"分开：按无结果处理会让 Cookie 监控
+    # 永久失聪——每分钟只记一行 WARN、永不告警，直到有人想起"最近怎么没收到过 Cookie 告警"。
+    if [ "$http" = "403" ]; then printf 'DENIED'; return 0; fi
     printf '%s' "$json" | python3 -c '
 import json, sys
 try:
@@ -134,7 +202,10 @@ print(b("netease"), b("neteasePrimary"), b("neteaseBackup"), b("qq"))
 }
 
 read -r NE_OK NE_PRIMARY NE_BACKUP QQ_OK <<<"$(probe_cookie_status)"
-if [ -z "${QQ_OK:-}" ]; then
+if [ "${QQ_OK:-}" = "DENIED" ]; then
+    # 探活被 403 拒绝：这是**监控链路**故障，不是 Cookie 故障，必须响亮地报出来
+    PROBLEMS+=("源健康探活被 403 拒绝——Cookie 告警链路已失效，检查 /cookie-status 鉴权与 MUSICAPI_ADMIN_TOKEN")
+elif [ -z "${QQ_OK:-}" ]; then
     log "WARN 源健康探活无结果（${COOKIE_STATUS_URL}），本轮跳过 Cookie 检查"
 else
     [ "$QQ_OK" = "1" ] || PROBLEMS+=("QQ Cookie 失效（/cookie-status qq=false，QQ 源不可用）")
@@ -155,6 +226,11 @@ fi
 
 NOW=$(date +%s); LAST_STATE="ok"; LAST_TS=0
 [ -f "$STATE_FILE" ] && read -r LAST_STATE LAST_TS < "$STATE_FILE" || true
+
+# 落盘本轮的窗口基线：容器集合固定，直接整体覆盖，避免旧条目无限堆积。
+if [ ${#RESTARTS_NEW[@]} -gt 0 ]; then
+    printf '%s\n' "${RESTARTS_NEW[@]}" > "$RESTART_STATE" 2>/dev/null || true
+fi
 
 if [ ${#PROBLEMS[@]} -gt 0 ]; then
     DETAIL=$(printf '· %s\n' "${PROBLEMS[@]}")
