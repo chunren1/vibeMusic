@@ -106,15 +106,23 @@ public class StreamController {
                         String[] parts = rangeValue.split("-");
                         if (parts.length > 0 && !parts[0].isEmpty()) start = Long.parseLong(parts[0]);
                         if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
-                        if (start >= fileSize) start = fileSize - 1;
+                        // 不可满足的 Range 必须回 416：把 start 夹到 fileSize-1 会伪造出
+                        // 「Content-Range 起点与请求不一致」的假 206，客户端（Media3）拿到短 body 后
+                        // 抛 ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE。这里不写 body。
+                        if (start >= fileSize || end < start) {
+                            response.setStatus(416);
+                            response.setHeader("Content-Range", "bytes */" + fileSize);
+                            return;
+                        }
+                        if (end > fileSize - 1) end = fileSize - 1;
                         long length = end - start + 1;
                         response.setStatus(206);
                         response.setHeader("Content-Range", "bytes " + start + "-" + end + "/" + fileSize);
-                        response.setContentLength((int) length);
+                        response.setContentLengthLong(length);
                         try (InputStream in = storageService.getObjectRange(minioObjectName, start, length);
                              OutputStream out = response.getOutputStream()) { StreamUtils.copy(in, out); }
                     } else {
-                        response.setContentLength((int) fileSize);
+                        response.setContentLengthLong(fileSize);
                         try (InputStream in = storageService.getObject(minioObjectName);
                              OutputStream out = response.getOutputStream()) { StreamUtils.copy(in, out); }
                     }

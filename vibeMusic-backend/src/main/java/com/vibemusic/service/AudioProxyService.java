@@ -142,24 +142,41 @@ public class AudioProxyService {
                     applyProxyHeaders(h, host, rangeHeader);
                 }).exchange((clientReq, clientResp) -> {
                     int cdnStatus = clientResp.getStatusCode().value();
-                    // CDN URL 过期 (403) 或资源不存在 (404) → 作废短缓存并抛异常触发重试获取新 URL。
-                    // 必须先作废：否则 5 次重试会反复命中同一个死 URL，把可自愈路径变成必死 500。
-                    if (cdnStatus == 403 || cdnStatus == 404) {
+
+                    // 416 = 请求的 Range 超出资源长度（典型场景：暂停数小时后恢复播放，
+                    // 客户端拿旧 position 继续请求）。URL 本身有效，重试只会重复 416。
+                    // 必须原样把 416 交给客户端：若伪装成 200，Media3 会按「200 + 非零 position」
+                    // 手动 skip，撞上 CDN 的 HTML 错误页立即 EOF →
+                    // ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE，用户看到「播放中断」。
+                    if (cdnStatus == 416) {
+                        response.setStatus(416);
+                        String cr = contentRangeForUnsatisfied(
+                                clientResp.getHeaders().getFirst("Content-Range"));
+                        if (cr != null) response.setHeader("Content-Range", cr);
+                        response.setHeader("Accept-Ranges", "bytes");
+                        // 刻意不写 Content-Length、不转发 CDN 的错误页 body
+                        return null;
+                    }
+
+                    // 其它非 2xx（403/404 死链、400/-460、5xx 上游抖动）→ 作废短缓存并抛异常换新 URL。
+                    // 必须先作废：否则 5 次重试会反复命中同一个死 URL，把可自愈路径变成必死。
+                    // 也绝不允许把错误页当音频以 200 转发出去。
+                    if (!clientResp.getStatusCode().is2xxSuccessful()) {
                         songPlayService.invalidatePlayUrl(sourceId, platform);
                         throw new RuntimeException("CDN returned " + cdnStatus + ", will retry with fresh URL");
                     }
+
                     String ct = clientResp.getHeaders().getFirst("Content-Type");
                     response.setContentType(ct != null && ct.startsWith("audio/") ? ct : "audio/mpeg");
+                    // 只有确认转发 2xx 时才声明长度（setContentLengthLong 防 long→int 截断）
                     long cl = clientResp.getHeaders().getContentLength();
-                    if (cl > 0) response.setContentLength((int) cl);
+                    if (cl > 0) response.setContentLengthLong(cl);
                     response.setHeader("Accept-Ranges", "bytes");
                     response.setHeader("Cache-Control", "private, max-age=3600");
-                    if (clientResp.getStatusCode().is2xxSuccessful()) {
-                        response.setStatus(cdnStatus);
-                        if (cdnStatus == 206) {
-                            String cr = clientResp.getHeaders().getFirst("Content-Range");
-                            if (cr != null) response.setHeader("Content-Range", cr);
-                        }
+                    response.setStatus(cdnStatus);
+                    if (cdnStatus == 206) {
+                        String cr = clientResp.getHeaders().getFirst("Content-Range");
+                        if (cr != null) response.setHeader("Content-Range", cr);
                     }
                     try (InputStream in = clientResp.getBody();
                          OutputStream out = response.getOutputStream()) { StreamUtils.copy(in, out); }
@@ -172,13 +189,31 @@ public class AudioProxyService {
                     log.warn("音频流代理重试 ({}/{}) sourceId={}: {}", attempt, MAX_ATTEMPTS, sourceId, e.getMessage());
                 } else {
                     if (!response.isCommitted()) {
-                        response.setStatus(500);
+                        // 502 = 上游（CDN）不可用/死链，重试已耗尽；绝不能再以 200 回一个空 body
+                        response.setStatus(502);
                         log.error("音频流代理最终失败 sourceId={}: {}", sourceId, e.getMessage());
                     }
                     return;   // 终局：不再空转
                 }
             }
         }
+    }
+
+    /**
+     * 纯函数：构造 416 响应的 {@code Content-Range}。
+     *
+     * <p>优先透传上游的 unsatisfied-range 形式（{@code bytes *}{@code /2465167}）；若上游给的是
+     * {@code bytes 0-0/2465167} 之类，也归一化成 {@code bytes *}{@code /2465167}。
+     * 解析不出资源总长度时返回 {@code null}（此时不写该头，绝不拿错误页的 Content-Length 冒充文件长度）。</p>
+     */
+    static String contentRangeForUnsatisfied(String upstreamContentRange) {
+        if (upstreamContentRange == null || upstreamContentRange.isBlank()) return null;
+        String value = upstreamContentRange.trim();
+        int slash = value.lastIndexOf('/');
+        if (slash < 0 || slash == value.length() - 1) return null;
+        String total = value.substring(slash + 1).trim();
+        if (total.isEmpty() || "*".equals(total)) return null;
+        return "bytes */" + total;
     }
 
     /** 下载场景：必须在写字节前落 Content-Disposition，否则浏览器按内联处理。 */
