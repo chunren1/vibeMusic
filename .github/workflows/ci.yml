@@ -260,6 +260,7 @@ jobs:
             test/search-migu.test.js \
             test/search-qq.test.js \
             test/netease-cold-start.test.js \
+            test/ops-scripts.test.js \
             test/source-health.test.js \
             test/upstream.test.js \
             test/vip-health-metrics.test.js
