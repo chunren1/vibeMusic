@@ -24,6 +24,7 @@
 
 ## ENV（限流 / 探针加固，2026-10-22）
 - `MUSICAPI_PROBE_TIMEOUT_MS`（默认 `8000`）：单次 Cookie 探针硬超时（库无 AbortSignal，用 Promise.race，超时状态记 `failed(timeout)`）。
+- `MUSICAPI_PROBE_RETRY_DELAY_MS`（默认 `1500`）：播放能力探针遇到「结论不可用」（风控 `-460` / 5xx / 超时）时的重试间隔；`0` = 立即重试。重试仍不可用返回 `'unknown'`，巡检沿用上一状态，**不判 Cookie 失效**。
 - `MUSICAPI_PATROL_WATCHDOG_MS`（默认 `60000`）：单轮 Cookie 巡检看门狗上限（超时强制结束该轮，不改槽位/gauge）。
 - `MUSICAPI_TRUST_PROXY`（默认 `false`）：仅当网关前有**可信反代**且公网不可直连时设 `1`（跳数）；开启后必须由反代覆写 `X-Forwarded-For` / `X-User-Id` / `X-Trace-Id`。
 - `MUSICAPI_TRUST_IDENTITY_HEADERS=false`：强制限流仅按 IP（保守模式）。

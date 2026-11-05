@@ -44,9 +44,28 @@ function slotFailureReason() {
   if (st.login.status === 'failed(timeout)') return '登录探针 failed(timeout)';
   if (st.login.status === 'failed') return `登录探针失败 (${st.login.detail || 'unexpected-response'})`;
   if (st.login.status !== 'ok') return `登录探针 ${st.login.status}`;
+  if (st.playback.status === 'unknown') return `播放能力探针结论不可用 (${st.playback.detail || 'inconclusive'})`;
   if (st.playback.status === 'failed(timeout)') return '播放能力探针 failed(timeout)';
   if (st.playback.status === 'failed') return `播放能力探针未通过 (${st.playback.detail || 'not-playable'})`;
   return `播放能力探针 ${st.playback.status}`;
+}
+
+/**
+ * 'unknown' 时沿用上一次已知状态（2026-11-06 刷屏修复）：
+ * 上游风控/暂不可达只说明"本轮问不出来"，不构成切换槽位或改 gauge 的依据，
+ * 故直接取 cookieStatus 里的当前值，保持既有槽位健康口径不变。
+ */
+function carryOverSlot(slot) {
+  return slot === 'backup' ? cookieStatus.neteaseBackup === true : cookieStatus.neteasePrimary === true;
+}
+
+/** 从巡检/快切入参里提取探针可调项（测试注入用；生产不传即全默认）。 */
+function probeOptionsFrom(opts = {}) {
+  const probeOpts = {};
+  if (opts.probeTimeoutMs) probeOpts.timeoutMs = opts.probeTimeoutMs;
+  if (opts.probeRetryDelayMs !== undefined) probeOpts.retryDelayMs = opts.probeRetryDelayMs;
+  if (typeof opts.probeDelay === 'function') probeOpts.delay = opts.probeDelay;
+  return probeOpts;
 }
 
 /**
@@ -84,19 +103,23 @@ async function checkCookies(opts = {}) {
 /** 巡检主体（生产路径只经 checkCookies 进入；每个 await 后检查 cancelled）。 */
 async function runCookiePatrol(ctx, opts = {}) {
   const startedAt = Date.now();
-  const probeOpts = opts.probeTimeoutMs ? { timeoutMs: opts.probeTimeoutMs } : {};
+  const probeOpts = probeOptionsFrom(opts);
   writeLog('cookie', 'INFO', '🔄 Cookie 存活检查开始...');
 
   // 检查网易云主备：双探针 + 主优先自动切换/回切
   const primary = effectivePrimary();
   const backup = effectiveBackup();
   const hasBackup = !!backup;
-  let primaryOk = false;
-  let backupOk = false;
+  // 三态：true | false | 'unknown'（上游风控/5xx/超时 → 本轮没有结论）
+  let primaryVerdict = false;
+  let backupVerdict = false;
   try {
-    primaryOk = await probeNeteaseCookie(primary, probeOpts);
+    primaryVerdict = await probeNeteaseCookie(primary, probeOpts);
     if (ctx.cancelled) return { cancelled: true, durationMs: Date.now() - startedAt };
-    if (primaryOk) {
+    if (primaryVerdict === 'unknown') {
+      writeLog('cookie', 'WARN',
+        `⚠️ 网易云主 Cookie 探针结论不可用（${slotFailureReason()}）：风控/上游暂不可达，沿用上一状态（${cookieStatus.neteasePrimary ? '正常' : '异常'}），本轮不改槽位/gauge`);
+    } else if (primaryVerdict) {
       writeLog('cookie', 'INFO', '✅ 网易云主 Cookie 正常（登录 + 播放能力）');
     } else {
       writeLog('cookie', 'ERROR', `❌ 网易云主 Cookie 异常（${slotFailureReason()}）`);
@@ -106,17 +129,31 @@ async function runCookiePatrol(ctx, opts = {}) {
   }
   try {
     if (hasBackup) {
-      backupOk = await probeNeteaseCookie(backup, probeOpts);
+      backupVerdict = await probeNeteaseCookie(backup, probeOpts);
       if (ctx.cancelled) return { cancelled: true, durationMs: Date.now() - startedAt };
-      writeLog('cookie', backupOk ? 'INFO' : 'ERROR',
-        backupOk ? '✅ 网易云备 Cookie 正常（登录 + 播放能力）' : `❌ 网易云备 Cookie 异常（${slotFailureReason()}）`);
+      if (backupVerdict === 'unknown') {
+        writeLog('cookie', 'WARN',
+          `⚠️ 网易云备 Cookie 探针结论不可用（${slotFailureReason()}）：风控/上游暂不可达，沿用上一状态（${cookieStatus.neteaseBackup ? '正常' : '异常'}），本轮不改槽位/gauge`);
+      } else {
+        writeLog('cookie', backupVerdict ? 'INFO' : 'ERROR',
+          backupVerdict ? '✅ 网易云备 Cookie 正常（登录 + 播放能力）' : `❌ 网易云备 Cookie 异常（${slotFailureReason()}）`);
+      }
     }
   } catch (e) {
     writeLog('cookie', 'ERROR', `❌ 网易云备 Cookie 检查失败: ${e.message}`);
   }
-  setSlotGauges(primaryOk, backupOk, hasBackup);
-  const next = decideActiveSlot({ primaryOk, backupOk, current: getNeteaseActive() });
-  applyActiveSlot(next, 'checkCookies');
+
+  // 结论不可用的槽位沿用上一次已知状态；任一槽位 unknown 时整轮不落盘 gauge、不切槽位。
+  // 理由：把"上游没回答"写成 gauge=0 会让 /cookie-status 与后端降级链一起误判，
+  // 下轮探针一恢复又翻回来 —— 就是 2026-11-06 那次每分钟刷屏的链路。
+  const inconclusive = primaryVerdict === 'unknown' || backupVerdict === 'unknown';
+  const primaryOk = primaryVerdict === 'unknown' ? carryOverSlot('primary') : primaryVerdict;
+  const backupOk = backupVerdict === 'unknown' ? carryOverSlot('backup') : backupVerdict;
+  if (!inconclusive) {
+    setSlotGauges(primaryOk, backupOk, hasBackup);
+    const next = decideActiveSlot({ primaryOk, backupOk, current: getNeteaseActive() });
+    applyActiveSlot(next, 'checkCookies');
+  }
 
   // 检查QQ（含自动恢复）
   await checkQQCookie();
@@ -124,8 +161,8 @@ async function runCookiePatrol(ctx, opts = {}) {
 
   const durationMs = Date.now() - startedAt;
   writeLog('cookie', 'INFO',
-    `Cookie 存活检查完成（${durationMs}ms）: 主=${probeFailureReason('login')}, 播放=${probeFailureReason('playback')}`);
-  return { timedOut: false, durationMs, primaryOk, backupOk, active: getNeteaseActive() };
+    `Cookie 存活检查完成（${durationMs}ms）: 主=${probeFailureReason('login')}, 播放=${probeFailureReason('playback')}${inconclusive ? '（结论不可用，已沿用上一状态）' : ''}`);
+  return { timedOut: false, durationMs, primaryOk, backupOk, active: getNeteaseActive(), inconclusive };
 }
 
 /**
@@ -135,20 +172,44 @@ async function runCookiePatrol(ctx, opts = {}) {
  * @param {{force?: boolean}} [opts] force=true 走"能力感知"强制快切（VIP 掉档用，见下）
  */
 async function rotateNeteaseActive(opts = {}) {
-  if (opts.force) return rotateNeteaseActiveForced();
+  if (opts.force) return rotateNeteaseActiveForced(opts);
+  const probeOpts = probeOptionsFrom(opts);
   const active = getNeteaseActive();
   const current = active === 'backup' && effectiveBackup() ? 'backup' : 'primary';
-  if (await probeNeteaseCookie(sharedCookieFor(current))) {
-    setSlotGauges(current === 'primary', current === 'backup' ? true : await probeNeteaseCookie(effectiveBackup()), !!effectiveBackup());
+  const hasBackup = !!effectiveBackup();
+  const currentVerdict = await probeNeteaseCookie(sharedCookieFor(current), probeOpts);
+  if (currentVerdict === 'unknown') {
+    // 结论不可用（风控/5xx/超时）：不是"不健康"，不得据此切槽位
+    writeLog('cookie', 'WARN',
+      `当前槽位（${current}）探针结论不可用：上游风控/暂不可达，保持槽位不变（不切换）`);
+    return { switched: false, active: current, reason: 'unknown' };
+  }
+  if (currentVerdict) {
+    // 与旧实现同口径：当前是备槽时不再复探主槽（避免多打一次上游）
+    let backupOk = false;
+    if (current === 'backup') {
+      backupOk = true;
+    } else if (hasBackup) {
+      const verdict = await probeNeteaseCookie(effectiveBackup(), probeOpts);
+      backupOk = verdict === 'unknown' ? carryOverSlot('backup') : verdict;
+    }
+    setSlotGauges(current === 'primary', backupOk, hasBackup);
     applyActiveSlot(current, 'rotate-noop');
     return { switched: false, active: current };
   }
   const other = current === 'primary' ? 'backup' : 'primary';
-  if (await probeNeteaseCookie(sharedCookieFor(other))) {
-    setSlotGauges(other === 'primary', other === 'backup', !!effectiveBackup());
+  const otherVerdict = await probeNeteaseCookie(sharedCookieFor(other), probeOpts);
+  if (otherVerdict === 'unknown') {
+    writeLog('cookie', 'WARN',
+      `候选槽位（${other}）探针结论不可用：上游风控/暂不可达，保持当前槽位 ${current}`);
+    return { switched: false, active: current, reason: 'unknown' };
+  }
+  if (otherVerdict) {
+    setSlotGauges(other === 'primary', other === 'backup', hasBackup);
     return applyActiveSlot(other, 'rotate-on-need-login');
   }
-  setSlotGauges(await probeNeteaseCookie(effectivePrimary()), false, !!effectiveBackup());
+  const primaryVerdict = await probeNeteaseCookie(effectivePrimary(), probeOpts);
+  setSlotGauges(primaryVerdict === 'unknown' ? carryOverSlot('primary') : primaryVerdict, false, hasBackup);
   applyActiveSlot(current, 'rotate-both-unhealthy');
   return { switched: false, active: current, reason: 'both-unhealthy' };
 }
@@ -164,12 +225,24 @@ function sharedCookieFor(slot) {
  * 选能通过双探针的槽位；双槽都可用（平局）保持当前槽位；双槽都不可用保持现状。
  * gauge/探针计数与 checkCookies 同口径；返回体只含 switched/active/探针结果，绝不含凭证。
  */
-async function rotateNeteaseActiveForced() {
+async function rotateNeteaseActiveForced(opts = {}) {
+  const probeOpts = probeOptionsFrom(opts);
   const active = getNeteaseActive();
   const current = active === 'backup' && effectiveBackup() ? 'backup' : 'primary';
   const hasBackup = !!effectiveBackup();
-  const primaryOk = await probeNeteaseCookie(effectivePrimary());
-  const backupOk = hasBackup ? await probeNeteaseCookie(effectiveBackup()) : false;
+  const primaryVerdict = await probeNeteaseCookie(effectivePrimary(), probeOpts);
+  const backupVerdict = hasBackup ? await probeNeteaseCookie(effectiveBackup(), probeOpts) : false;
+  const inconclusive = primaryVerdict === 'unknown' || backupVerdict === 'unknown';
+  const primaryOk = primaryVerdict === 'unknown' ? carryOverSlot('primary') : primaryVerdict;
+  const backupOk = backupVerdict === 'unknown' ? carryOverSlot('backup') : backupVerdict;
+  if (inconclusive) {
+    // 任一槽位结论不可用：本轮没有可信依据，保持当前槽位、不落盘 gauge
+    writeLog('cookie', 'WARN',
+      '强制快切：探针结论不可用（上游风控/暂不可达），保持当前槽位不切换');
+    const kept = Object.assign(applyActiveSlot(current, 'rotate-force-inconclusive'),
+      { forced: true, inconclusive: true });
+    return Object.assign(kept, { primaryOk, backupOk });
+  }
   setSlotGauges(primaryOk, backupOk, hasBackup);
   const next = pickCapableSlot({ primaryOk, backupOk, current });
   const out = next === current
@@ -194,6 +267,7 @@ module.exports = {
   resolvePatrolWatchdogMs,
   probeFailureReason,
   slotFailureReason,
+  probeOptionsFrom,
   checkCookies,
   runCookiePatrol,
   rotateNeteaseActive,

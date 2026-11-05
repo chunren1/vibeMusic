@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # vibeMusic 存活与资源告警（不依赖本机 Prometheus / 笔记本在线）
 # cron 每分钟：后端/关键容器异常、磁盘、swap 超阈值、源 Cookie 失效 -> Server酱；恢复 -> 推送恢复。
-# 去重：只在「下行/恢复」边沿推送；持续故障每 30 分钟提醒一次。
+# 去重：连续 2 轮确认才推 🔴；恢复要「推过异常 且 持续 ≥5 分钟」才推 🟢；持续故障每 30 分钟提醒一次。
 #
 # 2026-10-27 收口：这是全项目**唯一**的告警通道。仓库里 27 条 Prometheus 告警规则已全部删除
 # （14 条依赖已移除的后端指标导出器，13 条依赖从未部署的 node-exporter/blackbox）；
@@ -224,8 +224,31 @@ else
     fi
 fi
 
-NOW=$(date +%s); LAST_STATE="ok"; LAST_TS=0
-[ -f "$STATE_FILE" ] && read -r LAST_STATE LAST_TS < "$STATE_FILE" || true
+NOW=$(date +%s); LAST_STATE="ok"; LAST_TS=0; LAST_PUSHED=0; LAST_PUSH_TS=0; LEGACY_STATE=0
+[ -f "$STATE_FILE" ] && read -r LAST_STATE LAST_TS LAST_PUSHED LAST_PUSH_TS < "$STATE_FILE" || true
+case "$LAST_STATE" in down|ok) ;; *) LAST_STATE="ok" ;; esac
+case "$LAST_TS" in ''|*[!0-9]*) LAST_TS=0 ;; esac
+case "$LAST_PUSH_TS" in ''|*[!0-9]*) LAST_PUSH_TS=0 ;; esac
+if [ "$LAST_STATE" = "down" ] && [ -z "${LAST_PUSHED:-}" ]; then
+    # 旧格式 down <ts>：那个 ts 以前**每轮都被刷新**，既不代表异常起点、也看不出有没有推送过。
+    # 兼容口径 = 视为已推送、起点未知（下面会从本轮重新计时，宁可晚推恢复也不立刻推）。
+    LEGACY_STATE=1
+    LAST_PUSHED=1
+fi
+case "$LAST_PUSHED" in 0|1) ;; *) LAST_PUSHED=0 ;; esac
+
+# 连续异常轮数（cron 每分钟一轮）：首轮异常只记日志，连续第 STREAK_CONFIRM 轮才推 🔴。
+# 单独一个文件：状态文件要保持「down <start> <pushed>」的形状，计数器脏了也不影响它。
+STATE_DIR=$(dirname "$STATE_FILE")
+STREAK_FILE="$STATE_DIR/vibemusic-alert-streak"
+STREAK_CONFIRM=2
+RECOVERY_MIN_DOWN_SEC=300
+
+STREAK=0
+if [ -f "$STREAK_FILE" ]; then
+    read -r STREAK < "$STREAK_FILE" || true
+fi
+case "$STREAK" in ''|*[!0-9]*) STREAK=0 ;; esac
 
 # 落盘本轮的窗口基线：容器集合固定，直接整体覆盖，避免旧条目无限堆积。
 if [ ${#RESTARTS_NEW[@]} -gt 0 ]; then
@@ -234,20 +257,60 @@ fi
 
 if [ ${#PROBLEMS[@]} -gt 0 ]; then
     DETAIL=$(printf '· %s\n' "${PROBLEMS[@]}")
-    if [ "$LAST_STATE" != "down" ] || [ $((NOW - LAST_TS)) -ge $REPEAT_SEC ]; then
-        send "🔴 vibeMusic 异常（${#PROBLEMS[@]} 项）" "主机: 101.132.167.178
+    STREAK=$(( STREAK + 1 ))
+    DOWN_START=$NOW
+    PUSHED=0
+    LAST_PUSH=0
+    if [ "$LAST_STATE" = "down" ]; then
+        DOWN_START=$LAST_TS
+        PUSHED=$LAST_PUSHED
+        LAST_PUSH=$LAST_PUSH_TS
+        if [ "$LEGACY_STATE" = "1" ] || [ "$DOWN_START" -le 0 ]; then
+            # 起点不可信：从本轮重新计时（只影响恢复门槛，不影响本轮是否推 🔴）
+            DOWN_START=$NOW
+            LEGACY_STATE=1
+        fi
+    fi
+
+    SHOULD_PUSH=0
+    if [ "$PUSHED" = "1" ]; then
+        # 重复提醒：距上次推送 ≥ REPEAT_SEC（首次推送后按 30 分钟节拍，不每分钟重推）
+        ANCHOR=$LAST_PUSH
+        if [ "$ANCHOR" -le 0 ]; then ANCHOR=$DOWN_START; fi
+        if [ $(( NOW - ANCHOR )) -ge $REPEAT_SEC ]; then SHOULD_PUSH=1; fi
+    elif [ "$STREAK" -ge "$STREAK_CONFIRM" ]; then
+        SHOULD_PUSH=1
+    fi
+
+    if [ "$SHOULD_PUSH" = "1" ]; then
+        if send "🔴 vibeMusic 异常（${#PROBLEMS[@]} 项）" "主机: 101.132.167.178
 时间: $(date '+%F %T')
 ${DETAIL}
 内存: $(free -h | awk '/^Mem:/{print "used "$3" / "$2", avail "$7}')
-Swap: ${SW_USED}/${SW_TOTAL} KB (${SW_PCT:-?}%)"
+Swap: ${SW_USED}/${SW_TOTAL} KB (${SW_PCT:-?}%)"; then
+            PUSHED=1
+            LAST_PUSH=$NOW
+        fi
+    else
+        log "INFO 异常第 ${STREAK} 轮（连续 ${STREAK_CONFIRM} 轮才推送，本轮只记日志）: ${PROBLEMS[*]}"
     fi
-    echo "down $NOW" > "$STATE_FILE"
+    printf 'down %s %s %s\n' "$DOWN_START" "$PUSHED" "$LAST_PUSH" > "$STATE_FILE"
+    printf '%s\n' "$STREAK" > "$STREAK_FILE" 2>/dev/null || true
     log "异常: ${PROBLEMS[*]}"
 else
     if [ "$LAST_STATE" = "down" ]; then
-        send "🟢 vibeMusic 已恢复" "主机: 101.132.167.178
+        DURATION_UNKNOWN=0
+        if [ "$LEGACY_STATE" = "1" ] || [ "$LAST_TS" -le 0 ]; then DURATION_UNKNOWN=1; fi
+        if [ "$LAST_PUSHED" != "1" ]; then
+            log "INFO 恢复（本轮异常从未推送过告警，按去抖口径不推恢复）"
+        elif [ "$DURATION_UNKNOWN" = "1" ] || [ $(( NOW - LAST_TS )) -lt $RECOVERY_MIN_DOWN_SEC ]; then
+            log "INFO 恢复（异常持续时间未知或 < $((RECOVERY_MIN_DOWN_SEC / 60)) 分钟，按去抖口径不推恢复）"
+        else
+            send "🟢 vibeMusic 已恢复" "主机: 101.132.167.178
 时间: $(date '+%F %T')
 全部检查项恢复正常（4 容器 running + 健康检查 200 + 磁盘 ${DISK:-?}% + swap ${SW_PCT:-0}% + 源 Cookie 正常）"
+        fi
     fi
     echo "ok $NOW" > "$STATE_FILE"
+    rm -f "$STREAK_FILE" 2>/dev/null || true
 fi

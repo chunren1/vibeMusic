@@ -27,6 +27,20 @@ const DEFAULT_PROBE_TIMEOUT_MS = 8000;
 const PROBE_TIMEOUT_MIN_MS = 100;
 const PROBE_TIMEOUT_MAX_MS = 30000;
 
+/**
+ * 结论不可用（inconclusive）时的重试间隔：默认 1.5s（env 可调，0 表示立即重试/测试用）。
+ * 2026-11-06：网易云风控 -460 是"此刻这个出口 IP 被拦"，隔一两秒往往就放行，
+ * 故先重试一次再下结论；重试仍不可用则返回 'unknown'，绝不判成 Cookie 失效。
+ */
+const DEFAULT_RETRY_DELAY_MS = 1500;
+const RETRY_DELAY_MAX_MS = 10000;
+
+/** 上游风控码（实测：song_url_v1 返回 {code:-460, message:'检测到您的网络环境存在风险，请稍后再试'}）。 */
+const RISK_CONTROL_CODE = -460;
+
+/** 上游风控/暂时性故障的文案特征（中文上游只给 message，没有稳定的机器码）。 */
+const RISK_CONTROL_MESSAGE_MARKERS = ['网络环境存在风险', '服务繁忙'];
+
 /** 能力探针开关（kill switch）：关闭时健康判定等价于旧 probeNeteaseCookie（仅登录有效性）。 */
 function isCapabilityProbeEnabled() {
   return config.neteaseProbeEnabled !== false;
@@ -45,6 +59,21 @@ function resolveProbeTimeoutMs(override) {
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return DEFAULT_PROBE_TIMEOUT_MS;
   return Math.min(PROBE_TIMEOUT_MAX_MS, Math.max(PROBE_TIMEOUT_MIN_MS, Math.floor(n)));
+}
+
+/** 解析 inconclusive 重试间隔：显式入参 > 环境变量 > 默认 1.5s；0 合法（=立即重试）。 */
+function resolveRetryDelayMs(override) {
+  const raw = override !== undefined && override !== null && override !== ''
+    ? override
+    : process.env.MUSICAPI_PROBE_RETRY_DELAY_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_RETRY_DELAY_MS;
+  return Math.min(RETRY_DELAY_MAX_MS, Math.floor(n));
+}
+
+/** 默认真实等待（测试可注入 opts.delay 以免真的 sleep）。 */
+function defaultDelay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ==================== 探针状态（可观测的 failed(timeout) 标记）====================
@@ -134,6 +163,66 @@ function failProbe(name, err, timeoutMs, label, startedAt) {
   return false;
 }
 
+// ==================== 上游风控 / 暂时性故障（inconclusive）====================
+// 2026-11-06 刷屏事故：网易云风控 -460（"检测到您的网络环境存在风险，请稍后再试"）
+// 被取链探针当成"Cookie 掉 VIP"，主备双双判死 → 推 🔴；下一轮恢复 → 推 🟢；来回刷屏。
+// 口径：**结论不可用 ≠ Cookie 失效**。真正的失效只有一种 —— 拿到 url 却是试听/空链
+// （isPlayableUrlPayload=false）。风控码、风控文案、5xx、超时一律归 'unknown'。
+
+function bodyMessage(body) {
+  if (!body || typeof body !== 'object') return '';
+  return String(body.message || body.msg || '');
+}
+
+function isRiskControlMessage(text) {
+  const msg = String(text || '');
+  return RISK_CONTROL_MESSAGE_MARKERS.some((marker) => msg.includes(marker));
+}
+
+/**
+ * 取链响应体是否为「上游风控/暂时性故障」（纯函数）：code=-460 或含风控文案。
+ * 注意与 isPlayableUrlPayload 的分工：本函数只认"上游没给结论"，不判可播性。
+ */
+function isInconclusiveUrlPayload(body) {
+  if (!body || typeof body !== 'object') return false;
+  if (Number(body.code) === RISK_CONTROL_CODE) return true;
+  return isRiskControlMessage(bodyMessage(body));
+}
+
+/** 上游响应（含 HTTP 状态）是否 inconclusive：风控体或 HTTP 5xx（网关/源站暂时故障）。 */
+function isInconclusiveUpstreamResponse(res) {
+  if (!res || typeof res !== 'object') return false;
+  if (isInconclusiveUrlPayload(res.body)) return true;
+  const status = Number(res.status || 0);
+  return status >= 500 && status <= 599;
+}
+
+/** 上游异常是否 inconclusive：超时 / 5xx / 风控文案（异常体里也可能带 code=-460）。 */
+function isInconclusiveUpstreamError(err) {
+  if (!err) return false;
+  if (isTimeoutError(err)) return true;
+  if (isInconclusiveUrlPayload(err.body)) return true;
+  const status = Number(err.status || err.statusCode || (err.response && err.response.status) || 0);
+  if (status >= 500 && status <= 599) return true;
+  return isRiskControlMessage(err.message);
+}
+
+/** inconclusive 的简短可观测描述（只含码/文案，绝不含 Cookie 字节）。 */
+function inconclusiveDetail(res, err) {
+  if (err) {
+    if (isTimeoutError(err)) return 'timeout';
+    const status = Number(err.status || err.statusCode || 0);
+    if (status) return `http:${status}`;
+    const msg = String(err.message || '');
+    if (isRiskControlMessage(msg)) return 'risk-control';
+    return 'upstream-error';
+  }
+  const body = res && res.body;
+  if (body && Number(body.code)) return `code:${Number(body.code)}`;
+  const status = Number(res && res.status || 0);
+  return status ? `http:${status}` : 'inconclusive';
+}
+
 /** 登录/搜索有效性探针：cloudsearch 200+有结果即有效；空串/超时/异常判无效，绝不抛错。 */
 async function probeNeteaseLogin(cookieStr, opts = {}) {
   if (!cookieStr) {
@@ -156,8 +245,36 @@ async function probeNeteaseLogin(cookieStr, opts = {}) {
 }
 
 /**
+ * 单次取链判定：true=可播 / false=明确不可播 / 'unknown'=上游没给结论（风控·5xx·超时）。
+ * 纯内部原语，调用方（probeNeteasePlayback）负责重试与状态落盘。
+ */
+async function probePlaybackOnce(cookieStr, id, level, timeoutMs) {
+  try {
+    const res = await withHardTimeout(
+      () => netease.invoke('song_url_v1', { id, level, cookie: cookieStr }),
+      timeoutMs, 'song_url_v1'
+    );
+    if (isInconclusiveUpstreamResponse(res)) {
+      return { verdict: 'unknown', detail: inconclusiveDetail(res, null) };
+    }
+    const ok = isPlayableUrlPayload(res && res.body);
+    return { verdict: ok, detail: ok ? 'ok' : 'not-playable' };
+  } catch (e) {
+    if (isInconclusiveUpstreamError(e)) {
+      return { verdict: 'unknown', detail: inconclusiveDetail(null, e) };
+    }
+    return { verdict: false, detail: `error:${(e && e.message) || 'unknown'}` };
+  }
+}
+
+/**
  * 播放能力探针：对 VIP 探针曲目取链，能拿到完整可播链接才算通过。
- * 超时/异常/上游报错一律判不可播（与登录探针口径一致，绝不抛错，避免打断巡检）。
+ *
+ * 三态（2026-11-06 刷屏修复）：
+ *   true      —— 拿到完整链接（url 非空 + 无 freeTrialInfo）；
+ *   false     —— **明确**没有播放权限（30s 试听 / 空链 / 非风控类业务错）；
+ *   'unknown' —— 上游风控 -460、5xx、超时：本轮结论不可用，重试一次仍不可用即返回 'unknown'。
+ * 绝不把「上游没回答」当成「Cookie 失效」——那正是每分钟 🔴/🟢 来回刷屏的根因。
  */
 async function probeNeteasePlayback(cookieStr, opts = {}) {
   if (!cookieStr) {
@@ -168,34 +285,48 @@ async function probeNeteasePlayback(cookieStr, opts = {}) {
   const level = opts.level || 'exhigh';
   const timeoutMs = resolveProbeTimeoutMs(opts.timeoutMs);
   const startedAt = Date.now();
-  try {
-    const res = await withHardTimeout(
-      () => netease.invoke('song_url_v1', { id, level, cookie: cookieStr }),
-      timeoutMs, 'song_url_v1'
-    );
-    const ok = isPlayableUrlPayload(res && res.body);
-    recordProbe('playback', ok ? 'ok' : 'failed', ok ? 'ok' : 'not-playable', Date.now() - startedAt);
-    return ok;
-  } catch (e) {
-    return failProbe('playback', e, timeoutMs, 'song_url_v1', startedAt);
+  const wait = typeof opts.delay === 'function' ? opts.delay : defaultDelay;
+  const retryDelayMs = resolveRetryDelayMs(opts.retryDelayMs);
+
+  let attempt = await probePlaybackOnce(cookieStr, id, level, timeoutMs);
+  if (attempt.verdict === 'unknown') {
+    writeLog('cookie', 'WARN',
+      `播放能力探针结论不可用（${attempt.detail}），${retryDelayMs}ms 后重试一次`);
+    if (retryDelayMs > 0) await wait(retryDelayMs);
+    attempt = await probePlaybackOnce(cookieStr, id, level, timeoutMs);
   }
+  if (attempt.verdict === 'unknown') {
+    recordProbe('playback', 'unknown', attempt.detail, Date.now() - startedAt);
+    writeLog('cookie', 'WARN',
+      `播放能力探针重试后仍结论不可用（${attempt.detail}）：上游风控/暂不可达，本轮不据此判定 Cookie 失效`);
+    return 'unknown';
+  }
+  recordProbe('playback', attempt.verdict ? 'ok' : 'failed', attempt.detail, Date.now() - startedAt);
+  return attempt.verdict;
 }
 
 /**
  * 组合探针（槽位健康唯一口径）：健康 = 登录有效性 且 播放能力。
  * 能力探针被 kill switch 关闭时，行为与旧 probeNeteaseCookie 完全一致（只探登录）。
+ *
+ * 返回值三态：true | false | 'unknown'。
+ *   登录探针失败 = false（登录有效性是硬信号，登录不上就是真失效）；
+ *   登录 ok + 播放能力 'unknown' = 'unknown'（上游风控/暂不可达，本轮没有结论）。
  */
 async function probeNeteaseCookie(cookieStr, opts = {}) {
   const loginOk = await probeNeteaseLogin(cookieStr, opts);
   if (!loginOk) return false;
   if (!isCapabilityProbeEnabled()) return true;
   const playable = await probeNeteasePlayback(cookieStr, opts);
+  if (playable === 'unknown') {
+    // 只作观测提示，不写 ERROR：这不是 Cookie 故障，是上游没给结论
+    return 'unknown';
+  }
   if (!playable) {
-    // 超时已在 failProbe 打过 WARN，这里只补业务口径，避免同一次失败两条 WARN 误导排查
-    const st = probeState.playback;
-    if (st.status !== 'failed(timeout)') {
-      writeLog('cookie', 'WARN', `播放能力探针未通过（探针曲目 ${probeTrackId()} 无完整播放权限），该槽位判为不健康`);
-    }
+    const detail = probeState.playback.detail || 'not-playable';
+    writeLog('cookie', 'WARN', detail === 'not-playable'
+      ? `播放能力探针未通过（探针曲目 ${probeTrackId()} 无完整播放权限），该槽位判为不健康`
+      : `播放能力探针失败（${detail}），该槽位判为不健康`);
   }
   return playable;
 }
@@ -203,10 +334,16 @@ async function probeNeteaseCookie(cookieStr, opts = {}) {
 module.exports = {
   DEFAULT_PROBE_TRACK_ID,
   DEFAULT_PROBE_TIMEOUT_MS,
+  DEFAULT_RETRY_DELAY_MS,
+  RISK_CONTROL_CODE,
   resolveProbeTimeoutMs,
+  resolveRetryDelayMs,
   isCapabilityProbeEnabled,
   probeTrackId,
   isPlayableUrlPayload,
+  isInconclusiveUrlPayload,
+  isInconclusiveUpstreamResponse,
+  isInconclusiveUpstreamError,
   getProbeState,
   _resetProbeStateForTest,
   withHardTimeout,

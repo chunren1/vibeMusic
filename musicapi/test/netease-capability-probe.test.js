@@ -24,10 +24,15 @@ const cookie = require('../src/cookie');
 const {
   DEFAULT_PROBE_TRACK_ID,
   DEFAULT_PROBE_TIMEOUT_MS,
+  DEFAULT_RETRY_DELAY_MS,
   resolveProbeTimeoutMs,
+  resolveRetryDelayMs,
   isCapabilityProbeEnabled,
   probeTrackId,
   isPlayableUrlPayload,
+  isInconclusiveUrlPayload,
+  isInconclusiveUpstreamResponse,
+  isInconclusiveUpstreamError,
   probeNeteaseLogin,
   probeNeteasePlayback,
   getProbeState,
@@ -51,6 +56,7 @@ afterEach(() => {
   delete config.neteaseProbeTrackId;
   delete config.neteaseProbeEnabled;
   delete process.env.MUSICAPI_PROBE_TIMEOUT_MS;
+  delete process.env.MUSICAPI_PROBE_RETRY_DELAY_MS;
 });
 
 // ---------- 用例数据 ----------
@@ -151,6 +157,123 @@ test('组合探针：登录失效短路，不再打取链探针', async () => {
   assert.equal(await cookie.probeNeteaseCookie(P), false);
   assert.equal(await probeNeteaseLogin(P), false);
   assert.equal(urlCalls, 0);
+});
+
+// ---------- 上游风控 / 暂时性故障：inconclusive 三态（2026-11-06 刷屏修复）----------
+
+/** 实测形：HTTP 400 + {code:-460, message:'检测到您的网络环境存在风险，请稍后再试'} */
+function riskControlResponse() {
+  return { status: 400, body: { code: -460, message: '检测到您的网络环境存在风险，请稍后再试' } };
+}
+
+test('isInconclusiveUrlPayload：-460 / 风控文案 / 服务繁忙 → true；试听与正常体 → false', () => {
+  assert.equal(isInconclusiveUrlPayload(riskControlResponse().body), true);
+  assert.equal(isInconclusiveUrlPayload({ code: 200, message: '服务繁忙，请稍后再试' }), true);
+  assert.equal(isInconclusiveUrlPayload({ code: -460 }), true);
+  // 明确不可播不是 inconclusive：它是真结论（Cookie 没播放权限）
+  assert.equal(isInconclusiveUrlPayload(trialBody().body), false);
+  assert.equal(isInconclusiveUrlPayload(playableBody().body), false);
+  assert.equal(isInconclusiveUrlPayload(null), false);
+});
+
+test('isInconclusiveUpstreamResponse / Error：5xx 与超时归 unknown，普通业务错不归', () => {
+  assert.equal(isInconclusiveUpstreamResponse({ status: 502, body: { code: 200 } }), true);
+  assert.equal(isInconclusiveUpstreamResponse({ status: 400, body: { code: 404 } }), false);
+  assert.equal(isInconclusiveUpstreamError(Object.assign(new Error('timeout'), { isTimeout: true })), true);
+  const e5xx = Object.assign(new Error('bad gateway'), { status: 503 });
+  assert.equal(isInconclusiveUpstreamError(e5xx), true);
+  assert.equal(isInconclusiveUpstreamError(new Error('upstream down')), false);
+});
+
+test('重试间隔：默认 1.5s，注入入参/env 可调，0 合法', () => {
+  delete process.env.MUSICAPI_PROBE_RETRY_DELAY_MS;
+  assert.equal(DEFAULT_RETRY_DELAY_MS, 1500);
+  assert.equal(resolveRetryDelayMs(), 1500);
+  assert.equal(resolveRetryDelayMs(0), 0);
+  assert.equal(resolveRetryDelayMs(300), 300);
+  process.env.MUSICAPI_PROBE_RETRY_DELAY_MS = '20';
+  assert.equal(resolveRetryDelayMs(), 20);
+  process.env.MUSICAPI_PROBE_RETRY_DELAY_MS = '-1';
+  assert.equal(resolveRetryDelayMs(), DEFAULT_RETRY_DELAY_MS, '非法值回落默认');
+});
+
+test('-460 风控：重试一次后仍不可用 → unknown，不是"Cookie 失效"', async () => {
+  let calls = 0;
+  stub(NeteaseCloudMusicApi, 'song_url_v1', async () => { calls++; return riskControlResponse(); });
+  const delays = [];
+
+  const out = await probeNeteasePlayback(P, {
+    delay: async (ms) => { delays.push(ms); },
+    retryDelayMs: DEFAULT_RETRY_DELAY_MS,
+  });
+
+  assert.equal(out, 'unknown');
+  assert.equal(calls, 2, 'inconclusive 必须先重试一次再下结论');
+  assert.deepEqual(delays, [DEFAULT_RETRY_DELAY_MS]);
+  assert.equal(getProbeState().playback.status, 'unknown');
+  assert.equal(getProbeState().playback.detail, 'code:-460');
+});
+
+test('-460 只在首次出现：重试成功 → true（不误判失效）', async () => {
+  let calls = 0;
+  stub(NeteaseCloudMusicApi, 'song_url_v1', async () => (++calls === 1 ? riskControlResponse() : playableBody()));
+
+  assert.equal(await probeNeteasePlayback(P, { delay: async () => {}, retryDelayMs: 0 }), true);
+  assert.equal(calls, 2);
+  assert.equal(getProbeState().playback.status, 'ok');
+});
+
+test('checkCookies：-460 时沿用上一状态，不改 neteasePrimary / 不切槽位', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', async () => loginOk());
+  stub(NeteaseCloudMusicApi, 'song_url_v1', async () => riskControlResponse());
+  cookie._setSharedForTest({ primary: P, active: 'primary' });
+  cookie.setSlotGauges(true, true, false);          // 事故现场：/cookie-status 显示主备都正常
+
+  const out = await cookie.checkCookies({ probeRetryDelayMs: 0 });
+
+  assert.equal(out.inconclusive, true);
+  assert.equal(out.primaryOk, true, 'unknown 沿用上一次已知状态');
+  assert.equal(cookie.cookieStatus.neteasePrimary, true, '-460 绝不能把主槽改写成失效');
+  assert.equal(cookie.cookieStatus.netease, true);
+  assert.equal(cookie.getNeteaseActive(), 'primary', '不切槽位');
+});
+
+test('checkCookies：明确不可播（30s 试听）→ false，仍判不健康', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', async () => loginOk());
+  stub(NeteaseCloudMusicApi, 'song_url_v1', async () => trialBody());
+  cookie._setSharedForTest({ primary: P, active: 'primary' });
+  cookie.setSlotGauges(true, true, false);
+
+  const out = await cookie.checkCookies({ probeRetryDelayMs: 0 });
+
+  assert.equal(out.inconclusive, false);
+  assert.equal(out.primaryOk, false);
+  assert.equal(cookie.cookieStatus.neteasePrimary, false, '真掉 VIP 必须能报出来');
+});
+
+test('checkCookies：正常可播 → true，gauge 保持健康', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', async () => loginOk());
+  stub(NeteaseCloudMusicApi, 'song_url_v1', async () => playableBody());
+  cookie._setSharedForTest({ primary: P, active: 'primary' });
+
+  const out = await cookie.checkCookies({ probeRetryDelayMs: 0 });
+
+  assert.equal(out.inconclusive, false);
+  assert.equal(out.primaryOk, true);
+  assert.equal(cookie.cookieStatus.neteasePrimary, true);
+});
+
+test('rotateNeteaseActive：当前槽 unknown 时保持槽位不切换', async () => {
+  stub(NeteaseCloudMusicApi, 'cloudsearch', async () => loginOk());
+  stub(NeteaseCloudMusicApi, 'song_url_v1', async () => riskControlResponse());
+  cookie._setSharedForTest({ primary: P, backup: B, active: 'primary' });
+
+  const out = await cookie.rotateNeteaseActive({ probeRetryDelayMs: 0 });
+
+  assert.equal(out.switched, false);
+  assert.equal(out.active, 'primary');
+  assert.equal(out.reason, 'unknown');
+  assert.equal(cookie.getNeteaseActive(), 'primary');
 });
 
 // ---------- 强制能力快切选槽 ----------
@@ -337,18 +460,21 @@ test('登录探针：上游永不返回 → 硬超时返回 false 并标记 fail
   assert.equal(isTimeoutError(new Error('x')), false);
 });
 
-test('播放能力探针：上游永不返回 → 硬超时标记 failed(timeout)，组合探针判不健康', async () => {
+test('播放能力探针：上游永不返回 → 硬超时归入 unknown（结论不可用，不判 Cookie 失效）', async () => {
   stub(NeteaseCloudMusicApi, 'cloudsearch', async () => loginOk());
   stub(NeteaseCloudMusicApi, 'song_url_v1', () => new Promise(() => {}));
 
   const started = Date.now();
-  const ok = await cookie.probeNeteaseCookie(P, { timeoutMs: 60 });
+  const ok = await cookie.probeNeteaseCookie(P, { timeoutMs: 60, retryDelayMs: 0 });
   const elapsed = Date.now() - started;
 
-  assert.equal(ok, false);
-  assert.ok(elapsed < 1000, `组合探针应在硬超时后返回，实际 ${elapsed}ms`);
+  // 2026-11-06 语义变更（原断言为 false）：超时是"上游没回答"，不是"Cookie 没有播放权限"，
+  // 故返回 'unknown'，由巡检层沿用上一状态；否则上游一挂就会误报 VIP 掉档。
+  assert.equal(ok, 'unknown');
+  assert.ok(elapsed < 2000, `组合探针应在硬超时+一次重试后返回，实际 ${elapsed}ms`);
   assert.equal(getProbeState().login.status, 'ok');
-  assert.equal(getProbeState().playback.status, 'failed(timeout)');
+  assert.equal(getProbeState().playback.status, 'unknown');
+  assert.equal(getProbeState().playback.detail, 'timeout');
 });
 
 test('探针超时后上游迟到 reject 不产生 unhandledRejection', async () => {

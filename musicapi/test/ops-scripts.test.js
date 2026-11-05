@@ -11,6 +11,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
@@ -101,5 +102,169 @@ describe('health-alert.sh：告警链路不能静默失效', () => {
 
   it('日志有轮转（否则每分钟一行会自己把磁盘告警推高）', () => {
     assert.match(src, /rotate_log/);
+  });
+});
+
+describe('health-alert.sh：告警去抖（2026-11-06 刷屏修复）', () => {
+  const src = code(ALERT);
+
+  it('状态文件新格式 down <start> <pushed> [last_push] 与旧格式 down <ts> 都能解析', () => {
+    assert.match(src, /read -r LAST_STATE LAST_TS LAST_PUSHED LAST_PUSH_TS < "\$STATE_FILE"/,
+      '必须一次读入 4 个字段（缺省留空）才能兼容旧格式');
+    assert.match(src, /printf 'down %s %s %s\\n' "\$DOWN_START" "\$PUSHED" "\$LAST_PUSH"/,
+      '写盘必须是 down <起点> <是否推送过> <上次推送时刻>');
+    assert.match(src, /LEGACY_STATE/, '旧格式 down <ts> 必须有兼容分支（视为已推送、起点未知）');
+  });
+
+  it('连续确认：首轮异常只记日志，连续 STREAK_CONFIRM 轮才推 🔴', () => {
+    assert.match(src, /STREAK_CONFIRM=2/);
+    assert.match(src, /STREAK=\$\(\( STREAK \+ 1 \)\)/);
+    assert.match(src, /"\$STREAK" -ge "\$STREAK_CONFIRM"/, '推送必须以连续轮数为门槛');
+    assert.match(src, /STREAK_FILE/, '连续轮数必须落盘（cron 每分钟一轮，不落盘就永远是 1）');
+  });
+
+  it('恢复推送有 min-down 门槛，且必须「确实推送过异常」', () => {
+    assert.match(src, /RECOVERY_MIN_DOWN_SEC=300/);
+    assert.match(src, /NOW - LAST_TS \)\) -lt \$RECOVERY_MIN_DOWN_SEC/, '短抖动恢复不得推送');
+    assert.match(src, /"\$LAST_PUSHED" != "1"/, '从未推过异常的抖动恢复不得推送');
+  });
+
+  it('REPEAT_SEC 重复提醒仍在（且锚点是上次推送时刻，不是每轮刷新）', () => {
+    assert.match(src, /REPEAT_SEC=1800/);
+    assert.match(src, /NOW - ANCHOR \)\) -ge \$REPEAT_SEC/);
+    assert.match(src, /ANCHOR=\$LAST_PUSH/, '重复提醒必须以上次推送时刻为锚点');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 行为级去抖验证：把 scripts/health-alert.sh 复制到临时目录，改写三处**沙箱**路径
+// （状态/日志/key）+ 把 send() 换成写文件 + 把第 1~5 节检测替换成"喂 PROBLEMS"，
+// 然后真跑一遍脚本断言推送次数。这样测的是**生产脚本本身**的去抖逻辑，
+// 而不是测试里另写一份逻辑（静态断言只能证明"代码里出现过这个词"）。
+// ---------------------------------------------------------------------------
+describe('health-alert.sh：去抖行为（沙箱真跑，无需 root/docker/真 Server酱）', () => {
+  const DATE_SHIM = '#!/bin/sh\nif [ -n "${SIM_NOW:-}" ]; then\n  case "$1" in\n    +%s) echo "$SIM_NOW"; exit 0;;\n  esac\nfi\nexec /bin/date "$@"\n';
+
+  /** 造一个沙箱副本；结构锚点变了就明确报错，不许静默跳过。 */
+  function buildSandbox() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibemusic-alert-sim-'));
+    for (const sub of ['etc', 'state', 'log', 'shim']) fs.mkdirSync(path.join(dir, sub));
+    let out = read('scripts/health-alert.sh');
+    const paths = [
+      ['/etc/vibeMusic/serverchan.key', 'etc/serverchan.key'],
+      ['/var/run/vibemusic-alert.state', 'state/alert.state'],
+      ['/var/run/vibemusic-alert-note.state', 'state/note.state'],
+      ['/var/log/vibemusic-alert.log', 'log/alert.log'],
+      ['/var/run/vibemusic-alert-restarts.state', 'state/restarts.state'],
+      ['/var/run/vibemusic-alert.lock', 'state/alert.lock'],
+    ];
+    for (const [from, to] of paths) out = out.split(from).join(path.join(dir, to));
+
+    const lines = out.split('\n');
+    const sendAt = lines.findIndex((l) => l.includes('curl -s --max-time 15 -X POST'));
+    const sendEnd = lines.findIndex((l, i) => i >= sendAt && l.includes('推送失败'));
+    assert.ok(sendAt > 0 && sendEnd > sendAt, 'send() 结构变了：找不到 curl 推送块，请同步更新本测试');
+    lines.splice(sendAt, sendEnd - sendAt + 1,
+      '    printf \'%s\\n\' "${title}" >> "${SIM_PUSH_LOG:?}"',
+      '    log "推送成功(sim): ${title}"; return 0');
+
+    out = lines.join('\n');
+    const detectAt = out.indexOf('PROBLEMS=()');
+    const stateAt = out.indexOf('NOW=$(date +%s); LAST_STATE=');
+    assert.ok(detectAt > 0 && stateAt > detectAt,
+      '巡检主体结构变了：找不到 PROBLEMS/NOW 锚点，请同步更新本测试');
+    const stub = [
+      'PROBLEMS=()',
+      'RESTARTS_NEW=()',
+      'if [ -n "${SIM_PROBLEMS:-}" ]; then PROBLEMS+=("$SIM_PROBLEMS"); fi',
+      'SW_TOTAL=4194304; SW_USED=0; SW_PCT=0; DISK=42',
+      '',
+    ].join('\n');
+    out = out.slice(0, detectAt) + stub + out.slice(stateAt);
+
+    const script = path.join(dir, 'health-alert.sh');
+    fs.writeFileSync(script, out);
+    fs.writeFileSync(path.join(dir, 'shim', 'date'), DATE_SHIM, { mode: 0o755 });
+    fs.writeFileSync(path.join(dir, 'etc', 'serverchan.key'), 'sim-key\n');
+    const pushes = path.join(dir, 'pushes.log');
+    fs.writeFileSync(pushes, '');
+    return { dir, script, pushes };
+  }
+
+  function runRound(box, now, problem) {
+    const r = spawnSync('bash', [box.script], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${path.join(box.dir, 'shim')}:${process.env.PATH}`,
+        SIM_NOW: String(now),
+        SIM_PROBLEMS: problem,
+        SIM_PUSH_LOG: box.pushes,
+      },
+    });
+    assert.equal(r.status, 0, `health-alert.sh 沙箱执行失败: ${r.stderr}`);
+    const pushed = fs.readFileSync(box.pushes, 'utf8').split('\n').filter(Boolean);
+    const state = fs.readFileSync(path.join(box.dir, 'state', 'alert.state'), 'utf8').trim();
+    return { pushes: pushed.length, last: pushed[pushed.length - 1] || '', state };
+  }
+
+  it('连续 2 轮才推 🔴；短抖动恢复不推 🟢；持续 ≥5 分钟恢复才推 🟢', () => {
+    const box = buildSandbox();
+    try {
+      const DOWN = '网易云 Cookie 主备全失效（VIP 掉档）';
+
+      const r1 = runRound(box, 1_000_000, DOWN);
+      assert.equal(r1.pushes, 0, '首轮异常只记日志，不能推送');
+      assert.equal(r1.state, 'down 1000000 0 0');
+
+      const r2 = runRound(box, 1_000_060, DOWN);
+      assert.equal(r2.pushes, 1, '连续第 2 轮必须推 🔴');
+      assert.match(r2.last, /🔴/);
+
+      // 2 分钟后恢复：异常只持续 ~2 分钟 < 5 分钟 → 只允许 1 条（那条 🔴）
+      const r3 = runRound(box, 1_000_120, '');
+      assert.equal(r3.pushes, 1, '短抖动恢复不得推 🟢');
+      assert.equal(r3.state, 'ok 1000120');
+
+      // 新故障持续 11 分钟：第 2 轮推 🔴，恢复时必须补 🟢
+      assert.equal(runRound(box, 1_000_200, 'backend 健康检查失败').pushes, 1);
+      assert.equal(runRound(box, 1_000_260, 'backend 健康检查失败').pushes, 2);
+      const r6 = runRound(box, 1_000_900, '');
+      assert.equal(r6.pushes, 3, '异常持续 ≥5 分钟，恢复必须推送');
+      assert.match(r6.last, /🟢/);
+    } finally {
+      fs.rmSync(box.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('旧格式 down <ts> 兼容：视为已推送、起点未知 → 恢复不推送，也不误判成新故障', () => {
+    const box = buildSandbox();
+    try {
+      fs.writeFileSync(path.join(box.dir, 'state', 'alert.state'), 'down 999000\n');
+
+      const r1 = runRound(box, 1_000_000, '');
+      assert.equal(r1.pushes, 0, '旧格式起点未知，不得立刻推恢复');
+      assert.equal(r1.state, 'ok 1000000');
+
+      fs.writeFileSync(path.join(box.dir, 'state', 'alert.state'), 'down 999000\n');
+      const r2 = runRound(box, 1_000_000, 'backend 健康检查失败');
+      assert.equal(r2.pushes, 0, '旧格式已视为推送过，不重复推 🔴');
+      assert.match(r2.state, /^down 1000000 1 \d+$/, '起点不可信时从本轮重新计时并保留 pushed=1');
+    } finally {
+      fs.rmSync(box.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('REPEAT_SEC：持续故障每 30 分钟才提醒一次（不会每分钟重推）', () => {
+    const box = buildSandbox();
+    try {
+      fs.writeFileSync(path.join(box.dir, 'state', 'alert.state'), 'down 1000000 1 1000000\n');
+      fs.writeFileSync(path.join(box.dir, 'state', 'vibemusic-alert-streak'), '5\n');
+
+      assert.equal(runRound(box, 1_001_700, 'backend 健康检查失败').pushes, 0, '未到 30 分钟不得重推');
+      assert.equal(runRound(box, 1_001_860, 'backend 健康检查失败').pushes, 1, '满 30 分钟提醒一次');
+    } finally {
+      fs.rmSync(box.dir, { recursive: true, force: true });
+    }
   });
 });
