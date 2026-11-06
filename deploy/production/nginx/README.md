@@ -23,6 +23,8 @@
 | 本目录文件 | 云上路径 |
 |---|---|
 | `vibemusic-site.conf` | `/etc/nginx/sites-enabled/vibemusic`（`sites-available/` 同名副本，两边要一起改） |
+| `testweb-site.conf` | `/etc/nginx/sites-enabled/testweb`（博客站，sites-available/ 同名副本） |
+| `security-headers.conf` | `/etc/nginx/snippets/security-headers.conf`（给「自己 add_header」的 location `include`） |
 | `security.conf` | `/etc/nginx/conf.d/security.conf` |
 | `cloudflare-realip.conf` | `/etc/nginx/conf.d/cloudflare-realip.conf` |
 
@@ -52,3 +54,13 @@ ssh root@101.132.167.178 'nginx -t && systemctl reload nginx'
 ```
 
 `nginx -t` 不通过就**停手**，绝不 reload。
+
+## 博客站（testweb）为什么单独一个 include 片段
+
+nginx 的 `add_header` 是**整层覆盖**：某层只要出现任意一条 `add_header`，
+就不再继承上层（http/server）的全部 `add_header`。博客站每个 location 都写了
+`add_header Cache-Control`，导致 `conf.d/security.conf` 的 5 条安全头被静默丢弃
+（2026-11-06 实测：`https://cyk666.top/` 无 HSTS / XFO / XCTO / Referrer-Policy，
+而 `https://vibe.cyk666.top/` 齐全）。因此 `security-headers.conf` 必须在
+每个自带 `add_header` 的 location 里 `include`，不能只写在 server 级。
+改动验证口径：`curl -sI https://cyk666.top/ | grep -i strict-transport` 必须有输出。

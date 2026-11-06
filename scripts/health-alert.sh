@@ -224,6 +224,15 @@ else
     fi
 fi
 
+# 6) 网站入口：cloudflared 隧道进程（2026-11-06 补）
+#    全站唯一入口就是这条隧道（DNS 记录指向 <tunnel-id>.cfargotunnel.com，源站 80/443 都不对公网开放）。
+#    cloudflared 挂掉 = cyk666.top / vibe.cyk666.top 全部 502，但本脚本此前只盯容器，完全看不见这个单点。
+#    systemd 配了 Restart=on-failure + RestartSec=5s，仍可能反复崩溃或被手动 stop；
+#    沿用「连续 2 轮确认才推送」的去抖口径，避免一次重启刷两条告警。
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl is-active --quiet cloudflared 2>/dev/null || PROBLEMS+=("cloudflared 未运行（网站入口全断）")
+fi
+
 NOW=$(date +%s); LAST_STATE="ok"; LAST_TS=0; LAST_PUSHED=0; LAST_PUSH_TS=0; LEGACY_STATE=0
 [ -f "$STATE_FILE" ] && read -r LAST_STATE LAST_TS LAST_PUSHED LAST_PUSH_TS < "$STATE_FILE" || true
 case "$LAST_STATE" in down|ok) ;; *) LAST_STATE="ok" ;; esac
