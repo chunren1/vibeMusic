@@ -1,17 +1,23 @@
 # PROJECT KNOWLEDGE BASE — vibeMusic-backend
 
-**Generated:** 2026-08-13
-**Scope:** Spring Boot 4 后端（8080）。父级全局约定见根 `D:\vibeMusic\AGENTS.md`，此处只列本模块专属事实。
+**Generated:** 2026-08-13（2026-11-06 核对更新）
+**Scope:** Spring Boot 4 后端（8080）。父级全局约定见仓库根 `AGENTS.md`，此处只列本模块专属事实。
 
 ## OVERVIEW
-Spring Boot 4.0.6 + Java 17 + MyBatis-Plus 3.5.9 + jjwt 0.12.6 + MinIO 8.5.17 + springdoc 2.8.5 + Flyway。
+Spring Boot 4.1.2（编译目标 Java 17，运行时 JDK 25） + MyBatis-Plus 3.5.18 + jjwt 0.12.6 + MinIO 8.5.17 + springdoc 2.8.5 + Flyway。
 包结构 `com.vibemusic.{controller,service,entity,mapper,config,dto,common,security}`。
 
-## PACKAGE COUNTS（实测，CLAUDE.md 已过时）
-- controller: 12（Auth, Upload, Song, Playlist, PlayHistory, Favorite, Recommend, Assistant, Stream, Download, Proxy, CacheMonitor）
-- service: 18（User, Song, SongSearch, SongPlay, SongCache, NeteaseApi, JsonCache, Recommend, Playlist, PlayHistory, PlayHistoryCleanup, Favorite, Storage, Download, RateLimit, IdempotentGuard, ChatMemory, AiTool）
-- entity: 7（User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory, BaseEntity 抽象）
-- mapper: 6 · config: 12（含 AudioQualityTier 枚举）· dto: 3（SongDTO, SearchResult, RecommendResult）· common: 6 · security: 2
+## PACKAGE COUNTS（2026-11-06 实测；口径=顶层 .java，common 含子包。数量会随迭代漂移，引用前先 `ls` 复核）
+- controller: 19（Auth, Upload, Song, Playlist, PlayHistory, Favorite, Recommend, Assistant, AssistantClient, AssistantPayloads, AssistantRequestIdentity, AssistantStreamOrchestrator, Stream, Download, Proxy, CacheMonitor, Cookie, ClientError, SearchHistory）
+- service: 43，按职责分组：
+  - 搜索：SongSearch, SongCache, SongRanking, SongMatcher, SongMerger, SongDtoParser, PlatformSearchAdapter, SearchQueryHints, SearchHistory, JsonCache
+  - 播放：SongPlay, PlayUrlCache, AudioProxy, NeteaseApi, NeteaseDegradeChain, NeteaseUrlPayloads, NeteaseUrlProbe, PlatformUrlFetcher, QqCircuitBreaker, CrossPlatformFailover
+  - 推荐：Recommend, RecommendRules, RecommendPersonalizer, RecommendGuestBuilder, RecommendCacheStore
+  - AI：AiTool, AiToolCallGuard, AiToolJson, AiCallBudget, AiPlaylistTools, ChatMemory
+  - 鉴权与防滥用：User, RateLimit, LoginAttemptGuard, RegistrationGuard, IdempotentGuard
+  - 业务：Song, Playlist, PlayHistory, PlayHistoryCleanup, Favorite, Storage, Download
+- entity: 8（User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory, UserSearchHistory, BaseEntity 抽象）
+- mapper: 7 · config: 13（含 AudioQualityTier 枚举、RateLimitProperties）· dto: 18（14 个类型化请求 record + SongDTO/SearchResult/RecommendResult/ClientErrorReport）· common: 19（顶层 Result + exception/concurrent/filter/resilience/utils 五个子包）· security: 3（CustomUserDetails, JwtAuthenticationFilter, TokenBlacklistService）
 
 ## CRITICAL COUPLINGS（改坏即崩）
 1. `SongSearchService.search()` 返回 `SearchResult`，恰好 3 个外部调用方：SongController、AiToolService（被 AssistantController 用）、RecommendService；另有 getRandomSongs() 内部调用。改 SearchResult 全链路受影响。
