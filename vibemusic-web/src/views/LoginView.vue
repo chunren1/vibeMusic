@@ -11,9 +11,24 @@ const route = useRoute()
 const username = ref('')
 const password = ref('')
 const nickname = ref('')
+const inviteCode = ref('')
+const inviteRequired = ref(false)
 const errorMsg = ref('')
 const isRegister = ref(false)
 const loading = ref(false)
+
+/** 与后端 RegistrationGuard 的白名单保持一致（字母/数字/下划线，3-30 位） */
+const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/
+
+/** 服务端是否需要邀请码；拿不到配置就按「不需要」处理（真要求时提交会返回 403 文案） */
+async function loadRegisterConfig() {
+  try {
+    const res = await request.get('/auth/register-config')
+    inviteRequired.value = res?.data?.inviteCodeRequired === true
+  } catch {
+    inviteRequired.value = false
+  }
+}
 
 async function handleLogin() {
   errorMsg.value = ''
@@ -55,16 +70,27 @@ async function handleRegister() {
     errorMsg.value = '请输入用户名和密码'
     return
   }
-  if (password.value.length < 4) {
-    errorMsg.value = '密码至少4位'
+  if (!USERNAME_RE.test(username.value.trim())) {
+    errorMsg.value = '用户名只能包含字母、数字、下划线，3-30 位'
+    return
+  }
+  // 原来是 length < 4，与后端（≥8，AuthRequest.RegisterRequest 的 @Size）不一致，
+  // 前端放过去也会被后端打回，纯属让用户白填一次。
+  if (password.value.length < 8) {
+    errorMsg.value = '密码至少8位'
+    return
+  }
+  if (inviteRequired.value && !inviteCode.value.trim()) {
+    errorMsg.value = '请输入邀请码'
     return
   }
   loading.value = true
   try {
     const res = await request.post('/auth/register', {
-      username: username.value,
+      username: username.value.trim(),
       password: password.value,
       nickname: nickname.value || username.value,
+      inviteCode: inviteCode.value.trim() || undefined,
     })
     if (res.code === 200) {
       authStore.login(res.data.token, {
@@ -90,6 +116,7 @@ async function handleRegister() {
 function toggleMode() {
   isRegister.value = !isRegister.value
   errorMsg.value = ''
+  if (isRegister.value) loadRegisterConfig()
 }
 </script>
 
@@ -108,6 +135,13 @@ function toggleMode() {
           v-if="isRegister"
           v-model="nickname"
           placeholder="昵称（可选）"
+          class="input"
+          autocomplete="off"
+        />
+        <input
+          v-if="isRegister && inviteRequired"
+          v-model="inviteCode"
+          placeholder="邀请码"
           class="input"
           autocomplete="off"
         />
