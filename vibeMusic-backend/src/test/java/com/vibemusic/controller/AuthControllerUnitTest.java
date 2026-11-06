@@ -9,6 +9,8 @@ import com.vibemusic.dto.UpdateProfileRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.security.TokenBlacklistService;
+import com.vibemusic.service.RateLimitService;
+import com.vibemusic.service.RegistrationGuard;
 import com.vibemusic.service.UserService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
@@ -57,6 +59,8 @@ class AuthControllerUnitTest {
     private StringRedisTemplate redis;
     private ValueOperations<String, String> valueOps;
     private TokenBlacklistService tokenBlacklistService;
+    private RateLimitService rateLimitService;
+    private RegistrationGuard registrationGuard;
     private AuthController controller;
 
     @BeforeEach
@@ -70,7 +74,12 @@ class AuthControllerUnitTest {
         valueOps = ops;
         when(redis.opsForValue()).thenReturn(ops);
         tokenBlacklistService = new TokenBlacklistService(redis, jwtUtils, "fail-open");
-        controller = new AuthController(authenticationManager, userService, jwtUtils, tokenBlacklistService);
+        rateLimitService = mock(RateLimitService.class);
+        // 注册闸门默认放开（不带邀请码、配额充足），个别用例自行改成拒绝
+        when(rateLimitService.tryAcquire(anyString(), anyInt(), any())).thenReturn(true);
+        registrationGuard = new RegistrationGuard(rateLimitService, "", 3);
+        controller = new AuthController(authenticationManager, userService, jwtUtils, tokenBlacklistService,
+                registrationGuard);
         SecurityContextHolder.clearContext();
         when(jwtUtils.generateAccessToken(anyString())).thenReturn("access-token");
         when(jwtUtils.generateRefreshToken(anyString())).thenReturn("refresh-token");
@@ -117,7 +126,7 @@ class AuthControllerUnitTest {
             MockHttpServletResponse resp = new MockHttpServletResponse();
 
             Result<Map<String, Object>> result = controller.register(
-                    new AuthRequest.RegisterRequest("newbie", "pass1234", "小新"),
+                    new AuthRequest.RegisterRequest("newbie", "pass1234", "小新", null),
                     new MockHttpServletRequest(), resp);
 
             assertEquals(200, result.getCode());
@@ -137,7 +146,7 @@ class AuthControllerUnitTest {
         void shouldFallbackNicknameToUsername() {
             stubSuccessfulAuthenticate(user());
 
-            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null),
+            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null, null),
                     new MockHttpServletRequest(), new MockHttpServletResponse());
 
             verify(userService).register("newbie", "pass1234", "newbie");
@@ -151,7 +160,7 @@ class AuthControllerUnitTest {
             req.addHeader("X-Forwarded-Proto", "https");
             MockHttpServletResponse resp = new MockHttpServletResponse();
 
-            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null), req, resp);
+            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null, null), req, resp);
 
             assertTrue(setCookies(resp).contains("; Secure"));
         }
@@ -164,7 +173,7 @@ class AuthControllerUnitTest {
             req.setSecure(true);
             MockHttpServletResponse resp = new MockHttpServletResponse();
 
-            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null), req, resp);
+            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null, null), req, resp);
 
             assertTrue(setCookies(resp).contains("; Secure"));
         }
@@ -173,7 +182,7 @@ class AuthControllerUnitTest {
         @DisplayName("username 为 null → 手工校验拦截，不落库")
         void shouldRejectNullUsername() {
             Result<Map<String, Object>> result = controller.register(
-                    new AuthRequest.RegisterRequest(null, "pass1234", null),
+                    new AuthRequest.RegisterRequest(null, "pass1234", null, null),
                     new MockHttpServletRequest(), new MockHttpServletResponse());
 
             assertEquals(400, result.getCode());
@@ -185,7 +194,7 @@ class AuthControllerUnitTest {
         @DisplayName("username 全空白 → 手工校验拦截")
         void shouldRejectBlankUsername() {
             Result<Map<String, Object>> result = controller.register(
-                    new AuthRequest.RegisterRequest("   ", "pass1234", null),
+                    new AuthRequest.RegisterRequest("   ", "pass1234", null, null),
                     new MockHttpServletRequest(), new MockHttpServletResponse());
 
             assertEquals(400, result.getCode());
@@ -196,7 +205,7 @@ class AuthControllerUnitTest {
         @DisplayName("password 为 null → 返回“密码至少8位”")
         void shouldRejectNullPassword() {
             Result<Map<String, Object>> result = controller.register(
-                    new AuthRequest.RegisterRequest("newbie", null, null),
+                    new AuthRequest.RegisterRequest("newbie", null, null, null),
                     new MockHttpServletRequest(), new MockHttpServletResponse());
 
             assertEquals(400, result.getCode());
@@ -208,11 +217,85 @@ class AuthControllerUnitTest {
         @DisplayName("password 短于 8 位 → 手工校验拦截")
         void shouldRejectShortPassword() {
             Result<Map<String, Object>> result = controller.register(
-                    new AuthRequest.RegisterRequest("newbie", "1234567", null),
+                    new AuthRequest.RegisterRequest("newbie", "1234567", null, null),
                     new MockHttpServletRequest(), new MockHttpServletResponse());
 
             assertEquals(400, result.getCode());
             assertEquals("密码至少8位", result.getMessage());
+        }
+
+        @Test
+        @DisplayName("用户名含中文/空格 → 400（白名单只放字母数字下划线）")
+        void shouldRejectNonWhitelistedUsername() {
+            BusinessException ex = assertThrows(BusinessException.class, () -> controller.register(
+                    new AuthRequest.RegisterRequest("新用户", "pass1234", null, null),
+                    new MockHttpServletRequest(), new MockHttpServletResponse()));
+
+            assertEquals(400, ex.getCode());
+            assertEquals("用户名只能包含字母、数字、下划线，3-30 位", ex.getMessage());
+            verifyNoInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("邀请码不匹配 → 403，且不消耗配额（填错不该烧掉当天次数）")
+        void shouldRejectWrongInviteCode() {
+            RegistrationGuard strictGuard = new RegistrationGuard(rateLimitService, "open-sesame", 3);
+            AuthController strictController = new AuthController(authenticationManager, userService, jwtUtils,
+                    tokenBlacklistService, strictGuard);
+
+            BusinessException ex = assertThrows(BusinessException.class, () -> strictController.register(
+                    new AuthRequest.RegisterRequest("newbie", "pass1234", null, "wrong"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse()));
+
+            assertEquals(403, ex.getCode());
+            assertEquals("邀请码不正确", ex.getMessage());
+            verifyNoInteractions(userService);
+            verify(rateLimitService, never()).tryAcquire(anyString(), anyInt(), any());
+        }
+
+        @Test
+        @DisplayName("邀请码正确 → 放行注册")
+        void shouldAcceptCorrectInviteCode() {
+            stubSuccessfulAuthenticate(user());
+            RegistrationGuard strictGuard = new RegistrationGuard(rateLimitService, "open-sesame", 3);
+            AuthController strictController = new AuthController(authenticationManager, userService, jwtUtils,
+                    tokenBlacklistService, strictGuard);
+
+            Result<Map<String, Object>> result = strictController.register(
+                    new AuthRequest.RegisterRequest("newbie", "pass1234", null, "open-sesame"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse());
+
+            assertEquals(200, result.getCode());
+            verify(userService).register("newbie", "pass1234", "newbie");
+        }
+
+        @Test
+        @DisplayName("该网络当日配额用尽 → 429，不落库")
+        void shouldRejectWhenDailyQuotaExhausted() {
+            when(rateLimitService.tryAcquire(anyString(), anyInt(), any())).thenReturn(false);
+            when(rateLimitService.remainingSeconds(anyString(), anyLong())).thenReturn(7200L);
+
+            BusinessException ex = assertThrows(BusinessException.class, () -> controller.register(
+                    new AuthRequest.RegisterRequest("newbie", "pass1234", null, null),
+                    new MockHttpServletRequest(), new MockHttpServletResponse()));
+
+            assertEquals(429, ex.getCode());
+            assertTrue(ex.getMessage().contains("今日注册次数已达上限"), ex.getMessage());
+            verifyNoInteractions(userService);
+        }
+
+        @Test
+        @DisplayName("配额键取 X-Real-IP（nginx 还原的真实访客 IP），不是 remoteAddr")
+        void shouldKeyQuotaByRealIp() {
+            stubSuccessfulAuthenticate(user());
+            MockHttpServletRequest req = new MockHttpServletRequest();
+            req.addHeader("X-Real-IP", "203.0.113.7");
+            req.setRemoteAddr("127.0.0.1");
+
+            controller.register(new AuthRequest.RegisterRequest("newbie", "pass1234", null, null),
+                    req, new MockHttpServletResponse());
+
+            verify(rateLimitService).tryAcquire(eq("register:ip:203.0.113.7"), eq(3), any());
         }
     }
 

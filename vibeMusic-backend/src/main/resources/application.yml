@@ -165,6 +165,16 @@ rate-limit:
   # 音频流含拖拽产生的 Range 请求，60 次/分钟对单曲循环也够用
   stream-per-min: ${RATE_LIMIT_STREAM_PER_MIN:60}
 
+# 注册防滥用（2026-11-06，见 RegistrationGuard）
+# 为什么需要：限流按 user:<id> 计数，批量注册 = 无限额度；搜索一次扇出 5 个上游平台。
+auth:
+  register:
+    # 留空 = 不校验邀请码（存量客户端仍可注册）。启用会要求客户端带邀请码字段，
+    # 因此等 Web/App 带输入框的版本铺开后再配这个值（改 env 重启即可，无需重新构建）。
+    invite-code: ${REGISTER_INVITE_CODE:}
+    # 同一出口 IP 每天最多注册几次；IPv6 按 /64 聚合。0 = 关闭该项。
+    daily-limit-per-ip: ${REGISTER_DAILY_LIMIT_PER_IP:3}
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

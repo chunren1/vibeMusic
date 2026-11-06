@@ -8,6 +8,7 @@ import com.vibemusic.dto.UpdateProfileRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.security.TokenBlacklistService;
+import com.vibemusic.service.RegistrationGuard;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,6 +38,7 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtils jwtUtils;
     private final TokenBlacklistService tokenBlacklistService;
+    private final RegistrationGuard registrationGuard;
 
     @PostMapping("/register")
     @Operation(summary = "用户注册")
@@ -48,9 +50,16 @@ public class AuthController {
         String nickname = req.nickname() != null ? req.nickname() : username;
 
         if (username == null || username.trim().isEmpty()) return Result.error("用户名不能为空");
+        username = username.trim();
         if (password == null || password.length() < 8) return Result.error("密码至少8位");
 
-        userService.register(username.trim(), password, nickname);
+        // 注册防滥用（2026-11-06）：形态 → 邀请码 → 每网络每日配额。
+        // 顺序不能反：填错邀请码不该烧掉当天的配额；邀请码爆破由 nginx limit_req zone=auth 兜底。
+        registrationGuard.validateUsername(username);
+        registrationGuard.validateInviteCode(req.inviteCode());
+        registrationGuard.consumeQuota(request);
+
+        userService.register(username, password, nickname);
 
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
@@ -105,6 +114,20 @@ public class AuthController {
     @Operation(summary = "健康检查（公开端点，用于诊断网络连通性）")
     public Result<String> health(HttpServletRequest request) {
         return Result.ok("OK - " + request.getRemoteAddr() + " - " + java.time.Instant.now());
+    }
+
+    /**
+     * 注册配置（公开）：客户端据此决定是否显示「邀请码」输入框。
+     *
+     * <p>为什么不直接把邀请码要求写死在客户端：服务端可能还没启用（{@code REGISTER_INVITE_CODE} 为空），
+     * 此时显示一个必填邀请码框会把新用户挡在门外。启用/停用是运营动作，客户端应该跟着服务端走。</p>
+     */
+    @GetMapping("/register-config")
+    @Operation(summary = "注册配置（是否需要邀请码）")
+    public Result<Map<String, Object>> registerConfig() {
+        Map<String, Object> data = new HashMap<>();
+        data.put("inviteCodeRequired", registrationGuard.isInviteCodeRequired());
+        return Result.ok(data);
     }
 
     @GetMapping("/me")

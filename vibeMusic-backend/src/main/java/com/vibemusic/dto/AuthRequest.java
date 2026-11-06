@@ -20,7 +20,13 @@ public final class AuthRequest {
             @Size(min = 8, max = 100, message = "密码至少8位")
             String password,
             @Size(max = 30, message = "昵称长度不能超过30个字符")
-            String nickname) {
+            String nickname,
+            /**
+             * 邀请码（2026-11-06）：仅在服务端配置 REGISTER_INVITE_CODE 时才校验，
+             * 未配置时此字段被忽略——这样后端可以先上线，等带输入框的客户端铺开再启用。
+             */
+            @Size(max = 64, message = "邀请码格式不正确")
+            String inviteCode) {
     }
 
     public record LoginRequest(
