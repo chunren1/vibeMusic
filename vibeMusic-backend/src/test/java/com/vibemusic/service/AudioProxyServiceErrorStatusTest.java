@@ -84,10 +84,10 @@ class AudioProxyServiceErrorStatusTest {
     }
 
     @Test
-    @DisplayName("上游 416 → 客户端拿到 416 + Content-Range，绝不回 200、不转发 HTML 错误页")
-    void upstream416IsPassedThrough() throws IOException {
+    @DisplayName("上游连续两次 416 → 首次换地址重试，第二次原样透传；不回 200、不转发 HTML")
+    void upstream416IsPassedThroughAfterOneRefresh() throws IOException {
         when(songPlayService.getPlayUrl(anyString(), any(), any(), any())).thenReturn(URL);
-        server.expect(once(), requestTo(URL))
+        server.expect(ExpectedCount.times(2), requestTo(URL))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
                         .header("Content-Range", "bytes */2465167")
@@ -104,16 +104,43 @@ class AudioProxyServiceErrorStatusTest {
         verify(response, never()).setStatus(200);
         verify(response, never()).getOutputStream();
         assertTrue(body.toByteArray().length == 0, "416 分支不应写任何 body");
-        // URL 有效（只是 Range 越界），不应作废/重试
-        verify(songPlayService, times(1)).getPlayUrl(anyString(), any(), any(), any());
-        verify(songPlayService, never()).invalidatePlayUrl(anyString(), any());
+        // 2026-11-06 起：首次 416 先作废地址重取一次（可能是文件换档/替换），
+        // 第二次仍 416 才判定为客户端真越界并原样透传。
+        verify(songPlayService, times(2)).getPlayUrl(anyString(), any(), any(), any());
+        verify(songPlayService, times(1)).invalidatePlayUrl(SRC, "netease");
+    }
+
+    @Test
+    @DisplayName("首次 416 换地址后取到更长文件 → 206 正常返回（自愈成功）")
+    void upstream416Then206Recovers() throws IOException {
+        when(songPlayService.getPlayUrl(anyString(), any(), any(), any())).thenReturn(URL);
+        server.expect(requestTo(URL))
+                .andRespond(withStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                        .header("Content-Range", "bytes */2465167")
+                        .contentType(MediaType.TEXT_HTML)
+                        .body(HTML_416));
+        server.expect(requestTo(URL))
+                .andRespond(withStatus(HttpStatus.PARTIAL_CONTENT)
+                        .header("Content-Range", "bytes 999999999-1000000010/1000000011")
+                        .contentType(MediaType.parseMediaType("audio/mpeg"))
+                        .body(AUDIO));
+
+        proxy();
+
+        server.verify();
+        verify(response).setStatus(206);
+        verify(response).setHeader("Content-Range", "bytes 999999999-1000000010/1000000011");
+        verify(response, never()).setStatus(416);
+        verify(songPlayService, times(1)).invalidatePlayUrl(SRC, "netease");
+        assertTrue(body.toByteArray().length > 0, "自愈成功后应转发音频字节");
     }
 
     @Test
     @DisplayName("上游 416 且没给 Content-Range → 仍回 416，但不写凭空编造的 Content-Range")
     void upstream416WithoutContentRangeOmitsHeader() throws IOException {
         when(songPlayService.getPlayUrl(anyString(), any(), any(), any())).thenReturn(URL);
-        server.expect(once(), requestTo(URL))
+        // 自愈重试一次后仍 416：两条响应都不带 Content-Range（线上网易云 CDN 的实际行为）
+        server.expect(ExpectedCount.times(2), requestTo(URL))
                 .andRespond(withStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
                         .contentType(MediaType.TEXT_HTML)
                         .body(HTML_416));
@@ -124,6 +151,7 @@ class AudioProxyServiceErrorStatusTest {
         verify(response).setStatus(416);
         verify(response, never()).setHeader(eq("Content-Range"), anyString());
         verify(response, never()).getOutputStream();
+        verify(songPlayService, times(1)).invalidatePlayUrl(SRC, "netease");
     }
 
     @Test

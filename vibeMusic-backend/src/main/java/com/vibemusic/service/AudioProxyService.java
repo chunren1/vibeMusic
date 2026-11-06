@@ -113,6 +113,9 @@ public class AudioProxyService {
 
         final int MAX_ATTEMPTS = 5;
         final long deadline = System.currentTimeMillis() + STREAM_TOTAL_BUDGET_MS;
+        // 416 自愈标记（lambda 内需 effectively final，故用单元素数组）：
+        // 首次 416 先换地址重试一次；第二次仍是 416 才原样透传，避免无限重取。
+        final boolean[] refreshedAfter416 = {false};
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
                 String audioUrl = songPlayService.getPlayUrl(sourceId, name, artist, platform);
@@ -143,15 +146,27 @@ public class AudioProxyService {
                 }).exchange((clientReq, clientResp) -> {
                     int cdnStatus = clientResp.getStatusCode().value();
 
-                    // 416 = 请求的 Range 超出资源长度（典型场景：暂停数小时后恢复播放，
-                    // 客户端拿旧 position 继续请求）。URL 本身有效，重试只会重复 416。
-                    // 必须原样把 416 交给客户端：若伪装成 200，Media3 会按「200 + 非零 position」
-                    // 手动 skip，撞上 CDN 的 HTML 错误页立即 EOF →
-                    // ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE，用户看到「播放中断」。
+                    // 416 = 请求的 Range 超出资源长度。两类来源必须分开处理：
+                    // ① 客户端 position 真越界（暂停数小时后恢复）——URL 有效，重取无用；
+                    // ② 同一首歌的文件在两次取链之间变了（码率降档 / VIP 失效 / 文件替换）——
+                    //    客户端按旧长度请求，只有换一个新地址才可能恢复。
+                    // 2026-11-06 线上观测：99 次 416 集中在两首歌，客户端每 2 秒重试一次、
+                    // 持续两分钟不自愈。故首次 416 先作废地址重取一次，仍 416 再原样透传。
+                    // 无论哪种，都不能把 416 伪装成 200：Media3 会按「200 + 非零 position」
+                    // 手动 skip，撞上 CDN 错误页立即 EOF → ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE。
                     if (cdnStatus == 416) {
+                        String upstreamCr = clientResp.getHeaders().getFirst("Content-Range");
+                        // 这条日志是定位"到底请求到了哪个字节"的唯一线索：
+                        // clientRange 是客户端认为的位置，upstreamContentRange 是上游认为的长度。
+                        log.warn("stream 416: sourceId={} platform={} clientRange={} upstreamContentRange={} host={} retried={}",
+                                sourceId, platform, rangeHeader, upstreamCr, host, refreshedAfter416[0]);
+                        if (!refreshedAfter416[0]) {
+                            refreshedAfter416[0] = true;
+                            songPlayService.invalidatePlayUrl(sourceId, platform);
+                            throw new RuntimeException("CDN 416, refresh play url and retry once");
+                        }
                         response.setStatus(416);
-                        String cr = contentRangeForUnsatisfied(
-                                clientResp.getHeaders().getFirst("Content-Range"));
+                        String cr = contentRangeForUnsatisfied(upstreamCr);
                         if (cr != null) response.setHeader("Content-Range", cr);
                         response.setHeader("Accept-Ranges", "bytes");
                         // 刻意不写 Content-Length、不转发 CDN 的错误页 body
@@ -170,13 +185,26 @@ public class AudioProxyService {
                     response.setContentType(ct != null && ct.startsWith("audio/") ? ct : "audio/mpeg");
                     // 只有确认转发 2xx 时才声明长度（setContentLengthLong 防 long→int 截断）
                     long cl = clientResp.getHeaders().getContentLength();
-                    if (cl > 0) response.setContentLengthLong(cl);
+                    if (cl > 0) {
+                        response.setContentLengthLong(cl);
+                        if (cdnStatus == 200 && rangeHeader == null) {
+                            log.info("stream 200 full: sourceId={} platform={} len={}", sourceId, platform, cl);
+                        }
+                    }
                     response.setHeader("Accept-Ranges", "bytes");
                     response.setHeader("Cache-Control", "private, max-age=3600");
                     response.setStatus(cdnStatus);
                     if (cdnStatus == 206) {
                         String cr = clientResp.getHeaders().getFirst("Content-Range");
-                        if (cr != null) response.setHeader("Content-Range", cr);
+                        if (cr != null) {
+                            response.setHeader("Content-Range", cr);
+                            // 只在从头请求时记总长度：事后可与 416 的 clientRange 对比，
+                            // 判断"同一首歌的文件是否在两次取链之间变短过"。
+                            if (rangeHeader == null || rangeHeader.startsWith("bytes=0-")) {
+                                log.info("stream 206 head: sourceId={} platform={} contentRange={}",
+                                        sourceId, platform, cr);
+                            }
+                        }
                     }
                     try (InputStream in = clientResp.getBody();
                          OutputStream out = response.getOutputStream()) { StreamUtils.copy(in, out); }
