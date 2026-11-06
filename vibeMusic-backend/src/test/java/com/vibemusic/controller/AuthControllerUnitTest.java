@@ -9,6 +9,7 @@ import com.vibemusic.dto.UpdateProfileRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.security.TokenBlacklistService;
+import com.vibemusic.service.LoginAttemptGuard;
 import com.vibemusic.service.RateLimitService;
 import com.vibemusic.service.RegistrationGuard;
 import com.vibemusic.service.UserService;
@@ -61,6 +62,7 @@ class AuthControllerUnitTest {
     private TokenBlacklistService tokenBlacklistService;
     private RateLimitService rateLimitService;
     private RegistrationGuard registrationGuard;
+    private LoginAttemptGuard loginAttemptGuard;
     private AuthController controller;
 
     @BeforeEach
@@ -78,8 +80,10 @@ class AuthControllerUnitTest {
         // 注册闸门默认放开（不带邀请码、配额充足），个别用例自行改成拒绝
         when(rateLimitService.tryAcquire(anyString(), anyInt(), any())).thenReturn(true);
         registrationGuard = new RegistrationGuard(rateLimitService, "", 3);
+        // 用真实 guard + mock Redis 装配，保证「失败计数 → 429」「成功清空」走真实路径
+        loginAttemptGuard = new LoginAttemptGuard(redis);
         controller = new AuthController(authenticationManager, userService, jwtUtils, tokenBlacklistService,
-                registrationGuard);
+                registrationGuard, loginAttemptGuard);
         SecurityContextHolder.clearContext();
         when(jwtUtils.generateAccessToken(anyString())).thenReturn("access-token");
         when(jwtUtils.generateRefreshToken(anyString())).thenReturn("refresh-token");
@@ -241,7 +245,7 @@ class AuthControllerUnitTest {
         void shouldRejectWrongInviteCode() {
             RegistrationGuard strictGuard = new RegistrationGuard(rateLimitService, "open-sesame", 3);
             AuthController strictController = new AuthController(authenticationManager, userService, jwtUtils,
-                    tokenBlacklistService, strictGuard);
+                    tokenBlacklistService, strictGuard, loginAttemptGuard);
 
             BusinessException ex = assertThrows(BusinessException.class, () -> strictController.register(
                     new AuthRequest.RegisterRequest("newbie", "pass1234", null, "wrong"),
@@ -259,7 +263,7 @@ class AuthControllerUnitTest {
             stubSuccessfulAuthenticate(user());
             RegistrationGuard strictGuard = new RegistrationGuard(rateLimitService, "open-sesame", 3);
             AuthController strictController = new AuthController(authenticationManager, userService, jwtUtils,
-                    tokenBlacklistService, strictGuard);
+                    tokenBlacklistService, strictGuard, loginAttemptGuard);
 
             Result<Map<String, Object>> result = strictController.register(
                     new AuthRequest.RegisterRequest("newbie", "pass1234", null, "open-sesame"),
@@ -377,13 +381,113 @@ class AuthControllerUnitTest {
         }
 
         @Test
-        @DisplayName("认证失败异常向上抛出（由全局异常处理器兜底）")
+        @DisplayName("认证失败异常向上抛出（由全局异常处理器兜底），并记一次失败")
         void shouldPropagateBadCredentials() {
             when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("bad"));
 
             assertThrows(BadCredentialsException.class, () -> controller.login(
                     new AuthRequest.LoginRequest("testuser", "wrong"),
                     new MockHttpServletRequest(), new MockHttpServletResponse()));
+
+            // 原 401 语义保持不变，同时失败必须落计数（否则按账号锁定形同虚设）
+            verify(redis).execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                    eq(List.of(com.vibemusic.service.LoginAttemptGuard.key("testuser"))), eq("900"));
+        }
+
+        @Test
+        @DisplayName("HTTPS 代理：access 写 __Host-VIBE_TOKEN 且带 Secure，不再写旧名")
+        void shouldWriteHostPrefixedAccessCookieOverHttps() {
+            stubSuccessfulAuthenticate(user());
+            MockHttpServletRequest req = new MockHttpServletRequest();
+            req.addHeader("X-Forwarded-Proto", "https");
+            MockHttpServletResponse resp = new MockHttpServletResponse();
+
+            controller.login(new AuthRequest.LoginRequest("testuser", "pass1234"), req, resp);
+
+            List<String> headers = resp.getHeaders("Set-Cookie");
+            String hostCookie = headers.stream()
+                    .filter(h -> h.startsWith(AuthController.ACCESS_COOKIE + "="))
+                    .findFirst().orElseThrow(() -> new AssertionError("缺少 __Host- access cookie: " + headers));
+            assertTrue(hostCookie.startsWith(AuthController.ACCESS_COOKIE + "=access-token;"), hostCookie);
+            assertTrue(hostCookie.contains("Path=/;"), "__Host- 要求 Path=/：" + hostCookie);
+            assertTrue(hostCookie.contains("; Secure"), "__Host- 必须带 Secure：" + hostCookie);
+            assertFalse(hostCookie.contains("Domain="), "__Host- 不允许带 Domain：" + hostCookie);
+            assertTrue(headers.stream().noneMatch(h -> h.startsWith(AuthController.LEGACY_ACCESS_COOKIE + "=")),
+                    "HTTPS 下不应再写不带前缀的旧 Cookie：" + headers);
+        }
+
+        @Test
+        @DisplayName("明文 http：access 仍写旧名 VIBE_TOKEN 且不带 Secure（否则本机调试掉线）")
+        void shouldWriteLegacyAccessCookieOnPlainHttp() {
+            stubSuccessfulAuthenticate(user());
+            MockHttpServletResponse resp = new MockHttpServletResponse();
+
+            controller.login(new AuthRequest.LoginRequest("testuser", "pass1234"),
+                    new MockHttpServletRequest(), resp);
+
+            List<String> headers = resp.getHeaders("Set-Cookie");
+            String legacy = headers.stream()
+                    .filter(h -> h.startsWith(AuthController.LEGACY_ACCESS_COOKIE + "="))
+                    .findFirst().orElseThrow(() -> new AssertionError("缺少旧名 access cookie: " + headers));
+            assertFalse(legacy.contains("; Secure"), "明文请求不应带 Secure：" + legacy);
+            assertTrue(headers.stream().noneMatch(h -> h.startsWith(AuthController.ACCESS_COOKIE + "=")),
+                    "__Host- 在明文下会被浏览器拒收，不应写入：" + headers);
+        }
+
+        @Test
+        @DisplayName("已锁定（5 次失败）→ 认证前直接 429，消息含剩余分钟数，不查库")
+        void shouldRejectLockedAccountBeforeAuthentication() {
+            String key = com.vibemusic.service.LoginAttemptGuard.key("testuser");
+            when(valueOps.get(key)).thenReturn("5");
+            when(redis.getExpire(eq(key), any(java.util.concurrent.TimeUnit.class))).thenReturn(600L);
+
+            BusinessException ex = assertThrows(BusinessException.class, () -> controller.login(
+                    new AuthRequest.LoginRequest("testuser", "pass1234"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse()));
+
+            assertEquals(429, ex.getCode());
+            assertTrue(ex.getMessage().contains("10 分钟"), ex.getMessage());
+            verifyNoInteractions(authenticationManager);
+        }
+
+        @Test
+        @DisplayName("登录成功 → 清空该账号失败计数")
+        void shouldClearFailureCounterOnSuccess() {
+            stubSuccessfulAuthenticate(user());
+
+            controller.login(new AuthRequest.LoginRequest("testuser", "pass1234"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse());
+
+            verify(redis).delete(com.vibemusic.service.LoginAttemptGuard.key("testuser"));
+        }
+
+        @Test
+        @DisplayName("Redis 不可用 → 锁定检查/清理 fail-open，登录仍成功")
+        void shouldLoginWhenRedisUnavailable() {
+            stubSuccessfulAuthenticate(user());
+            when(valueOps.get(anyString())).thenThrow(new RuntimeException("redis down"));
+            when(redis.delete(anyString())).thenThrow(new RuntimeException("redis down"));
+
+            Result<Map<String, Object>> result = controller.login(
+                    new AuthRequest.LoginRequest("testuser", "pass1234"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse());
+
+            assertEquals(200, result.getCode());
+            assertEquals("access-token", result.getData().get("token"));
+        }
+
+        @Test
+        @DisplayName("参数校验失败（空白/超长用户名）不计入失败次数")
+        void shouldNotCountValidationFailures() {
+            controller.login(new AuthRequest.LoginRequest("   ", "pass1234"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse());
+            controller.login(new AuthRequest.LoginRequest("u".repeat(31), "pass1234"),
+                    new MockHttpServletRequest(), new MockHttpServletResponse());
+
+            verify(valueOps, never()).get(anyString());
+            verify(redis, never()).execute(any(org.springframework.data.redis.core.script.RedisScript.class),
+                    anyList(), any());
+            verifyNoInteractions(authenticationManager);
         }
     }
 
@@ -657,14 +761,23 @@ class AuthControllerUnitTest {
             assertEquals(200, result.getCode());
             assertEquals("已退出", result.getData());
             verifyNoInteractions(redis);
-            assertEquals(3, resp.getCookies().length, "应清除 VIBE_TOKEN / 新路径与旧路径的 VIBE_REFRESH");
+            assertEquals(4, resp.getCookies().length,
+                    "应清除 __Host-VIBE_TOKEN / VIBE_TOKEN / 新路径与旧路径的 VIBE_REFRESH");
             List<String> refreshPaths = new java.util.ArrayList<>();
+            List<String> accessNames = new java.util.ArrayList<>();
             for (Cookie c : resp.getCookies()) {
                 assertEquals(0, c.getMaxAge());
                 // 删除指令的 path 必须与写入时一致，否则浏览器不会真正删除
-                if ("VIBE_TOKEN".equals(c.getName())) assertEquals("/", c.getPath());
+                if (AuthController.ACCESS_COOKIE.equals(c.getName())
+                        || AuthController.LEGACY_ACCESS_COOKIE.equals(c.getName())) {
+                    assertEquals("/", c.getPath());
+                    accessNames.add(c.getName());
+                }
                 if ("VIBE_REFRESH".equals(c.getName())) refreshPaths.add(c.getPath());
             }
+            assertTrue(accessNames.containsAll(List.of(AuthController.ACCESS_COOKIE,
+                            AuthController.LEGACY_ACCESS_COOKIE)),
+                    "新旧两个 access Cookie 名都要清除，实际=" + accessNames);
             assertTrue(refreshPaths.containsAll(List.of("/api/auth", "/api/auth/refresh")),
                     "新路径与迁移期旧路径都要删除，实际=" + refreshPaths);
         }
@@ -679,7 +792,7 @@ class AuthControllerUnitTest {
             controller.logout(req, resp);
 
             Cookie[] cookies = resp.getCookies();
-            assertEquals(3, cookies.length);
+            assertEquals(4, cookies.length);
             for (Cookie c : cookies) {
                 assertTrue(c.getSecure(), c.getName() + " 删除指令缺少 Secure（与写入侧不对称）");
                 assertEquals("Lax", c.getAttribute("SameSite"), c.getName() + " 删除指令缺少 SameSite=Lax");

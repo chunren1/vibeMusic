@@ -8,6 +8,7 @@ import com.vibemusic.dto.UpdateProfileRequest;
 import com.vibemusic.entity.User;
 import com.vibemusic.security.CustomUserDetails;
 import com.vibemusic.security.TokenBlacklistService;
+import com.vibemusic.service.LoginAttemptGuard;
 import com.vibemusic.service.RegistrationGuard;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.Valid;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,11 +36,28 @@ import java.util.*;
 @Tag(name = "认证", description = "注册、登录、注销")
 public class AuthController {
 
+    /**
+     * 带 {@code __Host-} 前缀的 access Cookie（2026-11-06 引入）。
+     * <p>该前缀由浏览器强制校验：必须 Secure + Path=/ + 不带 Domain，任一不满足浏览器直接拒收。
+     * 好处是子域（或同站其它服务）无法覆盖写入本站的 access token，防会话固定/覆盖攻击。</p>
+     */
+    static final String ACCESS_COOKIE = JwtUtils.ACCESS_COOKIE_NAME;
+
+    /**
+     * 旧 access Cookie 名。迁移期双读双写环境下的兼容名：
+     * 明文 http（本机调试）仍写这个名字，因为 {@code __Host-} 要求 Secure，
+     * 在 http 下浏览器会静默丢弃，导致本机登录后立刻掉线。
+     */
+    static final String LEGACY_ACCESS_COOKIE = JwtUtils.LEGACY_ACCESS_COOKIE_NAME;
+
+    private static final String REFRESH_COOKIE = "VIBE_REFRESH";
+
     private final AuthenticationManager authenticationManager;
     private final UserService userService;
     private final JwtUtils jwtUtils;
     private final TokenBlacklistService tokenBlacklistService;
     private final RegistrationGuard registrationGuard;
+    private final LoginAttemptGuard loginAttemptGuard;
 
     @PostMapping("/register")
     @Operation(summary = "用户注册")
@@ -63,6 +82,8 @@ public class AuthController {
 
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
+        // 新账号刚注册成功，清掉同名历史失败计数（否则可能继承别人爆破留下的锁定）
+        loginAttemptGuard.clear(username);
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
         String userId = String.valueOf(details.getUserId());
         String accessToken = jwtUtils.generateAccessToken(userId);
@@ -95,8 +116,22 @@ public class AuthController {
         if (username.isEmpty() || username.length() > 30) return Result.error("用户名格式不正确");
 
         log.info("[/api/auth/login] 开始认证: username={}", username);
-        Authentication auth = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(username, password));
+        // 按账号锁定（2026-11-06）：nginx 只按 IP 限流（10r/m），换 IP 即可绕开；
+        // 这里按 username 计数，5 次失败锁 15 分钟，分布式撞库也挡得住。
+        loginAttemptGuard.checkLocked(username);
+
+        Authentication auth;
+        try {
+            auth = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(username, password));
+        } catch (BadCredentialsException e) {
+            // 只有「密码错」计入失败次数；禁用/锁定等其它认证异常不累计
+            loginAttemptGuard.recordFailure(username);
+            throw e; // 保持原有 401 语义（GlobalExceptionHandler 转 401 信封）
+        }
+        // 认证成功即清空计数：避免历史失败次数把下次正常登录拖进锁定
+        loginAttemptGuard.clear(username);
+
         CustomUserDetails details = (CustomUserDetails) auth.getPrincipal();
         String userId = String.valueOf(details.getUserId());
         String accessToken = jwtUtils.generateAccessToken(userId);
@@ -194,13 +229,15 @@ public class AuthController {
         if (accessToken != null) tokenBlacklistService.revoke(accessToken);
         if (refreshToken != null) tokenBlacklistService.revoke(refreshToken);
 
-        // 清除 Cookie
-        clearCookie(request, response, "VIBE_TOKEN", "/");
-        clearCookie(request, response, "VIBE_REFRESH", "/api/auth");
+        // 清除 Cookie：access 双名都要清（同一 Max-Age 15min 内旧名可能还活着），
+        // refresh 双路径同理。共 4 条删除指令。
+        clearCookie(request, response, ACCESS_COOKIE, "/");
+        clearCookie(request, response, LEGACY_ACCESS_COOKIE, "/");
+        clearCookie(request, response, REFRESH_COOKIE, "/api/auth");
         // 迁移期清理：2026-11-04 之前写入的 refresh Cookie 路径为 /api/auth/refresh，
         // 同名不同 Path 互不覆盖，不单独下发删除指令会残留到自然过期（最长 7 天）。
         // 存量会话过期后（2026-12 之后）可移除本条。
-        clearCookie(request, response, "VIBE_REFRESH", "/api/auth/refresh");
+        clearCookie(request, response, REFRESH_COOKIE, "/api/auth/refresh");
         // 保持幂等：即使吊销只落到本地表（Redis 不可用），客户端体验不变
         return Result.ok("已退出");
     }
@@ -246,17 +283,23 @@ public class AuthController {
 
     private void setTokenCookies(HttpServletRequest request, HttpServletResponse response,
                                   String accessToken, String refreshToken) {
-        String secure = isSecureRequest(request) ? "; Secure" : "";
-        // Access token: 15min, 全局路径
+        boolean secure = isSecureRequest(request);
+        // Access token: 15min, 全局路径。
+        // 迁移（2026-11-06）：HTTPS 下写 __Host-VIBE_TOKEN（浏览器强制 Secure + Path=/ + 无 Domain），
+        // 旧 App/旧页面手里的 VIBE_TOKEN 在自身 Max-Age（15min）到点后自然消失；这期间服务端双读，
+        // 不会把已登录用户踢下线。明文 http 调试环境继续用旧名，否则 __Host- 会被浏览器直接丢弃。
+        String accessCookie = secure ? ACCESS_COOKIE : LEGACY_ACCESS_COOKIE;
         response.addHeader("Set-Cookie",
-                String.format("VIBE_TOKEN=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
-                        accessToken, jwtUtils.getAccessExpiration() / 1000, secure));
+                String.format("%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                        accessCookie, accessToken, jwtUtils.getAccessExpiration() / 1000,
+                        secure ? "; Secure" : ""));
         // Refresh token: 7d, 限制在 /api/auth 下——refresh 与 logout 都在该前缀内，
         // 登出时才读得到它并吊销；若收窄到 /api/auth/refresh，logout 请求不携带该 Cookie，
         // 既无法吊销，也无法用同名同路径的删除指令清除。
         response.addHeader("Set-Cookie",
-                String.format("VIBE_REFRESH=%s; Path=/api/auth; Max-Age=%d; HttpOnly; SameSite=Lax%s",
-                        refreshToken, jwtUtils.getRefreshExpiration() / 1000, secure));
+                String.format("%s=%s; Path=/api/auth; Max-Age=%d; HttpOnly; SameSite=Lax%s",
+                        REFRESH_COOKIE, refreshToken, jwtUtils.getRefreshExpiration() / 1000,
+                        secure ? "; Secure" : ""));
     }
 
     private void clearCookie(HttpServletRequest request, HttpServletResponse response, String name, String path) {
@@ -265,9 +308,10 @@ public class AuthController {
         // 删除指令的属性必须与写入侧对称（2026-11-06 补）。原来只给了 HttpOnly，
         // 而写入侧是 `HttpOnly; SameSite=Lax` + 线上 `Secure`：浏览器按 name/domain/path
         // 匹配删除，属性不一致通常也能删掉，但 Cookie 策略严格的 UA（部分国产浏览器、
-        // 未来若加 __Host- 前缀）会直接忽略属性不匹配的过期指令，导致「退出登录后
-        // 旧 Cookie 仍在、刷新页面又被当成已登录」。这里与 setTokenCookies 用同一个
-        // isSecureRequest 判定，保证同一环境下两侧属性完全一致。
+        // 以及带 __Host- 前缀的 Cookie——前缀本身要求 Secure/Path=/ 无 Domain）会直接忽略
+        // 属性不匹配的过期指令，导致「退出登录后旧 Cookie 仍在、刷新页面又被当成已登录」。
+        // 这里与 setTokenCookies 用同一个 isSecureRequest 判定，保证同一环境下两侧属性完全一致。
+        // 注：jakarta.servlet.http.Cookie 允许名字里带 '__Host-'，前缀只对浏览器有语义。
         cookie.setSecure(isSecureRequest(request));
         cookie.setAttribute("SameSite", "Lax");
         // 删除 Cookie 要求 name + domain + path 三者与写入时一致，否则浏览器忽略该指令
@@ -289,7 +333,7 @@ public class AuthController {
     }
 
     private String extractTokenFromRequest(HttpServletRequest request) {
-        return JwtUtils.extractTokenFromRequest(request, "VIBE_TOKEN");
+        return JwtUtils.extractAccessToken(request);
     }
 
     private String extractRefreshTokenFromRequest(HttpServletRequest request) {
@@ -297,7 +341,7 @@ public class AuthController {
         // 降级从 cookie 读取
         if (request.getCookies() != null) {
             for (Cookie c : request.getCookies()) {
-                if ("VIBE_REFRESH".equals(c.getName())) return c.getValue();
+                if (REFRESH_COOKIE.equals(c.getName())) return c.getValue();
             }
         }
         return null;

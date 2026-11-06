@@ -102,6 +102,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     private String extractToken(HttpServletRequest request) {
-        return JwtUtils.extractTokenFromRequest(request, "VIBE_TOKEN");
+        return JwtUtils.extractAccessToken(request);
     }
 }

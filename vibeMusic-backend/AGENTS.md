@@ -17,7 +17,7 @@ Spring Boot 4.0.6 + Java 17 + MyBatis-Plus 3.5.9 + jjwt 0.12.6 + MinIO 8.5.17 + 
 1. `SongSearchService.search()` 返回 `SearchResult`，恰好 3 个外部调用方：SongController、AiToolService（被 AssistantController 用）、RecommendService；另有 getRandomSongs() 内部调用。改 SearchResult 全链路受影响。
 2. `MyBatisPlusConfig` 手建 SqlSessionFactory，必须 (a) 显式设 mapperLocations（`classpath*:/mapper/**/*.xml`）否则 BindingException，(b) 把 MetaObjectHandler 注入 GlobalConfig 否则自动填充静默失效。
 3. `SecurityConfig` 端点白名单：公开 /api/auth/**、swagger、/uploads/**、/actuator/**、GET /api/songs/**、GET /api/recommend/**、GET /api/playlists/songs|detail、/api/assistant/**、GET /api/image-proxy、GET /api/download/**。其余都要 JWT。新端点必须加进来否则 401。
-4. `JwtUtils` 双 Token：access 15min / refresh 7d，httpOnly Cookie（VIBE_TOKEN Path=/；VIBE_REFRESH Path=/api/auth/refresh），Secure 依 X-Forwarded-Proto 条件开启。
+4. `JwtUtils` 双 Token：access 15min / refresh 7d，httpOnly Cookie。access 在 HTTPS 下用 `__Host-VIBE_TOKEN`（前缀强制 Secure + Path=/ + 无 Domain），明文 http 调试仍写 `VIBE_TOKEN`；服务端双读（`JwtUtils.extractAccessToken`，Bearer 优先 → 新名 → 旧名），logout 下发 4 条删除指令。refresh 固定 `VIBE_REFRESH` Path=/api/auth（迁移期另清 `/api/auth/refresh` 旧路径）。Secure 依 X-Forwarded-Proto 条件开启。
 
 ## CONVENTIONS（仅列偏离标准处）
 - 时间字段：`@TableField(fill=FieldFill.INSERT/INSERT_UPDATE, insertStrategy=FieldStrategy.NEVER)` + DB DEFAULT CURRENT_TIMESTAMP。BaseEntity/UserFavorite/Playlist/PlaylistSong 遵循。**例外**：PlayHistory.playedAt 由 MetaObjectHandler 填充、无 FieldStrategy.NEVER，勿"修复"。

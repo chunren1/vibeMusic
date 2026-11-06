@@ -6,6 +6,7 @@ import com.vibemusic.common.utils.JwtUtils;
 import com.vibemusic.controller.AuthController;
 import com.vibemusic.entity.User;
 import com.vibemusic.mapper.UserMapper;
+import com.vibemusic.service.LoginAttemptGuard;
 import com.vibemusic.service.RateLimitService;
 import com.vibemusic.service.RegistrationGuard;
 import com.vibemusic.service.UserService;
@@ -76,7 +77,8 @@ class TokenRevocationRegressionTest {
     private Result<String> logout(String token) {
         AuthController controller = new AuthController(mock(AuthenticationManager.class),
                 mock(UserService.class), jwtUtils, tokenBlacklistService,
-                new RegistrationGuard(mock(RateLimitService.class), "", 0));
+                new RegistrationGuard(mock(RateLimitService.class), "", 0),
+                new LoginAttemptGuard(redis));
         MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/auth/logout");
         req.addHeader("Authorization", "Bearer " + token);
         return controller.logout(req, new MockHttpServletResponse());

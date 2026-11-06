@@ -133,6 +133,50 @@ class JwtUtilsTest {
     }
 
     @Nested
+    @DisplayName("extractAccessToken 双名迁移（__Host- 优先，旧名回落）")
+    class ExtractAccessTokenTest {
+
+        private org.springframework.mock.web.MockHttpServletRequest req() {
+            return new org.springframework.mock.web.MockHttpServletRequest("GET", "/api/songs");
+        }
+
+        @Test
+        @DisplayName("Authorization: Bearer 优先于 Cookie")
+        void shouldPreferAuthorizationHeader() {
+            var req = req();
+            req.addHeader("Authorization", "Bearer header-tok");
+            req.setCookies(new jakarta.servlet.http.Cookie(JwtUtils.ACCESS_COOKIE_NAME, "cookie-tok"));
+
+            assertEquals("header-tok", JwtUtils.extractAccessToken(req));
+        }
+
+        @Test
+        @DisplayName("同时存在新旧 Cookie → 取 __Host- 新名（新写入优先）")
+        void shouldPreferHostPrefixedCookie() {
+            var req = req();
+            req.setCookies(new jakarta.servlet.http.Cookie(JwtUtils.LEGACY_ACCESS_COOKIE_NAME, "old-tok"),
+                    new jakarta.servlet.http.Cookie(JwtUtils.ACCESS_COOKIE_NAME, "new-tok"));
+
+            assertEquals("new-tok", JwtUtils.extractAccessToken(req));
+        }
+
+        @Test
+        @DisplayName("只有旧 VIBE_TOKEN → 回落旧名（存量会话不掉线）")
+        void shouldFallbackToLegacyCookie() {
+            var req = req();
+            req.setCookies(new jakarta.servlet.http.Cookie(JwtUtils.LEGACY_ACCESS_COOKIE_NAME, "old-tok"));
+
+            assertEquals("old-tok", JwtUtils.extractAccessToken(req));
+        }
+
+        @Test
+        @DisplayName("两个 Cookie 都没有 → null")
+        void shouldReturnNullWhenNoCookie() {
+            assertNull(JwtUtils.extractAccessToken(req()));
+        }
+    }
+
+    @Nested
     @DisplayName("完整流程测试")
     class EndToEndTest {
 
