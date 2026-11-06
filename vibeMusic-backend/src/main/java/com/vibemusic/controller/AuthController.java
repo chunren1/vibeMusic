@@ -172,12 +172,12 @@ public class AuthController {
         if (refreshToken != null) tokenBlacklistService.revoke(refreshToken);
 
         // 清除 Cookie
-        clearCookie(response, "VIBE_TOKEN", "/");
-        clearCookie(response, "VIBE_REFRESH", "/api/auth");
+        clearCookie(request, response, "VIBE_TOKEN", "/");
+        clearCookie(request, response, "VIBE_REFRESH", "/api/auth");
         // 迁移期清理：2026-11-04 之前写入的 refresh Cookie 路径为 /api/auth/refresh，
         // 同名不同 Path 互不覆盖，不单独下发删除指令会残留到自然过期（最长 7 天）。
         // 存量会话过期后（2026-12 之后）可移除本条。
-        clearCookie(response, "VIBE_REFRESH", "/api/auth/refresh");
+        clearCookie(request, response, "VIBE_REFRESH", "/api/auth/refresh");
         // 保持幂等：即使吊销只落到本地表（Redis 不可用），客户端体验不变
         return Result.ok("已退出");
     }
@@ -223,8 +223,7 @@ public class AuthController {
 
     private void setTokenCookies(HttpServletRequest request, HttpServletResponse response,
                                   String accessToken, String refreshToken) {
-        String secure = (request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")))
-                ? "; Secure" : "";
+        String secure = isSecureRequest(request) ? "; Secure" : "";
         // Access token: 15min, 全局路径
         response.addHeader("Set-Cookie",
                 String.format("VIBE_TOKEN=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax%s",
@@ -237,13 +236,33 @@ public class AuthController {
                         refreshToken, jwtUtils.getRefreshExpiration() / 1000, secure));
     }
 
-    private void clearCookie(HttpServletResponse response, String name, String path) {
+    private void clearCookie(HttpServletRequest request, HttpServletResponse response, String name, String path) {
         Cookie cookie = new Cookie(name, "");
         cookie.setHttpOnly(true);
+        // 删除指令的属性必须与写入侧对称（2026-11-06 补）。原来只给了 HttpOnly，
+        // 而写入侧是 `HttpOnly; SameSite=Lax` + 线上 `Secure`：浏览器按 name/domain/path
+        // 匹配删除，属性不一致通常也能删掉，但 Cookie 策略严格的 UA（部分国产浏览器、
+        // 未来若加 __Host- 前缀）会直接忽略属性不匹配的过期指令，导致「退出登录后
+        // 旧 Cookie 仍在、刷新页面又被当成已登录」。这里与 setTokenCookies 用同一个
+        // isSecureRequest 判定，保证同一环境下两侧属性完全一致。
+        cookie.setSecure(isSecureRequest(request));
+        cookie.setAttribute("SameSite", "Lax");
         // 删除 Cookie 要求 name + domain + path 三者与写入时一致，否则浏览器忽略该指令
         cookie.setPath(path);
         cookie.setMaxAge(0);
         response.addCookie(cookie);
+    }
+
+    /**
+     * 是否为 HTTPS 请求。
+     *
+     * <p>链路是 Cloudflare(https) → cloudflared → nginx(http, 127.0.0.1:8081) → 后端，
+     * 后端收到的连接永远是明文，{@code request.isSecure()} 必然为 false，真实协议只能
+     * 从 {@code X-Forwarded-Proto} 读。nginx 侧由 {@code conf.d/forwarded-proto.conf}
+     * 的 map 还原（Cloudflare 会写入访客真实协议），因此这里只需认这个头。</p>
+     */
+    private boolean isSecureRequest(HttpServletRequest request) {
+        return request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto"));
     }
 
     private String extractTokenFromRequest(HttpServletRequest request) {

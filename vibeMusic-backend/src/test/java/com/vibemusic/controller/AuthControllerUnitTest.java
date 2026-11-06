@@ -587,6 +587,36 @@ class AuthControllerUnitTest {
         }
 
         @Test
+        @DisplayName("删除 Cookie 的属性与写入侧对称：HTTPS 下带 Secure + SameSite=Lax")
+        void shouldClearCookiesWithSameAttributesAsWrite() {
+            MockHttpServletRequest req = new MockHttpServletRequest();
+            req.addHeader("X-Forwarded-Proto", "https");
+            MockHttpServletResponse resp = new MockHttpServletResponse();
+
+            controller.logout(req, resp);
+
+            Cookie[] cookies = resp.getCookies();
+            assertEquals(3, cookies.length);
+            for (Cookie c : cookies) {
+                assertTrue(c.getSecure(), c.getName() + " 删除指令缺少 Secure（与写入侧不对称）");
+                assertEquals("Lax", c.getAttribute("SameSite"), c.getName() + " 删除指令缺少 SameSite=Lax");
+                assertTrue(c.isHttpOnly(), c.getName() + " 删除指令缺少 HttpOnly");
+            }
+        }
+
+        @Test
+        @DisplayName("HTTP 直连（无 X-Forwarded-Proto）→ 删除 Cookie 不带 Secure")
+        void shouldNotSetSecureOnClearCookieForPlainHttp() {
+            MockHttpServletResponse resp = new MockHttpServletResponse();
+
+            controller.logout(new MockHttpServletRequest(), resp);
+
+            for (Cookie c : resp.getCookies()) {
+                assertFalse(c.getSecure(), c.getName() + " 明文请求不应带 Secure，否则浏览器会忽略该删除指令");
+            }
+        }
+
+        @Test
         @DisplayName("access + refresh 未过期 → 双双写入黑名单（TTL=剩余有效期）")
         void shouldBlacklistBothTokens() {
             MockHttpServletRequest req = new MockHttpServletRequest();
