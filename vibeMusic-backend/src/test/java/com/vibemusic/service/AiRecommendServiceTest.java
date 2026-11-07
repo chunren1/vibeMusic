@@ -333,6 +333,34 @@ class AiRecommendServiceTest {
         }
 
         @Test
+        @DisplayName("翻唱/搬运号（歌手名只是长后缀）→ 丢弃")
+        void shouldRejectCoverAccountArtist() {
+            // 线上实测：LLM 提名「小幸运 - 田馥甄」，搜索结果里只有翻唱号「田馥甄的小迷妹」
+            assertFalse(AiRecommendVerifier.matches("小幸运", "田馥甄",
+                    song("1", "小幸运", "田馥甄的小迷妹")));
+            assertFalse(AiRecommendVerifier.matches("晴天", "周杰伦",
+                    song("1", "晴天", "周杰伦粉丝团")));
+        }
+
+        @Test
+        @DisplayName("多歌手用 / & feat 分隔时，任一分量相等 → 命中")
+        void shouldMatchMultiArtistByToken() {
+            assertTrue(AiRecommendVerifier.matches("晴天", "周杰伦",
+                    song("1", "晴天", "周杰伦 / 温岚")));
+            assertTrue(AiRecommendVerifier.matches("Stay", "Justin Bieber",
+                    song("1", "Stay", "The Kid LAROI feat. Justin Bieber")));
+            assertTrue(AiRecommendVerifier.matches("珊瑚海", "周杰伦、梁心颐",
+                    song("1", "珊瑚海", "周杰伦&梁心颐")));
+        }
+
+        @Test
+        @DisplayName("同一歌手的写法差异（G.E.M. 前缀）仍命中")
+        void shouldMatchArtistNameVariant() {
+            assertTrue(AiRecommendVerifier.matches("泡沫", "邓紫棋",
+                    song("1", "泡沫", "G.E.M.邓紫棋")));
+        }
+
+        @Test
         @DisplayName("任一方歌手为空 → 放行")
         void shouldAllowEmptyArtist() {
             assertTrue(AiRecommendVerifier.matches("晴天", "", song("1", "晴天", "周杰伦")));
