@@ -26,10 +26,10 @@ import java.util.Map;
  * <p>职责边界：只负责「把消息发给 LLM 并如实返回 choices[0]」与「解析工具结果」；
  * 预算编排、降级判定、SSE 推送与落库仍在 controllers 侧（构造器由控制器自己 new）。
  *
- * <p>{@link #callLLMWithTools} 失败仍抛 {@link RuntimeException}，由调用方降级，本类不吞异常。
+ * <p>{@link #callLLMWithTools} / {@link #callLLM} 失败仍抛 {@link RuntimeException}，由调用方降级，本类不吞异常。
  */
 @Slf4j
-class AssistantClient {
+public class AssistantClient {
 
     /** 单次 LLM 回复上限（同步/流式共用，值不变）。 */
     static final int MAX_TOKENS = 800;
@@ -44,13 +44,13 @@ class AssistantClient {
     private final String aiModel;
     private final String thinkingMode;
 
-    AssistantClient(RestTemplate restTemplate,
-                    ObjectMapper objectMapper,
-                    AiToolService aiToolService,
-                    String apiUrl,
-                    String apiKey,
-                    String aiModel,
-                    String thinkingMode) {
+    public AssistantClient(RestTemplate restTemplate,
+                           ObjectMapper objectMapper,
+                           AiToolService aiToolService,
+                           String apiUrl,
+                           String apiKey,
+                           String aiModel,
+                           String thinkingMode) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.aiToolService = aiToolService;
@@ -69,16 +69,41 @@ class AssistantClient {
      *
      * @throws IllegalStateException 预算已耗尽（调用方应先判 {@code budget.canCall()}）
      */
-    @SuppressWarnings("unchecked")
     Map<String, Object> callLLMWithTools(List<Map<String, Object>> messages, AiCallBudget budget) {
+        return post(messages, aiToolService.getToolDefinitions(), budget);
+    }
+
+    /**
+     * 调用 LLM（**不**带 Function Calling 工具定义）。
+     * <p>
+     * 与 {@link #callLLMWithTools} 共用同一套请求体字段（model / max_tokens / temperature / thinking）、
+     * 超时派生与异常语义，唯一区别是不塞 {@code tools} / {@code tool_choice}。
+     *
+     * @throws IllegalStateException 预算已耗尽（调用方应先判 {@code budget.canCall()}）
+     */
+    public Map<String, Object> callLLM(List<Map<String, Object>> messages, AiCallBudget budget) {
+        return post(messages, null, budget);
+    }
+
+    /**
+     * 组装请求体 → 发 HTTP → 解析 {@code choices[0]}。
+     *
+     * @param toolsOrNull 工具定义；{@code null} 表示本次调用不启用 Function Calling
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> post(List<Map<String, Object>> messages,
+                                     List<Map<String, Object>> toolsOrNull,
+                                     AiCallBudget budget) {
         Duration timeout = budget.timeoutForNextCall();
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", aiModel);
         requestBody.put("messages", messages);
         requestBody.put("max_tokens", MAX_TOKENS);
         requestBody.put("temperature", TEMPERATURE);
-        requestBody.put("tools", aiToolService.getToolDefinitions());
-        requestBody.put("tool_choice", "auto");
+        if (toolsOrNull != null) {
+            requestBody.put("tools", toolsOrNull);
+            requestBody.put("tool_choice", "auto");
+        }
         requestBody.put("thinking", Map.of("type", thinkingMode));
 
         try {

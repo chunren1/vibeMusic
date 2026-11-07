@@ -165,6 +165,20 @@ rate-limit:
   # 音频流含拖拽产生的 Range 请求，60 次/分钟对单曲循环也够用
   stream-per-min: ${RATE_LIMIT_STREAM_PER_MIN:60}
 
+# AI 歌曲推荐（LLM 提名 + 真实曲库验证；失败一律降级为空）
+recommend:
+  ai:
+    enabled: ${RECOMMEND_AI_ENABLED:true}
+    # 每用户每天最多生成几次（refresh=true 消耗；用完返回 429）
+    daily-limit: ${RECOMMEND_AI_DAILY_LIMIT:3}
+    # 让模型提名的候选数
+    candidates: ${RECOMMEND_AI_CANDIDATES:12}
+    # 通过真实搜索验证的最低命中数，不足则不写缓存、返回空
+    min-resolved: ${RECOMMEND_AI_MIN_RESOLVED:6}
+    # 生成 prompt 时采样的最近播放 / 收藏条数
+    history-sample: ${RECOMMEND_AI_HISTORY_SAMPLE:20}
+    favorite-sample: ${RECOMMEND_AI_FAVORITE_SAMPLE:10}
+
 # 注册防滥用（2026-11-06，见 RegistrationGuard）
 # 为什么需要：限流按 user:<id> 计数，批量注册 = 无限额度；搜索一次扇出 5 个上游平台。
 auth:

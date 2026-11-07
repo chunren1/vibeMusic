@@ -3,6 +3,7 @@ package com.vibemusic.controller;
 import com.vibemusic.common.Result;
 import com.vibemusic.common.utils.AnonymousIdentityUtils;
 import com.vibemusic.dto.RecommendResult;
+import com.vibemusic.service.AiRecommendService;
 import com.vibemusic.service.RecommendService;
 import com.vibemusic.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 public class RecommendController {
 
     private final RecommendService recommendService;
+    private final AiRecommendService aiRecommendService;
 
     /**
      * 个性化推荐
@@ -42,5 +44,18 @@ public class RecommendController {
         log.debug("推荐请求: userId={}, deviceId={}, refresh={}", userId, deviceId, refresh);
         RecommendResult result = recommendService.getPersonalized(userId, deviceId, refresh);
         return Result.ok(result);
+    }
+
+    /**
+     * AI 歌曲推荐
+     * LLM 提名 + 真实曲库验证；未登录返回空列表（App 隐藏板块），
+     * refresh=true 且当日配额用完返回 429 信封。
+     */
+    @GetMapping("/ai")
+    @Operation(summary = "AI 歌曲推荐（LLM 提名 + 曲库验证）")
+    public Result<RecommendResult> ai(@RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
+        Long userId = UserService.getCurrentUserId();
+        log.debug("AI 推荐请求: userId={}, refresh={}", userId, refresh);
+        return Result.ok(aiRecommendService.getAiRecommend(userId, refresh));
     }
 }

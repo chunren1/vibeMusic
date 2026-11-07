@@ -9,18 +9,18 @@ Spring Boot 4.1.2（编译目标 Java 17，运行时 JDK 25） + MyBatis-Plus 3.
 
 ## PACKAGE COUNTS（2026-11-06 实测；口径=顶层 .java，common 含子包。数量会随迭代漂移，引用前先 `ls` 复核）
 - controller: 19（Auth, Upload, Song, Playlist, PlayHistory, Favorite, Recommend, Assistant, AssistantClient, AssistantPayloads, AssistantRequestIdentity, AssistantStreamOrchestrator, Stream, Download, Proxy, CacheMonitor, Cookie, ClientError, SearchHistory）
-- service: 43，按职责分组：
+- service: 45，按职责分组：
   - 搜索：SongSearch, SongCache, SongRanking, SongMatcher, SongMerger, SongDtoParser, PlatformSearchAdapter, SearchQueryHints, SearchHistory, JsonCache
   - 播放：SongPlay, PlayUrlCache, AudioProxy, NeteaseApi, NeteaseDegradeChain, NeteaseUrlPayloads, NeteaseUrlProbe, PlatformUrlFetcher, QqCircuitBreaker, CrossPlatformFailover
-  - 推荐：Recommend, RecommendRules, RecommendPersonalizer, RecommendGuestBuilder, RecommendCacheStore
+  - 推荐：Recommend, RecommendRules, RecommendPersonalizer, RecommendGuestBuilder, RecommendCacheStore, AiRecommend, AiRecommendVerifier
   - AI：AiTool, AiToolCallGuard, AiToolJson, AiCallBudget, AiPlaylistTools, ChatMemory
   - 鉴权与防滥用：User, RateLimit, LoginAttemptGuard, RegistrationGuard, IdempotentGuard
   - 业务：Song, Playlist, PlayHistory, PlayHistoryCleanup, Favorite, Storage, Download
 - entity: 8（User, Song, Playlist, PlaylistSong, UserFavorite, PlayHistory, UserSearchHistory, BaseEntity 抽象）
-- mapper: 7 · config: 13（含 AudioQualityTier 枚举、RateLimitProperties）· dto: 18（14 个类型化请求 record + SongDTO/SearchResult/RecommendResult/ClientErrorReport）· common: 19（顶层 Result + exception/concurrent/filter/resilience/utils 五个子包）· security: 3（CustomUserDetails, JwtAuthenticationFilter, TokenBlacklistService）
+- mapper: 7 · config: 14（含 AudioQualityTier 枚举、RateLimitProperties、AiClientConfig）· dto: 18（14 个类型化请求 record + SongDTO/SearchResult/RecommendResult/ClientErrorReport）· common: 19（顶层 Result + exception/concurrent/filter/resilience/utils 五个子包）· security: 3（CustomUserDetails, JwtAuthenticationFilter, TokenBlacklistService）
 
 ## CRITICAL COUPLINGS（改坏即崩）
-1. `SongSearchService.search()` 返回 `SearchResult`，恰好 3 个外部调用方：SongController、AiToolService（被 AssistantController 用）、RecommendService；另有 getRandomSongs() 内部调用。改 SearchResult 全链路受影响。
+1. `SongSearchService.search()` 返回 `SearchResult`，外部调用方：SongController、AiToolService、AiPlaylistTools、RecommendPersonalizer、AiRecommendVerifier（AI 推荐逐首验证）；另有 getRandomSongs() 内部调用。改 SearchResult 全链路受影响。
 2. `MyBatisPlusConfig` 手建 SqlSessionFactory，必须 (a) 显式设 mapperLocations（`classpath*:/mapper/**/*.xml`）否则 BindingException，(b) 把 MetaObjectHandler 注入 GlobalConfig 否则自动填充静默失效。
 3. `SecurityConfig` 端点白名单：公开 /api/auth/**、swagger、/uploads/**、/actuator/**、GET /api/songs/**、GET /api/recommend/**、GET /api/playlists/songs|detail、/api/assistant/**、GET /api/image-proxy、GET /api/download/**。其余都要 JWT。新端点必须加进来否则 401。
 4. `JwtUtils` 双 Token：access 15min / refresh 7d，httpOnly Cookie。access 在 HTTPS 下用 `__Host-VIBE_TOKEN`（前缀强制 Secure + Path=/ + 无 Domain），明文 http 调试仍写 `VIBE_TOKEN`；服务端双读（`JwtUtils.extractAccessToken`，Bearer 优先 → 新名 → 旧名），logout 下发 4 条删除指令。refresh 固定 `VIBE_REFRESH` Path=/api/auth（迁移期另清 `/api/auth/refresh` 旧路径）。Secure 依 X-Forwarded-Proto 条件开启。
