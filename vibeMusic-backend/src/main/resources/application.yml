@@ -170,7 +170,7 @@ recommend:
   ai:
     enabled: ${RECOMMEND_AI_ENABLED:true}
     # 每用户每天最多生成几次（refresh=true 消耗；用完返回 429）
-    daily-limit: ${RECOMMEND_AI_DAILY_LIMIT:3}
+    daily-limit: ${RECOMMEND_AI_DAILY_LIMIT:10}
     # 让模型提名的候选数
     candidates: ${RECOMMEND_AI_CANDIDATES:12}
     # 通过真实搜索验证的最低命中数，不足则不写缓存、返回空

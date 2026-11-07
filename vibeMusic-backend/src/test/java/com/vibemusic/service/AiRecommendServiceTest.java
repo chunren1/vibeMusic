@@ -51,6 +51,8 @@ import static org.mockito.Mockito.when;
 class AiRecommendServiceTest {
 
     private static final Long USER_ID = 1L;
+    /** 刻意不用线上默认值（10）：证明 429 文案与配额参数都跟着注入值走。 */
+    private static final int TEST_DAILY_LIMIT = 5;
 
     private PlayHistoryMapper playHistoryMapper;
     private UserFavoriteMapper userFavoriteMapper;
@@ -90,7 +92,7 @@ class AiRecommendServiceTest {
 
         service = new AiRecommendService(playHistoryMapper, userFavoriteMapper, songSearchService,
                 stringRedisTemplate, objectMapper, rateLimitService, searchExecutor, assistantClient,
-                true, 3, 12, 6, 20, 10);
+                true, TEST_DAILY_LIMIT, 12, 6, 20, 10);
     }
 
     @AfterEach
@@ -132,7 +134,7 @@ class AiRecommendServiceTest {
                     () -> service.getAiRecommend(USER_ID, true));
 
             assertEquals(429, ex.getCode());
-            assertTrue(ex.getMessage().contains("3 次/天"));
+            assertTrue(ex.getMessage().contains(TEST_DAILY_LIMIT + " 次/天"), "429 文案必须跟着 daily-limit 走");
             verify(assistantClient, never()).callLLM(anyList(), any(AiCallBudget.class));
         }
 
@@ -168,7 +170,7 @@ class AiRecommendServiceTest {
             service.getAiRecommend(USER_ID, true);
 
             ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
-            verify(rateLimitService).tryAcquire(keyCaptor.capture(), eq(3), eq(Duration.ofDays(1)));
+            verify(rateLimitService).tryAcquire(keyCaptor.capture(), eq(TEST_DAILY_LIMIT), eq(Duration.ofDays(1)));
             assertTrue(keyCaptor.getValue().matches("recommend:ai:user:1:\\d{4}-\\d{2}-\\d{2}"));
         }
     }

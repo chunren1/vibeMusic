@@ -45,7 +45,6 @@ public class AiRecommendService {
     static final String QUOTA_KEY_PREFIX = "recommend:ai:user:";
     static final Duration CACHE_TTL = Duration.ofHours(24);
     static final String TYPE_AI = "ai";
-    static final String QUOTA_EXHAUSTED_MESSAGE = "今天的 AI 推荐次数已用完（3 次/天），明天再来";
 
     /** 单次 AI 调用的总预算（与助手一致：45s，含一次 LLM 调用）。 */
     private static final Duration AI_TOTAL_BUDGET = Duration.ofSeconds(45);
@@ -74,7 +73,7 @@ public class AiRecommendService {
                               ThreadPoolTaskExecutor searchExecutor,
                               AssistantClient assistantClient,
                               @Value("${recommend.ai.enabled:true}") boolean enabled,
-                              @Value("${recommend.ai.daily-limit:3}") int dailyLimit,
+                              @Value("${recommend.ai.daily-limit:10}") int dailyLimit,
                               @Value("${recommend.ai.candidates:12}") int candidates,
                               @Value("${recommend.ai.min-resolved:6}") int minResolved,
                               @Value("${recommend.ai.history-sample:20}") int historySample,
@@ -111,7 +110,7 @@ public class AiRecommendService {
             }
 
             if (!acquireQuota(userId)) {
-                if (refresh) throw new BusinessException(429, QUOTA_EXHAUSTED_MESSAGE);
+                if (refresh) throw new BusinessException(429, quotaExhaustedMessage());
                 // 非刷新场景配额用完：有缓存早返回了，这里只能空降级，不打扰用户
                 log.info("[AI推荐] 今日配额已用完，降级为空: userId={}", userId);
                 return empty();
@@ -250,6 +249,11 @@ public class AiRecommendService {
     private boolean acquireQuota(Long userId) {
         String key = QUOTA_KEY_PREFIX + userId + ":" + LocalDate.now();
         return rateLimitService.tryAcquire(key, dailyLimit, Duration.ofDays(1));
+    }
+
+    /** 429 文案按实际配置生成：改 daily-limit 不用再回来改字符串（2026-11-07 教训）。 */
+    private String quotaExhaustedMessage() {
+        return "今天的 AI 推荐次数已用完（" + dailyLimit + " 次/天），明天再来";
     }
 
     private static String nullSafe(String s) {
