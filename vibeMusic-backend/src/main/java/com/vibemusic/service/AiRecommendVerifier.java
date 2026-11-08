@@ -61,22 +61,36 @@ final class AiRecommendVerifier {
         try {
             @SuppressWarnings("unchecked")
             Map<String, Object> root = objectMapper.readValue(cleaned.substring(start, end + 1), Map.class);
-            String reason = root.get("reason") instanceof String r ? r : "";
-            if (!(root.get("songs") instanceof List<?> list)) {
+            String reason = text(root, "reason", "r");
+            if (!(value(root, "songs", "s") instanceof List<?> list)) {
                 return new ParsedRecommendation(reason, List.of());
             }
             List<Candidate> songs = new ArrayList<>();
             for (Object item : list) {
                 if (!(item instanceof Map<?, ?> map)) continue;
-                if (!(map.get("name") instanceof String name) || name.isBlank()) continue;
-                String artist = map.get("artist") instanceof String a ? a.trim() : "";
-                songs.add(new Candidate(name.trim(), artist));
+                String name = firstText(map, "name", "n");
+                if (name.isBlank()) continue;
+                songs.add(new Candidate(name, firstText(map, "artist", "a")));
             }
             return new ParsedRecommendation(reason, songs);
         } catch (Exception e) {
             log.warn("[AI推荐] JSON 解析失败: {}", e.toString());
             return new ParsedRecommendation("", List.of());
         }
+    }
+
+    /** 取第一个存在的键（长键在前，短键兜底）。 */
+    private static Object value(Map<?, ?> map, String longKey, String shortKey) {
+        Object v = map.get(longKey);
+        return v != null ? v : map.get(shortKey);
+    }
+
+    private static String text(Map<?, ?> map, String longKey, String shortKey) {
+        return value(map, longKey, shortKey) instanceof String s ? s : "";
+    }
+
+    private static String firstText(Map<?, ?> map, String longKey, String shortKey) {
+        return text(map, longKey, shortKey).trim();
     }
 
     /** 逐首验证（4 路分块提交到共享搜索池）：返回真实命中的歌曲，顺序与候选一致。 */

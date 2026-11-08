@@ -73,11 +73,11 @@ public class AiRecommendService {
                               ThreadPoolTaskExecutor searchExecutor,
                               AssistantClient assistantClient,
                               @Value("${recommend.ai.enabled:true}") boolean enabled,
-                              @Value("${recommend.ai.daily-limit:10}") int dailyLimit,
+                              @Value("${recommend.ai.daily-limit:20}") int dailyLimit,
                               @Value("${recommend.ai.candidates:12}") int candidates,
                               @Value("${recommend.ai.min-resolved:6}") int minResolved,
-                              @Value("${recommend.ai.history-sample:20}") int historySample,
-                              @Value("${recommend.ai.favorite-sample:10}") int favoriteSample) {
+                              @Value("${recommend.ai.history-sample:12}") int historySample,
+                              @Value("${recommend.ai.favorite-sample:6}") int favoriteSample) {
         this.playHistoryMapper = playHistoryMapper;
         this.userFavoriteMapper = userFavoriteMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -190,25 +190,44 @@ public class AiRecommendService {
         return page == null || page.getRecords() == null ? List.of() : page.getRecords();
     }
 
+    /**
+     * 组提示词（2026-11-07 压缩版）：只保留模型真正需要的信号，全程中文短句。
+     *
+     * <p>省 token 的三处：① 删掉「输出要求」四条编号规则，合并成一行；
+     * ② 只用「歌 - 歌手」列表，重复条目去重；③ 输出契约用短键（r/s/n/a），
+     * 解析侧兼容长短两套键（见 {@link AiRecommendVerifier#parse}）。
+     */
     private String buildPrompt(List<PlayHistory> history, List<UserFavorite> favorites) {
         StringBuilder sb = new StringBuilder();
-        sb.append("根据下面的听歌画像，推荐 ").append(candidates).append(" 首真实存在的主流歌曲。\n\n")
-          .append("【最近已听】（不要推荐这些歌）\n");
-        for (PlayHistory h : history) {
-            sb.append("- ").append(nullSafe(h.getSongName())).append(" - ").append(nullSafe(h.getArtist())).append('\n');
+        sb.append("推荐 ").append(candidates).append(" 首真实存在的主流歌曲，风格参考下面画像，不要重复「已听」里的歌。\n");
+        sb.append("已听：\n");
+        appendTrackLines(sb, history.stream()
+                .map(h -> trackLine(h.getSongName(), h.getArtist()))
+                .toList());
+        List<String> favLines = favorites.stream()
+                .map(f -> trackLine(f.getSongName(), f.getArtist()))
+                .filter(l -> !l.isEmpty())
+                .distinct()
+                .limit(favoriteSample)
+                .toList();
+        if (!favLines.isEmpty()) {
+            sb.append("收藏：\n");
+            appendTrackLines(sb, favLines);
         }
-        if (!favorites.isEmpty()) {
-            sb.append("\n【收藏】\n");
-            for (UserFavorite f : favorites) {
-                sb.append("- ").append(nullSafe(f.getSongName())).append(" - ").append(nullSafe(f.getArtist())).append('\n');
-            }
-        }
-        sb.append("\n【输出要求】\n")
-          .append("1. 只输出一个 JSON 对象，不要解释、不要 Markdown 代码块。\n")
-          .append("2. 格式：{\"reason\":\"一句话推荐理由（30字内，中文）\",\"songs\":[{\"name\":\"歌名\",\"artist\":\"歌手\"}]}\n")
-          .append("3. songs 恰好 ").append(candidates).append(" 条，条目不重复，歌名与歌手必须真实且能搜到。\n")
-          .append("4. 不要推荐「最近已听」列表里的歌曲，也不要编造歌名或歌手。\n");
+        sb.append("\n只输出 JSON：{\"r\":\"30字内中文理由\",\"s\":[{\"n\":\"歌名\",\"a\":\"歌手\"}]}，")
+          .append("s 恰好 ").append(candidates).append(" 条、不重复、歌名与歌手必须真实可搜到；不要解释、不要 Markdown。");
         return sb.toString();
+    }
+
+    private static String trackLine(String name, String artist) {
+        String n = nullSafe(name).trim();
+        if (n.isEmpty()) return "";
+        String a = nullSafe(artist).trim();
+        return a.isEmpty() ? n : n + " - " + a;
+    }
+
+    private static void appendTrackLines(StringBuilder sb, List<String> lines) {
+        lines.stream().filter(l -> !l.isEmpty()).distinct().forEach(l -> sb.append("- ").append(l).append('\n'));
     }
 
     private String callModel(String prompt) {

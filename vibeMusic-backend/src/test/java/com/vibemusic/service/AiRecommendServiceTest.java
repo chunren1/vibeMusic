@@ -205,6 +205,48 @@ class AiRecommendServiceTest {
         }
 
         @Test
+        @DisplayName("短键 JSON（r/s/n/a）也能解析")
+        void shouldParseShortKeyJson() {
+            StringBuilder sb = new StringBuilder("{\"r\":\"紧凑理由\",\"s\":[");
+            for (int i = 0; i < 6; i++) {
+                if (i > 0) sb.append(',');
+                sb.append("{\"n\":\"歌曲").append(i).append("\",\"a\":\"歌手").append(i).append("\"}");
+            }
+            sb.append("]}");
+            stubLlm(sb.toString());
+            for (int i = 0; i < 6; i++) stubSearchHit(i);
+
+            RecommendResult result = service.getAiRecommend(USER_ID, false);
+
+            assertEquals(6, result.getSongs().size());
+            assertEquals("紧凑理由", result.getReason());
+        }
+
+        @Test
+        @DisplayName("提示词体积受控：短键契约 + 历史去重 + 无旧四条规则")
+        void shouldBuildCompactPrompt() {
+            when(playHistoryMapper.selectPage(any(), any())).thenReturn(page(List.of(
+                    history("s1", "晴天", "周杰伦"),
+                    history("s2", "晴天", "周杰伦"),
+                    history("s3", "江南", "林俊杰"))));
+            when(userFavoriteMapper.selectPage(any(), any())).thenReturn(page(List.of()));
+            stubLlm(llmJson("理由", 0, 6));
+            for (int i = 0; i < 6; i++) stubSearchHit(i);
+
+            service.getAiRecommend(USER_ID, true);
+
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<List<java.util.Map<String, Object>>> captor = ArgumentCaptor.forClass(List.class);
+            verify(assistantClient).callLLM(captor.capture(), any(AiCallBudget.class));
+            String prompt = captor.getValue().toString();
+
+            assertTrue(prompt.contains("\"r\""), "必须使用短键输出契约");
+            assertTrue(prompt.contains("\"n\""), "必须使用短键输出契约");
+            assertFalse(prompt.contains("输出要求"), "旧的四条编号规则应已删除");
+            assertEquals(1, prompt.split("晴天 - 周杰伦", -1).length - 1, "历史里的重复曲目应去重");
+        }
+
+        @Test
         @DisplayName("```json 围栏 + 前后废话仍能解析")
         void shouldParseFencedJsonWithChatter() {
             stubLlm("好的，以下是推荐：\n```json\n" + llmJson("适合深夜", 0, 6) + "\n```\n希望你喜欢");

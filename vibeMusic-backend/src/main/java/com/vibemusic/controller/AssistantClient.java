@@ -124,6 +124,7 @@ public class AssistantClient {
             Map<String, Object> body = response.getBody();
             if (body == null) return Map.of();
 
+            logUsage(body);
             List<Map<String, Object>> choices = (List<Map<String, Object>>) body.get("choices");
             if (choices == null || choices.isEmpty()) return Map.of();
 
@@ -132,6 +133,17 @@ public class AssistantClient {
             log.error("LLM 调用失败: {}", e.getMessage());
             throw new RuntimeException("AI 调用失败", e);
         }
+    }
+
+    /**
+     * 打印一次调用的 token 用量（DeepSeek 兼容格式 {@code usage.{prompt,completion,total}_tokens}）。
+     * <p>只读日志、不改行为：AI 推荐与助手共用本条链路，用来核对「提示词压缩」到底省了多少。
+     */
+    private void logUsage(Map<String, Object> body) {
+        Object usage = body.get("usage");
+        if (!(usage instanceof Map<?, ?> map)) return;
+        log.info("[AI 用量] prompt={}, completion={}, total={}",
+                map.get("prompt_tokens"), map.get("completion_tokens"), map.get("total_tokens"));
     }
 
     /**
