@@ -120,8 +120,11 @@ class SongPlayVipBlockFailoverTest {
                 .thenAnswer(inv -> firstCall.getAndSet(false) ? vipBlockedPreview() : fullPlayable());
         when(neteaseApiService.rotateSharedCookie(true)).thenReturn(true);
         when(neteaseApiService.getQQSongUrl(anyString())).thenReturn(Map.of("data", List.of()));
+        // 歌名/歌手必须带上：降级链统一走 SongMatcher.findBestMatch 校验，
+        // 只有 id 的残缺结果会被判为"不是同一首歌"而丢弃。
         when(neteaseApiService.searchNetease(anyString(), anyInt()))
-                .thenReturn(Map.of("data", List.of(Map.of("id", NET_BLOCKED_ID, "duration", 240000))));
+                .thenReturn(Map.of("data", List.of(Map.of(
+                        "id", NET_BLOCKED_ID, "name", "失眠", "artists", "歌手", "duration", 240000))));
 
         String url = songPlayService.getPlayUrl("001Qu4I30eVFYb", "失眠", "歌手", "qq");
 
