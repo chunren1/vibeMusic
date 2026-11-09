@@ -83,6 +83,8 @@ Thumbs.db
 # 例外：云上 cron 的纳管副本必须入库（reconcile-cloud.sh 要拿它做对账基准；
 # 不入库则新克隆的仓库没有基准，对账会把「仅云上有」当成静默通过）
 !deploy/production/crontab.txt
+# 例外：体量守卫的白名单必须入库（CI 的 size-guard job 要读它，缺失会把存量全判成新增）
+!scripts/file-size-baseline.txt
 
 # 大文件 / 二进制工具 / 隧道凭据
 .cloudflared/

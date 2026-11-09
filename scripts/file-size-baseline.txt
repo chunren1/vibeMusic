@@ -1,0 +1,23 @@
+# 纯 LOC 白名单（scripts/check-file-size.sh 维护，勿手改）。
+# 格式：<纯 LOC> <相对仓库根的路径>
+# 规则：不得超过记录值；硬上限见脚本 MAX_PURE_LOC。
+796 vibemusic-web/src/views/HomeView.vue
+774 vibemusic-web/src/components/LyricsView.vue
+512 vibeMusic-backend/src/main/java/com/vibemusic/service/SongSearchService.java
+509 vibemusic-web/src/views/PlaylistDetailView.vue
+441 vibemusic-web/src/stores/player.js
+410 vibemusic-web/src/components/PlayerBar.vue
+406 vibemusic-web/src/views/mobile/MPlayerView.vue
+397 vibemusic-web/src/views/ProfileView.vue
+386 vibemusic-web/src/composables/useAudioBackground.js
+383 vibemusic-web/src/components/LoginModal.vue
+342 vibemusic-web/src/api/__tests__/request.test.js
+321 vibemusic-web/src/views/mobile/MHomeView.vue
+316 vibeMusic-backend/src/main/java/com/vibemusic/service/PlaylistService.java
+316 vibemusic-web/src/views/PlaylistsView.vue
+312 vibemusic-web/src/stores/__tests__/player.test.js
+307 vibeMusic-backend/src/main/java/com/vibemusic/service/NeteaseApiService.java
+297 vibemusic-web/src/views/PlaylistView.vue
+292 vibemusic-web/src/stores/__tests__/auth.test.js
+289 vibemusic-web/src/views/ChatView.vue
+259 vibeMusic-backend/src/main/java/com/vibemusic/controller/AuthController.java
