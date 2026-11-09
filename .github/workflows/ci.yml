@@ -387,6 +387,18 @@ jobs:
           retention-days: 7
 
   # ---- Job 4: infra-lint (the ONLY `docker compose config` in CI) ----
+  # ---- 单文件体量守卫（跨语言）：新增文件 400 硬上限 + 存量棘轮 ----
+  # 与 AGENTS.md 的规模条款一一对应：250 以上提醒、400 以上新增文件直接失败、
+  # 白名单存量不得增长。约 10 秒，单独成 job 是为了失败时一眼看出是体量问题。
+  size-guard:
+    name: 单文件体量守卫
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check pure LOC
+        run: bash scripts/check-file-size.sh
+
   infra-lint:
     name: Infra (compose + otel)
     runs-on: ubuntu-latest
