@@ -234,6 +234,8 @@ public class AssistantController {
             result.put("model", aiModel);
             result.put("songs", songs);
             result.put("toolCalls", toolResults.size());
+            // 结构化操作结果：前端据此渲染结果卡并失效本地缓存，不依赖模型的自述
+            result.put("actions", assistantClient.extractActions(toolResults));
             return Result.ok(result);
         } catch (Exception e) {
             log.error("AI 对话失败", e);
@@ -251,6 +253,7 @@ public class AssistantController {
         result.put("model", aiModel);
         result.put("songs", assistantClient.extractSongsFromToolResults(toolResults));
         result.put("toolCalls", toolResults.size());
+        result.put("actions", assistantClient.extractActions(toolResults));
         return result;
     }
 

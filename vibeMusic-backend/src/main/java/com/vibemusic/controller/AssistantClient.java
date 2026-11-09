@@ -169,6 +169,48 @@ public class AssistantClient {
     private static final int MAX_SONG_CARDS = 12;
 
     /**
+     * 把歌单类工具的结构化结果转成前端可直接渲染的「操作结果」。
+     *
+     * <p>为什么必须由后端给出、而不是只让 LLM 说：模型会把工具返回的
+     * `{"error":"未登录"}` 忽略掉，照样回一句「歌单建好了」。前端拿到这份
+     * 结构化结果就能自己判断成功与否，不必信任模型的说法。
+     *
+     * <p>只收「写」类工具（create_playlist / add_to_playlist）；搜索类不产生副作用，
+     * 不需要结果卡。
+     */
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> extractActions(List<Map<String, Object>> toolResults) {
+        List<Map<String, Object>> actions = new ArrayList<>();
+        for (Map<String, Object> tr : toolResults) {
+            String tool = String.valueOf(tr.get("name"));
+            if (!"create_playlist".equals(tool) && !"add_to_playlist".equals(tool)) continue;
+            try {
+                Map<String, Object> r = objectMapper.readValue((String) tr.get("result"), Map.class);
+                Map<String, Object> a = new LinkedHashMap<>();
+                a.put("tool", tool);
+                Object error = r.get("error");
+                if (error != null) {
+                    a.put("ok", false);
+                    a.put("error", String.valueOf(error));
+                } else {
+                    a.put("ok", true);
+                    a.put("playlistId", r.get("playlistId"));
+                    a.put("playlistName", r.containsKey("name") ? r.get("name") : r.get("playlistName"));
+                    a.put("added", r.getOrDefault("added", 0));
+                    Object failed = r.get("failed");
+                    if (failed instanceof List<?> list && !list.isEmpty()) {
+                        a.put("failedCount", list.size());
+                    }
+                }
+                actions.add(a);
+            } catch (Exception e) {
+                log.warn("解析歌单工具结果失败: {}", e.getMessage());
+            }
+        }
+        return actions;
+    }
+
+    /**
      * 从工具调用结果中提取歌曲列表。
      *
      * <p>按 {@code platform:sourceId} 去重：LLM 一轮对话里可能调两次 search_songs，
