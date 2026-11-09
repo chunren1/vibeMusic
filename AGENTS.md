@@ -1,8 +1,7 @@
 # PROJECT KNOWLEDGE BASE — vibeMusic
 
-**Generated:** 2026-08-13
-**Commit:** 4cb1ef2
-**Branch:** main
+> 本文件写架构与协作约定，**不记录版本号 / 文件数 / 用例数**——这类快照必然滞后，
+> 且会让下一个人把过期数字当事实。需要现状时以 `git log`、`README.md`、CI 输出为准。
 
 ## OVERVIEW
 自建全栈音乐平台：网易云 + QQ 双源聚合搜索、AI Function Calling Agent、Redis→API→兜底缓存降级、Docker 编排、Prometheus 可观测。三子项目 + 根编排：`vibemusic-web`（Vue3）、`vibeMusic-backend`（Spring Boot 4）、`musicapi`（Express BFF）。
@@ -40,7 +39,7 @@ vibeMusic/
 | 前端页面/store/api | `vibemusic-web/src/` | 见子 AGENTS.md |
 | BFF 网关/聚合搜索/Cookie | `musicapi/src/`（路由 routes.js） | 配置注入见 `src/config-loader.js` |
 | 运维脚本 | `scripts/` | 见子 AGENTS.md |
-| 容器编排 | `docker-compose.yml` | **12 services** |
+| 容器编排 | `docker-compose.yml` | 服务数以 `docker compose config --services` 为准（本文不写死） |
 | 生产反代/SSL | `nginx/nginx.conf` | `/api/`→backend:8080 |
 | 架构说明/功能指标 | `README.md` | 数字以 README 为准 |
 
@@ -56,7 +55,10 @@ vibeMusic/
 | `player store` | store | web/src/stores/player.js | 全局单例 Audio + `window.*` 兼容 |
 
 ## CONVENTIONS（跨项目，只列偏离标准处）
-- **规模硬约束：单文件 ≤250 纯 LOC**（非空非注释行）；超出即拆分（按屏/按职责拆，见后端 AGENTS.md 的拆分先例）。
+- **规模**：**新增文件**纯 LOC（非空非注释）硬上限 400；**存量文件**不因日常改动被拦，每季度专项拆分一次并下调基线。
+  行数是**烟感器，不是设计原则**——它只用来发现「一个文件有多个变更理由」，不用来逼人拆小文件。
+  拆分必须搬走完整概念；**禁止为凑行数把不相干代码塞进邻近文件**（2026-11-09 踩过：把空态塞进输入区文件，用户明确纠正）。
+  主仓暂无 `check-file-size.sh`（靠 review 把关），口径以 App 仓同名脚本为准：400 硬上限 / 250 警告 / 存量棘轮。
 - **禁 `any`（Java 禁裸泛型）/禁空 catch**：catch 必须打日志或给可观察信号。
 - **测试纪律**：禁止删除或弱化测试冒充通过；修复类改动必须落在生产调用路径上（改完 grep 调用方确认）。
 - **UI 约束**：保留访客模式与深色主题；UI 改动前读 `DESIGN.md`。
@@ -68,7 +70,7 @@ vibeMusic/
 - **前端纯 JS，有 eslint / Vitest / vue-tsc 类型检查门禁（不做 TS 迁移）**：`jsconfig.json` 仅提供 `@/*` 别名。
 
 ## ANTI-PATTERNS (THIS PROJECT)
-- **容器数量别信旧文档**：实际 compose 定义 **12 services**（`docker-compose.full.yml` 为含 OTel 的可选变体）。
+- **容器数量别信任何文档（包括这一份）**：一律 `docker compose config --services | wc -l` 现查（2026-11-10 实测 13 个，写死过一次 12 就错了一版）。`docker-compose.full.yml` 是含 OTel 的可选变体。
 - **`mvn verify`（非 `mvn test`）才触发 JaCoCo 60% 覆盖率门禁**。
 - **不要新增 `t:0` QQ 参数**：当前用经典 `client_search_cp` 端点（CLAUDE.md 该备注已过时）。
 - **`PlayHistory.playedAt` 无 `FieldStrategy.NEVER`**：靠 MetaObjectHandler 填充，勿按 CLAUDE.md 旧备注"修复"成 NEVER（会改坏）。
