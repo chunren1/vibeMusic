@@ -369,6 +369,11 @@ jobs:
           REDIS_PORT: 6379
           JWT_SECRET: ci-test-secret-key-32bytes-long!
           COOKIE_ENC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          # 注册限额在测试环境必须放宽：api-test 的 auth_client fixture 是 function scope，
+          # 每个用例注册一个新账号，单次 CI 就会超过生产默认值 3 次/天 → 全用例 429
+          # （2026-11-10 实际踩到：5 个用例全红，报「该网络今日注册次数已达上限」）。
+          # 生产仍是默认 3；这里只覆盖 CI 里这个隔离后端。
+          AUTH_REGISTER_DAILY_LIMIT_PER_IP: 200
 
       - name: Run pytest smoke
         run: |
