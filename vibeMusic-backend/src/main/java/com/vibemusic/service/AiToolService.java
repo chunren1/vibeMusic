@@ -146,6 +146,9 @@ public class AiToolService {
     private String executeSearchSongs(Map<String, Object> args) throws Exception {
         String keyword = (String) args.getOrDefault("keyword", "热门歌曲");
         int limit = args.get("limit") instanceof Number n ? n.intValue() : 6;
+        // LLM 可能把 limit 传成 50：上游搜索配额与回传 token 都会被打爆，
+        // 钳到 1..10（与 get_user_history 的 Math.min 口径一致）。
+        limit = Math.max(1, Math.min(limit, 10));
 
         List<SongDTO> results = songSearchService.search(keyword, 1, limit).getList();
         List<Map<String, Object>> simplified = results.stream().map(s -> {
@@ -154,6 +157,11 @@ public class AiToolService {
             m.put("artist", s.getArtist() != null ? s.getArtist() : "");
             m.put("sourceId", s.getSourceId());
             m.put("platform", s.getPlatform() != null ? s.getPlatform() : "");
+            // 封面/专辑/时长：LLM 用不到，但 extractSongsFromToolResults 要从这份 JSON 里
+            // 还原前端卡片；缺了 coverUrl 就只能画默认封面。
+            m.put("coverUrl", s.getCoverUrl() != null ? s.getCoverUrl() : "");
+            m.put("album", s.getAlbum() != null ? s.getAlbum() : "");
+            m.put("duration", s.getDuration() != null ? s.getDuration() : 0);
             return m;
         }).collect(Collectors.toList());
 

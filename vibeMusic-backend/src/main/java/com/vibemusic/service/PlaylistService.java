@@ -2,6 +2,7 @@ package com.vibemusic.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.vibemusic.common.exception.BusinessException;
+import com.vibemusic.common.utils.SongIdUtils;
 import com.vibemusic.entity.Playlist;
 import com.vibemusic.entity.PlaylistSong;
 import com.vibemusic.mapper.PlaylistMapper;
@@ -232,6 +233,17 @@ public class PlaylistService {
     }
 
     /**
+     * 平台解析：显式值优先，缺失时按 ID 形态推断。
+     *
+     * <p>旧实现一律兜底 {@code netease}，于是 QQ / 酷狗 / B站 的老数据被当成网易云
+     * 去取链——轻则播放失败，重则按同名匹配到另一首歌。
+     */
+    private static String resolvePlatform(String platform, String sourceId) {
+        if (platform != null && !platform.isBlank()) return platform.trim();
+        return SongIdUtils.guessPlatform(sourceId);
+    }
+
+    /**
      * 单行映射（null-guard）：缺字段给默认值；无有效 sourceId 的行返回 null（调用方跳过）。
      */
     private static Map<String, Object> toSongMap(PlaylistSong s) {
@@ -242,7 +254,7 @@ public class PlaylistService {
         String songName = s.getSongName() != null ? s.getSongName() : "";
         m.put("name", songName);
         m.put("songName", songName);
-        m.put("platform", s.getPlatform() != null && !s.getPlatform().isBlank() ? s.getPlatform() : "netease");
+        m.put("platform", resolvePlatform(s.getPlatform(), s.getSourceId()));
         m.put("artist", s.getArtist() != null ? s.getArtist() : "");
         // 升级 HTTP → HTTPS，防止手机通过 HTTPS 隧道时混合内容被浏览器拦截
         String cover = s.getCoverUrl();

@@ -144,7 +144,7 @@ class CrossPlatformFailover {
     private String tryPlatform(String platform, String songName, String artist, String keyword) {
         List<Map<String, Object>> candidates = extractData(search(platform, keyword));
         if (candidates.isEmpty()) return null;
-        // tie-break：复用既有 SongMatcher（token 重叠率 + 歌名首字加权，全低分时退回上游第一条），
+        // tie-break：复用既有 SongMatcher（token 重叠率 + 歌名首字加权，歌名对不上即淘汰），
         // 与网易→QQ 降级链保持同一套「像不像同一首歌」的判定，不另起一套。
         Map<String, Object> best = SongMatcher.findBestMatch(candidates, songName, artist);
         if (best == null) return null;

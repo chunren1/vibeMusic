@@ -16,8 +16,11 @@ import org.springframework.web.client.RestTemplate;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * AI 上游调用层（从 AssistantController 抽出，行为不变）：同步 Function Calling 调用、
@@ -162,30 +165,42 @@ public class AssistantClient {
         return new RestTemplate(perCall);
     }
 
+    /** 单次对话最多回传多少张歌曲卡片：多轮 search_songs 能堆到几十首，前端一屏放不下。 */
+    private static final int MAX_SONG_CARDS = 12;
+
     /**
-     * 从工具调用结果中提取歌曲列表
+     * 从工具调用结果中提取歌曲列表。
+     *
+     * <p>按 {@code platform:sourceId} 去重：LLM 一轮对话里可能调两次 search_songs，
+     * 同一首歌会被两条工具结果同时命中，不去重就会在消息里出现两张一模一样的卡片。
      */
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> extractSongsFromToolResults(List<Map<String, Object>> toolResults) {
         List<Map<String, Object>> songs = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (Map<String, Object> tr : toolResults) {
-            if ("search_songs".equals(tr.get("name"))) {
-                try {
-                    Map<String, Object> result = objectMapper.readValue((String) tr.get("result"), Map.class);
-                    List<Map<String, Object>> songList = (List<Map<String, Object>>) result.get("songs");
-                    if (songList != null) {
-                        for (Map<String, Object> s : songList) {
-                            Map<String, Object> card = new HashMap<>();
-                            card.put("sourceId", s.get("sourceId"));
-                            card.put("name", s.get("name"));
-                            card.put("artist", s.getOrDefault("artist", ""));
-                            card.put("platform", s.getOrDefault("platform", ""));
-                            songs.add(card);
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("解析歌曲工具结果失败: {}", e.getMessage());
+            if (!"search_songs".equals(tr.get("name")) || songs.size() >= MAX_SONG_CARDS) continue;
+            try {
+                Map<String, Object> result = objectMapper.readValue((String) tr.get("result"), Map.class);
+                List<Map<String, Object>> songList = (List<Map<String, Object>>) result.get("songs");
+                if (songList == null) continue;
+                for (Map<String, Object> s : songList) {
+                    if (songs.size() >= MAX_SONG_CARDS) break;
+                    String key = s.get("platform") + ":" + s.get("sourceId");
+                    if (!seen.add(key)) continue;
+                    Map<String, Object> card = new LinkedHashMap<>();
+                    card.put("sourceId", s.get("sourceId"));
+                    card.put("name", s.get("name"));
+                    card.put("artist", s.getOrDefault("artist", ""));
+                    card.put("platform", s.getOrDefault("platform", ""));
+                    // 透传封面等展示字段：缺 coverUrl 时 App 只能渲染默认封面
+                    card.put("coverUrl", s.getOrDefault("coverUrl", ""));
+                    card.put("album", s.getOrDefault("album", ""));
+                    card.put("duration", s.getOrDefault("duration", 0));
+                    songs.add(card);
                 }
+            } catch (Exception e) {
+                log.warn("解析歌曲工具结果失败: {}", e.getMessage());
             }
         }
         return songs;

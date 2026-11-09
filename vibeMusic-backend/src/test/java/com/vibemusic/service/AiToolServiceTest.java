@@ -117,10 +117,12 @@ class AiToolServiceTest {
     // ---------- search_songs ----------
 
     @Test
-    @DisplayName("search_songs 正常：透传 keyword/limit，返回 name/artist/sourceId/platform 四字段")
+    @DisplayName("search_songs 正常：核心四字段 + 封面/专辑/时长透传")
     void shouldReturnSimplifiedSongShape() throws Exception {
         when(songSearchService.search("周杰伦", 1, 3)).thenReturn(SearchResult.of(List.of(
-                SongDTO.builder().name("夜曲").artist("周杰伦").sourceId("186016").platform("netease").build()
+                SongDTO.builder().name("夜曲").artist("周杰伦").sourceId("186016").platform("netease")
+                        .coverUrl("https://p2.music.126.net/x.jpg").album("十一月的萧邦").duration(226000)
+                        .build()
         ), 1, 1, 3, "api"));
 
         JsonNode json = json(service.executeTool("search_songs", "{\"keyword\":\"周杰伦\",\"limit\":3}"));
@@ -131,8 +133,13 @@ class AiToolServiceTest {
         assertThat(song.get("artist").asText()).isEqualTo("周杰伦");
         assertThat(song.get("sourceId").asText()).isEqualTo("186016");
         assertThat(song.get("platform").asText()).isEqualTo("netease");
+        // 封面/专辑/时长必须透传：App 靠这份 JSON 还原歌曲卡片，缺 coverUrl 只能画默认封面
+        assertThat(song.get("coverUrl").asText()).isEqualTo("https://p2.music.126.net/x.jpg");
+        assertThat(song.get("album").asText()).isEqualTo("十一月的萧邦");
+        assertThat(song.get("duration").asInt()).isEqualTo(226000);
         // 字段顺序固定（LinkedHashMap），LLM 侧看到的形状稳定
-        assertThat(fieldNames(song)).containsExactly("name", "artist", "sourceId", "platform");
+        assertThat(fieldNames(song)).containsExactly(
+                "name", "artist", "sourceId", "platform", "coverUrl", "album", "duration");
         verify(songSearchService).search("周杰伦", 1, 3);
     }
 

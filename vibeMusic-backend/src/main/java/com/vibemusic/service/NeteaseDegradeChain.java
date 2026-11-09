@@ -121,9 +121,16 @@ class NeteaseDegradeChain {
             if (result == null) return null;
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null || data.isEmpty()) return null;
-            String neteaseId = data.get(0).get("id") != null ? String.valueOf(data.get(0).get("id")) : null;
+            // 与 QQ 降级对齐：先挑最像的一条，绝不盲取 data.get(0)。
+            // 曾因这里直接取第一条，导致「点歌 404 → 换源」时播成了同名/同歌手的另一首。
+            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist);
+            if (best == null) {
+                log.info("网易云降级: '{}' 无匹配歌曲，放弃换源", ClientErrorScrubber.scrub(keyword));
+                return null;
+            }
+            String neteaseId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
             if (neteaseId == null) return null;
-            Object durObj = data.get(0).get("duration");
+            Object durObj = best.get("duration");
             if (durObj instanceof Number && ((Number) durObj).intValue() > 0 && ((Number) durObj).intValue() <= NeteaseUrlProbe.TRIAL_DURATION_MS) {
                 log.info("网易云降级: {} 也只有试听版，跳过", ClientErrorScrubber.scrub(keyword));
                 return null;

@@ -37,6 +37,12 @@ public class AiPlaylistTools {
     /** 每首歌取前几条结果，取第一条即可（再多只是浪费上游配额）。 */
     private static final int SEARCH_LIMIT = 3;
 
+    /**
+     * 建歌单的软预算：留 5s 余量给 LLM 收尾，别让 {@link AiToolCallGuard} 在 20s 处
+     * 硬中断——硬中断时歌单已建、歌加了一半，用户看到「超时」却不知道加进去了几首。
+     */
+    private static final long PLAYLIST_SOFT_BUDGET_MS = 15_000L;
+
     private final PlaylistService playlistService;
     private final SongSearchService songSearchService;
     private final ObjectMapper objectMapper;
@@ -205,9 +211,17 @@ public class AiPlaylistTools {
         Long playlistId = asLong(created.get("id"));
         String playlistName = Objects.toString(created.get("name"), name);
 
+        long deadline = System.currentTimeMillis() + PLAYLIST_SOFT_BUDGET_MS;
         int added = 0;
+        boolean timedOut = false;
         List<String> failed = new ArrayList<>();
         for (String item : requested) {
+            if (System.currentTimeMillis() > deadline) {
+                // 预算用尽：如实标记为未处理，让 LLM 告诉用户哪几首没加
+                timedOut = true;
+                failed.add(item);
+                continue;
+            }
             // 单首失败（搜不到 / 加歌异常）只记入 failed，绝不让整次调用失败
             try {
                 SongDTO song = searchFirst(item, "");
@@ -231,6 +245,10 @@ public class AiPlaylistTools {
         out.put("name", playlistName);
         out.put("added", added);
         out.put("failed", failed);
+        if (timedOut) {
+            out.put("timedOut", true);
+            out.put("message", "时间预算用尽，failed 里的歌未处理，可再发一次只补这些");
+        }
         return objectMapper.writeValueAsString(out);
     }
 
