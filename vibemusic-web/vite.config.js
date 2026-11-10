@@ -4,7 +4,6 @@ import vue from '@vitejs/plugin-vue'
 import compression from 'vite-plugin-compression'
 import { VitePWA } from 'vite-plugin-pwa'
 import { execSync } from 'node:child_process'
-import { join } from 'node:path'
 
 
 // 构建版本号：优先 CI 的 GITHUB_SHA（短 sha），其次本地 git short sha，取不到兜底 'dev'
