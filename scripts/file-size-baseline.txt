@@ -3,7 +3,7 @@
 # 规则：不得超过记录值；硬上限见脚本 MAX_PURE_LOC。
 796 vibemusic-web/src/views/HomeView.vue
 774 vibemusic-web/src/components/LyricsView.vue
-512 vibeMusic-backend/src/main/java/com/vibemusic/service/SongSearchService.java
+522 vibeMusic-backend/src/main/java/com/vibemusic/service/SongSearchService.java
 509 vibemusic-web/src/views/PlaylistDetailView.vue
 441 vibemusic-web/src/stores/player.js
 410 vibemusic-web/src/components/PlayerBar.vue

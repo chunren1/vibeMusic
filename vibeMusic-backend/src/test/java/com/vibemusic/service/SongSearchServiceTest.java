@@ -709,11 +709,13 @@ class SongSearchServiceTest {
 
             org.mockito.ArgumentCaptor<String> keywordCaptor =
                     org.mockito.ArgumentCaptor.forClass(String.class);
-            verify(spySvc, times(calls)).search(keywordCaptor.capture(), eq(1), eq(30), isNull());
+            // 上游返回空时 getRandomSongs 会换关键词补位（最多 3 轮），所以次数是 calls 的 1~3 倍；
+            // 本用例只关心「关键词来自随机池」，不锁死单轮次数。
+            verify(spySvc, atLeast(calls)).search(keywordCaptor.capture(), eq(1), eq(30), isNull());
             List<String> pool = List.of("热歌", "新歌", "流行", "华语", "民谣",
                     "摇滚", "电子", "轻音乐", "经典", "影视原声");
             List<String> used = keywordCaptor.getAllValues();
-            assertEquals(calls, used.size());
+            assertTrue(used.size() >= calls, "每个调用至少搜一次，实际=" + used.size());
             for (String kw : used) {
                 assertTrue(pool.contains(kw), "搜索关键词应在随机池内，实际=" + kw);
             }

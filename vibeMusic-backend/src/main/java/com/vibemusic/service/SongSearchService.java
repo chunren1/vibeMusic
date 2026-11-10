@@ -644,20 +644,26 @@ public class SongSearchService {
 
     public List<SongDTO> getRandomSongs(int count) {
         count = Math.max(1, Math.min(count, MAX_RANDOM_COUNT));
-        List<SongDTO> songs;
-        try {
-            // 每次随机挑一个关键词，单次上游搜索，多次调用自然覆盖更大曲库。
-            String keyword = RANDOM_KEYWORDS.get(ThreadLocalRandom.current().nextInt(RANDOM_KEYWORDS.size()));
-            songs = new ArrayList<>(search(keyword, 1, 30, null).getList());
-        } catch (Exception e) {
-            log.warn("[RANDOM] 搜索随机关键词失败，降级到 DB 随机: {}", e.getMessage(), e);
-            songs = new ArrayList<>();
+        List<SongDTO> songs = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+        Set<String> tried = new HashSet<>();
+        // 门槛过滤后单轮常凑不满 count（song 表为空，DB 补不了位），换关键词再搜：
+        // 每轮 30 首候选、可用率约六七成，两轮基本够，最多三轮。
+        // 首页「随便听听」是五平台聚合搜索，B 站视频/歌单音频与合集类标题会混进来，
+        // 门槛见 RecommendSingleFilter。
+        for (int round = 0; round < 3 && songs.size() < count && tried.size() < RANDOM_KEYWORDS.size(); round++) {
+            String keyword = pickUntriedKeyword(tried);
+            tried.add(keyword);
+            try {
+                for (SongDTO s : search(keyword, 1, 30, null).getList()) {
+                    if (RecommendSingleFilter.isSingle(s) && seenIds.add(s.getSourceId())) {
+                        songs.add(s);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[RANDOM] 关键词 {} 搜索失败: {}", keyword, e.getMessage());
+            }
         }
-        // 首页「随便听听」是五平台聚合搜索，B 站视频/歌单音频会混进来；
-        // 合集类标题也不该占推荐位。门槛见 RecommendSingleFilter。
-        songs = songs.stream()
-                .filter(RecommendSingleFilter::isSingle)
-                .collect(Collectors.toList());
         Collections.shuffle(songs);
         if (songs.size() > count) return songs.subList(0, count);
         if (songs.size() < count) {
@@ -686,6 +692,14 @@ public class SongSearchService {
             songs.addAll(dbDtos);
         }
         return songs;
+    }
+
+    /** 从关键词池里挑一个本轮还没试过的词，保证多轮补位不会重复同一个。 */
+    private static String pickUntriedKeyword(Set<String> tried) {
+        List<String> pool = RANDOM_KEYWORDS.stream()
+                .filter(k -> !tried.contains(k))
+                .collect(Collectors.toList());
+        return pool.get(ThreadLocalRandom.current().nextInt(pool.size()));
     }
 
     // ==================== QQ 熔断器（状态机见 QqCircuitBreaker） ====================
