@@ -87,7 +87,8 @@ class AuthControllerUnitTest {
         SecurityContextHolder.clearContext();
         when(jwtUtils.generateAccessToken(anyString())).thenReturn("access-token");
         when(jwtUtils.generateRefreshToken(anyString())).thenReturn("refresh-token");
-        when(jwtUtils.getAccessExpiration()).thenReturn(900_000L);
+        // 与 application.yml 的 access-expiration 保持一致（2026-11-10 起为 2 小时）
+        when(jwtUtils.getAccessExpiration()).thenReturn(7_200_000L);
         when(jwtUtils.getRefreshExpiration()).thenReturn(604_800_000L);
     }
 

@@ -116,7 +116,11 @@ mybatis-plus:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-expiration: 900000        # 15 分钟
+  # 15 分钟 → 2 小时（2026-11-10）。App 冷启动若 token 已过期，首个业务请求要先走
+  # 401 → /api/auth/refresh → 重试 两次公网往返（线上实测 1~2s），首屏看着像卡住，
+  # 用户会误判成"加载失败"再进一次。2 小时覆盖日常使用间隔；refresh 仍 7 天、
+  # 登出即拉黑、登录有账号级锁定，窗口放长的风险可控。
+  access-expiration: 7200000
   refresh-expiration: 604800000    # 7 天
 
 ai:
