@@ -46,12 +46,25 @@ public class ChatMemoryService {
     }
 
     /**
+     * 是否「全缺身份回退出的共享缺省桶」（登录用户恒为 false）。
+     * <p>CWE-639 根治：共享桶无凭据可写、无归属，任何读写都等于把陌生人对话
+     * 暴露给彼此，也是存储式提示注入面。{@link #getHistory}、{@link #appendMessage}、
+     * {@link #clearHistory} 三个入口统一短路：读为空、写丢弃、清不动——
+     * 无凭据匿名请求退化为「每次全新会话」，共享记忆不存在。</p>
+     */
+    private static boolean isSharedFallback(Long userId, String anonymousId) {
+        return userId == null
+                && AnonymousIdentityUtils.FALLBACK.equals(AnonymousIdentityUtils.sanitize(anonymousId));
+    }
+
+    /**
      * 获取对话历史（匿名用户按设备标识隔离）
      * @param userId 用户 ID，null 表示匿名
      * @param anonymousId 匿名设备标识（已登录时忽略）
      * @return 消息列表（role + content），可能为空
      */
     public List<Map<String, String>> getHistory(Long userId, String anonymousId) {
+        if (isSharedFallback(userId, anonymousId)) return new ArrayList<>();
         String key = buildKey(userId, anonymousId);
         try {
             String json = stringRedisTemplate.opsForValue().get(key);
@@ -67,6 +80,7 @@ public class ChatMemoryService {
      * 追加一条消息到会话历史（匿名用户按设备标识隔离）
      */
     public void appendMessage(Long userId, String role, String content, String anonymousId) {
+        if (isSharedFallback(userId, anonymousId)) return; // 共享桶拒绝写入（丢弃，无记忆）
         String key = buildKey(userId, anonymousId);
         try {
             List<Map<String, String>> history = getHistory(userId, anonymousId);
@@ -87,6 +101,7 @@ public class ChatMemoryService {
      * 清除会话历史（匿名用户按设备标识隔离，只清自己的）
      */
     public void clearHistory(Long userId, String anonymousId) {
+        if (isSharedFallback(userId, anonymousId)) return; // 共享桶不可删（无归属数据）
         String key = buildKey(userId, anonymousId);
         try {
             stringRedisTemplate.delete(key);

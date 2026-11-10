@@ -93,11 +93,28 @@ class ChatMemoryServiceTest {
     }
 
     @Test
-    @DisplayName("缺省匿名标识应回退到 anon")
-    void shouldFallbackToAnon() {
+    @DisplayName("全缺身份应丢弃写入：共享 anon 桶不存在（CWE-639 根治）")
+    void shouldDiscardWritesForSharedFallback() {
         chatMemoryService.appendMessage(null, "user", "hi", null);
 
-        verify(valueOps).set(eq("chat:session:anon:anon"), anyString(), any(java.time.Duration.class));
+        verify(valueOps, never()).set(anyString(), anyString(), any(java.time.Duration.class));
+    }
+
+    @Test
+    @DisplayName("全缺身份读取应返回空且不触碰 Redis")
+    void shouldReturnEmptyForSharedFallbackRead() {
+        var history = chatMemoryService.getHistory(null, null);
+
+        assertTrue(history.isEmpty());
+        verify(valueOps, never()).get(anyString());
+    }
+
+    @Test
+    @DisplayName("全缺身份清除应无操作且不触碰 Redis")
+    void shouldNoOpForSharedFallbackClear() {
+        chatMemoryService.clearHistory(null, null);
+
+        verify(stringRedisTemplate, never()).delete(anyString());
     }
 
     @Test
