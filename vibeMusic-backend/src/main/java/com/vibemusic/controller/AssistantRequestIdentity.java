@@ -22,6 +22,10 @@ final class AssistantRequestIdentity {
      * 放宽到远高于单人配额，正常 NAT 出口用户不会触达。
      */
     static final int AI_IP_RATE_LIMIT = 30;
+    /**
+     * 历史读/清端点的单人配额：只读 Redis 无 LLM 外呼，放宽到对话配额的 3 倍。
+     */
+    static final int HISTORY_RATE_LIMIT = 30;
 
     /** 172.16.0.0/12（docker 网段） */
     private static final Pattern PRIVATE_172 = Pattern.compile("^172\\.(1[6-9]|2\\d|3[01])\\..*");

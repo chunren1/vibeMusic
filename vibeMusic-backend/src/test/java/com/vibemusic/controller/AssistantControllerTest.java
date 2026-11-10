@@ -237,18 +237,27 @@ class AssistantControllerTest {
         }
     }
 
-    @Nested @DisplayName("DELETE /api/assistant/history")
+    @Nested @DisplayName("GET/DELETE /api/assistant/history")
     class HistoryEndpointTest {
 
-        @Test @DisplayName("清除历史应返回 200")
-        void shouldClearHistory() throws Exception {
+        /** 历史端点限流放行（Mockito 对 boolean 默认返回 false，须显式放行）。 */
+        private void allowHistoryRate() {
+            when(rateLimitService.tryAcquire(anyString(), anyInt(), any(Duration.class))).thenReturn(true);
+        }
+
+        @Test @DisplayName("无凭据清除历史不应触碰共享 anon 桶（幂等成功但不删）")
+        void shouldNotClearSharedBucketWithoutCredentials() throws Exception {
+            allowHistoryRate();
+
             mockMvc.perform(delete("/api/assistant/history"))
                     .andExpect(status().isOk());
-            verify(chatMemoryService).clearHistory(isNull(), eq("anon"));
+            verify(chatMemoryService, never()).clearHistory(any(), any());
         }
 
         @Test @DisplayName("匿名清除历史应只清自己的设备桶")
         void shouldClearOwnAnonymousBucket() throws Exception {
+            allowHistoryRate();
+
             mockMvc.perform(delete("/api/assistant/history")
                             .header("X-Device-Id", "device-A"))
                     .andExpect(status().isOk());
@@ -257,6 +266,7 @@ class AssistantControllerTest {
 
         @Test @DisplayName("GET 历史应按设备桶返回消息（role+content）")
         void shouldReturnOwnHistory() throws Exception {
+            allowHistoryRate();
             when(chatMemoryService.getHistory(isNull(), eq("device-A")))
                     .thenReturn(java.util.List.of(
                             Map.of("role", "user", "content", "你好"),
@@ -273,14 +283,41 @@ class AssistantControllerTest {
             verify(chatMemoryService).getHistory(isNull(), eq("device-A"));
         }
 
-        @Test @DisplayName("无设备头默认返回 anon 桶（空历史为空数组）")
-        void shouldReturnAnonBucketByDefault() throws Exception {
-            when(chatMemoryService.getHistory(isNull(), eq("anon"))).thenReturn(java.util.List.of());
+        @Test @DisplayName("无凭据 GET 应返回空列表且不读共享 anon 桶（CWE-639 加固）")
+        void shouldReturnEmptyWithoutReadingSharedBucket() throws Exception {
+            allowHistoryRate();
 
             mockMvc.perform(get("/api/assistant/history"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isEmpty());
-            verify(chatMemoryService).getHistory(isNull(), eq("anon"));
+            verify(chatMemoryService, never()).getHistory(any(), any());
+        }
+
+        @Test @DisplayName("历史端点限流触发时应返回 429")
+        void shouldReturn429OnHistoryRateLimit() throws Exception {
+            when(rateLimitService.tryAcquire(anyString(), anyInt(), any(Duration.class))).thenReturn(false);
+
+            mockMvc.perform(get("/api/assistant/history")
+                            .header("X-Device-Id", "device-A"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.code").value(429));
+            verifyNoInteractions(chatMemoryService);
+        }
+
+        @Test @DisplayName("历史限流应用独立键：身份桶 hist:anon:{id} + IP 桶 hist:ip:")
+        void shouldUseIndependentHistoryRateKeys() throws Exception {
+            allowHistoryRate();
+
+            mockMvc.perform(get("/api/assistant/history")
+                            .header("X-Device-Id", "device-A"))
+                    .andExpect(status().isOk());
+
+            var rateKeyCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(rateLimitService, times(2)).tryAcquire(rateKeyCaptor.capture(), anyInt(), any(Duration.class));
+            var keys = rateKeyCaptor.getAllValues();
+            org.junit.jupiter.api.Assertions.assertEquals("assistant:hist:anon:device-A", keys.get(0));
+            org.junit.jupiter.api.Assertions.assertTrue(keys.get(1).startsWith("assistant:hist:ip:"),
+                    "IP 兜底键应为 hist:ip: 前缀: " + keys.get(1));
         }
     }
 

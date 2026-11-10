@@ -301,16 +301,23 @@ public class AssistantController {
      * 获取对话历史（App 冷启动恢复界面用，最多 20 条）。
      * <p>此前只有 DELETE 没有 GET：界面空白但后端上下文还在（30 分钟 TTL），
      * AI 会冒出「你刚才提到…」而用户看到的是新对话——这正是「没隔离」体感的来源。
-     * 与 {@link #clearHistory(String, String)} 同一套身份解析。</p>
+     * 与 {@link #clearHistory(String, String, HttpServletRequest)} 同一套身份解析。</p>
+     * <p>安全口径（CWE-639 加固）：param/header 全缺的匿名请求不读共享 {@code anon} 桶——
+     * 该桶无凭据可写，读了等于把陌生人对话开放给任何脚本；返回空列表而非报错，信封不变。</p>
      */
     @GetMapping("/history")
     @Operation(summary = "获取 AI 对话历史（冷启动恢复界面用，最多 20 条）")
     public Result<List<Map<String, String>>> getHistory(
             @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
-            @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
+            @RequestParam(value = "deviceId", required = false) String paramDeviceId,
+            HttpServletRequest request) {
         Long userId = UserService.getCurrentUserId();
         String anonymousId = userId != null ? null
                 : AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId);
+        if (!tryAcquireHistoryRate(userId, anonymousId, request))
+            return Result.error(429, "请求太频繁，请稍后再试");
+        if (isSharedFallbackBucket(userId, anonymousId))
+            return Result.ok(List.of());
         return Result.ok(chatMemoryService.getHistory(userId, anonymousId));
     }
 
@@ -320,12 +327,38 @@ public class AssistantController {
     @Operation(summary = "清除 AI 对话历史")
     public Result<Void> clearHistory(
             @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
-            @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
+            @RequestParam(value = "deviceId", required = false) String paramDeviceId,
+            HttpServletRequest request) {
         Long userId = UserService.getCurrentUserId();
         String anonymousId = userId != null ? null
                 : AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId);
+        if (!tryAcquireHistoryRate(userId, anonymousId, request))
+            return Result.error(429, "请求太频繁，请稍后再试");
+        // 共享 anon 桶不可删：无凭据请求不得清除（可能属于他人的）会话数据；幂等返回成功
+        if (isSharedFallbackBucket(userId, anonymousId))
+            return Result.ok(null);
         chatMemoryService.clearHistory(userId, anonymousId);
         return Result.ok(null);
+    }
+
+    /** 是否全缺身份回退出的共享缺省桶（登录用户恒为 false）。 */
+    private static boolean isSharedFallbackBucket(Long userId, String anonymousId) {
+        return userId == null && AnonymousIdentityUtils.FALLBACK.equals(anonymousId);
+    }
+
+    /**
+     * 历史读/清端点的限流：身份桶 + 按 IP 兜底，键前缀与 chat 分开——
+     * 历史只是读 Redis，不挤占对话（含 LLM 外呼）的配额。
+     */
+    private boolean tryAcquireHistoryRate(Long userId, String anonymousId, HttpServletRequest request) {
+        String identityKey = "assistant:hist:" + (userId != null ? "user:" + userId : "anon:" + anonymousId);
+        if (!rateLimitService.tryAcquire(identityKey, AssistantRequestIdentity.HISTORY_RATE_LIMIT,
+                java.time.Duration.ofMinutes(1)))
+            return false;
+        String ipKey = "assistant:hist:ip:" + AssistantRequestIdentity.clientIp(
+                request.getRemoteAddr(), request.getHeader("X-Real-IP"));
+        return rateLimitService.tryAcquire(ipKey, AssistantRequestIdentity.AI_IP_RATE_LIMIT,
+                java.time.Duration.ofMinutes(1));
     }
 
     // ========================== 内部方法 ==========================
