@@ -16,9 +16,23 @@ import com.vibemusic.dto.SongDTO;
  */
 public final class RecommendSingleFilter {
 
-    /** 短于 1 分钟多半是片段/试听，长于 15 分钟多半是整张专辑或歌单连播。 */
+    /** 短于 1 分钟多半是片段/试听；超过 7 分钟在流行曲里基本是连播/整张专辑。 */
     private static final int MIN_SECONDS = 60;
-    private static final int MAX_SECONDS = 15 * 60;
+    private static final int MAX_SECONDS = 7 * 60;
+
+    /**
+     * 歌名**恰好等于**搜索热词的结果，是各平台把「流行」「热歌」当榜单条目返回的，
+     * 不是单曲。用 equals 而不是 contains：「中华民谣」是正常歌曲，不能被误杀。
+     */
+    private static final java.util.Set<String> GENERIC_TITLES = java.util.Set.of(
+            "热歌", "新歌", "流行", "华语", "民谣", "摇滚", "电子", "轻音乐", "经典", "影视原声",
+            "抖音热歌", "网络热歌", "热门歌曲", "热门", "推荐"
+    );
+
+    /** 聚合/占位类歌手名：这些账号下的条目多为搬运或合辑切片。 */
+    private static final java.util.Set<String> AGGREGATE_ARTISTS = java.util.Set.of(
+            "华语群星", "群星", "未知", "未知歌手", "佚名", "网络歌手", "various artists", "unknown"
+    );
 
     /**
      * 标题里出现这些词的一律不当单曲推——合集类内容即使平台不是 B 站也不该占首屏。
@@ -42,10 +56,17 @@ public final class RecommendSingleFilter {
         Integer duration = song.getDuration();
         // duration 缺失时放行：部分平台不返回时长，卡死会把正常单曲一起挡掉
         if (duration != null && (duration < MIN_SECONDS || duration > MAX_SECONDS)) return false;
-        String name = song.getName().toLowerCase();
+        String name = song.getName().trim();
+        String lower = name.toLowerCase();
+        // 「流行」「热歌」这类榜单条目：歌名与搜索热词完全一致
+        if (GENERIC_TITLES.contains(name)) return false;
+        // 聚合账号（华语群星等）下的条目多为搬运
+        if (AGGREGATE_ARTISTS.contains(song.getArtist().trim().toLowerCase())) return false;
         for (String mark : PLAYLIST_MARKS) {
-            if (name.contains(mark)) return false;
+            if (lower.contains(mark)) return false;
         }
+        // 搬运标题常写成「某某《歌名》」并把歌手名塞进歌名，超过一定长度就不再像单曲名
+        if (lower.contains("《") && name.length() > 16) return false;
         return true;
     }
 

@@ -683,7 +683,8 @@ class SongSearchServiceTest {
             // 关键词现为随机池抽取，缓存与上游一律按任意关键词打桩。
             when(cacheService.getSearchCache(anyString())).thenReturn(null);
 
-            var song = Map.of("id", "6", "name", "热歌", "artists", "歌手", "duration", 240000);
+            // 歌名不能用「热歌」：那是搜索关键词本身，会被 RecommendSingleFilter 当榜单条目拒掉
+            var song = Map.of("id", "6", "name", "晴天", "artists", "周杰伦", "duration", 240000);
             when(neteaseApiService.searchNetease(anyString(), anyInt()))
                     .thenReturn(Map.of("data", List.of(song)));
             when(neteaseApiService.searchQQ(anyString(), anyInt()))
@@ -692,7 +693,7 @@ class SongSearchServiceTest {
             List<SongDTO> result = songSearchService.getRandomSongs(1);
 
             assertFalse(result.isEmpty());
-            assertEquals("热歌", result.get(0).getName());
+            assertEquals("晴天", result.get(0).getName());
         }
 
         @Test @DisplayName("多次调用搜索关键词来自随机池而非固定热歌")
