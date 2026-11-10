@@ -3,14 +3,9 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import compression from 'vite-plugin-compression'
 import { VitePWA } from 'vite-plugin-pwa'
-import { brotliCompress } from 'node:zlib'
-import { promisify } from 'node:util'
 import { execSync } from 'node:child_process'
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const brotli = promisify(brotliCompress)
-const COMPRESS_RE = /\.(js|mjs|css|html)$/i
 
 // 构建版本号：优先 CI 的 GITHUB_SHA（短 sha），其次本地 git short sha，取不到兜底 'dev'
 // 注入 import.meta.env.VITE_APP_RELEASE，随客户端错误上报一起上送，便于按版本定位问题
@@ -25,36 +20,7 @@ function resolveRelease() {
   }
 }
 
-async function collectFiles(dir) {
-  const files = []
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const p = join(dir, entry.name)
-    if (entry.isDirectory()) files.push(...await collectFiles(p))
-    else if (entry.isFile() && COMPRESS_RE.test(entry.name)) files.push(p)
-  }
-  return files
-}
-
-// vite-plugin-compression 单实例限制（共享 mtimeCache，双实例时后者全部跳过），
-// brotli 预压缩用内联插件补齐，与 gzip 走同一份文件清单
-function brotliCompressionPlugin() {
-  let outputPath
-  return {
-    name: 'vite:brotli-compression',
-    apply: 'build',
-    enforce: 'post',
-    configResolved(config) {
-      outputPath = config.build.outDir
-    },
-    async closeBundle() {
-      await Promise.all((await collectFiles(outputPath)).map(async file => {
-        if ((await stat(file)).size < 1024) return
-        const compressed = await brotli(await readFile(file))
-        await writeFile(`${file}.br`, compressed)
-      }))
-    },
-  }
-}
+// vite-plugin-compression 单实例限制（共享 mtimeCache，双实例时后者全部跳过）
 
 export default defineConfig({
   // 客户端错误上报的版本号（第一方上报，替代 Sentry）
@@ -63,13 +29,13 @@ export default defineConfig({
   },
   plugins: [
     vue(),
-    // 生产构建预压缩：gzip（插件）+ brotli（内联插件，见 brotliCompressionPlugin），
-    // nginx 直接伺服 .gz/.br 免服务端压缩开销
+    // 生产构建预压缩：只出 .gz（nginx gzip_static 直出）。Brotli 不做：
+    // 源站 nginx 无 brotli 模块（Ubuntu 源无现成包），.br 生成了也伺服不了，
+    // 用户侧的 br 由 Cloudflare 边缘对 HTML 动态转压承担。
     compression({
       algorithm: 'gzip',
       threshold: 1024,
     }),
-    brotliCompressionPlugin(),
     // PWA：以 public/sw.js 为模板，workbox 构建期注入 hash 资源 precache 清单（自动缓存版本管理）
     VitePWA({
       strategies: 'injectManifest',
