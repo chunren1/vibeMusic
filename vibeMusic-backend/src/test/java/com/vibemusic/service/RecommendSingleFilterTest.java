@@ -47,6 +47,9 @@ class RecommendSingleFilterTest {
         assertFalse(RecommendSingleFilter.isSingle(song("001Qu4I30eVFYb", "周杰伦经典合集", "周杰伦", 269)));
         assertFalse(RecommendSingleFilter.isSingle(song("001Qu4I30eVFYb", "华语金曲串烧", "群星", 269)));
         assertFalse(RecommendSingleFilter.isSingle(song("001Qu4I30eVFYb", "Best Playlist 2026", "群星", 269)));
+        // 酷狗/咪咕的用户上传惯用「新歌」命名
+        assertFalse(RecommendSingleFilter.isSingle(song("001Qu4I30eVFYb", "王奇生新歌谣", "王新柱", 119)));
+        assertFalse(RecommendSingleFilter.isSingle(song("001Qu4I30eVFYb", "大运河新歌-刘福德昆吕吴世海词", "韩昆吕", 174)));
     }
 
     @Test

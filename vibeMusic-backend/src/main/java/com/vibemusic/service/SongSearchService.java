@@ -143,7 +143,7 @@ public class SongSearchService {
      * 避免固定搜"热歌"导致候选池恒为 top-30。预热时与 HOT_KEYWORDS 取并集。
      */
     private static final List<String> RANDOM_KEYWORDS = List.of(
-            "热歌", "新歌", "流行", "华语", "民谣",
+            "热歌", "流行", "华语", "民谣",
             "摇滚", "电子", "轻音乐", "经典", "影视原声"
     );
 

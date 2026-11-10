@@ -40,6 +40,9 @@ public final class RecommendSingleFilter {
      */
     private static final String[] PLAYLIST_MARKS = {
             "合集", "合辑", "精选集", "串烧", "歌单", "连播", "完整专辑", "全专辑",
+            // 「新歌」写进标题的多半是酷狗/咪咕的用户上传（实测"王奇生新歌谣"
+            // "大运河新歌-…"），正规单曲不会这么命名
+            "新歌",
             "playlist", "full album", "compilation"
     };
 
