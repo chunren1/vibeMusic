@@ -254,6 +254,34 @@ class AssistantControllerTest {
                     .andExpect(status().isOk());
             verify(chatMemoryService).clearHistory(isNull(), eq("device-A"));
         }
+
+        @Test @DisplayName("GET 历史应按设备桶返回消息（role+content）")
+        void shouldReturnOwnHistory() throws Exception {
+            when(chatMemoryService.getHistory(isNull(), eq("device-A")))
+                    .thenReturn(java.util.List.of(
+                            Map.of("role", "user", "content", "你好"),
+                            Map.of("role", "assistant", "content", "推荐两首周杰伦")));
+
+            mockMvc.perform(get("/api/assistant/history")
+                            .header("X-Device-Id", "device-A"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.length()").value(2))
+                    .andExpect(jsonPath("$.data[0].role").value("user"))
+                    .andExpect(jsonPath("$.data[0].content").value("你好"))
+                    .andExpect(jsonPath("$.data[1].role").value("assistant"))
+                    .andExpect(jsonPath("$.data[1].content").value("推荐两首周杰伦"));
+            verify(chatMemoryService).getHistory(isNull(), eq("device-A"));
+        }
+
+        @Test @DisplayName("无设备头默认返回 anon 桶（空历史为空数组）")
+        void shouldReturnAnonBucketByDefault() throws Exception {
+            when(chatMemoryService.getHistory(isNull(), eq("anon"))).thenReturn(java.util.List.of());
+
+            mockMvc.perform(get("/api/assistant/history"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").isEmpty());
+            verify(chatMemoryService).getHistory(isNull(), eq("anon"));
+        }
     }
 
     @Nested @DisplayName("匿名隔离（X-Device-Id / deviceId）")

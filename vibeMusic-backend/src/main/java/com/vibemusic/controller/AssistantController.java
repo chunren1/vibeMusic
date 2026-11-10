@@ -295,6 +295,25 @@ public class AssistantController {
         return AssistantRequestIdentity.ipRateKey(request);
     }
 
+    // ========================== 读取对话记忆 ==========================
+
+    /**
+     * 获取对话历史（App 冷启动恢复界面用，最多 20 条）。
+     * <p>此前只有 DELETE 没有 GET：界面空白但后端上下文还在（30 分钟 TTL），
+     * AI 会冒出「你刚才提到…」而用户看到的是新对话——这正是「没隔离」体感的来源。
+     * 与 {@link #clearHistory(String, String)} 同一套身份解析。</p>
+     */
+    @GetMapping("/history")
+    @Operation(summary = "获取 AI 对话历史（冷启动恢复界面用，最多 20 条）")
+    public Result<List<Map<String, String>>> getHistory(
+            @RequestHeader(value = "X-Device-Id", required = false) String headerDeviceId,
+            @RequestParam(value = "deviceId", required = false) String paramDeviceId) {
+        Long userId = UserService.getCurrentUserId();
+        String anonymousId = userId != null ? null
+                : AnonymousIdentityUtils.resolveAnonymousId(paramDeviceId, headerDeviceId);
+        return Result.ok(chatMemoryService.getHistory(userId, anonymousId));
+    }
+
     // ========================== 清除对话记忆 ==========================
 
     @DeleteMapping("/history")
