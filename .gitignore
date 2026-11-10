@@ -85,6 +85,8 @@ Thumbs.db
 !deploy/production/crontab.txt
 # 例外：体量守卫的白名单必须入库（CI 的 size-guard job 要读它，缺失会把存量全判成新增）
 !scripts/file-size-baseline.txt
+# 例外：robots.txt 必须入库（Vite 会拷进 dist；被上面的 *.txt 误伤）
+!vibemusic-web/public/robots.txt
 
 # 大文件 / 二进制工具 / 隧道凭据
 .cloudflared/
