@@ -653,9 +653,10 @@ public class SongSearchService {
             log.warn("[RANDOM] 搜索随机关键词失败，降级到 DB 随机: {}", e.getMessage(), e);
             songs = new ArrayList<>();
         }
+        // 首页「随便听听」是五平台聚合搜索，B 站视频/歌单音频会混进来；
+        // 合集类标题也不该占推荐位。门槛见 RecommendSingleFilter。
         songs = songs.stream()
-                .filter(s -> s.getSourceId() != null && !s.getSourceId().isEmpty())
-                .filter(s -> s.getDuration() == null || s.getDuration() > 30)
+                .filter(RecommendSingleFilter::isSingle)
                 .collect(Collectors.toList());
         Collections.shuffle(songs);
         if (songs.size() > count) return songs.subList(0, count);

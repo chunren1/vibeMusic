@@ -203,7 +203,10 @@ final class RecommendPersonalizer {
             for (String artist : topArtists) {
                 futures.add(searchExecutor.submit(() -> {
                     try {
-                        return songSearchService.search(artist, 1, 10, null).getList();
+                        // 按歌手搜会带回 B 站搬运与合集，推荐位只留单曲
+                        return songSearchService.search(artist, 1, 10, null).getList().stream()
+                                .filter(RecommendSingleFilter::isSingle)
+                                .collect(java.util.stream.Collectors.toList());
                     } catch (Exception e) {
                         log.warn("搜索歌手 {} 失败", artist, e);
                         return Collections.emptyList();
