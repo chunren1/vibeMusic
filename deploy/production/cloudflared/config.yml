@@ -10,6 +10,4 @@ ingress:
     service: http://localhost:8081
   - hostname: monitor.cyk666.top
     service: http://localhost:3001
-  - hostname: ai.cyk666.top
-    service: http://134.175.113.207:8088
   - service: http_status:404
