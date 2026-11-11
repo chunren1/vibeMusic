@@ -107,15 +107,18 @@ public class AiToolService {
         return Map.of(
             "type", "function",
             "function", Map.of(
-                "name", "get_user_history",
-                "description", "获取用户最近播放历史。当用户问'我最近听了什么'、'根据我的口味推荐'时调用。",
-                "parameters", Map.of(
-                    "type", "object",
-                    "properties", Map.of(
-                        "limit", Map.of("type", "integer", "description", "返回数量，默认10", "default", 10)
-                    ),
-                    "required", List.of()
-                )
+                    "name", "get_user_history",
+                    "description", "获取用户播放历史（含 sourceId/封面，可直接用于收藏或加入歌单）。"
+                            + "当用户问'我最近听了什么'、'根据我的口味推荐'、'把上周听的收藏一下'时调用。",
+                    "parameters", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                            "limit", Map.of("type", "integer", "description", "返回数量，默认10", "default", 10),
+                            "days", Map.of("type", "integer",
+                                    "description", "只看最近 N 天的播放记录（1~365），不传则不限时间")
+                        ),
+                        "required", List.of()
+                    )
             )
         );
     }
@@ -197,22 +200,32 @@ public class AiToolService {
      */
     private String executeGetUserHistory(Map<String, Object> args) throws Exception {
         int limit = args.get("limit") instanceof Number n ? n.intValue() : 10;
+        int days = args.get("days") instanceof Number n ? n.intValue() : 0;
         Long userId = UserService.getCurrentUserId();
 
         if (userId == null) {
             return AiToolJson.error(objectMapper, "未登录，无法获取播放历史");
         }
 
+        LambdaQueryWrapper<PlayHistory> query = new LambdaQueryWrapper<PlayHistory>()
+                .eq(PlayHistory::getUserId, userId)
+                .orderByDesc(PlayHistory::getPlayedAt);
+        // 时间窗口：可选参数，钳到 1..365 天；不传（或 <=0）时保持「全量最近 N 条」的原语义
+        if (days > 0) {
+            query.ge(PlayHistory::getPlayedAt,
+                    java.time.LocalDateTime.now().minusDays(Math.min(days, 365)));
+        }
+
         List<PlayHistory> history = playHistoryMapper.selectPage(
-                new Page<>(1, Math.max(1, Math.min(limit, 50))),
-                new LambdaQueryWrapper<PlayHistory>()
-                        .eq(PlayHistory::getUserId, userId)
-                        .orderByDesc(PlayHistory::getPlayedAt)).getRecords();
+                new Page<>(1, Math.max(1, Math.min(limit, 50))), query).getRecords();
 
         List<Map<String, Object>> simplified = history.stream().map(h -> {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("name", h.getSongName());
             m.put("artist", h.getArtist() != null ? h.getArtist() : "");
+            // sourceId/封面：让「把最近听的收藏/加入歌单」这类组合操作有可操作的标识
+            m.put("sourceId", h.getSourceId() != null ? h.getSourceId() : "");
+            m.put("coverUrl", h.getCoverUrl() != null ? h.getCoverUrl() : "");
             return m;
         }).collect(Collectors.toList());
 

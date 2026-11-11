@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -325,10 +326,30 @@ class AiToolServiceTest {
 
         assertThat(json.get("total").asInt()).isEqualTo(2);
         JsonNode first = json.get("history").get(0);
-        assertThat(fieldNames(first)).containsExactly("name", "artist");
+        // sourceId/coverUrl：2026-11-11 新增，让「把最近听的收藏/加入歌单」有可操作标识
+        assertThat(fieldNames(first)).containsExactly("name", "artist", "sourceId", "coverUrl");
         assertThat(first.get("name").asText()).isEqualTo("晴天");
         assertThat(first.get("artist").asText()).isEqualTo("周杰伦");
         assertThat(json.get("history").get(1).get("artist").asText()).isEmpty();
+    }
+
+@Test
+    @DisplayName("get_user_history days 参数：有效值加 played_at 时间窗口，缺省不加")
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void shouldApplyDaysWindowWhenProvided() throws Exception {
+        loginAs(USER_ID);
+        when(playHistoryMapper.selectPage(any(), any())).thenReturn(pageOf());
+
+        service.executeTool("get_user_history", "{\"days\":7}");
+        ArgumentCaptor<AbstractWrapper> captor = ArgumentCaptor.forClass(AbstractWrapper.class);
+        verify(playHistoryMapper).selectPage(any(), captor.capture());
+        // 条件片段形如 "played_at >= #{...}"；ORDER BY 里的 played_at 不算命中
+        assertThat(captor.getValue().getSqlSegment()).contains("played_at >=");
+
+        clearInvocations(playHistoryMapper);
+        service.executeTool("get_user_history", "{}");
+        verify(playHistoryMapper).selectPage(any(), captor.capture());
+        assertThat(captor.getValue().getSqlSegment()).doesNotContain("played_at >=");
     }
 
     @Test
