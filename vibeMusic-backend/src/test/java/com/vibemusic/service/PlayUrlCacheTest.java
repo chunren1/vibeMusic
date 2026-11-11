@@ -107,7 +107,7 @@ class PlayUrlCacheTest {
     }
 
     @Test
-    @DisplayName("写入用 90s 固定 TTL（对齐网关 urlCache 硬过期取舍，GET 不续期）")
+    @DisplayName("写入用 15 分钟固定 TTL（必须活到整首歌放完，GET 不续期）")
     @SuppressWarnings("unchecked")
     void putUsesFixedTtl() {
         playUrlCache.put(null, "netease", "186016", "https://kugou/x.mp3", "kugou");
@@ -116,14 +116,14 @@ class PlayUrlCacheTest {
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
         verify(cache).set(eq("play:url:v1:anon:netease:186016"), payload.capture(), ttl.capture());
 
-        assertEquals(Duration.ofSeconds(90), ttl.getValue());
+        assertEquals(Duration.ofMinutes(15), ttl.getValue());
         Map<String, Object> body = (Map<String, Object>) payload.getValue();
         assertEquals("https://kugou/x.mp3", body.get("url"));
         assertEquals("kugou", body.get("src"));
     }
 
     @Test
-    @DisplayName("空 URL 不写缓存（否则会把 404 固化 90s）")
+    @DisplayName("空 URL 不写缓存（否则会把 404 固化整个 TTL）")
     void putSkipsBlankUrl() {
         playUrlCache.put(null, "netease", "1", null, null);
         playUrlCache.put(null, "netease", "1", "  ", null);

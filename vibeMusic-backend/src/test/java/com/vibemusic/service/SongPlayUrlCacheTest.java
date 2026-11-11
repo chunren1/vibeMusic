@@ -130,7 +130,7 @@ class SongPlayUrlCacheTest {
     }
 
     @Test
-    @DisplayName("取链失败（null）不写缓存，避免把 404 固化 90 秒")
+    @DisplayName("取链失败（null）不写缓存，避免把 404 固化整个 TTL")
     void nullUrlIsNotCached() {
         when(neteaseApiService.getMiguSongUrl(SRC, null))
                 .thenReturn(Map.of("data", List.of(Map.of())));

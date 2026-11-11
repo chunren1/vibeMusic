@@ -20,11 +20,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * （{@code STORAGE_ENABLED=false}），唯一缓存判定恒 false，于是「网易明确无版权」的歌每次都要
  * 烧满 8s 预算——实测 8.8s，且**每拖一次进度都要再等一次**。
  *
- * <p>TTL 取值依据：签名 URL 自身极短命。网关 {@code musicapi} 的 {@code urlCache} 对同类
- * 播放地址取 <b>60s</b> 硬过期（其注释记录「QQ vkey 实测几分钟内返回 403」），且刻意关闭
- * sliding refresh（{@code updateAgeOnGet:false}），否则过期 URL 会因高频命中而永不死。
- * 本类沿用同一取舍：<b>90s 固定过期、GET 不续期</b>，只覆盖「同一会话内的连续 Range 请求」，
- * 不试图跨会话复用。
+ * <p>TTL 取值依据：签名 URL 自身极短命（网关 {@code musicapi} 记录「QQ vkey 实测几分钟内
+ * 返回 403」），但**缓存必须活到整首歌放完**——否则播放中重新取链会命中另一码率/另一音源，
+ * 客户端前半段与后半段来自两个不同文件（2026-11-11「梦醒」实测：同一 sourceId 两次取链
+ * 总长 3,354,669 / 5,031,981）。故取 <b>15 分钟固定过期、GET 不续期</b>，覆盖任何单曲时长，
+ * 仍不跨会话复用。
  *
  * <p>失效自愈：URL 过期后上游 CDN 返回 403/404，{@link AudioProxyService} 会
  * {@link SongPlayService#invalidatePlayUrl} 清掉本条再重试取链——否则 5 次重试会拿到同一个
@@ -41,8 +41,15 @@ public class PlayUrlCache {
     /** 版本化前缀，与项目 Redis key 约定一致（AGENTS.md「Redis Key 版本化前缀」）。 */
     static final String KEY_PREFIX = "play:url:v1:";
 
-    /** 见类注释：对齐网关 urlCache 的硬过期取舍，只覆盖同会话连续请求。 */
-    static final Duration TTL = Duration.ofSeconds(90);
+    /**
+     * 覆盖整首播放的固定过期：90s 只够「拖动进度 / 断线重连」，覆盖不了一首歌的时长。
+     *
+     * <p>2026-11-11「梦醒」现场：一首 209s 的歌播放中跨过 90s，下一次 Range 请求缓存已过期，
+     * 重新取链命中了另一码率/另一音源的版本——客户端前半段听的是 A 文件、后半段是 B 文件
+     * （实测同一 sourceId 两次取链总长 3,354,669 / 5,031,981，128k vs 192k）。缓存必须活到
+     * 整首歌放完；URL 自身失效仍由 403/404 → {@link #invalidate} 自愈，语义不变。
+     */
+    static final Duration TTL = Duration.ofMinutes(15);
 
     static final String ANON = "anon";
     static final String AUTO_PLATFORM = "auto";

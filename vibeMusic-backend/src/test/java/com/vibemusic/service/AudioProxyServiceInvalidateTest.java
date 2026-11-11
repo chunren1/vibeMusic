@@ -97,7 +97,7 @@ class AudioProxyServiceInvalidateTest {
     }
 
     @Test
-    @DisplayName("404 同样作废缓存（资源不存在时同样不能把死 URL 固化 90 秒）")
+    @DisplayName("404 同样作废缓存（资源不存在时同样不能把死 URL 固化整个 TTL）")
     void notFoundAlsoInvalidates() {
         when(songPlayService.getPlayUrl(anyString(), any(), any(), any()))
                 .thenReturn(STALE_URL, FRESH_URL);
