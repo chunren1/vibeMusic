@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
  *   <li>search_songs：搜索歌曲</li>
  *   <li>get_user_history：获取用户播放历史</li>
  *   <li>list_playlists / add_to_playlist / create_playlist：歌单三件套，实现见 {@link AiPlaylistTools}</li>
+ *   <li>favorite_song / get_lyrics：收藏切换与歌词，实现见 {@link AiActionTools}</li>
  * </ul>
  * 本类只做 schema 注册 + 路由，歌单相关执行逻辑已拆到 {@link AiPlaylistTools}（单文件 ≤250 纯 LOC）。
  */
@@ -35,38 +36,52 @@ public class AiToolService {
     private final PlayHistoryMapper playHistoryMapper;
     private final ObjectMapper objectMapper;
 
-    /** 歌单三件套执行器；Spring 装配必有，仅兼容旧三参构造的单测里为 null。 */
+    /** 歌单三件套执行器；Spring 装配必有，仅兼容旧单测构造里为 null。 */
     private final AiPlaylistTools playlistTools;
+
+    /** 收藏/歌词执行器；同上，仅兼容旧单测构造里为 null。 */
+    private final AiActionTools actionTools;
 
     @Autowired
     public AiToolService(SongSearchService songSearchService,
                          PlayHistoryMapper playHistoryMapper,
                          ObjectMapper objectMapper,
-                         AiPlaylistTools playlistTools) {
+                         AiPlaylistTools playlistTools,
+                         AiActionTools actionTools) {
         this.songSearchService = songSearchService;
         this.playHistoryMapper = playHistoryMapper;
         this.objectMapper = objectMapper;
         this.playlistTools = playlistTools;
+        this.actionTools = actionTools;
     }
 
     /**
-     * 兼容既有单测的三参装配（无歌单执行器）。
-     * 生产环境一律走 {@link #AiToolService(SongSearchService, PlayHistoryMapper, ObjectMapper, AiPlaylistTools)}。
+     * 兼容既有单测的三参装配（无歌单/收藏执行器）。
+     * 生产环境一律走 {@link #AiToolService(SongSearchService, PlayHistoryMapper, ObjectMapper, AiPlaylistTools, AiActionTools)}。
      */
     AiToolService(SongSearchService songSearchService,
                   PlayHistoryMapper playHistoryMapper,
                   ObjectMapper objectMapper) {
-        this(songSearchService, playHistoryMapper, objectMapper, null);
+        this(songSearchService, playHistoryMapper, objectMapper, null, null);
+    }
+
+    /** 兼容既有单测的四参装配（有歌单、无收藏/歌词执行器）。 */
+    AiToolService(SongSearchService songSearchService,
+                  PlayHistoryMapper playHistoryMapper,
+                  ObjectMapper objectMapper,
+                  AiPlaylistTools playlistTools) {
+        this(songSearchService, playHistoryMapper, objectMapper, playlistTools, null);
     }
 
     /**
      * 获取所有工具的 schema 定义（OpenAI Function Calling 格式）
      */
     public List<Map<String, Object>> getToolDefinitions() {
-        List<Map<String, Object>> defs = new ArrayList<>(5);
+        List<Map<String, Object>> defs = new ArrayList<>(7);
         defs.add(searchSongsDefinition());
         defs.add(getUserHistoryDefinition());
         defs.addAll(AiPlaylistTools.toolDefinitions());
+        defs.addAll(AiActionTools.toolDefinitions());
         return List.copyOf(defs);
     }
 
@@ -122,6 +137,7 @@ public class AiToolService {
                 case "search_songs" -> executeSearchSongs(args);
                 case "get_user_history" -> executeGetUserHistory(args);
                 case "list_playlists", "add_to_playlist", "create_playlist" -> executePlaylistTool(functionName, args);
+                case "favorite_song", "get_lyrics" -> executeActionTool(functionName, args);
                 default -> AiToolJson.error(objectMapper, "未知工具: " + functionName);
             };
         } catch (Exception e) {
@@ -138,6 +154,14 @@ public class AiToolService {
             return AiToolJson.error(objectMapper, "歌单工具未装配");
         }
         return playlistTools.execute(functionName, args);
+    }
+
+    /** 收藏/歌词路由（实现见 {@link AiActionTools}）。 */
+    private String executeActionTool(String functionName, Map<String, Object> args) throws Exception {
+        if (actionTools == null) {
+            return AiToolJson.error(objectMapper, "收藏/歌词工具未装配");
+        }
+        return actionTools.execute(functionName, args);
     }
 
     /**

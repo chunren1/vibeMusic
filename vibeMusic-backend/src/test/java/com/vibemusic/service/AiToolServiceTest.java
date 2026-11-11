@@ -86,12 +86,12 @@ class AiToolServiceTest {
     // ---------- schema ----------
 
     @Test
-    @DisplayName("工具定义：五个工具都是 OpenAI function 格式，search_songs 必填 keyword")
+    @DisplayName("工具定义：七个工具都是 OpenAI function 格式，search_songs 必填 keyword")
     @SuppressWarnings("unchecked")
     void shouldExposeFiveOpenAiFunctionDefinitions() {
         List<Map<String, Object>> defs = service.getToolDefinitions();
 
-        assertThat(defs).hasSize(5);
+        assertThat(defs).hasSize(7);
         assertThat(defs).allSatisfy(d -> assertThat(d).containsEntry("type", "function"));
 
         Map<String, Object> search = (Map<String, Object>) defs.get(0).get("function");
@@ -112,6 +112,26 @@ class AiToolServiceTest {
         assertThat((Map<String, Object>) defs.get(2).get("function")).containsEntry("name", "list_playlists");
         assertThat((Map<String, Object>) defs.get(3).get("function")).containsEntry("name", "add_to_playlist");
         assertThat((Map<String, Object>) defs.get(4).get("function")).containsEntry("name", "create_playlist");
+
+        // 收藏/歌词：2026-11-11 新增，排在歌单之后
+        Map<String, Object> fav = (Map<String, Object>) defs.get(5).get("function");
+        assertThat(fav).containsEntry("name", "favorite_song");
+        Map<String, Object> favParams = (Map<String, Object>) fav.get("parameters");
+        assertThat((List<String>) favParams.get("required")).containsExactly("sourceId");
+
+        Map<String, Object> lyrics = (Map<String, Object>) defs.get(6).get("function");
+        assertThat(lyrics).containsEntry("name", "get_lyrics");
+        Map<String, Object> lyricsParams = (Map<String, Object>) lyrics.get("parameters");
+        assertThat((List<String>) lyricsParams.get("required")).containsExactly("sourceId");
+    }
+
+    @Test
+    @DisplayName("收藏/歌词未装配时返回错误信封而不是抛异常")
+    void shouldReturnErrorEnvelopeWhenActionToolsMissing() {
+        String result = service.executeTool("favorite_song", "{\"sourceId\":\"123\"}");
+        assertThat(result).contains("收藏/歌词工具未装配");
+        String lyrics = service.executeTool("get_lyrics", "{\"sourceId\":\"123\"}");
+        assertThat(lyrics).contains("收藏/歌词工具未装配");
     }
 
     // ---------- search_songs ----------

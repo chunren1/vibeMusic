@@ -183,7 +183,8 @@ public class AssistantClient {
         List<Map<String, Object>> actions = new ArrayList<>();
         for (Map<String, Object> tr : toolResults) {
             String tool = String.valueOf(tr.get("name"));
-            if (!"create_playlist".equals(tool) && !"add_to_playlist".equals(tool)) continue;
+            if (!"create_playlist".equals(tool) && !"add_to_playlist".equals(tool)
+                    && !"favorite_song".equals(tool)) continue;
             try {
                 Map<String, Object> r = objectMapper.readValue((String) tr.get("result"), Map.class);
                 Map<String, Object> a = new LinkedHashMap<>();
@@ -192,6 +193,12 @@ public class AssistantClient {
                 if (error != null) {
                     a.put("ok", false);
                     a.put("error", String.valueOf(error));
+                } else if ("favorite_song".equals(tool)) {
+                    // 收藏结果：前端据此渲染「已收藏《X》」并局部刷新收藏态
+                    a.put("ok", true);
+                    a.put("favorited", r.get("favorited"));
+                    a.put("name", r.get("name"));
+                    a.put("sourceId", r.get("sourceId"));
                 } else {
                     a.put("ok", true);
                     a.put("playlistId", r.get("playlistId"));
