@@ -10,7 +10,7 @@ const { writeLog } = require('../logger');
 const { UPSTREAM_TIMEOUT, withTimeout, searchNetease } = require('../search');
 const sourceHealth = require('../source-health');
 const {
-  GENERIC_500, firstQuery, queryStr, sanitizeNeteaseParams, sendUpstreamBody,
+  GENERIC_500, describeError, firstQuery, queryStr, sanitizeNeteaseParams, sendUpstreamBody,
 } = require('./helpers');
 
 function registerNeteaseRoutes(app) {
@@ -27,10 +27,28 @@ function registerNeteaseRoutes(app) {
       );
       sendUpstreamBody(res, result.body);
     } catch (error) {
-      writeLog('api', 'ERROR', `[/lyric] ${error.message}`);
+      writeLog('api', 'ERROR', `[/lyric] ${describeError(error)}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
     }
   });
+
+  /**
+   * 网易云风控（-460）短退避重试：线上实测同一台机器连续取链会被判
+   * 「检测到您的网络环境存在风险」，单次请求等 800ms 再试通常就能过。
+   * 只对 -460 生效，其他错误（404 无版权、Cookie 失效）不重试，避免无谓延迟。
+   */
+  async function invokeSongUrlWithRiskRetry(id, level, req) {
+    const params = cookie.withNeteaseCookie({ id, level }, req);
+    try {
+      return await withTimeout(netease.invoke('song_url_v1', params), UPSTREAM_TIMEOUT, 'netease/song_url_v1');
+    } catch (error) {
+      const code = error && error.body && error.body.code;
+      if (code !== -460) throw error;
+      writeLog('api', 'WARN', `[/song/url/v1] 命中风控 -460，800ms 后重试一次 id=${id}`);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return withTimeout(netease.invoke('song_url_v1', params), UPSTREAM_TIMEOUT, 'netease/song_url_v1');
+    }
+  }
 
   app.get('/song/url/v1', async (req, res) => {
     try {
@@ -38,13 +56,10 @@ function registerNeteaseRoutes(app) {
       const level = queryStr(req.query.level) ?? 'exhigh';
       if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
       if (!/^\d{4,20}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
-      const result = await withTimeout(
-        netease.invoke('song_url_v1', cookie.withNeteaseCookie({ id, level }, req)),
-        UPSTREAM_TIMEOUT, 'netease/song_url_v1'
-      );
+      const result = await invokeSongUrlWithRiskRetry(id, level, req);
       sendUpstreamBody(res, result.body);
     } catch (error) {
-      writeLog('api', 'ERROR', `[/song/url/v1] ${error.message}`);
+      writeLog('api', 'ERROR', `[/song/url/v1] ${describeError(error)}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
     }
   });
@@ -58,7 +73,7 @@ function registerNeteaseRoutes(app) {
       );
       sendUpstreamBody(res, result.body);
     } catch (error) {
-      writeLog('api', 'ERROR', `[/personalized] ${error.message}`);
+      writeLog('api', 'ERROR', `[/personalized] ${describeError(error)}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });
     }
   });

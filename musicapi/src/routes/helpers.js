@@ -144,6 +144,38 @@ function buildSearchCacheKey(kw, maxRank, safePrefer, req) {
   return `search:${kw}:${maxRank}:${safePrefer ?? 'none'}:${searchCookieDim(req)}`;
 }
 
+
+/**
+ * 错误摘要：上游库 reject 的不一定是 Error。
+ *
+ * <p>线上曾出现 `[/song/url/v1] undefined`——直接取 `error.message` 拿不到内容，
+ * 分不清是 Cookie 失效、风控还是库内部异常。这里把 status / code / body 都摊开，
+ * body 截断到 200 字符，既够定位又不会把日志撑爆。</p>
+ *
+ * @param {*} error 任意 reject 值
+ * @returns {string} 可直接写日志的单行摘要
+ */
+function describeError(error) {
+  if (error == null) return 'unknown';
+  if (typeof error === 'string') return error.replace(/[\r\n]+/g, ' ').slice(0, 240);
+  const parts = [];
+  if (error.message) parts.push(String(error.message));
+  if (error.name && !error.message) parts.push(String(error.name));
+  if (error.status) parts.push('status=' + error.status);
+  if (error.statusCode) parts.push('statusCode=' + error.statusCode);
+  if (error.code) parts.push('code=' + error.code);
+  if (error.body != null) {
+    try {
+      const body = typeof error.body === 'string' ? error.body : JSON.stringify(error.body);
+      parts.push('body=' + String(body).slice(0, 200));
+    } catch (_) {
+      // 循环引用等无法序列化的情况，忽略 body
+    }
+  }
+  const out = parts.join(' | ');
+  return (out || String(error)).replace(/[\r\n]+/g, ' ').slice(0, 400);
+}
+
 module.exports = {
   GENERIC_500,
   firstQuery,
@@ -157,4 +189,5 @@ module.exports = {
   stripSearchInternals,
   searchCookieDim,
   buildSearchCacheKey,
+  describeError,
 };
