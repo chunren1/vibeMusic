@@ -131,6 +131,11 @@ class PlatformUrlFetcher {
     /**
      * 检查歌曲是否缓存于 MinIO，Redis 缓存结果减少 MinIO HTTP 调用
      * 任何异常（Redis/MinIO 不可用）均返回 false，调用方继续走 API/DB 降级
+     *
+     * <p>已知限制：对象名只含 {@code sourceId}，不含平台维度。五个平台的 ID 空间理论上可能
+     * 重叠（网易云与 QQ 都是数字串），一旦重叠会互相命中对方的缓存文件。当前规模未观测到，
+     * 根治方案是改成 {@code songs/<platform>/<sourceId>.mp3} 并做一次存量迁移——
+     * 涉及存储布局变更，不宜在没有实际故障时顺手改。</p>
      */
     boolean isCachedInMinio(String sourceId, String userCookie) {
         if (sourceId == null) return false;
