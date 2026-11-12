@@ -53,7 +53,13 @@ class CrossPlatformFailover {
     static final long FAILOVER_BUDGET_MS = 3_000L;
 
     /** 换源顺序：咪咕 → 酷狗 → B站 → QQ（网易云由 NeteaseDegradeChain 负责，不重复）。 */
-    static final List<String> PLATFORM_ORDER = List.of("migu", "kugou", "bilibili", "qq");
+    /**
+     * 换源顺序：咪咕 → 酷狗 → QQ → B站。
+     *
+     * <p>B站 排最后：它的「音频」来自视频轨，同名条目大量是翻唱、Live 剪辑与二创，
+     * 是所有音源里录音一致性最差的一个。能从前三家拿到就不碰它。</p>
+     */
+    static final List<String> PLATFORM_ORDER = List.of("migu", "kugou", "qq", "bilibili");
 
     /** 每平台搜索候选数：与既有降级链一致（searchXxx(keyword, 5)）。 */
     private static final int SEARCH_LIMIT = 5;

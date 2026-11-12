@@ -33,6 +33,10 @@ final class SongMatcher {
             String candName = item.get("name") != null ? String.valueOf(item.get("name")) : "";
             String candArtist = item.get("artists") != null ? String.valueOf(item.get("artists")) : "";
             if (!nameCompatible(targetName, candName.toLowerCase().trim())) continue;
+            // 同名不同录音：候选带 Live/Remix/翻唱/伴奏等版本词、而目标歌名没有 → 直接排除。
+            // 这类版本歌名与歌手都能对上，靠名字永远分不出来，播出来是「同一首歌的另一版」，
+            // 用户感知就是「播着播着换成了别的歌」。
+            if (hasRejectVersionWord(candName, expectedName)) continue;
             String candidate = (candName + " " + candArtist).toLowerCase().trim();
             double score = similarity(target, candidate);
             // 歌名首字相同加分
@@ -46,6 +50,30 @@ final class SongMatcher {
         }
         // 没有可信候选就放弃：播放失败用户能理解，放错歌不能
         return bestScore > 0.15 ? best : null;
+    }
+
+    /**
+     * 换源必须避开的版本词：出现即意味着「同名不同录音」。
+     *
+     * <p>与 {@link #VERSION_MARKS} 的区别：VERSION_MARKS 是「同一首的标注后缀」（feat/live 等），
+     * 用于让歌名校验放行；这里列的是「听感完全不同的另一版」，用于换源时主动排除。
+     * 两个规则方向相反，不能合并。</p>
+     */
+    private static final String[] REJECT_VERSION_WORDS = {
+            "live", "remix", "cover", "伴奏", "翻唱", "片段", "试听",
+            "dj", "纯音乐", "钢琴版", "吉他版", "女声版", "男声版",
+            "加速版", "降速版", "0.8x", "1.2x", "现场版", "演唱会"
+    };
+
+    /** 候选歌名带版本词、而期望歌名不带 → 视为不同录音。两边都带（如「Live Forever」）则放行。 */
+    private static boolean hasRejectVersionWord(String candidateName, String expectedName) {
+        if (candidateName == null || expectedName == null) return false;
+        String c = candidateName.toLowerCase(java.util.Locale.ROOT);
+        String e = expectedName.toLowerCase(java.util.Locale.ROOT);
+        for (String word : REJECT_VERSION_WORDS) {
+            if (c.contains(word) && !e.contains(word)) return true;
+        }
+        return false;
     }
 
     /** 版本后缀的起始标记：括号、方括号、连字符、feat/ft。命中即视为同一首的不同版本。 */

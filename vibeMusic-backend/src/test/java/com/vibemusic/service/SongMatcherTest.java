@@ -43,11 +43,28 @@ class SongMatcherTest {
     }
 
     @Test
-    @DisplayName("歌名带 Live 后缀：仍算同一首")
-    void acceptsSuffixedName() {
-        List<Map<String, Object>> results = List.of(song("晴天 (Live)", "周杰伦"));
+    @DisplayName("feat. 后缀：仍算同一首（中性标注）")
+    void acceptsNeutralSuffix() {
+        List<Map<String, Object>> results = List.of(song("晴天 (feat. 某歌手)", "周杰伦"));
 
         assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Live / 翻唱 / 伴奏版：换源必须拒绝（同名不同录音）")
+    void rejectsLiveAndCoverVersions() {
+        assertThat(SongMatcher.findBestMatch(List.of(song("晴天 (Live)", "周杰伦")), "晴天", "周杰伦")).isNull();
+        assertThat(SongMatcher.findBestMatch(List.of(song("晴天 翻唱版", "周杰伦")), "晴天", "周杰伦")).isNull();
+        assertThat(SongMatcher.findBestMatch(List.of(song("晴天 伴奏", "周杰伦")), "晴天", "周杰伦")).isNull();
+        assertThat(SongMatcher.findBestMatch(List.of(song("晴天 (Remix)", "周杰伦")), "晴天", "周杰伦")).isNull();
+    }
+
+    @Test
+    @DisplayName("歌名本身含版本词（Live Forever）：两边都带，照常匹配")
+    void acceptsWhenBothSidesContainVersionWord() {
+        List<Map<String, Object>> results = List.of(song("Live Forever", "Oasis"));
+
+        assertThat(SongMatcher.findBestMatch(results, "Live Forever", "Oasis")).isNotNull();
     }
 
     @Test
