@@ -265,12 +265,6 @@ public class PlaylistService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    /**
-     * 删除歌单：先删歌单内歌曲、再删歌单本身。两步必须同一事务——
-     * 否则第一步成功、第二步失败时会留下「歌曲没了、歌单还在」的空壳，
-     * 用户看到的是一个打不开的歌单。deleteBatch 一直是事务的，这里补齐。
-     */
-    @Transactional(rollbackFor = Exception.class)
     public void delete(Long userId, Long playlistId) {
         Playlist pl = playlistMapper.selectById(playlistId);
         if (pl == null) throw new BusinessException(404, "歌单不存在");
