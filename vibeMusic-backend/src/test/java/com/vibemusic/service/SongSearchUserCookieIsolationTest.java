@@ -26,9 +26,9 @@ import static org.mockito.Mockito.*;
 /**
  * SongSearchService per-user Cookie 隔离测试（纯 Mockito）。
  *
- * <p>隔离策略（已定）：per-user Cookie 存在时绕过全部共享缓存读写
- * （Redis 读/写、单飞锁），直查上游且结果仅当次返回。
- * A 用户的 VIP 结果永不写入共享键，也永不读到 B/匿名缓存。
+ * <p>隔离策略（2026-11-11 调整）：per-user 结果按用户隔离缓存，键前缀 {@code u<id>:}。
+ * 同一用户重复搜索命中自己的键（不再每次穿透 5 个上游），不同用户与匿名用户互不可见；
+ * 取不到用户标识时退回「不读不写缓存」，保证任何情况下都不串号。
  */
 @TestPropertySource(properties = "COOKIE_ENC_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 @DisplayName("SongSearchService per-user Cookie 隔离测试")
@@ -111,9 +111,57 @@ class SongSearchUserCookieIsolationTest {
     }
 
     @Test
-    @DisplayName("per-user：绕过 Redis 读与写，直查上游并透传 Cookie")
-    void perUserBypassesSharedCacheReadsAndWrites() {
+    @DisplayName("per-user：读写隔离键 u<id>:，不碰共享键，Cookie 透传")
+    void perUserUsesIsolatedCacheKey() {
         loginAs(2L);
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
+        lenient().when(cacheService.getSearchCache(anyString())).thenReturn(null);
+        when(cacheService.tryLockResult(eq("u2:晴天:all")))
+                .thenReturn(SongCacheService.LockResult.acquired("lock-u2"));
+        stubOtherPlatformsEmpty();
+        when(neteaseApiService.searchNetease(eq("晴天"), eq(40), eq(COOKIE_B)))
+                .thenReturn(apiPayload("vip-1", "晴天VIP版"));
+
+        SearchResult result = songSearchService.search("晴天", 1, 20);
+
+        assertEquals("api", result.getSource());
+        assertEquals(1, result.getList().size());
+        assertEquals("vip-1", result.getList().get(0).getSourceId());
+
+        verify(cacheService).getSearchCache(eq("u2:晴天:all"));
+        verify(cacheService, never()).getSearchCache(eq("晴天:all"));
+        verify(cacheService).setSearchCache(eq("u2:晴天:all"), anyList(), eq(true), anyBoolean(), any());
+        verify(cacheService, never()).setSearchCache(eq("晴天:all"), anyList(), anyBoolean(), anyBoolean(), any());
+        verify(neteaseApiService, times(1)).searchNetease(eq("晴天"), eq(40), eq(COOKIE_B));
+    }
+
+    @Test
+    @DisplayName("隔离：B 用户命中自己的键，读不到共享/他人结果")
+    void userBIsolatedFromSharedCache() {
+        stubOtherPlatformsEmpty();
+        when(cacheService.getSearchCache(eq("夜曲:all")))
+                .thenReturn(List.of(song("shared-a", "夜曲")));
+        SearchResult anon = songSearchService.search("夜曲", 1, 20);
+        assertEquals("redis", anon.getSource());
+        assertEquals("shared-a", anon.getList().get(0).getSourceId());
+
+        clearInvocations(cacheService);
+        when(cacheService.getSearchCache(eq("u2:夜曲:all")))
+                .thenReturn(List.of(song("vip-b", "夜曲VIP版")));
+
+        loginAs(2L);
+        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
+
+        SearchResult bResult = songSearchService.search("夜曲", 1, 20);
+
+        assertEquals("vip-b", bResult.getList().get(0).getSourceId());
+        verify(cacheService, never()).getSearchCache(eq("夜曲:all"));
+        verify(neteaseApiService, never()).searchNetease(anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    @DisplayName("per-user 但取不到用户标识：退回不读不写缓存")
+    void perUserWithoutIdDoesNotTouchCache() {
         when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
         when(cacheService.getSearchCache(anyString()))
                 .thenReturn(List.of(song("shared-1", "共享旧结果")));
@@ -124,50 +172,14 @@ class SongSearchUserCookieIsolationTest {
         SearchResult result = songSearchService.search("晴天", 1, 20);
 
         assertEquals("api", result.getSource());
-        assertEquals(1, result.getList().size());
         assertEquals("vip-1", result.getList().get(0).getSourceId());
         verify(cacheService, never()).getSearchCache(anyString());
-        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
-        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
+        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean(), any());
         verify(cacheService, never()).tryLockResult(anyString());
-        verify(cacheService, never()).releaseLock(anyString(), anyString());
-
-        verify(neteaseApiService, times(1)).searchNetease(eq("晴天"), eq(40), eq(COOKIE_B));
-        verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
     }
 
     @Test
-    @DisplayName("隔离：B 用户读不到共享缓存的 A 结果，且 B 的结果不回写共享")
-    void userBIsolatedFromSharedCache() {
-        stubOtherPlatformsEmpty();
-        when(cacheService.getSearchCache(anyString())).thenReturn(null);
-        when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.acquired("lock-anon"));
-        when(neteaseApiService.searchNetease(eq("夜曲"), eq(40)))
-                .thenReturn(apiPayload("shared-a", "夜曲"));
-        when(neteaseApiService.searchNetease(eq("夜曲"), eq(40), eq(COOKIE_B)))
-                .thenReturn(apiPayload("vip-b", "夜曲VIP版"));
-
-        SearchResult anon = songSearchService.search("夜曲", 1, 20);
-        assertEquals("api", anon.getSource());
-        assertEquals("shared-a", anon.getList().get(0).getSourceId());
-
-        clearInvocations(cacheService);
-        when(cacheService.getSearchCache(anyString()))
-                .thenReturn(List.of(song("shared-a", "夜曲")));
-
-        loginAs(2L);
-        when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
-
-        SearchResult bResult = songSearchService.search("夜曲", 1, 20);
-
-        assertEquals("vip-b", bResult.getList().get(0).getSourceId());
-        verify(cacheService, never()).getSearchCache(anyString());
-        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
-        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
-    }
-
-    @Test
-    @DisplayName("匿名：回退行为不变（读缓存、2 参数签名、命中写回）")
+    @DisplayName("匿名：行为不变（读共享键、命中直接返回）")
     void anonymousFallbackUnchanged() {
         when(cacheService.getSearchCache(eq("稻香:all")))
                 .thenReturn(List.of(song("c-1", "稻香")));
@@ -179,25 +191,16 @@ class SongSearchUserCookieIsolationTest {
         assertEquals("c-1", hit.getList().get(0).getSourceId());
         verify(neteaseApiService, never()).searchNetease(anyString(), anyInt(), anyString());
         verify(neteaseApiService, never()).searchNetease(anyString(), anyInt());
-
-        clearInvocations(cacheService, neteaseApiService);
-        when(cacheService.getSearchCache(eq("夜曲:all"))).thenReturn(null);
-        when(cacheService.tryLockResult(anyString())).thenReturn(SongCacheService.LockResult.busy());
-        when(neteaseApiService.searchNetease(eq("夜曲"), eq(40)))
-                .thenReturn(apiPayload("n-1", "夜曲"));
-
-        SearchResult miss = songSearchService.search("夜曲", 1, 20);
-
-        assertEquals("api", miss.getSource());
-        verify(neteaseApiService, times(1)).searchNetease(eq("夜曲"), eq(40));
-        verify(neteaseApiService, never()).searchNetease(anyString(), anyInt(), anyString());
     }
 
     @Test
-    @DisplayName("单平台 netease + per-user：透传 Cookie 且不写单平台缓存")
-    void singlePlatformNeteasePerUserNoWrite() {
+    @DisplayName("单平台 netease + per-user：写隔离键而非共享键")
+    void singlePlatformNeteasePerUserWritesIsolatedKey() {
         loginAs(2L);
         when(userService.resolveCurrentNeteaseCookie()).thenReturn(COOKIE_B);
+        lenient().when(cacheService.getSearchCache(anyString())).thenReturn(null);
+        when(cacheService.tryLockResult(eq("u2:七里香:netease")))
+                .thenReturn(SongCacheService.LockResult.acquired("lock-u2-ne"));
         when(neteaseApiService.searchNetease(eq("七里香"), eq(40), eq(COOKIE_B)))
                 .thenReturn(apiPayload("vip-7", "七里香VIP版"));
 
@@ -205,8 +208,7 @@ class SongSearchUserCookieIsolationTest {
 
         assertEquals("api", result.getSource());
         assertEquals("vip-7", result.getList().get(0).getSourceId());
-        verify(cacheService, never()).getSearchCache(anyString());
-        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean());
-        verify(cacheService, never()).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
+        verify(cacheService).setSearchCache(eq("u2:七里香:netease"), anyList(), eq(true), anyBoolean(), any());
+        verify(cacheService, never()).setSearchCache(eq("七里香:netease"), anyList(), anyBoolean(), anyBoolean(), any());
     }
 }

@@ -189,9 +189,21 @@ public class SongCacheService {
 
     /** @param incomplete 某平台返回空结果 → 用短TTL让恢复后快速生效 */
     public void setSearchCache(String keyword, List<SongDTO> songs, boolean hasResults, boolean incomplete) {
+        setSearchCache(keyword, songs, hasResults, incomplete, null);
+    }
+
+    /**
+     * 带 TTL 覆写的写入：per-user 搜索结果用短 TTL（VIP 状态与可用性可能变化，
+     * 不能沿用共享缓存 6 小时的假设），其余行为与四参版本一致。
+     *
+     * @param ttlOverride 非空时覆盖默认 TTL；空结果哨兵仍用 10 秒短 TTL
+     */
+    public void setSearchCache(String keyword, List<SongDTO> songs, boolean hasResults,
+                               boolean incomplete, Duration ttlOverride) {
         try {
             if (hasResults) {
-                Duration ttl = incomplete ? TTL_PARTIAL : TTL_RESULTS;
+                Duration ttl = ttlOverride != null ? ttlOverride
+                        : (incomplete ? TTL_PARTIAL : TTL_RESULTS);
                 String json = objectMapper.writeValueAsString(songs);
                 stringRedisTemplate.opsForValue().set(SEARCH_PREFIX + keyword, json, ttl);
                 log.info("[CACHE-LAYER] 写入成功: '{}', {}首, TTL={}{}",

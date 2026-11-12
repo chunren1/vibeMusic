@@ -21,6 +21,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -262,6 +263,9 @@ public class SongSearchService {
     // 短暂等待让持锁者回写缓存，并发同关键词请求共享结果而非各自穿透上游。
     // 退避序列 150/300/600/1200ms（累计 2.25s），仍 < SEARCH_TIMEOUT_SEC=4s 预算，
     // 既能真正等到持锁者回写，也不会拖慢"持锁者已挂"时的兜底直查。
+    /** per-user 搜索结果 TTL：VIP 权益与可用性会变，不能沿用共享缓存 6 小时的假设。 */
+    private static final Duration USER_SCOPE_TTL = Duration.ofMinutes(5);
+
     private static final long[] LOCK_WAIT_BACKOFF_MS = {150L, 300L, 600L, 1200L};
     /**
      * 退避轮询总时长（150+300+600+1200=2250ms）。
@@ -355,6 +359,11 @@ public class SongSearchService {
         if (userCookie != null && userCookie.isBlank()) userCookie = null;
         final String userCk = userCookie;
         final boolean perUser = userCk != null;
+        // per-user 搜索结果按用户隔离缓存：键前缀 u<id>，既不与他人共享，也不必每次穿透上游。
+        // 取不到用户标识时退回旧行为（不读不写缓存），保证结果绝不串号。
+        final String perUserScope = perUser ? perUserScope() : null;
+        final boolean cacheable = !perUser || perUserScope != null;
+        final String scopePrefix = perUserScope != null ? perUserScope + ":" : "";
         String rawKw = SearchQueryHints.normalizeQuery(keyword);
         if (rawKw.isEmpty())
             return SearchResult.of(Collections.emptyList(), 0, page, size, "none");
@@ -370,8 +379,8 @@ public class SongSearchService {
         // per-user 请求绕过全部共享缓存读写（Redis/ES/单飞锁）：VIP 结果绝不落入
         // 共享键，也绝不读取他人/匿名缓存；直查上游，结果仅当次返回
         List<SongDTO> cached = null;
-        if (!perUser) {
-            cached = cacheService.getSearchCache(kw + ":" + cacheExtra);
+        if (cacheable) {
+            cached = cacheService.getSearchCache(scopePrefix + kw + ":" + cacheExtra);
         }
         if (cached != null) {
             redisHitCounter.increment();
@@ -391,10 +400,10 @@ public class SongSearchService {
         // ======== 第 2 步：API 实时搜索（兜底）======
         // 分布式锁单飞：持锁者执行搜索并回写缓存；未获锁者短暂等待后重试读缓存，
         // 仍无缓存则兜底直接执行（锁持有者异常/过慢时不阻塞请求）
-        String allCacheKey = kw + ":" + cacheExtra;
+        String allCacheKey = scopePrefix + kw + ":" + cacheExtra;
         ApiSearchOutcome outcome;
-        if (perUser) {
-            outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, searchStart);
+        if (!cacheable) {
+            outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, perUserScope, searchStart);
         } else {
             SongCacheService.LockResult lock = cacheService.tryLockResult(allCacheKey);
             if (lock.status() == SongCacheService.LockResult.Status.UNAVAILABLE) {
@@ -402,7 +411,7 @@ public class SongSearchService {
                 // 白等 2.25s（150+300+600+1200）后仍要直查 → 直接跳过单飞等待。
                 log.warn("[API-LAYER] Redis 不可用，跳过单飞等待直查: keyword='{}', 省去退避 {}ms",
                         kw, LOCK_BACKOFF_TOTAL_MS);
-                outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+                outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, perUserScope, searchStart);
             } else if (lock.status() == SongCacheService.LockResult.Status.BUSY) {
                 List<SongDTO> retried = null;
                 for (int round = 0; round < LOCK_WAIT_BACKOFF_MS.length; round++) {
@@ -429,10 +438,10 @@ public class SongSearchService {
                     }
                 }
                 log.info("[API-LAYER] 单飞等待超时仍无缓存，兜底直查: keyword='{}', 原因=持锁者未及时回写", kw);
-                outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+                outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, perUserScope, searchStart);
             } else {
                 try {
-                    outcome = doApiSearch(kw, cacheExtra, allCacheKey, null, searchStart);
+                    outcome = doApiSearch(kw, cacheExtra, allCacheKey, userCk, perUserScope, searchStart);
                 } finally {
                     cacheService.releaseLock(allCacheKey, lock.lockValue());
                 }
@@ -472,11 +481,14 @@ public class SongSearchService {
     private record ApiSearchOutcome(List<SongDTO> songs, boolean allUpstreamFailed) {}
 
     private ApiSearchOutcome doApiSearch(String kw, String cacheExtra, String allCacheKey, String userCookie,
-                                        long searchStart) {
+                                        String userScope, long searchStart) {
         apiCallCounter.increment();
         log.info("[API-LAYER] 触发实时搜索(单飞): keyword='{}', 原因=Redis未命中", kw);
         long apiStart = System.currentTimeMillis();
         final boolean perUser = userCookie != null;
+        // 与 search() 同一口径：能拿到用户标识才允许读写缓存
+        final boolean cacheable = !perUser || userScope != null;
+        final String scopePrefix = userScope != null ? userScope + ":" : "";
 
         // 网关整体熔断：开路时跳过全部 5 个远程分支，只走「空结果 + 重试提示」的本地兜底，
         // 避免 5 线程各自等连接拒绝/超时（单平台熔断管不了网关整个不可用）。
@@ -492,7 +504,7 @@ public class SongSearchService {
             List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchNetease(kw, neFailedOnce, userCookie));
             recordSourceOutcome("netease", !neFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("netease");
-            if (!songs.isEmpty() && !perUser) cacheService.setSearchCache(kw + ":netease", songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(scopePrefix + kw + ":netease", songs, true, false, perUser ? USER_SCOPE_TTL : null);
             return new ApiSearchOutcome(songs, false);
         }
         if ("qq".equals(cacheExtra)) {
@@ -506,7 +518,7 @@ public class SongSearchService {
             }
             List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchQQ(kw));
             for (SongDTO s : songs) s.setPlatform("qq");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":qq", songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(scopePrefix + kw + ":qq", songs, true, false, perUser ? USER_SCOPE_TTL : null);
             return new ApiSearchOutcome(songs, false);
         }
         if ("migu".equals(cacheExtra)) {
@@ -515,7 +527,7 @@ public class SongSearchService {
             List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchMigu(kw, mgFailedOnce));
             recordSourceOutcome("migu", !mgFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("migu");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":migu", songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(scopePrefix + kw + ":migu", songs, true, false, perUser ? USER_SCOPE_TTL : null);
             return new ApiSearchOutcome(songs, false);
         }
         if ("kugou".equals(cacheExtra)) {
@@ -524,7 +536,7 @@ public class SongSearchService {
             List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchKugou(kw, kgFailedOnce));
             recordSourceOutcome("kugou", !kgFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("kugou");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":kugou", songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(scopePrefix + kw + ":kugou", songs, true, false, perUser ? USER_SCOPE_TTL : null);
             return new ApiSearchOutcome(songs, false);
         }
         if ("bilibili".equals(cacheExtra)) {
@@ -533,7 +545,7 @@ public class SongSearchService {
             List<SongDTO> songs = new ArrayList<>(platformSearch.safeSearchBili(kw, biFailedOnce));
             recordSourceOutcome("bilibili", !biFailedOnce.get());
             for (SongDTO s : songs) s.setPlatform("bilibili");
-            if (!songs.isEmpty()) cacheService.setSearchCache(kw + ":bilibili", songs, true);
+            if (!songs.isEmpty()) cacheService.setSearchCache(scopePrefix + kw + ":bilibili", songs, true, false, perUser ? USER_SCOPE_TTL : null);
             return new ApiSearchOutcome(songs, false);
         }
 
@@ -609,8 +621,9 @@ public class SongSearchService {
             log.warn("[API-LAYER] 五平台上游全部失败，不写空哨兵: keyword='{}'", kw);
             return new ApiSearchOutcome(merged, true);
         }
-        if (!perUser) {
-            cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete);
+        if (cacheable) {
+            cacheService.setSearchCache(allCacheKey, merged, !merged.isEmpty(), incomplete,
+                    perUser ? USER_SCOPE_TTL : null);
         }
         return new ApiSearchOutcome(merged, false);
     }
@@ -737,6 +750,16 @@ public class SongSearchService {
     /** B 站封面 CDN 判定（实现见 SongDtoParser）。 */
     static boolean isBiliCdnCover(String coverUrl) {
         return SongDtoParser.isBiliCdnCover(coverUrl);
+    }
+
+    /** per-user 缓存作用域：登录用户返回 u<id>，取不到标识返回 null（调用方退回不缓存）。 */
+    private static String perUserScope() {
+        try {
+            Long uid = UserService.getCurrentUserId();
+            return uid == null ? null : ("u" + uid);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 剩余预算秒数（实现见 PlatformSearchAdapter；保留本入口给同包测试）。 */

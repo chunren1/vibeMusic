@@ -142,7 +142,7 @@ class SongSearchServiceTest {
             assertEquals("api", result.getSource());
             assertFalse(result.getList().isEmpty());
             assertEquals("netease", result.getList().get(0).getPlatform());
-            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
+            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean(), any());
         }
 
         @Test @DisplayName("API 超时应降级返回空列表")
@@ -939,7 +939,7 @@ class SongSearchServiceTest {
 
             assertEquals("api", result.getSource());
             assertEquals(1, result.getList().size());
-            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
+            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean(), any());
             assertEquals(0.0, meterRegistry.get("search.upstream.all_failed").counter().count());
         }
 
@@ -1236,7 +1236,7 @@ class SongSearchServiceTest {
 
             assertEquals("api", result.getSource());
             assertEquals(1, result.getList().size());
-            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean());
+            verify(cacheService).setSearchCache(anyString(), anyList(), eq(true), anyBoolean(), any());
             assertEquals(0.0, meterRegistry.get("search.upstream.all_failed").counter().count());
         }
 
@@ -1273,7 +1273,7 @@ class SongSearchServiceTest {
             doAnswer(inv -> {
                 cacheBox.set(inv.getArgument(1));
                 return null;
-            }).when(cacheService).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean());
+            }).when(cacheService).setSearchCache(anyString(), anyList(), anyBoolean(), anyBoolean(), any());
             AtomicInteger lockCalls = new AtomicInteger(0);
             when(cacheService.tryLockResult(eq(key))).thenAnswer(inv ->
                     lockCalls.getAndIncrement() == 0
@@ -1459,7 +1459,7 @@ class SongSearchServiceTest {
             assertEquals("api", result.getSource());
             assertTrue(result.getList().isEmpty());
             verify(cacheService).setSearchCache(eq("真空词:all"), argThat(list -> list.isEmpty()),
-                    eq(false), anyBoolean());
+                    eq(false), anyBoolean(), any());
             assertEquals(0.0, meterRegistry.get("search.upstream.all_failed").counter().count());
         }
     }
@@ -1635,7 +1635,7 @@ class SongSearchServiceTest {
 
             assertEquals("api", result.getSource());
             assertFalse(result.getList().isEmpty());
-            verify(cacheService).setSearchCache(eq("咪咕缺货:all"), anyList(), eq(true), eq(true));
+            verify(cacheService).setSearchCache(eq("咪咕缺货:all"), anyList(), eq(true), eq(true), any());
         }
     }
 }
