@@ -54,13 +54,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        int max = maxFor(request);
+        // 原始 URI 与容器解码后的路径各取一份：前者保留原始形态，后者能识破 %73 这类编码绕过
+        // （getRequestURI 不解码，而 Spring 路由会解码——只看原始值等于给了一个换编码就免限流的后门）。
+        final String rawPath = pathOf(request);
+        final String decodedPath = decodedPathOf(request);
+        final boolean searchPath = SEARCH_PATH.equals(rawPath) || SEARCH_PATH.equals(decodedPath);
+        int max = maxFor(rawPath, decodedPath);
         if (max <= 0) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        String bucket = SEARCH_PATH.equals(pathOf(request)) ? "search" : "stream";
+        String bucket = searchPath ? "search" : "stream";
         String key = bucket + ":" + RequestIdentity.resolve(request);
         Duration window = Duration.ofSeconds(Math.max(1, properties.getWindowSeconds()));
 
@@ -84,12 +89,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     /** @return 该路径对应的每窗口上限；0 表示不限制 */
-    private int maxFor(HttpServletRequest request) {
-        String path = pathOf(request);
-        if (SEARCH_PATH.equals(path)) {
+    private int maxFor(String rawPath, String decodedPath) {
+        if (SEARCH_PATH.equals(rawPath) || SEARCH_PATH.equals(decodedPath)) {
             return properties.getSearchPerMin();
         }
-        if (STREAM_PATH.equals(path)) {
+        if (STREAM_PATH.equals(rawPath) || STREAM_PATH.equals(decodedPath)) {
             return properties.getStreamPerMin();
         }
         return 0;
@@ -102,6 +106,25 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return "";
         }
         String path = uri.length() > 1 && uri.endsWith("/") ? uri.substring(0, uri.length() - 1) : uri;
+        int semicolon = path.indexOf(';');
+        return semicolon >= 0 ? path.substring(0, semicolon) : path;
+    }
+
+    /**
+     * 容器解码后的路径（去尾斜杠与路径参数）。
+     *
+     * <p>为什么需要它：{@code getRequestURI()} 返回的是原始串，{@code /api/songs/%73earch}
+     * 在这里不等于 {@code /api/songs/search}，但 Spring 的路由会先解码再匹配——只比对原始串
+     * 会让编码后的请求直接跳过限流。{@code getServletPath()} 由容器解码，正好补上这一面。</p>
+     */
+    private static String decodedPathOf(HttpServletRequest request) {
+        String path = request.getServletPath();
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        if (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
         int semicolon = path.indexOf(';');
         return semicolon >= 0 ? path.substring(0, semicolon) : path;
     }

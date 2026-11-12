@@ -165,4 +165,24 @@ class RateLimitFilterTest {
 
         verify(rateLimitService).tryAcquire(eq("search:ip:10.0.0.1"), eq(20), any(Duration.class));
     }
+
+    @Test
+    @DisplayName("编码路径不能绕过限流：原始 URI 与解码路径任一命中即受限")
+    void encodedPathCannotBypass() throws Exception {
+        when(rateLimitService.tryAcquire(anyString(), eq(20), any(Duration.class))).thenReturn(false);
+        when(rateLimitService.remainingSeconds(anyString(), anyLong())).thenReturn(30L);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/songs/%73earch");
+        request.setRequestURI("/api/songs/%73earch");
+        // 容器解码后的路径（Tomcat 对 %73 解码为 s）
+        request.setServletPath("/api/songs/search");
+        request.setRemoteAddr("10.0.0.1");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(429, response.getStatus());
+        assertEquals(0, chainCalls.get(), "编码路径不应穿透到业务链");
+        verify(rateLimitService).tryAcquire(eq("search:ip:10.0.0.1"), eq(20), any(Duration.class));
+    }
 }
