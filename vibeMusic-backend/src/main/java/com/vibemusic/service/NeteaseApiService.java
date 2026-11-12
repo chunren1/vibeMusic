@@ -333,10 +333,19 @@ public class NeteaseApiService {
      * 由 StreamController 代理字节流，绝不直传 app）；无版权时 url=null。
      */
     public Map<String, Object> getMiguSongUrl(String contentId, String copyrightId) {
+        return getMiguSongUrl(contentId, copyrightId, "PQ");
+    }
+
+    /**
+     * @param toneFlag 音质：HQ（高品质）优先，取不到再回落 PQ。咪咕的 HQ 多数曲目免费，
+     *                 换源时值得先试一次——同一首歌在标准音质与高品质之间的听感差异明显。
+     */
+    public Map<String, Object> getMiguSongUrl(String contentId, String copyrightId, String toneFlag) {
         URI uri = buildUri("/migu/url", "id", contentId,
-                "copyrightId", copyrightId != null ? copyrightId : "");
+                "copyrightId", copyrightId != null ? copyrightId : "",
+                "toneFlag", toneFlag != null ? toneFlag : "PQ");
         ResponseEntity<Map> response = restTemplate.exchange(uri, HttpMethod.GET, buildHeaders(), Map.class);
-        log.info("Migu播放URL: {} status={}", contentId, response.getStatusCode());
+        log.info("Migu播放URL: {} tone={} status={}", contentId, toneFlag, response.getStatusCode());
         return response.getBody();
     }
 

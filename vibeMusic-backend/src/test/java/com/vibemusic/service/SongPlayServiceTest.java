@@ -70,21 +70,22 @@ class SongPlayServiceTest {
 
     @Test @DisplayName("platform=migu 经咪咕取链返回签名 URL，不碰 QQ/网易云分支")
     void miguBranchReturnsSignedUrl() {
-        when(neteaseApiService.getMiguSongUrl("60054701986", null))
+        when(neteaseApiService.getMiguSongUrl(eq("60054701986"), isNull(), anyString()))
                 .thenReturn(Map.of("data", List.of(
                         Map.of("url", "https://signed.migu.cn/x.mp3?k=1"))));
 
         String url = songPlayService.getPlayUrl("60054701986", "青花瓷", "周杰伦", "migu");
 
         assertEquals("https://signed.migu.cn/x.mp3?k=1", url);
-        verify(neteaseApiService, times(1)).getMiguSongUrl("60054701986", null);
+        // 咪咕取链先试 HQ、再回落 PQ：一次 getPlayUrl 会打两次上游
+        verify(neteaseApiService, times(1)).getMiguSongUrl(eq("60054701986"), isNull(), anyString());
         verify(neteaseApiService, never()).getQQSongUrl(anyString());
         verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
     }
 
     @Test @DisplayName("咪咕无链（url=null）时降级到网易云同名歌曲")
     void miguNoUrlFallsBackToNetease() {
-        when(neteaseApiService.getMiguSongUrl("60054701986", null))
+        when(neteaseApiService.getMiguSongUrl(eq("60054701986"), isNull(), anyString()))
                 .thenReturn(Map.of("data", List.of(Map.of())));
         when(neteaseApiService.searchNetease(eq("青花瓷 周杰伦"), anyInt()))
                 .thenReturn(Map.of("data", List.of(
@@ -96,7 +97,8 @@ class SongPlayServiceTest {
         String url = songPlayService.getPlayUrl("60054701986", "青花瓷", "周杰伦", "migu");
 
         assertEquals("https://ne-cdn.example/x.mp3", url);
-        verify(neteaseApiService, times(1)).getMiguSongUrl("60054701986", null);
+        // 咪咕取链先试 HQ、再回落 PQ：一次 getPlayUrl 会打两次上游
+        verify(neteaseApiService, times(2)).getMiguSongUrl(eq("60054701986"), isNull(), anyString());
     }
 
     @Test @DisplayName("咪咕取链异常不抛错，降级链继续")

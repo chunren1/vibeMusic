@@ -268,7 +268,8 @@ class CrossPlatformFailoverTest {
         when(neteaseApiService.searchNetease(anyString(), anyInt())).thenReturn(emptyResult());
         when(neteaseApiService.searchMigu(eq(KEYWORD), eq(5)))
                 .thenReturn(searchHit("60054701986", NAME, ARTIST, 240000));
-        when(neteaseApiService.getMiguSongUrl("60054701986", null))
+        // 换源先请求 HQ，取到即返回；PQ 是回落路径
+        when(neteaseApiService.getMiguSongUrl("60054701986", null, "HQ"))
                 .thenReturn(Map.of("data", List.of(Map.of("url", "https://migu-cdn.example/x.mp3"))));
 
         String url = songPlayService.getPlayUrl("qqvip", NAME, ARTIST, "qq");

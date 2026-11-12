@@ -93,21 +93,34 @@ class PlatformUrlFetcher {
     }
 
     /** 咪咕取链：musicapi 返回 302 签名 URL（IP-bound），由 StreamController 代理字节流；失败返回 null。 */
+    /**
+     * 咪咕取链：先请求 HQ（高品质），拿不到再回落 PQ。
+     *
+     * <p>换源场景下音质与"能不能播"同样重要：咪咕的 HQ 大多免费，先试一次的成本
+     * 只是一次额外的上游请求（失败时多几百毫秒，仍在换源预算内）。</p>
+     */
     @SuppressWarnings("unchecked")
     String fetchMiguUrl(String sourceId) {
-        try {
-            Map<String, Object> result = neteaseApiService.getMiguSongUrl(sourceId, null);
-            if (result != null) {
-                List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                if (data != null && !data.isEmpty()) {
-                    String url = (String) data.get(0).get("url");
-                    if (url != null && !url.isEmpty()) return url;
+        for (String tone : new String[]{"HQ", "PQ"}) {
+            try {
+                Map<String, Object> result = neteaseApiService.getMiguSongUrl(sourceId, null, tone);
+                if (result != null) {
+                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                    if (data != null && !data.isEmpty()) {
+                        String url = (String) data.get(0).get("url");
+                        if (url != null && !url.isEmpty()) return url;
+                    }
                 }
+            } catch (Exception e) {
+                log.warn("fetchMiguUrl: {} tone={} 获取失败: {}", ClientScrubberSafe(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
             }
-        } catch (Exception e) {
-            log.warn("fetchMiguUrl: {} 获取失败: {}", ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
+    }
+
+    /** 日志脱敏的简写，避免上面那行过长。 */
+    private static String ClientScrubberSafe(String value) {
+        return ClientErrorScrubber.scrub(value);
     }
 
     /** QQ 直取链接（platform=qq 或 id 非纯数字猜测）；失败返回 null 由调用方降级，永不抛错。 */

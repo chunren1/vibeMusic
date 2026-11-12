@@ -85,7 +85,7 @@ class NeteaseApiServiceTest {
         apiService.getQQSongUrl("abc");
         verify(restTemplate).exchange(argThat(u -> u.toString().contains("/song/url/qq")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class));
-        apiService.getMiguSongUrl("60054701986", null);
+        apiService.getMiguSongUrl("60054701986", null, "HQ");
         verify(restTemplate).exchange(argThat(u -> u.toString().contains("/migu/url")),
                 eq(HttpMethod.GET), any(HttpEntity.class), eq(Map.class));
         apiService.searchKugou("晴天", 5);

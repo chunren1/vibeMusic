@@ -16,6 +16,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
@@ -92,29 +94,30 @@ class SongPlayUrlCacheTest {
     @Test
     @DisplayName("同一首歌连续取链只打一次上游（模拟拖动进度产生的连续 Range 请求）")
     void secondCallHitsCacheWithoutUpstream() {
-        when(neteaseApiService.getMiguSongUrl(SRC, null))
+        when(neteaseApiService.getMiguSongUrl(eq(SRC), isNull(), anyString()))
                 .thenReturn(Map.of("data", List.of(Map.of("url", URL))));
 
         assertEquals(URL, songPlayService.getPlayUrl(SRC, "青花瓷", "周杰伦", "migu"));
         assertEquals(URL, songPlayService.getPlayUrl(SRC, "青花瓷", "周杰伦", "migu"));
         assertEquals(URL, songPlayService.getPlayUrl(SRC, "青花瓷", "周杰伦", "migu"));
 
-        verify(neteaseApiService, times(1)).getMiguSongUrl(SRC, null);
+        verify(neteaseApiService, times(1)).getMiguSongUrl(eq(SRC), isNull(), anyString());
     }
 
     @Test
     @DisplayName("上游 403 作废缓存后，下一次取链必须真正重新请求上游")
     void invalidateForcesFreshLookup() {
-        when(neteaseApiService.getMiguSongUrl(SRC, null))
+        when(neteaseApiService.getMiguSongUrl(eq(SRC), isNull(), anyString()))
                 .thenReturn(Map.of("data", List.of(Map.of("url", URL))));
 
         songPlayService.getPlayUrl(SRC, "青花瓷", "周杰伦", "migu");
-        verify(neteaseApiService, times(1)).getMiguSongUrl(SRC, null);
+        verify(neteaseApiService, times(1)).getMiguSongUrl(eq(SRC), isNull(), anyString());
 
         songPlayService.invalidatePlayUrl(SRC, "migu");
         songPlayService.getPlayUrl(SRC, "青花瓷", "周杰伦", "migu");
 
-        verify(neteaseApiService, times(2)).getMiguSongUrl(SRC, null);
+        // 两次 getPlayUrl 各打一次上游（HQ 命中即返回，不试 PQ）
+        verify(neteaseApiService, times(2)).getMiguSongUrl(eq(SRC), isNull(), anyString());
     }
 
     @Test
@@ -132,7 +135,7 @@ class SongPlayUrlCacheTest {
     @Test
     @DisplayName("取链失败（null）不写缓存，避免把 404 固化整个 TTL")
     void nullUrlIsNotCached() {
-        when(neteaseApiService.getMiguSongUrl(SRC, null))
+        when(neteaseApiService.getMiguSongUrl(eq(SRC), isNull(), anyString()))
                 .thenReturn(Map.of("data", List.of(Map.of())));
         when(neteaseApiService.searchNetease(any(), anyInt()))
                 .thenReturn(Map.of("data", List.of()));
@@ -142,6 +145,7 @@ class SongPlayUrlCacheTest {
         songPlayService.getPlayUrl(SRC, null, null, "migu");
         songPlayService.getPlayUrl(SRC, null, null, "migu");
 
-        verify(neteaseApiService, times(2)).getMiguSongUrl(SRC, null);
+        // 每次 getPlayUrl 会依次试 HQ 与 PQ，两次请求共四次上游调用
+        verify(neteaseApiService, times(4)).getMiguSongUrl(eq(SRC), isNull(), anyString());
     }
 }

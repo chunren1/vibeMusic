@@ -90,4 +90,31 @@ class SongMatcherTest {
 
         assertThat(SongMatcher.findBestMatch(results, "晴天", null)).isNotNull();
     }
+
+    @Test
+    @DisplayName("同名翻唱（歌手不同）：换源必须拒绝")
+    void rejectsSameNameDifferentArtist() {
+        // 线上真实案例：搜索「晴天 周杰伦」的第一条是翻唱「晴天 RyaVocal」，
+        // 歌名完全一致、歌手完全不同，光看歌名会直接选中。
+        List<Map<String, Object>> results = List.of(song("晴天", "RyaVocal"));
+
+        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦")).isNull();
+    }
+
+    @Test
+    @DisplayName("多歌手：任一 token 匹配即放行")
+    void acceptsPartialArtistMatch() {
+        List<Map<String, Object>> results = List.of(song("All For Love", "Tungevaag"));
+
+        assertThat(SongMatcher.findBestMatch(results, "All For Love",
+                "Tungevaag / Raaban / Richard Smitt")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("候选缺歌手字段：不因此拒绝（平台不一定返回 artist）")
+    void acceptsWhenCandidateArtistMissing() {
+        List<Map<String, Object>> results = List.of(Map.of("name", "晴天"));
+
+        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦")).isNotNull();
+    }
 }

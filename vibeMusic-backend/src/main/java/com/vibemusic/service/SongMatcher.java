@@ -37,6 +37,10 @@ final class SongMatcher {
             // 这类版本歌名与歌手都能对上，靠名字永远分不出来，播出来是「同一首歌的另一版」，
             // 用户感知就是「播着播着换成了别的歌」。
             if (hasRejectVersionWord(candName, expectedName)) continue;
+            // 歌手硬校验：同名翻唱/他人上传的歌名与目标完全一致，只有歌手不同，
+            // 歌名 token 已经贡献了足够分数，光靠总分筛不掉（线上"晴天"匹配到
+            // "晴天 RyaVocal"就是这么来的）。歌名对上之后必须再验一次歌手。
+            if (!artistCompatible(expectedArtist, candArtist)) continue;
             String candidate = (candName + " " + candArtist).toLowerCase().trim();
             double score = similarity(target, candidate);
             // 歌名首字相同加分
@@ -94,6 +98,40 @@ final class SongMatcher {
      *   <li>双方长度都 ≥3 时互相包含（容忍译名、副标题）。</li>
      * </ol>
      */
+
+    /**
+     * 歌手是否可能是同一位/同一组。
+     *
+     * <p>规则比歌名宽：多歌手用斜杠/逗号分隔，只要有一个 ≥2 字的 token 相同即放行
+     * （"Tungevaag / Raaban" 与 "Tungevaag" 应视为一致）。候选歌手为空时不据此拒绝——
+     * 有些平台不返回 artist 字段，缺字段不等于错歌。</p>
+     *
+     * <p>期望歌手为空时直接放行：调用方（如按 ID 直接换源）可能没有歌手信息。</p>
+     */
+    private static boolean artistCompatible(String expectedArtist, String candidateArtist) {
+        if (expectedArtist == null || expectedArtist.isBlank()) return true;
+        if (candidateArtist == null || candidateArtist.isBlank()) return true;
+        String e = expectedArtist.toLowerCase(java.util.Locale.ROOT).trim();
+        String c = candidateArtist.toLowerCase(java.util.Locale.ROOT).trim();
+        if (e.equals(c) || e.contains(c) || c.contains(e)) return true;
+        Set<String> eTokens = artistTokens(e);
+        Set<String> cTokens = artistTokens(c);
+        for (String token : eTokens) {
+            if (token.length() >= 2 && cTokens.contains(token)) return true;
+        }
+        return false;
+    }
+
+    /** 歌手名切分：空格、斜杠、逗号、顿号、& 都当作分隔符。 */
+    private static Set<String> artistTokens(String value) {
+        Set<String> tokens = new HashSet<>();
+        for (String part : value.split("[\\s/,，、&]+")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) tokens.add(trimmed);
+        }
+        return tokens;
+    }
+
     private static boolean nameCompatible(String target, String candidate) {
         if (target.isEmpty() || candidate.isEmpty()) return false;
         if (target.equals(candidate)) return true;
