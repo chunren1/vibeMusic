@@ -134,9 +134,12 @@ test('#9 非法归一化值 400：对象式参数与非法 id', async () => {
 // ---- #7 url:null 不缓存：失败可重试，第二次仍回源 ----
 test('#7 null-url 不缓存：两次请求都回源，缓存无条目', async () => {
   const MID = '004abcXYZ1';
-  let upstreamCalls = 0;
-  stub(axios, 'get', async () => {
-    upstreamCalls++;
+  let vkeyCalls = 0;
+  stub(axios, 'get', async (url, opts) => {
+    const payload = JSON.parse(opts.params.data);
+    // 取链前会先查 media_mid（2026-11-13）：这里让详情查不到，回退 songmid，专测 vkey 的回源次数
+    if (payload.req_1) return { data: { req_1: { data: {} } } };
+    vkeyCalls++;
     return { data: { req_0: { data: { midurlinfo: [{ filename: `M800${MID}.mp3`, purl: '' }], sip: [] } } } };
   });
 
@@ -149,7 +152,7 @@ test('#7 null-url 不缓存：两次请求都回源，缓存无条目', async ()
   assert.equal(r2.body.data[0].url, null);
 
   assert.equal(urlCache.get(`qq_url:${MID}`), undefined);
-  assert.equal(upstreamCalls, 2); // 未缓存 → 第二次仍回源
+  assert.equal(vkeyCalls, 2); // 未缓存 → 第二次仍回源
 });
 
 // ---- #6 500 脱敏：上游错误文本不回传 ----

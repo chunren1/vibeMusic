@@ -20,16 +20,47 @@ function qqRequestHeaders() {
   return headers;
 }
 
+/**
+ * 取歌曲的媒体文件名 mid。
+ *
+ * <p>vkey 的 filename 用的是 **media_mid**，不是 songmid；两者在新歌里常常相同，
+ * 老歌/不同音质版本则不同。用 songmid 硬拼会拿到一个非空 purl，
+ * 但 CDN 直接回 404 `file not exist, retcode:-46628`——表现为"QQ 有搜索结果、永远播不出来"。
+ *
+ * <p>取不到就回退 songmid：宁可让原本能播的歌照旧，也不要因为详情接口抖动整条链失败。
+ */
+async function resolveQQMediaMid(id, headers) {
+  try {
+    const data = JSON.stringify({
+      comm: { ct: 24, cv: 0 },
+      req_1: { module: 'music.pf_song_detail_svr', method: 'get_song_detail_yqq', param: { song_type: 0, song_mid: id } },
+    });
+    const resp = await upstreamGet('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+      label: 'qq/song-detail',
+      params: { format: 'json', data },
+      headers,
+      timeoutMs: UPSTREAM_TIMEOUT,
+    });
+    const mediaMid = resp.data?.req_1?.data?.track_info?.file?.media_mid;
+    return typeof mediaMid === 'string' && mediaMid ? mediaMid : null;
+  } catch (e) {
+    writeLog('api', 'WARN', `[/song/url/qq] ${id} 取 media_mid 失败，回退 songmid: ${e.message}`);
+    return null;
+  }
+}
+
 // QQ 播放地址：无 Cookie 可用；VIP/鉴权限制内容返回 null（同形），任何异常都降级为 null，永不抛错
 async function fetchQQPlayUrl(id) {
   try {
     const uin = (config.qq && config.qq.uin) || '0';
     const qqmusicKey = (config.qq && config.qq.qqmusic_key) || '';
+    const headers = qqRequestHeaders();
+    const fileMid = (await resolveQQMediaMid(id, headers)) || id;
     const reqData = JSON.stringify({
       req_0: {
         module: 'vkey.GetVkeyServer', method: 'CgiGetVkey',
         param: {
-          filename: [`M800${id}.mp3`, `M500${id}.mp3`, `C400${id}.m4a`],
+          filename: [`M800${fileMid}.mp3`, `M500${fileMid}.mp3`, `C400${fileMid}.m4a`],
           guid: '126548448', songmid: [id], songtype: [0],
           uin, loginflag: 1, platform: '20', authst: qqmusicKey,
         },
@@ -39,11 +70,12 @@ async function fetchQQPlayUrl(id) {
     const qqResp = await upstreamGet('https://u.y.qq.com/cgi-bin/musicu.fcg', {
       label: 'qq/vkey',
       params: { format: 'json', data: reqData },
-      headers: qqRequestHeaders(),
+      headers,
       timeoutMs: UPSTREAM_TIMEOUT,
     });
     const mi = qqResp.data?.req_0?.data?.midurlinfo;
-    const sip = qqResp.data?.req_0?.data?.sip?.[0] || 'https://aqqmusic.tc.qq.com';
+    // sip 自带结尾斜杠（http://aqqmusic.tc.qq.com/），purl 也可能以斜杠开头，直接拼接会出现 // 路径
+    const sip = (qqResp.data?.req_0?.data?.sip?.[0] || 'https://aqqmusic.tc.qq.com').replace(/\/+$/, '');
 
     // vkey URL 有时效且部分歌曲 CDN 已失效：候选音质并行探测，取第一个可访问的
     // （此前串行逐个探测，最坏 3×2.5s 叠加；Promise.any 任一命中即返回）
@@ -51,7 +83,7 @@ async function fetchQQPlayUrl(id) {
       const candidates = [];
       for (const m of mi) {
         if (!m || !m.purl) continue;
-        candidates.push(m.purl.includes('://') ? m.purl : sip + '/' + m.purl);
+        candidates.push(m.purl.includes('://') ? m.purl : sip + '/' + m.purl.replace(/^\/+/, ''));
       }
       if (candidates.length > 0) {
         const probeOne = async (candidate) => {

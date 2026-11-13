@@ -165,6 +165,31 @@ test('端到端（无 Cookie、无真实网络）：/song/url/qq 200 同形，VI
   assert.equal(body.code, 404);
 });
 
+// 2026-11-13 线上根因回归：vkey 的 filename 必须用 media_mid。
+// 用 songmid 硬拼也会拿到非空 purl，但 CDN 回 404 "file not exist, retcode:-46628"，
+// 表现为「QQ 有搜索结果、永远播不出来」。
+test('取链用 media_mid 拼文件名，不是 songmid（否则 CDN 404）', async () => {
+  setQQConfig({});
+  const SONG_MID = '0004jPDk2eB2dt';
+  const MEDIA_MID = '000VlmgY2Xlput';
+  let vkeyFilenames = null;
+  stubAxiosGet(async (url, opts) => {
+    if (String(url).includes('musicu.fcg')) {
+      const data = JSON.parse(opts.params.data);
+      if (data.req_1 && data.req_1.module === 'music.pf_song_detail_svr') {
+        return { data: { req_1: { data: { track_info: { file: { media_mid: MEDIA_MID } } } } } };
+      }
+      vkeyFilenames = data.req_0.param.filename;
+      const purl = `M800${MEDIA_MID}.mp3?vkey=FAKE`;
+      return { data: { req_0: { data: { midurlinfo: [{ filename: `M800${MEDIA_MID}.mp3`, purl }], sip: ['https://aqqmusic.tc.qq.com/'] } } } };
+    }
+    return { status: 206 };
+  });
+  const url = await fetchQQPlayUrl(SONG_MID);
+  assert.equal(vkeyFilenames[0], `M800${MEDIA_MID}.mp3`, 'vkey 必须用 media_mid 拼文件名');
+  assert.equal(url, `https://aqqmusic.tc.qq.com/M800${MEDIA_MID}.mp3?vkey=FAKE`, 'sip 结尾斜杠不得拼出 // 路径');
+});
+
 test('/qq/playlist 无 Cookie 直连上游：字段映射正确（不再依赖 qq-music-api）', async (t) => {
   setQQConfig({});
   let seenHeaders;
