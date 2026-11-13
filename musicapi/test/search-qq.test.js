@@ -1,8 +1,12 @@
-const { test } = require('node:test');
+const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 
 const axios = require('axios');
 const { searchQQ, mapQQSong, probeQQSearch } = require('../src/search');
+const qqSource = require('../src/sources/qq');
+
+// 每次用例前重置 QQ 搜索限频窗口：生产靠 30s 间隔保护上游，测试需要连续请求
+beforeEach(() => qqSource.__resetQQSearchThrottle());
 
 const NEW_SAMPLE = {
   code: 0,

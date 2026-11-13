@@ -53,12 +53,35 @@ function buildQQSearchRequest(keyword, limit) {
   };
 }
 
+/**
+ * QQ 搜索的最小间隔（毫秒）。
+ *
+ * <p>实测 QQ 对搜索接口的限频非常严：同一 IP 连续两次请求，第二次必返回空列表，
+ * 间隔 20 秒以上才稳定。聚合搜索每次都会调一路，用户连搜几个词就会把 QQ 全部打成空——
+ * 线上日志里「QQ=0 首」是常态，而同一时刻直接调 searchQQ 能拿到 15 首。
+ *
+ * <p>与其每次都白打一次上游（还会加重风控），不如在窗口内直接跳过：
+ * 每 30 秒最多贡献一次真实结果，其余请求快速返回空，由其余四源兜住。
+ */
+const QQ_SEARCH_MIN_INTERVAL_MS = 30_000;
+let lastQQSearchAt = 0;
+
+/** 测试专用：重置限频窗口，避免同一进程内连续用例互相影响。 */
+function __resetQQSearchThrottle() { lastQQSearchAt = 0; }
+
 async function searchQQ(keyword, limit) {
   // QQ 源总开关（2026-10-27）：会员到期后该源大量曲目不可播，运营上先整体跳过。
   // 拦在这里而不是 routes 调用点 —— 聚合搜索与单源端点 /qq/search 都走本函数，一处覆盖。
   // 代码、端点、取链、歌词全部保留；MUSICAPI_QQ_ENABLED=true 重启即恢复。
   // 刻意不记账（既不算成功也不算失败）：停用不是故障，不该污染熔断计数与告警。
   if (!config.isQQEnabled()) return [];
+
+  const now = Date.now();
+  if (now - lastQQSearchAt < QQ_SEARCH_MIN_INTERVAL_MS) {
+    writeLog('degradation', 'INFO', 'QQ 搜索跳过（限频窗口内，距上次 ' + (now - lastQQSearchAt) + 'ms）: keyword=' + logSafe(keyword));
+    return [];
+  }
+  lastQQSearchAt = now;
 
   const { url, params, headers } = buildQQSearchRequest(keyword, limit);
   try {
@@ -125,4 +148,5 @@ module.exports = {
   buildQQSearchRequest,
   searchQQ,
   probeQQSearch,
+  __resetQQSearchThrottle,
 };
