@@ -9,6 +9,7 @@ import com.vibemusic.mapper.PlayHistoryMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -35,6 +36,12 @@ final class RecommendPersonalizer {
 
     private static final int HISTORY_DAYS = 30;
     private static final int HISTORY_SAMPLE = 100;
+    /** 歌手权重的时间半衰：7 天前的播放权重减半，30 天前约剩 1/5。 */
+    private static final double DECAY_HALF_LIFE_DAYS = 7.0;
+    /** 相邻两条播放记录间隔小于该值，判定较早那首「刚播就被切走」。 */
+    private static final long SKIP_INTERVAL_SECONDS = 30;
+    /** 被判定为跳过的记录，其歌手权重打这个折扣。 */
+    private static final double SKIPPED_WEIGHT_FACTOR = 0.3;
     private static final long ARTIST_FANOUT_DEADLINE_MS = 5000; // Top歌手并行搜索总deadline
     private static final int TOP_ARTIST_LIMIT = 5;
 
@@ -55,7 +62,25 @@ final class RecommendPersonalizer {
     }
 
     /**
-     * 已登录用户个性化推荐（v3: 随机打底 + 兴趣扩展，保证多样性）
+     * 相邻同歌手打散：从左到右扫描，遇到与前一首都同歌手时，从后面找一首不同歌手的换过来。
+     * 交换可能引入新的相邻重复，继续往后扫描即可覆盖；列表只有 8 首，代价可忽略。
+     */
+    static void avoidAdjacentSameArtist(List<SongDTO> songs) {
+        for (int i = 1; i < songs.size(); i++) {
+            String cur = RecommendRules.artistBucket(songs.get(i).getArtist());
+            String prev = RecommendRules.artistBucket(songs.get(i - 1).getArtist());
+            if (cur.isEmpty() || !cur.equals(prev)) continue;
+            for (int j = i + 1; j < songs.size(); j++) {
+                if (!cur.equals(RecommendRules.artistBucket(songs.get(j).getArtist()))) {
+                    Collections.swap(songs, i, j);
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * 已登录用户个性化推荐（v4: 时间衰减种子 + 随机打底 + 兴趣扩展 + 相邻去重）
      * @param seenKey 已推荐记忆键（可为 null，Redis 异常时降级为空集）
      */
     RecommendResult buildPersonalized(Long userId, String seenKey) {
@@ -68,13 +93,30 @@ final class RecommendPersonalizer {
                         .orderByDesc(PlayHistory::getPlayedAt)).getRecords();
 
         // 一次遍历：收集已听 sourceId + 歌手权重
+        // v4（2026-11-13）：从「简单计数」升级为「时间衰减 + 跳过降权」。
+        // 原实现的三个偏差：30 天前听的和昨天听的等权；同一个歌手听 10 次和 1 次只差计数；
+        // 被切走的歌和完整听完的歌等权。结果是兴趣扩展经常命中「很久以前偶然听过一次」的歌手。
+        Set<Long> skippedRecordIds = new HashSet<>();
+        for (int i = 0; i + 1 < history.size(); i++) {
+            PlayHistory newer = history.get(i);
+            PlayHistory older = history.get(i + 1);
+            if (older.getId() == null || older.getPlayedAt() == null || newer.getPlayedAt() == null) continue;
+            long gap = Duration.between(older.getPlayedAt(), newer.getPlayedAt()).getSeconds();
+            // 间隔 < 30 秒：older 刚开播就被切到 newer，视为未真正收听
+            if (gap >= 0 && gap < SKIP_INTERVAL_SECONDS) skippedRecordIds.add(older.getId());
+        }
         Set<String> playedIds = new HashSet<>();
-        Map<String, Long> artistWeight = new HashMap<>();
+        Map<String, Double> artistWeight = new HashMap<>();
+        LocalDateTime now = LocalDateTime.now();
         for (PlayHistory h : history) {
             if (h.getSourceId() != null) playedIds.add(h.getSourceId());
-            if (h.getArtist() != null && !h.getArtist().isEmpty()) {
-                artistWeight.merge(h.getArtist(), 1L, Long::sum);
+            if (h.getArtist() == null || h.getArtist().isEmpty() || h.getPlayedAt() == null) continue;
+            long days = Math.max(0, Duration.between(h.getPlayedAt(), now).toDays());
+            double weight = 1.0 / (1.0 + (double) days / DECAY_HALF_LIFE_DAYS);
+            if (h.getId() != null && skippedRecordIds.contains(h.getId())) {
+                weight *= SKIPPED_WEIGHT_FACTOR;
             }
+            artistWeight.merge(h.getArtist(), weight, Double::sum);
         }
         // 已推荐记忆 ∪ 已播放 = 本次去重集合。连续"换一批"(refresh=true)时过滤近期已推过的歌。
         Set<String> seenIds = cacheStore.readSeenIds(seenKey);
@@ -109,7 +151,7 @@ final class RecommendPersonalizer {
         // ② 兴趣扩展：基于常听歌手搜歌（并行 fan-out + 总 deadline，凑满即取消余下）
         if (result.size() < RecommendService.RECOMMEND_COUNT && !history.isEmpty()) {
             List<String> topArtists = artistWeight.entrySet().stream()
-                    .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                    .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                     .limit(TOP_ARTIST_LIMIT)
                     .map(Map.Entry::getKey)
                     .collect(Collectors.toList());
@@ -164,6 +206,8 @@ final class RecommendPersonalizer {
         } else {
             Collections.shuffle(result);
         }
+        // ⑤ 打乱后再做一次相邻同歌手打散：每歌手 ≤2 首的约束管数量，管不了"两首连播"
+        avoidAdjacentSameArtist(result);
 
         // 仍无结果 → 全随机兜底
         if (result.isEmpty()) {
