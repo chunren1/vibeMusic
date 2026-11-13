@@ -253,6 +253,22 @@ class SongSearchServiceTest {
             assertEquals("筷子兄弟", result.getList().get(0).getArtist());
         }
 
+        @Test @DisplayName("同名翻唱不再压过原唱：带版本词的一条降权")
+        void coverVersionSinksBelowOriginal() {
+            mockCacheMiss();
+            when(neteaseApiService.searchNetease("晴天", 40)).thenReturn(Map.of("data", List.of(
+                    apiSong("ne0", "晴天 (原唱 周杰伦)", "RyaVocal", 240000),
+                    apiSong("ne1", "晴天", "周杰伦", 240000))));
+            when(neteaseApiService.searchQQ("晴天", 40))
+                    .thenReturn(Map.of("data", List.of()));
+
+            SearchResult result = songSearchService.search("晴天", 1, 20);
+
+            assertEquals(2, result.getList().size());
+            assertEquals("周杰伦", result.getList().get(0).getArtist(),
+                    "原唱应排在带「原唱」标注的翻唱之前");
+        }
+
         @Test @DisplayName("多token查询中歌手token应提升正确版本")
         void artistTokenPromotesCorrectVersion() {
             mockCacheMiss();
@@ -768,8 +784,10 @@ class SongSearchServiceTest {
                     apiSong("ne1", "青花瓷", "周杰伦", 240000, null))));
             when(neteaseApiService.searchQQ("青花瓷", 40))
                     .thenReturn(Map.of("data", List.of()));
+            // 用非版本词后缀构造"歌名包含"场景：Live/翻唱等版本词自 2026-11-13 起会被降权，
+            // 那是另一条规则（见 SongRankingVariantPenaltyTest），此处只验平台权重与包含匹配。
             when(neteaseApiService.searchMigu("青花瓷", 40)).thenReturn(Map.of("data", List.of(
-                    apiSong("mg1", "青花瓷Live版", "周杰伦", 0, false))));
+                    apiSong("mg1", "青花瓷（电视剧主题曲）", "周杰伦", 0, false))));
 
             SearchResult result = songSearchService.search("青花瓷", 1, 20);
 

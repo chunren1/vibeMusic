@@ -4,7 +4,9 @@ import com.vibemusic.dto.SongDTO;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -48,6 +50,27 @@ final class SongRanking {
     static final long BILI_MIN_PLAYS = 100_000L;
     static final long BILI_MIN_DANMAKU = 1_000L;
     static final double BILI_WEAK_SCORE_CAP = 0.5;
+
+    /**
+     * 版本词：命中即视为"同名的另一版录音"，在存在同名干净版本时降权。
+     *
+     * <p>背景（2026-11-13 线上实测）：网易云 search 对「晴天」的返回顺序里，
+     * 前 6 条全是翻唱/钢琴版/女声版，周杰伦原唱排在第 8 之后；QQ 恢复取链后
+     * 同名翻唱更多。用户点第一条听到的就不是原唱——"歌取错了"的观感主要来自这里，
+     * 而不是播放链路。
+     *
+     * <p>与 {@code SongMatcher.REJECT_VERSION_WORDS} 分开维护：那边是"换源时宁可不播
+     * 也不能播错"，口径更严；这里是"排序时降权"，允许存在但排到后面。
+     */
+    private static final String[] VERSION_MARKERS = {
+            "live", "remix", "cover", "翻唱", "伴奏", "片段", "试听", "dj",
+            "纯音乐", "钢琴版", "吉他版", "女声版", "男声版", "女生版", "男生版",
+            "加速版", "降速版", "现场版", "演唱会", "原唱", "致敬", "清唱",
+            "童声", "合唱版", "抖音", "铃声", "混音", "倍速", "慢速", "片段版"
+    };
+
+    /** 版本变体降权幅度：抵消一档"歌名包含"加成(+1.0)，小于精确歌名加成(+2.0)。 */
+    static final double VERSION_VARIANT_PENALTY = 1.0;
 
     private static final Pattern NON_ALPHANUM = Pattern.compile("[^a-zA-Z0-9\\u4e00-\\u9fa5]");
 
@@ -251,6 +274,57 @@ final class SongRanking {
                 double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
                 song.setFinalScore(Math.max(0, base - penalty));
             }
+        }
+    }
+
+    /** 英文版本词按分词边界匹配，避免 discover/discovery 这类单词被误判成 cover。 */
+    private static final Pattern ASCII_VERSION_MARKER =
+            Pattern.compile("(?<![a-z])(live|remix|cover|dj)(?![a-z])");
+
+    /** 歌名是否带版本词（翻唱/伴奏/钢琴版/Live/原唱…）。 */
+    static boolean hasVersionMarker(String name) {
+        if (name == null || name.isEmpty()) return false;
+        if (ASCII_VERSION_MARKER.matcher(name.toLowerCase(java.util.Locale.ROOT)).find()) return true;
+        String norm = normalizeText(name);
+        for (String marker : VERSION_MARKERS) {
+            if (marker.matches("[a-z]+")) continue; // 英文已由上面的边界正则处理
+            if (norm.contains(marker)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 版本变体降权：同名存在"干净"版本时，带版本词的行扣分。
+     *
+     * <p>只降权、不删除：用户明确搜「晴天 Live」时，结果里本就不存在干净的「晴天」
+     * （查询词的 token 会参与相关性加分），此时 canonical 为空，一行都不扣。
+     * 只有在"翻唱和原唱同时出现"这种场景才生效——正是用户会点错的那一次。
+     */
+    static void applyVersionVariantPenalty(List<SongDTO> merged) {
+        if (merged == null || merged.size() < 2) return;
+        Set<String> canonicalNames = new HashSet<>();
+        for (SongDTO song : merged) {
+            if (hasVersionMarker(song.getName())) continue;
+            String norm = normalizeText(song.getName());
+            if (!norm.isEmpty()) canonicalNames.add(norm);
+        }
+        if (canonicalNames.isEmpty()) return;
+        for (SongDTO song : merged) {
+            if (!hasVersionMarker(song.getName())) continue;
+            String norm = normalizeText(song.getName());
+            if (norm.isEmpty()) continue;
+            boolean shadowedByCanonical = false;
+            for (String canonical : canonicalNames) {
+                if (norm.startsWith(canonical)) {
+                    shadowedByCanonical = true;
+                    break;
+                }
+            }
+            if (!shadowedByCanonical) continue;
+            double base = song.getFinalScore() != null ? song.getFinalScore() : 0;
+            song.setFinalScore(Math.max(0, base - VERSION_VARIANT_PENALTY));
+            log.debug("[VARIANT-PENALTY] 同名版本降权: name='{}', score {} → {}",
+                    song.getName(), base, song.getFinalScore());
         }
     }
 }

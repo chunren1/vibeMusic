@@ -48,6 +48,7 @@ final class SongMerger {
         SongRanking.applyRelevanceBonus(merged, keyword);
         SongRanking.applyNonVipBonus(merged);
         SongRanking.applyTitleLengthPenalty(merged);
+        SongRanking.applyVersionVariantPenalty(merged);
         SongRanking.applyBiliPlayGate(merged);
         log.info("[SEARCH-RANK] 相关性重排: keyword='{}', count={}, relevance-cost={}ms",
                 logKeyword, merged.size(), System.currentTimeMillis() - relevanceStart);
