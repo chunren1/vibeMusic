@@ -54,20 +54,24 @@ function buildQQSearchRequest(keyword, limit) {
 }
 
 /**
- * QQ 搜索的最小间隔（毫秒）。
+ * QQ 搜索必须带登录态。
  *
- * <p>实测 QQ 对搜索接口的限频非常严：同一 IP 连续两次请求，第二次必返回空列表，
- * 间隔 20 秒以上才稳定。聚合搜索每次都会调一路，用户连搜几个词就会把 QQ 全部打成空——
- * 线上日志里「QQ=0 首」是常态，而同一时刻直接调 searchQQ 能拿到 15 首。
+ * <p>2026-11-13 A/B 实测：同一 IP、同一时刻，匿名请求上游照常回 code:0，
+ * 但 song.list 恒为 0 条；带上 Cookie 后连发 5 个关键词（间隔 300ms）全部拿到 15 条。
+ * 也就是说搜索不是被限频，而是**匿名返回空**——线上「QQ 永远 0 首」的根因在此。
  *
- * <p>与其每次都白打一次上游（还会加重风控），不如在窗口内直接跳过：
- * 每 30 秒最多贡献一次真实结果，其余请求快速返回空，由其余四源兜住。
+ * <p>Cookie 走 cookieHelper() 在调用时取（原因见文件头循环 require 说明），
+ * 取不到时按匿名继续：宁可少一个源，也不要让搜索整体失败。
  */
-const QQ_SEARCH_MIN_INTERVAL_MS = 30_000;
-let lastQQSearchAt = 0;
-
-/** 测试专用：重置限频窗口，避免同一进程内连续用例互相影响。 */
-function __resetQQSearchThrottle() { lastQQSearchAt = 0; }
+function attachQQCookie(headers) {
+  try {
+    const cookieStr = cookieHelper().getQQCookieString();
+    if (cookieStr) headers.Cookie = cookieStr;
+  } catch (e) {
+    writeLog('cookie', 'WARN', `QQ 搜索附加 Cookie 失败，按匿名继续: ${e.message}`);
+  }
+  return headers;
+}
 
 async function searchQQ(keyword, limit) {
   // QQ 源总开关（2026-10-27）：会员到期后该源大量曲目不可播，运营上先整体跳过。
@@ -76,14 +80,8 @@ async function searchQQ(keyword, limit) {
   // 刻意不记账（既不算成功也不算失败）：停用不是故障，不该污染熔断计数与告警。
   if (!config.isQQEnabled()) return [];
 
-  const now = Date.now();
-  if (now - lastQQSearchAt < QQ_SEARCH_MIN_INTERVAL_MS) {
-    writeLog('degradation', 'INFO', 'QQ 搜索跳过（限频窗口内，距上次 ' + (now - lastQQSearchAt) + 'ms）: keyword=' + logSafe(keyword));
-    return [];
-  }
-  lastQQSearchAt = now;
-
   const { url, params, headers } = buildQQSearchRequest(keyword, limit);
+  attachQQCookie(headers);
   try {
     const resp = await upstreamGet(url, {
       label: 'qq/search',
@@ -117,16 +115,9 @@ async function searchQQ(keyword, limit) {
 // 空结果不视为失效——上游风控偶发空列表时不再误报 Cookie 失效。
 async function probeQQSearch() {
   const { url, params, headers } = buildQQSearchRequest('周杰伦', 1);
-  // 健康探针必须与真正消费 Cookie 的取链链路同口径：/song/url/qq、/qq/lyric、/qq/playlist
-  // 都经 qqRequestHeaders() 附加 Cookie，而 buildQQSearchRequest 是匿名的——
-  // 不补这一步，Cookie 过期时探针仍会报"✅ QQ音乐 Cookie 正常"（历史误报口径）。
-  try {
-    // 必须经 cookieHelper() 在**调用时**取（顶层解构会拿到 undefined，见文件头循环 require 说明）。
-    const cookieStr = cookieHelper().getQQCookieString();
-    if (cookieStr) headers.Cookie = cookieStr;
-  } catch (e) {
-    writeLog('cookie', 'WARN', `QQ 探针附加 Cookie 失败，按匿名探针继续: ${e.message}`);
-  }
+  // 健康探针必须与真实搜索同口径：不补 Cookie，探针会因匿名请求恒空而误报
+  // "✅ QQ音乐 Cookie 正常"（历史上就是这样掩盖了搜索不带 Cookie 的问题）。
+  attachQQCookie(headers);
   try {
     const resp = await withTimeout(
       upstreamGet(url, { label: 'qq/health-probe', params, headers, timeoutMs: UPSTREAM_TIMEOUT }),
@@ -148,5 +139,4 @@ module.exports = {
   buildQQSearchRequest,
   searchQQ,
   probeQQSearch,
-  __resetQQSearchThrottle,
 };

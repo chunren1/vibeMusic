@@ -15,7 +15,6 @@ const axios = require('axios');
 const NeteaseCloudMusicApi = require('NeteaseCloudMusicApi');
 const { searchCache, urlCache } = require('../src/search');
 const registerRoutes = require('../src/routes');
-const qqSource = require('../src/sources/qq');
 
 const CONTRACT = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', '..', 'contract', 'gateway.contract.json'), 'utf8')
@@ -232,8 +231,6 @@ test('/song/url/v1 契约：code/data[{url,freeTrialInfo,time}]，缺参 400', a
 });
 
 test('/qq/search 契约：data[歌曲字段]，缺 keyword 400', async (t) => {
-  // 只验契约形状：放开 30s 搜索限频，避免同进程内前序用例占掉窗口导致 data 为空
-  qqSource.__resetQQSearchThrottle();
   const { server, base } = await startApp();
   t.after(() => new Promise((resolve) => server.close(resolve)));
   stubAxiosGet(async () => qqSearchPayload());

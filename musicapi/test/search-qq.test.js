@@ -1,12 +1,8 @@
-const { test, beforeEach } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const axios = require('axios');
 const { searchQQ, mapQQSong, probeQQSearch } = require('../src/search');
-const qqSource = require('../src/sources/qq');
-
-// 每次用例前重置 QQ 搜索限频窗口：生产靠 30s 间隔保护上游，测试需要连续请求
-beforeEach(() => qqSource.__resetQQSearchThrottle());
 
 const NEW_SAMPLE = {
   code: 0,
@@ -138,6 +134,29 @@ test('probeQQSearch 附加 QQ Cookie（探针与真实取链同口径）', async
     const r = await probeQQSearch();
     assert.equal(r.ok, true, '探针应判定结构有效');
     assert.match(String(seenHeaders.Cookie || ''), /qqmusic_key=TESTKEY/, '探针必须带 Cookie，否则过期检测失效');
+  } finally {
+    cookie.getQQCookieString = orig;
+    restore();
+  }
+});
+
+// 2026-11-13 线上根因回归：searchQQ 曾在构造请求头后直接发匿名请求。
+// QQ 对匿名搜索不报错（照样 code:0），只是 song.list 恒为空——
+// 表现为"QQ 永远零结果"却没有任何异常日志。带上 Cookie 后同一时刻能拿满 15 条。
+// 这条用例直接断言真实搜索请求里出现 Cookie，删掉修复即红。
+test('searchQQ 附加 QQ Cookie（匿名搜索上游恒返回空列表）', async () => {
+  const cookie = require('../src/cookie');
+  const orig = cookie.getQQCookieString;
+  cookie.getQQCookieString = () => 'uin=o1; qqmusic_key=TESTKEY';
+  let seenHeaders;
+  const restore = stubAxiosGet(async (url, opts) => {
+    seenHeaders = opts.headers;
+    return { data: NEW_SAMPLE };
+  });
+  try {
+    const songs = await searchQQ('晴天', 10);
+    assert.equal(songs.length, 2, '带 Cookie 的搜索应正常解析出结果');
+    assert.match(String(seenHeaders.Cookie || ''), /qqmusic_key=TESTKEY/, '搜索请求必须带 Cookie，否则上游恒空');
   } finally {
     cookie.getQQCookieString = orig;
     restore();
