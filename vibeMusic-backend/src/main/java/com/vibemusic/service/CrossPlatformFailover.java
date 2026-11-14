@@ -32,7 +32,7 @@ import java.util.function.Supplier;
  *
  * <p>顺序与预算：
  * <ul>
- *   <li>顺序固定 {@link #PLATFORM_ORDER}：咪咕 → 酷狗 → B站 → QQ。网易云不在此列——
+ *   <li>顺序固定 {@link #PLATFORM_ORDER}：酷狗 → QQ → 咪咕 → B站。网易云不在此列——
  *       它由 {@link NeteaseDegradeChain} 专门负责（网易→QQ 及 其它平台→网易），
  *       这里重复只会白烧预算。</li>
  *   <li>外层总预算由 {@code SongPlayService.PLAY_BUDGET_MS}（8s）传入，本类自身最多花
@@ -52,16 +52,17 @@ class CrossPlatformFailover {
     /** 换源自身预算上限（3s）：必须远小于外层 8s，失败时不能把 404 变成长时间卡死。 */
     static final long FAILOVER_BUDGET_MS = 3_000L;
 
-    /** 换源顺序：咪咕 → 酷狗 → B站 → QQ（网易云由 NeteaseDegradeChain 负责，不重复）。 */
     /**
-     * 换源顺序：咪咕 → 酷狗 → B站 → QQ。
+     * 换源顺序：酷狗 → QQ → 咪咕 → B站（网易云由 NeteaseDegradeChain 负责，不重复）。
      *
-     * <p>咪咕、酷狗排前：音频来自正规曲库，音质与录音一致性最好（咪咕先试 HQ，酷狗先试 320k）。</p>
+     * <p>2026-11-14 线上实测（5 个热词 × 各平台前 5 条，共 20 首）：
+     * 酷狗 20/20、B站 20/20、QQ 19/20、咪咕 11/20。原来的「咪咕优先」有一半概率白白
+     * 烧掉 3s 预算的一截，等轮到后面的平台时已所剩无几；改为按实测成功率排序。
+     * B站虽然也是 20/20，但音频来自视频轨（翻唱与二创最多、码率随投稿波动），仍放最后。
+     * 咪咕保留在 QQ 之后：它能提供 HQ 档，成功时音质最好，只是不该第一个试。</p>
      *
-     * <p>B站排在 QQ 前：B站 的「音频」来自视频轨，录音一致性最差，但无账号门槛、基本能播；
-     * QQ 缺会员时大量曲目取不到链，放在最后——先保证有声音，再谈音质。</p>
      */
-    static final List<String> PLATFORM_ORDER = List.of("migu", "kugou", "bilibili", "qq");
+    static final List<String> PLATFORM_ORDER = List.of("kugou", "qq", "migu", "bilibili");
 
     /** 每平台搜索候选数：与既有降级链一致（searchXxx(keyword, 5)）。 */
     private static final int SEARCH_LIMIT = 5;

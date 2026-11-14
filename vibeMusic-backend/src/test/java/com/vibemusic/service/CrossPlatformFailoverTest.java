@@ -80,8 +80,31 @@ class CrossPlatformFailoverTest {
     }
 
     @Test
-    @DisplayName("第一个平台（咪咕）命中即返回，不再搜酷狗/B站/QQ")
+    @DisplayName("第一个平台（酷狗）命中即返回，不再搜 QQ/咪咕/B站")
     void firstPlatformHitStopsChain() {
+        when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5)))
+                .thenReturn(searchHit("HASH0123456789ABCDEF0123456789AB", NAME, ARTIST, 240000));
+        when(platformUrlFetcher.tryKugouUrl("HASH0123456789ABCDEF0123456789AB"))
+                .thenReturn("https://kugou-cdn.example/x.mp3");
+
+        CrossPlatformFailover.Result result =
+                failover.tryFailover(NAME, ARTIST, TRIED_QQ_AND_NETEASE, deadline());
+
+        assertNotNull(result);
+        assertEquals("https://kugou-cdn.example/x.mp3", result.url());
+        assertEquals("kugou", result.platform());
+        assertEquals(1, hitCount.get(), "命中计数应恰好 +1");
+        verify(neteaseApiService, never()).searchMigu(anyString(), anyInt());
+        verify(neteaseApiService, never()).searchBili(anyString(), anyInt());
+        verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
+        verify(platformUrlFetcher, times(1)).tryKugouUrl(anyString());
+    }
+
+    @Test
+    @DisplayName("酷狗/QQ 无结果、咪咕命中 → 返回咪咕链接（第三顺位）")
+    void thirdPlatformHitAfterTwoMisses() {
+        when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5))).thenReturn(emptyResult());
+        when(neteaseApiService.searchQQ(eq(KEYWORD), eq(5))).thenReturn(emptyResult());
         when(neteaseApiService.searchMigu(eq(KEYWORD), eq(5)))
                 .thenReturn(searchHit("60054701986", NAME, ARTIST, 240000));
         when(platformUrlFetcher.fetchMiguUrl("60054701986"))
@@ -93,32 +116,9 @@ class CrossPlatformFailoverTest {
         assertNotNull(result);
         assertEquals("https://migu-cdn.example/x.mp3", result.url());
         assertEquals("migu", result.platform());
-        assertEquals(1, hitCount.get(), "命中计数应恰好 +1");
-        verify(neteaseApiService, never()).searchKugou(anyString(), anyInt());
-        verify(neteaseApiService, never()).searchBili(anyString(), anyInt());
-        verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
-        verify(platformUrlFetcher, times(1)).fetchMiguUrl(anyString());
-    }
-
-    @Test
-    @DisplayName("咪咕/酷狗无结果、B站命中 → 返回B站链接")
-    void thirdPlatformHitAfterTwoMisses() {
-        when(neteaseApiService.searchMigu(eq(KEYWORD), eq(5))).thenReturn(emptyResult());
-        when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5))).thenReturn(emptyResult());
-        when(neteaseApiService.searchBili(eq(KEYWORD), eq(5)))
-                .thenReturn(searchHit("BV1De411p77r", NAME, ARTIST, 240000));
-        when(platformUrlFetcher.tryBiliUrl("BV1De411p77r"))
-                .thenReturn("https://xy.bilivideo.com/x.m4s");
-
-        CrossPlatformFailover.Result result =
-                failover.tryFailover(NAME, ARTIST, TRIED_QQ_AND_NETEASE, deadline());
-
-        assertNotNull(result);
-        assertEquals("https://xy.bilivideo.com/x.m4s", result.url());
-        assertEquals("bilibili", result.platform());
-        verify(platformUrlFetcher, never()).fetchMiguUrl(anyString());
         verify(platformUrlFetcher, never()).tryKugouUrl(anyString());
-        verify(platformUrlFetcher, times(1)).tryBiliUrl("BV1De411p77r");
+        verify(platformUrlFetcher, times(1)).fetchMiguUrl("60054701986");
+        verify(platformUrlFetcher, never()).tryBiliUrl(anyString());
     }
 
     @Test
@@ -171,8 +171,8 @@ class CrossPlatformFailoverTest {
         AtomicLong now = new AtomicLong(0L);
         CrossPlatformFailover fixedClock = new CrossPlatformFailover(
                 neteaseApiService, platformUrlFetcher, getUrlExecutor, hitCount, now::get);
-        when(neteaseApiService.searchMigu(anyString(), anyInt())).thenAnswer(inv -> {
-            now.set(10_000L); // 模拟首个平台耗时吃穿 3s 预算（不 sleep）
+        when(neteaseApiService.searchKugou(anyString(), anyInt())).thenAnswer(inv -> {
+            now.set(10_000L); // 模拟首个平台（酷狗）耗时吃穿 3s 预算（不 sleep）
             return emptyResult();
         });
 
@@ -180,7 +180,7 @@ class CrossPlatformFailoverTest {
                 fixedClock.tryFailover(NAME, ARTIST, Set.of("qq", "netease"), 60_000L);
 
         assertNull(result);
-        verify(neteaseApiService, never()).searchKugou(anyString(), anyInt());
+        verify(neteaseApiService, never()).searchMigu(anyString(), anyInt());
         verify(neteaseApiService, never()).searchBili(anyString(), anyInt());
         verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
     }
