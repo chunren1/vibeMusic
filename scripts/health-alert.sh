@@ -233,6 +233,21 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl is-active --quiet cloudflared 2>/dev/null || PROBLEMS+=("cloudflared 未运行（网站入口全断）")
 fi
 
+# 7) 后端 → 网关内网连通性（2026-11-13 补）
+#    事故背景：手工 docker run 重建 musicapi 丢了 compose 注册的网络别名 `musicapi`，
+#    后端用的正是 http://musicapi:3000，于是五平台搜索/换源/取链全部 I/O error，
+#    持续约 40 分钟；而两个容器都是 healthy、后端 /actuator/health 也正常——
+#    第 1、2 项一个都看不见。判据只认"后端容器内真能打通网关"，不看容器状态。
+#    后端镜像无 curl 时只记日志跳过：那是镜像形态问题，不该变成永久告警。
+if dk inspect -f '{{.State.Running}}' vibemusic-backend 2>/dev/null | grep -q true; then
+    WIRING=$(dk exec vibemusic-backend sh -c 'command -v curl >/dev/null 2>&1 || { echo NOCURL; exit 0; }; if curl -sf --max-time 3 -o /dev/null http://musicapi:3000/health; then echo OK; else echo FAIL; fi' 2>/dev/null)
+    case "$WIRING" in
+        OK) ;;
+        NOCURL) log "WARN 后端镜像内无 curl，跳过内网连通性检查" ;;
+        *) PROBLEMS+=("后端经内网访问网关失败（musicapi:3000 不可达，搜索与换源全断）") ;;
+    esac
+fi
+
 NOW=$(date +%s); LAST_STATE="ok"; LAST_TS=0; LAST_PUSHED=0; LAST_PUSH_TS=0; LEGACY_STATE=0
 [ -f "$STATE_FILE" ] && read -r LAST_STATE LAST_TS LAST_PUSHED LAST_PUSH_TS < "$STATE_FILE" || true
 case "$LAST_STATE" in down|ok) ;; *) LAST_STATE="ok" ;; esac
