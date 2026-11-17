@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 
 const axios = require('axios');
 const {
-  searchKugou, mapKugouSong, getKugouUrl, getKugouPlayData,
+  searchKugou, mapKugouSong, getKugouUrl, getKugouUrlWithQuality, getKugouPlayData,
   kugouDevice, kugouAndroidSignature, kugouUrlKey, pickKugouUrls,
   urlCache, searchCache,
 } = require('../src/search');
@@ -256,6 +256,42 @@ test('getKugouUrl standard 320 有链时优先 320', async () => {
   assert.equal(await getKugouUrl(HASH, '958706', 'standard'), 'https://cdn-h.kugou.com/320.mp3');
 });
 
+test('getKugouUrlWithQuality 回真实音质档：320 / 128 回落 / 无链 unknown', async () => {
+  // 320 有链
+  stubAxiosGet(async (url, opts) => {
+    if (String(url).includes('gateway.kugou.com')) {
+      if (opts.params.quality === '320') {
+        return { data: v5Payload({ url: ['https://cdn-h.kugou.com/320.mp3'], backupUrl: [] }) };
+      }
+      return { data: v5Payload() };
+    }
+    return { status: 206, headers: {}, data: Buffer.from([0, 1]) };
+  });
+  assert.deepEqual(await getKugouUrlWithQuality(HASH, '958706', 'standard'),
+    { url: 'https://cdn-h.kugou.com/320.mp3', quality: '320' });
+  restores.pop()();
+
+  // 320 无链 → 回落 128，必须标 128 而不是 unknown
+  stubAxiosGet(async (url, opts) => {
+    if (String(url).includes('gateway.kugou.com')) {
+      if (opts.params.quality === '320') return { data: { status: 2 } };
+      return { data: v5Payload() };
+    }
+    return { status: 206, headers: {}, data: Buffer.from([0, 1]) };
+  });
+  assert.deepEqual(await getKugouUrlWithQuality(HASH, '958706', 'standard'),
+    { url: 'https://cdn-a.kugou.com/low.mp3', quality: '128' });
+  restores.pop()();
+
+  // 无链
+  stubAxiosGet(async (url) => {
+    if (String(url).includes('gateway.kugou.com')) return { data: { status: 2 } };
+    return { status: 206, headers: {}, data: Buffer.from([0, 1]) };
+  });
+  assert.deepEqual(await getKugouUrlWithQuality(HASH, '958706', 'low'),
+    { url: null, quality: 'unknown' });
+});
+
 test('getKugouUrl 无链/异常返回 null 永不抛错', async () => {
   stubAxiosGet(async (url) => {
     if (String(url).includes('gateway.kugou.com')) return { data: { status: 2 } };
@@ -356,7 +392,10 @@ test('/kugou/url 成功形状与缓存隔离：仅非 null 入缓存', async () 
   });
   const r1 = await get(`/kugou/url?hash=${HASH}&albumId=958706&level=low`);
   assert.equal(r1.status, 200);
-  assert.deepEqual(r1.body, { code: 200, message: 'success', data: [{ id: HASH, url: 'https://cdn-a.kugou.com/low.mp3' }] });
+  assert.deepEqual(r1.body, {
+    code: 200, message: 'success',
+    data: [{ id: HASH, url: 'https://cdn-a.kugou.com/low.mp3', quality: '128' }],
+  });
   assert.notEqual(urlCache.get(`kugou_url:${HASH}:low`), undefined);
   assert.equal(urlCache.get(`qq_url:${HASH}`), undefined);
 

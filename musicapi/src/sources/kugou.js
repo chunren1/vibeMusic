@@ -266,17 +266,29 @@ async function getKugouVerifiedUrl(hash, albumId, quality) {
  * 取酷狗播放地址：low→quality=128 探活首个；
  * standard→先 quality=320(若暴露)否则回落 128；无链/异常一律返回 null，永不抛错。
  */
-async function getKugouUrl(hash, albumId, level = 'low') {
+async function getKugouUrlWithQuality(hash, albumId, level = 'low') {
   try {
     if (level === 'standard') {
       const hi = await getKugouVerifiedUrl(hash, albumId, '320');
-      if (hi) return hi;
+      if (hi) return { url: hi, quality: '320' };
     }
-    return await getKugouVerifiedUrl(hash, albumId, '128');
+    const lo = await getKugouVerifiedUrl(hash, albumId, '128');
+    return { url: lo, quality: lo ? '128' : 'unknown' };
   } catch (error) {
     writeLog('degradation', 'ERROR', `酷狗取链失败: hash=${hash}, level=${level}, ${logSafe(error.message)}`);
-    return null;
+    return { url: null, quality: 'unknown' };
   }
+}
+
+/**
+ * 取酷狗播放地址（兼容旧签名）：只要链接，不要音质档。
+ *
+ * <p>音质档由 {@link getKugouUrlWithQuality} 提供——之前只有 URL，后端只能把
+ * standard 记成 unknown，于是「酷狗 128k」被当成未知档压在「QQ 320k」前面，
+ * 用户听到的就是低音质那份。新调用方一律走带音质版本。</p>
+ */
+async function getKugouUrl(hash, albumId, level = 'low') {
+  return (await getKugouUrlWithQuality(hash, albumId, level)).url;
 }
 
 /**
@@ -302,6 +314,7 @@ module.exports = {
   mapKugouSong,
   getKugouPlayData,
   getKugouUrl,
+  getKugouUrlWithQuality,
   kugouDevice,
   kugouAndroidSignature,
   kugouUrlKey,

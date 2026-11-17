@@ -9,7 +9,8 @@
 const { writeLog } = require('../logger');
 const sourceHealth = require('../source-health');
 const {
-  searchMigu, getMiguUrl, searchKugou, getKugouUrl, searchBili, getBiliUrl, isBiliTrackId, urlCache,
+  searchMigu, getMiguUrl, searchKugou, getKugouUrlWithQuality,
+  searchBili, getBiliUrl, isBiliTrackId, urlCache,
 } = require('../search');
 const { fetchKugouLyric, parseKugouLyricDuration } = require('../kugou-lyric');
 const { urlLimiter } = require('../rate-limiters');
@@ -89,8 +90,11 @@ function registerSourceRoutes(app) {
       const cached = urlCache.get(cacheKey);
       if (cached) return res.json({ code: 200, message: 'success (cached)', data: cached });
 
-      const url = await getKugouUrl(hash, albumId, level);
-      const data = [{ id: hash, url }];
+      const { url, quality } = await getKugouUrlWithQuality(hash, albumId, level);
+      // quality 必须一起返回：后端换源按音质排序，缺了它只能记 unknown，
+      // 而 unknown 排在真实 320k 之前，用户就会听到酷狗 128k。
+      // quality 只在拿到真实链接时出现：null 分支保持既有信封形状不变。
+      const data = [{ id: hash, url, ...(url ? { quality } : {}) }];
       // 只缓存成功结果：url:null 在 60s 内可能恢复，不缓存(与 /song/url/qq 同策略)
       if (url) urlCache.set(cacheKey, data);
       res.json({ code: 200, message: 'success', data });

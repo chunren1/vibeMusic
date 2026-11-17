@@ -29,7 +29,7 @@ const { searchNetease } = require('./sources/netease');
 const { searchQQ, mapQQSong, buildQQSearchRequest, probeQQSearch } = require('./sources/qq');
 const { searchMigu, mapMiguSong, getMiguUrl, miguCopyrightCache } = require('./sources/migu');
 const {
-  searchKugou, mapKugouSong, getKugouPlayData, getKugouUrl,
+  searchKugou, mapKugouSong, getKugouPlayData, getKugouUrl, getKugouUrlWithQuality,
   kugouDevice, kugouAndroidSignature, kugouUrlKey, pickKugouUrls,
 } = require('./sources/kugou');
 const {
@@ -81,6 +81,7 @@ module.exports = {
   mapKugouSong,
   getKugouPlayData,
   getKugouUrl,
+  getKugouUrlWithQuality,
   kugouDevice,
   kugouAndroidSignature,
   kugouUrlKey,
