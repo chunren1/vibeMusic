@@ -156,55 +156,43 @@ class NeteaseUrlProbe {
      * 预算统一由 [deadline] 约束（生产路径原先各自硬编码 5s 等待，与 8s 预算脱节）。
      */
     @SuppressWarnings("unchecked")
-    NeteaseProbe probeNeteaseParallel(String sourceId, String[] levels, long deadline,
-                                      String userCookie, Long callerUserId) {
-        Map<String, CompletableFuture<Map<String, Object>>> futures = new LinkedHashMap<>();
-        for (String level : levels) {
-            if (System.currentTimeMillis() > deadline) break;
-            try {
-                final String uc = userCookie;
-                final Long uid = callerUserId;
-                futures.put(level, CompletableFuture.supplyAsync(
-                        () -> fetchNeteaseUrl(sourceId, level, uc, uid), getUrlExecutor));
-            } catch (RejectedExecutionException e) {
-                log.warn("音质[{}] 歌曲 {} 取链池过载，直接跳过该级别", level, ClientErrorScrubber.scrub(sourceId));
-            }
-        }
+    NeteaseProbe probeNeteaseCascade(String sourceId, String[] levels, long deadline,
+                                     String userCookie, Long callerUserId) {
+        // 2026-11-17：并行三档（exhigh/higher/standard）改串行。
+        // 线上 -460 风控期间，一次播放会同时打 3 个取链请求、每个再重试一次 —— 6 次/首，
+        // 越打越容易被判风险。串行后正常情况 1 次即可（exhigh 命中就返回），
+        // 而且遇到 -460 直接中止本轮，不再换档重试（同一出口 IP，退了也没用）。
         Map<String, Object> standardProbe = null;
         int trialCount = 0;
-        try {
-            for (String level : levels) {
-                if (System.currentTimeMillis() > deadline) {
-                    log.warn("音质降级链超时: {}, 已检查至 {}", ClientErrorScrubber.scrub(sourceId), level);
+        for (String level : levels) {
+            if (System.currentTimeMillis() > deadline) {
+                log.warn("音质降级链超时: {}, 已检查至 {}", ClientErrorScrubber.scrub(sourceId), level);
+                break;
+            }
+            try {
+                Map<String, Object> result = fetchNeteaseUrl(sourceId, level, userCookie, callerUserId);
+                if (result == null) continue;
+                if (AudioQualityTier.STANDARD.toNeteaseLevel().equals(level)) standardProbe = result;
+                List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
+                if (data == null || data.isEmpty()) continue;
+                String url = (String) data.get(0).get("url");
+                if (url == null || url.isEmpty()) continue;
+                Object trial = data.get(0).get("freeTrialInfo");
+                Object time = data.get(0).get("time");
+                if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) {
+                    trialCount++;
+                    log.info("音质[{}] 歌曲 {} 为试听片段 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
+                    continue;
+                }
+                return new NeteaseProbe(url, level, standardProbe, trialCount);
+            } catch (Exception e) {
+                String msg = e.getMessage() != null ? e.getMessage() : "";
+                if (msg.contains("-460") || msg.contains("网络环境存在风险")) {
+                    log.warn("[NETEASE-460] 歌曲 {} 命中风控，本轮放弃网易云（不再换档重试）", ClientErrorScrubber.scrub(sourceId));
                     break;
                 }
-                CompletableFuture<Map<String, Object>> cf = futures.get(level);
-                if (cf == null) continue;
-                try {
-                    long remaining = Math.max(1, deadline - System.currentTimeMillis());
-                    Map<String, Object> result = cf.get(remaining, TimeUnit.MILLISECONDS);
-                    if (result == null) continue;
-                    if (AudioQualityTier.STANDARD.toNeteaseLevel().equals(level)) standardProbe = result;
-                    List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
-                    if (data == null || data.isEmpty()) continue;
-                    String url = (String) data.get(0).get("url");
-                    if (url == null || url.isEmpty()) continue;
-                    Object trial = data.get(0).get("freeTrialInfo");
-                    Object time = data.get(0).get("time");
-                    if (trial != null || (time instanceof Number && ((Number) time).intValue() <= TRIAL_DURATION_MS)) {
-                        trialCount++;
-                        log.info("音质[{}] 歌曲 {} 为试听片段 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
-                        continue;
-                    }
-                    return new NeteaseProbe(url, level, standardProbe, trialCount);
-                } catch (TimeoutException e) {
-                    log.info("音质[{}] 歌曲 {} 超时 → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId));
-                } catch (Exception e) {
-                    log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()), e);
-                }
+                log.warn("音质[{}] 歌曲 {} 异常: {} → 尝试下一级", level, ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(msg), e);
             }
-        } finally {
-            cancelUnfinished(futures.values());
         }
         return new NeteaseProbe(null, null, standardProbe, trialCount);
     }

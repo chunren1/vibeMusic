@@ -84,8 +84,8 @@ class CrossPlatformFailoverTest {
     void firstPlatformHitStopsChain() {
         when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5)))
                 .thenReturn(searchHit("HASH0123456789ABCDEF0123456789AB", NAME, ARTIST, 240000));
-        when(platformUrlFetcher.tryKugouUrl("HASH0123456789ABCDEF0123456789AB"))
-                .thenReturn("https://kugou-cdn.example/x.mp3");
+        when(platformUrlFetcher.tryKugouUrlWithQuality("HASH0123456789ABCDEF0123456789AB"))
+                .thenReturn(new PlatformUrlFetcher.Fetched("https://kugou-cdn.example/x.mp3", "320"));
 
         CrossPlatformFailover.Result result =
                 failover.tryFailover(NAME, ARTIST, TRIED_QQ_AND_NETEASE, deadline());
@@ -97,7 +97,7 @@ class CrossPlatformFailoverTest {
         verify(neteaseApiService, never()).searchMigu(anyString(), anyInt());
         verify(neteaseApiService, never()).searchBili(anyString(), anyInt());
         verify(neteaseApiService, never()).searchQQ(anyString(), anyInt());
-        verify(platformUrlFetcher, times(1)).tryKugouUrl(anyString());
+        verify(platformUrlFetcher, times(1)).tryKugouUrlWithQuality(anyString());
     }
 
     @Test
@@ -107,8 +107,8 @@ class CrossPlatformFailoverTest {
         when(neteaseApiService.searchQQ(eq(KEYWORD), eq(5))).thenReturn(emptyResult());
         when(neteaseApiService.searchMigu(eq(KEYWORD), eq(5)))
                 .thenReturn(searchHit("60054701986", NAME, ARTIST, 240000));
-        when(platformUrlFetcher.fetchMiguUrl("60054701986"))
-                .thenReturn("https://migu-cdn.example/x.mp3");
+        when(platformUrlFetcher.fetchMiguUrlWithQuality("60054701986"))
+                .thenReturn(new PlatformUrlFetcher.Fetched("https://migu-cdn.example/x.mp3", "HQ"));
 
         CrossPlatformFailover.Result result =
                 failover.tryFailover(NAME, ARTIST, TRIED_QQ_AND_NETEASE, deadline());
@@ -116,9 +116,9 @@ class CrossPlatformFailoverTest {
         assertNotNull(result);
         assertEquals("https://migu-cdn.example/x.mp3", result.url());
         assertEquals("migu", result.platform());
-        verify(platformUrlFetcher, never()).tryKugouUrl(anyString());
-        verify(platformUrlFetcher, times(1)).fetchMiguUrl("60054701986");
-        verify(platformUrlFetcher, never()).tryBiliUrl(anyString());
+        verify(platformUrlFetcher, never()).tryKugouUrlWithQuality(anyString());
+        verify(platformUrlFetcher, times(1)).fetchMiguUrlWithQuality("60054701986");
+        verify(platformUrlFetcher, never()).tryBiliUrlWithQuality(anyString());
     }
 
     @Test
@@ -190,8 +190,8 @@ class CrossPlatformFailoverTest {
     void triedPlatformsAreNotRetried() {
         when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5)))
                 .thenReturn(searchHit("45f763d7beb1fd000af890eb6c70b9a2", NAME, ARTIST, 240000));
-        when(platformUrlFetcher.tryKugouUrl("45f763d7beb1fd000af890eb6c70b9a2"))
-                .thenReturn("https://kg-cdn.example/x.mp3");
+        when(platformUrlFetcher.tryKugouUrlWithQuality("45f763d7beb1fd000af890eb6c70b9a2"))
+                .thenReturn(new PlatformUrlFetcher.Fetched("https://kg-cdn.example/x.mp3", "320"));
 
         CrossPlatformFailover.Result result = failover.tryFailover(
                 NAME, ARTIST, Set.of("migu", "bili", "qq", "netease"), deadline());
@@ -210,15 +210,15 @@ class CrossPlatformFailoverTest {
                 .thenReturn(searchHit("migu-trial", NAME, ARTIST, 15_000));
         when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5)))
                 .thenReturn(searchHit("45f763d7beb1fd000af890eb6c70b9a2", NAME, ARTIST, 240000));
-        when(platformUrlFetcher.tryKugouUrl("45f763d7beb1fd000af890eb6c70b9a2"))
-                .thenReturn("https://kg-cdn.example/x.mp3");
+        when(platformUrlFetcher.tryKugouUrlWithQuality("45f763d7beb1fd000af890eb6c70b9a2"))
+                .thenReturn(new PlatformUrlFetcher.Fetched("https://kg-cdn.example/x.mp3", "320"));
 
         CrossPlatformFailover.Result result =
                 failover.tryFailover(NAME, ARTIST, TRIED_QQ_AND_NETEASE, deadline());
 
         assertNotNull(result);
         assertEquals("kugou", result.platform());
-        verify(platformUrlFetcher, never()).fetchMiguUrl(anyString());
+        verify(platformUrlFetcher, never()).fetchMiguUrlWithQuality(anyString());
     }
 
     @Test
@@ -237,18 +237,18 @@ class CrossPlatformFailoverTest {
                 .thenReturn(searchHit("BV1De411p77r", NAME, ARTIST, 240000));
         when(neteaseApiService.searchQQ(anyString(), anyInt()))
                 .thenReturn(searchHit("qq123", NAME, ARTIST, 240000));
-        when(platformUrlFetcher.fetchMiguUrl(anyString())).thenReturn(null);
-        when(platformUrlFetcher.tryKugouUrl(anyString())).thenReturn(null);
-        when(platformUrlFetcher.tryBiliUrl(anyString())).thenReturn(null);
-        when(platformUrlFetcher.fetchQqUrl(anyString())).thenReturn(null);
+        when(platformUrlFetcher.fetchMiguUrlWithQuality(anyString())).thenReturn(new PlatformUrlFetcher.Fetched(null, "unknown"));
+        when(platformUrlFetcher.tryKugouUrlWithQuality(anyString())).thenReturn(new PlatformUrlFetcher.Fetched(null, "unknown"));
+        when(platformUrlFetcher.tryBiliUrlWithQuality(anyString())).thenReturn(new PlatformUrlFetcher.Fetched(null, "unknown"));
+        when(platformUrlFetcher.fetchQqUrlWithQuality(anyString())).thenReturn(new PlatformUrlFetcher.Fetched(null, "unknown"));
 
         assertNull(failover.tryFailover(NAME, ARTIST, Set.of("netease"), deadline()));
 
         // 取链调用次数上界 = 平台数（4）：递归会让次数成倍膨胀
-        verify(platformUrlFetcher, times(1)).fetchMiguUrl(anyString());
-        verify(platformUrlFetcher, times(1)).tryKugouUrl(anyString());
-        verify(platformUrlFetcher, times(1)).tryBiliUrl(anyString());
-        verify(platformUrlFetcher, times(1)).fetchQqUrl(anyString());
+        verify(platformUrlFetcher, times(1)).fetchMiguUrlWithQuality(anyString());
+        verify(platformUrlFetcher, times(1)).tryKugouUrlWithQuality(anyString());
+        verify(platformUrlFetcher, times(1)).tryBiliUrlWithQuality(anyString());
+        verify(platformUrlFetcher, times(1)).fetchQqUrlWithQuality(anyString());
         // 换源只调 PlatformUrlFetcher 的取链方法，不碰网易云取链（递归入口）
         verify(neteaseApiService, never()).getSongUrl(anyString(), anyString());
         verify(neteaseApiService, never()).getSongUrl(anyString(), anyString(), anyString());

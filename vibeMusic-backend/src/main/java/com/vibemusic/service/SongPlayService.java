@@ -54,7 +54,7 @@ public class SongPlayService {
 
     /** 本次请求命中的替代版本（换源或降级链）；仅 /resolve 消费，用后即清。 */
     record SubstituteInfo(String platform, String sourceId, String name, String artists,
-                          String coverUrl, Long durationMs, String reason) {
+                          String coverUrl, Long durationMs, String quality, String reason) {
     }
 
     private final ThreadLocal<SubstituteInfo> substituteInfo = new ThreadLocal<>();
@@ -263,11 +263,11 @@ public class SongPlayService {
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
                 // 并行探测 3 级音质（exhigh/higher/standard），取最高可用非试听版本
-                // 探测实现与其它平台分支共用 probeNeteaseParallel（单一事实源）
+                // 探测实现与其它平台分支共用 probeNeteaseCascade（单一事实源）
                 triedPlatforms.add("netease");
                 String[] levels = {"exhigh", "higher", "standard"};
                 NeteaseUrlProbe.NeteaseProbe probe =
-                        neteaseUrlProbe.probeNeteaseParallel(sourceId, levels, DEADLINE, userCookie, callerUserId);
+                        neteaseUrlProbe.probeNeteaseCascade(sourceId, levels, DEADLINE, userCookie, callerUserId);
                 if (probe.url != null) return probe.url;
                 // 版权预检 fast-fail：standard 明确硬拦截（url 空、无试听信息且非付费曲目）
                 // 时跳过 QQ 降级；need-login/试听/VIP 权限受限/空响应一律走完整降级链。
@@ -313,7 +313,7 @@ public class SongPlayService {
                 failoverPlaySource.set(failover.platform());
                 substituteInfo.set(new SubstituteInfo(failover.platform(), failover.sourceId(),
                         failover.name(), failover.artists(), failover.coverUrl(),
-                        failover.durationMs(), "原曲在其他平台不可播"));
+                        failover.durationMs(), failover.quality(), "原曲在其他平台不可播"));
                 return failover.url();
             }
         }
@@ -331,7 +331,7 @@ public class SongPlayService {
         NeteaseDegradeChain.Substitute sub = degradeChain.consumeLastSubstitute();
         if (sub == null) return;
         substituteInfo.set(new SubstituteInfo(sub.platform(), sub.sourceId(), sub.name(),
-                sub.artists(), sub.coverUrl(), sub.durationMs(), reason));
+                sub.artists(), sub.coverUrl(), sub.durationMs(), "unknown", reason));
     }
 
     private String neteaseFallbackWithMeta(String songName, String artist, String sourceId,
@@ -354,7 +354,7 @@ public class SongPlayService {
      * @param hasUrl       false=所有平台都没有可用链接，客户端应直接提示而不是发起流请求
      */
     public record PlayResolution(String platform, String sourceId, String name, String artists,
-                                 String coverUrl, Long durationMs, boolean isSubstitute,
+                                 String coverUrl, Long durationMs, String quality, boolean isSubstitute,
                                  String reason, String matchVersion, boolean hasUrl) {
     }
 
@@ -373,14 +373,15 @@ public class SongPlayService {
         failoverPlaySource.remove();
         if (url == null) {
             return new PlayResolution(platform, sourceId, name, artist, coverUrl, durationMs,
-                    false, "所有平台均无可用链接", MATCH_POLICY_VERSION, false);
+                    "unknown", false, "所有平台均无可用链接", MATCH_POLICY_VERSION, false);
         }
         if (sub != null) {
             return new PlayResolution(sub.platform(), sub.sourceId(), sub.name(), sub.artists(),
-                    sub.coverUrl(), sub.durationMs(), true, sub.reason(), MATCH_POLICY_VERSION, true);
+                    sub.coverUrl(), sub.durationMs(), sub.quality(), true, sub.reason(),
+                    MATCH_POLICY_VERSION, true);
         }
         return new PlayResolution(platform, sourceId, name, artist, coverUrl, durationMs,
-                false, "", MATCH_POLICY_VERSION, true);
+                "unknown", false, "", MATCH_POLICY_VERSION, true);
     }
 
     /**
@@ -400,7 +401,7 @@ public class SongPlayService {
                 case "bilibili", "bili" -> platformUrlFetcher.tryBiliUrl(sourceId);
                 case "qq" -> platformUrlFetcher.fetchQqUrl(sourceId);
                 case "netease" -> {
-                    NeteaseUrlProbe.NeteaseProbe probe = neteaseUrlProbe.probeNeteaseParallel(
+                    NeteaseUrlProbe.NeteaseProbe probe = neteaseUrlProbe.probeNeteaseCascade(
                             sourceId, new String[]{"exhigh", "higher", "standard"},
                             System.currentTimeMillis() + PLAY_BUDGET_MS, resolveUserCookie(),
                             UserService.getCurrentUserId());

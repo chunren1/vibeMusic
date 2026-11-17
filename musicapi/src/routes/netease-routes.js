@@ -44,8 +44,10 @@ function registerNeteaseRoutes(app) {
     } catch (error) {
       const code = error && error.body && error.body.code;
       if (code !== -460) throw error;
-      writeLog('api', 'WARN', `[/song/url/v1] 命中风控 -460，800ms 后重试一次 id=${id}`);
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      writeLog('api', 'WARN', `[/song/url/v1] 命中风控 -460，1500ms 后重试一次 id=${id}`);
+      // 2026-11-17：800ms 实测仍然全被拦，间隔太短反而持续刺激风控；拉到 1.5s。
+      // 后端已改为串行探测 + 命中 -460 直接中止，这里只保留"单次温柔重试"。
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       return withTimeout(netease.invoke('song_url_v1', params), UPSTREAM_TIMEOUT, 'netease/song_url_v1');
     }
   }

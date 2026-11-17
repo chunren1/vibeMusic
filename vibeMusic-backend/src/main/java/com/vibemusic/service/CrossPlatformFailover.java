@@ -142,6 +142,7 @@ class CrossPlatformFailover {
         final long deadline = Math.min(outerDeadline, clock.getAsLong() + FAILOVER_BUDGET_MS);
         final String keyword = buildKeyword(songName, artist);
 
+        Result lowFallback = null;
         for (String platform : PLATFORM_ORDER) {
             if (tried.contains(platform)) {
                 log.debug("换源跳过: 平台 {} 本次请求已试过", platform);
@@ -157,12 +158,24 @@ class CrossPlatformFailover {
             Result hit = callWithDeadline(
                     () -> tryPlatform(platform, songName, artist, keyword, expectedDurationMs), deadline);
             if (hit != null) {
+                if (qualityRank(hit.quality()) < 2) {
+                    // 128k/PQ/AAC 只当兜底：先把机会留给后面可能存在的 320k，全都没有才用它。
+                    if (lowFallback == null) lowFallback = hit;
+                    log.info("换源: 平台 {} 只给到 {} 档，记为兜底，继续找更高音质", platform, hit.quality());
+                    continue;
+                }
                 hitCount.incrementAndGet();
-                log.info("换源成功: '{}' 由平台 {} 提供可播链接（原平台 {} 无可用链）",
-                        ClientErrorScrubber.scrub(keyword), platform, tried);
+                log.info("换源成功: '{}' 由平台 {} 提供可播链接（原平台 {} 无可用链，音质 {}）",
+                        ClientErrorScrubber.scrub(keyword), platform, tried, hit.quality());
                 return hit;
             }
             log.info("换源未命中: 平台 {} 无可播链接: '{}'", platform, ClientErrorScrubber.scrub(keyword));
+        }
+        if (lowFallback != null) {
+            hitCount.incrementAndGet();
+            log.info("换源兜底: '{}' 全平台只有低音质，使用平台 {}（{}）",
+                    ClientErrorScrubber.scrub(keyword), lowFallback.platform(), lowFallback.quality());
+            return lowFallback;
         }
         log.info("换源全平台未命中: '{}'（已试 {}）", ClientErrorScrubber.scrub(keyword), tried);
         return null;
@@ -185,15 +198,26 @@ class CrossPlatformFailover {
             log.info("换源: 平台 {} 候选 '{}' 仅试听版，跳过", platform, ClientErrorScrubber.scrub(matchName));
             return null;
         }
-        String url = fetchUrl(platform, candidateId);
-        if (url == null) return null;
-        log.info("换源候选命中: 平台 {} id={} ('{}')",
-                platform, ClientErrorScrubber.scrub(candidateId), ClientErrorScrubber.scrub(matchName));
-        return new Result(url, platform, candidateId, matchName,
+        PlatformUrlFetcher.Fetched fetched = fetchUrl(platform, candidateId);
+        if (fetched == null || fetched.url() == null) return null;
+        log.info("换源候选命中: 平台 {} id={} ('{}') 音质={}",
+                platform, ClientErrorScrubber.scrub(candidateId), ClientErrorScrubber.scrub(matchName), fetched.quality());
+        return new Result(fetched.url(), platform, candidateId, matchName,
                 best.get("artists") != null ? String.valueOf(best.get("artists")) : "",
                 best.get("cover") != null ? String.valueOf(best.get("cover")) : "",
                 best.get("duration") instanceof Number n ? n.longValue() : null,
-                "unknown");
+                fetched.quality());
+    }
+
+    /** 音质排序：320/HQ=3，未知=2，128/PQ/AAC=1。换源先找 ≥2 的，找不到才用 1。 */
+    static int qualityRank(String quality) {
+        if (quality == null) return 2;
+        String q = quality.trim().toUpperCase(java.util.Locale.ROOT);
+        return switch (q) {
+            case "320", "HQ" -> 3;
+            case "128", "PQ", "AAC", "LOW" -> 1;
+            default -> 2;
+        };
     }
 
     private String buildKeyword(String songName, String artist) {
@@ -219,13 +243,13 @@ class CrossPlatformFailover {
      * 进程内缓存（musicapi src/search.js miguCopyrightCache），/migu/url 会回查该缓存；
      * 这也是 PlatformUrlFetcher#fetchMiguUrl 现有签名（单参数）能直接复用的原因。
      */
-    private String fetchUrl(String platform, String candidateId) {
+    private PlatformUrlFetcher.Fetched fetchUrl(String platform, String candidateId) {
         return switch (platform) {
-            case "migu" -> platformUrlFetcher.fetchMiguUrl(candidateId);
-            case "kugou" -> platformUrlFetcher.tryKugouUrl(candidateId);
-            case "bilibili" -> platformUrlFetcher.tryBiliUrl(candidateId);
-            case "qq" -> platformUrlFetcher.fetchQqUrl(candidateId);
-            default -> null;
+            case "migu" -> platformUrlFetcher.fetchMiguUrlWithQuality(candidateId);
+            case "kugou" -> platformUrlFetcher.tryKugouUrlWithQuality(candidateId);
+            case "bilibili" -> platformUrlFetcher.tryBiliUrlWithQuality(candidateId);
+            case "qq" -> platformUrlFetcher.fetchQqUrlWithQuality(candidateId);
+            default -> new PlatformUrlFetcher.Fetched(null, "unknown");
         };
     }
 

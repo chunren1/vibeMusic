@@ -170,6 +170,7 @@ public class AudioProxyService {
                     setUtf8Header(response, "X-Play-Artist", sub.artists());
                     setUtf8Header(response, "X-Play-Cover", sub.coverUrl());
                     setUtf8Header(response, "X-Play-Reason", sub.reason());
+                    if (sub.quality() != null) response.setHeader("X-Quality", sub.quality());
                 } else if (failoverSource != null && !response.isCommitted()) {
                     response.setHeader("X-Play-Source", failoverSource);
                 }

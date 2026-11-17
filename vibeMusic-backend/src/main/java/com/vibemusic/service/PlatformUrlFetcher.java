@@ -73,8 +73,16 @@ class PlatformUrlFetcher {
      * 酷狗取链：phase 1 匿名 standard→low 逐级尝试。albumId 尚无透传字段，
      * 传 null（网关按空 album_id 处理）；失败返回 null 由调用方降级，永不抛错。
      */
-    @SuppressWarnings("unchecked")
+    /** 取链结果：url + 音质档（"320"/"HQ"/"128"/"PQ"/"AAC"/"unknown"），换源排序用。 */
+    record Fetched(String url, String quality) {
+    }
+
     String tryKugouUrl(String hash) {
+        return tryKugouUrlWithQuality(hash).url();
+    }
+
+    @SuppressWarnings("unchecked")
+    Fetched tryKugouUrlWithQuality(String hash) {
         for (String level : new String[]{"standard", "low"}) {
             try {
                 Map<String, Object> result = neteaseApiService.getKugouSongUrl(hash, null, level);
@@ -82,14 +90,16 @@ class PlatformUrlFetcher {
                     List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
                     if (data != null && !data.isEmpty()) {
                         String url = (String) data.get(0).get("url");
-                        if (url != null && !url.isEmpty()) return url;
+                        if (url != null && !url.isEmpty()) {
+                            return new Fetched(url, "standard".equals(level) ? "320" : "128");
+                        }
                     }
                 }
             } catch (Exception e) {
                 log.warn("tryKugouUrl: {} level={} 失败: {}", ClientErrorScrubber.scrub(hash), level, ClientErrorScrubber.scrub(e.getMessage()), e);
             }
         }
-        return null;
+        return new Fetched(null, "unknown");
     }
 
     /** 咪咕取链：musicapi 返回 302 签名 URL（IP-bound），由 StreamController 代理字节流；失败返回 null。 */
@@ -99,8 +109,12 @@ class PlatformUrlFetcher {
      * <p>换源场景下音质与"能不能播"同样重要：咪咕的 HQ 大多免费，先试一次的成本
      * 只是一次额外的上游请求（失败时多几百毫秒，仍在换源预算内）。</p>
      */
-    @SuppressWarnings("unchecked")
     String fetchMiguUrl(String sourceId) {
+        return fetchMiguUrlWithQuality(sourceId).url();
+    }
+
+    @SuppressWarnings("unchecked")
+    Fetched fetchMiguUrlWithQuality(String sourceId) {
         for (String tone : new String[]{"HQ", "PQ"}) {
             try {
                 Map<String, Object> result = neteaseApiService.getMiguSongUrl(sourceId, null, tone);
@@ -108,19 +122,33 @@ class PlatformUrlFetcher {
                     List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
                     if (data != null && !data.isEmpty()) {
                         String url = (String) data.get(0).get("url");
-                        if (url != null && !url.isEmpty()) return url;
+                        if (url != null && !url.isEmpty()) {
+                            return new Fetched(url, "HQ".equals(tone) ? "HQ" : "PQ");
+                        }
                     }
                 }
             } catch (Exception e) {
                 log.warn("fetchMiguUrl: {} tone={} 获取失败: {}", ClientScrubberSafe(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
             }
         }
-        return null;
+        return new Fetched(null, "unknown");
     }
 
     /** 日志脱敏的简写，避免上面那行过长。 */
     private static String ClientScrubberSafe(String value) {
         return ClientErrorScrubber.scrub(value);
+    }
+
+    /** B站：短音轨（AAC），音质记为 AAC 以便换源排序时排在高码率 MP3 之后。 */
+    Fetched tryBiliUrlWithQuality(String biliId) {
+        String url = tryBiliUrl(biliId);
+        return new Fetched(url, url == null ? "unknown" : "AAC");
+    }
+
+    /** QQ：接口不回传实际码率，按 unknown 处理（排序时介于 320 与 128 之间）。 */
+    Fetched fetchQqUrlWithQuality(String sourceId) {
+        String url = fetchQqUrl(sourceId);
+        return new Fetched(url, url == null ? "unknown" : "QQ");
     }
 
     /** QQ 直取链接（platform=qq 或 id 非纯数字猜测）；失败返回 null 由调用方降级，永不抛错。 */
