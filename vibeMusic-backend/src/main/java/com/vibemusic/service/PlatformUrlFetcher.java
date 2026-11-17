@@ -91,7 +91,10 @@ class PlatformUrlFetcher {
                     if (data != null && !data.isEmpty()) {
                         String url = (String) data.get(0).get("url");
                         if (url != null && !url.isEmpty()) {
-                            return new Fetched(url, "standard".equals(level) ? "320" : "128");
+                            // 2026-11-17：酷狗 standard 档并不保证 320k——实测《失眠》的
+                            // standard 与 low 返回**同一份 128k 字节**。所以 standard 只能记
+                            // unknown，让 QQ 真正解析出来的 320k 有机会胜出。
+                            return new Fetched(url, "standard".equals(level) ? "unknown" : "128");
                         }
                     }
                 }
@@ -145,10 +148,21 @@ class PlatformUrlFetcher {
         return new Fetched(url, url == null ? "unknown" : "AAC");
     }
 
-    /** QQ：接口不回传实际码率，按 unknown 处理（排序时介于 320 与 128 之间）。 */
+    /**
+     * QQ：码率可从文件名前缀解析（M800=320k、M500=128k、F000=FLAC），
+     * 比"凭接口档位猜"可靠，直接用于换源排序。
+     */
     Fetched fetchQqUrlWithQuality(String sourceId) {
         String url = fetchQqUrl(sourceId);
-        return new Fetched(url, url == null ? "unknown" : "QQ");
+        return new Fetched(url, url == null ? "unknown" : qqQualityOf(url));
+    }
+
+    static String qqQualityOf(String url) {
+        if (url == null) return "unknown";
+        if (url.contains("/M800")) return "320";
+        if (url.contains("/F000")) return "FLAC";
+        if (url.contains("/M500")) return "128";
+        return "unknown";
     }
 
     /** QQ 直取链接（platform=qq 或 id 非纯数字猜测）；失败返回 null 由调用方降级，永不抛错。 */

@@ -214,7 +214,7 @@ class CrossPlatformFailover {
         if (quality == null) return 2;
         String q = quality.trim().toUpperCase(java.util.Locale.ROOT);
         return switch (q) {
-            case "320", "HQ" -> 3;
+            case "320", "HQ", "FLAC" -> 3;
             case "128", "PQ", "AAC", "LOW" -> 1;
             default -> 2;
         };
