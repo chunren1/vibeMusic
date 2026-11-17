@@ -83,13 +83,31 @@ async function searchQQ(keyword, limit) {
   const { url, params, headers } = buildQQSearchRequest(keyword, limit);
   attachQQCookie(headers);
   try {
-    const resp = await upstreamGet(url, {
+    let resp = await upstreamGet(url, {
       label: 'qq/search',
       params,
       headers,
       timeoutMs: UPSTREAM_TIMEOUT,
     });
-    const list = resp.data?.search?.data?.body?.song?.list;
+    let list = resp.data?.search?.data?.body?.song?.list;
+    // 2026-11-17 实测：QQ 对同一出口 IP 的连续搜索会「返回空列表而不是报错」。
+    // 隔 20 秒再发同一请求就能拿到 15 条。表现为线上「QQ 永远 0 首」，
+    // 进而换源永远落到酷狗/咪咕的 128k。空结果时补一次 600ms 后的重试，
+    // 能把这种瞬时限频吃掉一半以上。
+    if ((!Array.isArray(list) || list.length === 0) && (resp.data?.code === 0 || resp.data?.code === '0')) {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const retry = await upstreamGet(url, {
+        label: 'qq/search-retry',
+        params,
+        headers,
+        timeoutMs: UPSTREAM_TIMEOUT,
+      });
+      const retryList = retry.data?.search?.data?.body?.song?.list;
+      if (Array.isArray(retryList) && retryList.length > 0) {
+        resp = retry;
+        list = retryList;
+      }
+    }
     // 口径修正（2026-10-27）：这里原本只有一条分支，把「上游报错」和「查无结果」混为一谈。
     // 实测 QQ 的成功响应就是 code:0（见 test/search-qq.test.js 的 NEW_SAMPLE），
     // 而「查无结果」在旧生产 18 小时里出现了 11 次（周杰伦/陈奕迅/民谣/轻音乐…）。
