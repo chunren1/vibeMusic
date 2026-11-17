@@ -23,6 +23,22 @@ final class SongMatcher {
 
     static Map<String, Object> findBestMatch(List<Map<String, Object>> results,
                                              String expectedName, String expectedArtist) {
+        return findBestMatch(results, expectedName, expectedArtist, null);
+    }
+
+    /**
+     * 带时长校验的匹配。
+     *
+     * <p><b>为什么需要时长</b>：DJ 版、加速版、剪辑版常常把标题和歌手都写得跟原曲一模一样
+     * （平台元数据本身就错），任何基于名字的规则都分不出来；但它们的时长几乎必然不同。
+     * 实测「晴天」原曲 269s，同名 DJ 版多在 180–210s，差 20% 以上。</p>
+     *
+     * <p>容忍度取「5 秒与 3% 的较大值」：压制不同平台的取整/前奏裁剪（通常 1–2s），
+     * 又能拦住绝大多数改版。expectedDurationMs 为 null 或 ≤0 时不做时长判断。</p>
+     */
+    static Map<String, Object> findBestMatch(List<Map<String, Object>> results,
+                                             String expectedName, String expectedArtist,
+                                             Long expectedDurationMs) {
         if (results == null || results.isEmpty() || expectedName == null) return null;
         Map<String, Object> best = null;
         double bestScore = 0;
@@ -41,6 +57,7 @@ final class SongMatcher {
             // 歌名 token 已经贡献了足够分数，光靠总分筛不掉（线上"晴天"匹配到
             // "晴天 RyaVocal"就是这么来的）。歌名对上之后必须再验一次歌手。
             if (!artistCompatible(expectedArtist, candArtist)) continue;
+            if (!durationCompatible(expectedDurationMs, item.get("duration"))) continue;
             String candidate = (candName + " " + candArtist).toLowerCase().trim();
             double score = similarity(target, candidate);
             // 歌名首字相同加分
@@ -110,7 +127,9 @@ final class SongMatcher {
      */
     private static boolean artistCompatible(String expectedArtist, String candidateArtist) {
         if (expectedArtist == null || expectedArtist.isBlank()) return true;
-        if (candidateArtist == null || candidateArtist.isBlank()) return true;
+        // 候选没有歌手时不再放行：换源的候选来自各平台搜索，正常都有 artists 字段；
+        // 缺失往往意味着这条结果结构异常（或本来就是搬运号上传的），宁可放弃也不能赌。
+        if (candidateArtist == null || candidateArtist.isBlank()) return false;
         String e = expectedArtist.toLowerCase(java.util.Locale.ROOT).trim();
         String c = candidateArtist.toLowerCase(java.util.Locale.ROOT).trim();
         if (e.equals(c) || e.contains(c) || c.contains(e)) return true;
@@ -120,6 +139,27 @@ final class SongMatcher {
             if (token.length() >= 2 && cTokens.contains(token)) return true;
         }
         return false;
+    }
+
+    /**
+     * 时长是否可能是同一段录音：容忍度 = max(5s, 3% × 期望时长)。
+     *
+     * <p>候选缺 duration（0/null）时放行——缺字段不等于错歌，交给歌名/歌手把关；
+     * 只有两边都有可信时长时才执行这条硬约束。</p>
+     */
+    private static boolean durationCompatible(Long expectedMs, Object candidateMs) {
+        if (expectedMs == null || expectedMs <= 0) return true;
+        long cand;
+        try {
+            if (candidateMs instanceof Number n) cand = n.longValue();
+            else if (candidateMs != null) cand = Long.parseLong(String.valueOf(candidateMs).trim());
+            else return true;
+        } catch (NumberFormatException e) {
+            return true;
+        }
+        if (cand <= 0) return true;
+        long tolerance = Math.max(5_000L, Math.round(expectedMs * 0.03));
+        return Math.abs(cand - expectedMs) <= tolerance;
     }
 
     /** 歌手名切分：空格、斜杠、逗号、顿号、& 都当作分隔符。 */

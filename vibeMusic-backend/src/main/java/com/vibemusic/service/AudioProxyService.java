@@ -92,6 +92,16 @@ public class AudioProxyService {
     }
 
     /** 代理请求头构造：仅 B 站 CDN 附加 Referer，其他域行为不变。 */
+    /** HTTP 头只能是 ISO-8859-1：中文歌名/歌手按 UTF-8 百分号编码，客户端 decode 后可直出。 */
+    private static void setUtf8Header(HttpServletResponse response, String name, String value) {
+        if (value == null || value.isEmpty()) return;
+        try {
+            response.setHeader(name, java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+            // 编码失败就不带头：提示缺失不影响播放
+        }
+    }
+
     public static void applyProxyHeaders(HttpHeaders headers, String host, String rangeHeader) {
         headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
         if (rangeHeader != null) headers.set("Range", rangeHeader);
@@ -107,6 +117,17 @@ public class AudioProxyService {
     public void proxy(String sourceId, String name, String artist, String platform,
                       HttpServletRequest request, HttpServletResponse response,
                       boolean asAttachment, String downloadFileName) {
+        proxy(sourceId, name, artist, platform, request, response, asAttachment, downloadFileName, false);
+    }
+
+    /**
+     * @param exact true=只取客户端指定的 platform+sourceId，不降级不换源。
+     *              /resolve 之后客户端必须走这条：否则流代理可能换到别的平台，
+     *              「显示的」和「听到的」再次对不上。取链失败直接 502，让客户端重新解析。
+     */
+    public void proxy(String sourceId, String name, String artist, String platform,
+                      HttpServletRequest request, HttpServletResponse response,
+                      boolean asAttachment, String downloadFileName, boolean exact) {
         if (asAttachment) {
             applyAttachmentHeaders(response, sourceId, downloadFileName);
         }
@@ -118,8 +139,16 @@ public class AudioProxyService {
         final boolean[] refreshedAfter416 = {false};
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             try {
-                String audioUrl = songPlayService.getPlayUrl(sourceId, name, artist, platform);
+                String audioUrl = exact
+                        ? songPlayService.getExactPlayUrl(sourceId, platform)
+                        : songPlayService.getPlayUrl(sourceId, name, artist, platform);
                 if (audioUrl == null) {
+                    if (exact) {
+                        // 精确模式没有"再试一次"的语义：重试只会重复同一个失败。
+                        log.info("streamFromRemote(exact): 指定源不可用 → 502: {}@{}", sourceId, platform);
+                        if (!response.isCommitted()) response.setStatus(502);
+                        return;
+                    }
                     if (canRetryStream(attempt, MAX_ATTEMPTS, deadline, System.currentTimeMillis())) {
                         log.info("streamFromRemote: playUrl=null, retry {}/{}: sourceId={}",
                                 attempt, MAX_ATTEMPTS, sourceId);
@@ -132,7 +161,16 @@ public class AudioProxyService {
                 // 换源命中时补一个新增响应头（不改任何现有头/响应体/{code,message,data} 信封）：
                 // 前端据此可提示「已自动切换到 <平台> 源」。一次性消费，避免线程复用串请求。
                 String failoverSource = songPlayService.consumeFailoverPlaySource();
-                if (failoverSource != null && !response.isCommitted()) {
+                SongPlayService.SubstituteInfo sub = songPlayService.consumeSubstituteInfo();
+                if (sub != null && !response.isCommitted()) {
+                    // 替代版本：把"实际在放的是哪一首"一并告诉客户端，避免封面/歌名装没事。
+                    response.setHeader("X-Play-Source", sub.platform());
+                    response.setHeader("X-Play-Substitute", "1");
+                    setUtf8Header(response, "X-Play-Title", sub.name());
+                    setUtf8Header(response, "X-Play-Artist", sub.artists());
+                    setUtf8Header(response, "X-Play-Cover", sub.coverUrl());
+                    setUtf8Header(response, "X-Play-Reason", sub.reason());
+                } else if (failoverSource != null && !response.isCommitted()) {
                     response.setHeader("X-Play-Source", failoverSource);
                 }
                 String host = URI.create(audioUrl).getHost();

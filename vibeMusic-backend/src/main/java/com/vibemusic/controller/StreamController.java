@@ -61,6 +61,24 @@ public class StreamController {
         return AudioProxyService.canRetryStream(attempt, maxAttempts, deadlineMs, nowMs);
     }
 
+    /**
+     * 播放前解析：返回「最终会播的那一首」的元信息（平台/曲目/封面/时长/是否替代版本）。
+     *
+     * <p>客户端拿到后应使用返回的 platform+sourceId 请求 {@code /stream?exact=true}，
+     * 并把 {@code matchVersion} 拼进流地址，让本地缓存随解析结果一起失效。</p>
+     */
+    @GetMapping("/resolve")
+    @Operation(summary = "解析播放来源（含替代版本信息）")
+    public Result<SongPlayService.PlayResolution> resolve(
+            @RequestParam String sourceId,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String artist,
+            @RequestParam(required = false) String platform,
+            @RequestParam(required = false, defaultValue = "") String coverUrl,
+            @RequestParam(required = false) Long duration) {
+        return Result.ok(songPlayService.resolve(sourceId, name, artist, platform, coverUrl, duration));
+    }
+
     /** 播放（记录历史 + 返回元信息） */
     @GetMapping("/play")
     @Operation(summary = "记录播放历史并返回元信息")
@@ -82,6 +100,14 @@ public class StreamController {
         return Result.ok(result);
     }
 
+    /**
+     * 兼容旧签名（单测与内部调用）：exact=false。没有 @GetMapping，Spring 不会注册成路由。
+     */
+    public void stream(String sourceId, String name, String artist, String platform,
+                       HttpServletRequest request, HttpServletResponse response) {
+        stream(sourceId, name, artist, platform, false, request, response);
+    }
+
     /** 音频流代理 — MinIO 直读 → 远程 URL 代理 */
     @GetMapping("/stream")
     @Operation(summary = "代理音频流（支持 Range，MinIO 兜底）")
@@ -89,6 +115,7 @@ public class StreamController {
                        @RequestParam(required = false) String name,
                        @RequestParam(required = false) String artist,
                        @RequestParam(required = false) String platform,
+                       @RequestParam(required = false, defaultValue = "false") boolean exact,
                        HttpServletRequest request, HttpServletResponse response) {
         String minioObjectName = "songs/" + sourceId + ".mp3";
         try {
@@ -136,6 +163,6 @@ public class StreamController {
             log.debug("MinIO unavailable, falling back to remote proxy: {}", e.getMessage());
         }
         // 上游直连代理：唯一实现在 AudioProxyService
-        audioProxyService.proxy(sourceId, name, artist, platform, request, response, false, null);
+        audioProxyService.proxy(sourceId, name, artist, platform, request, response, false, null, exact);
     }
 }

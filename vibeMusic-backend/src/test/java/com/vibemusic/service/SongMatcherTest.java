@@ -21,6 +21,10 @@ class SongMatcherTest {
         return Map.of("name", name, "artists", artists);
     }
 
+    private static Map<String, Object> song(String name, String artists, long durationMs) {
+        return Map.of("name", name, "artists", artists, "duration", durationMs);
+    }
+
     @Test
     @DisplayName("同名同歌手：命中并返回该条")
     void picksExactMatch() {
@@ -111,10 +115,41 @@ class SongMatcherTest {
     }
 
     @Test
-    @DisplayName("候选缺歌手字段：不因此拒绝（平台不一定返回 artist）")
-    void acceptsWhenCandidateArtistMissing() {
+    @DisplayName("时长差超过 5 秒：拒绝（DJ/剪辑版的典型特征）")
+    void rejectsWhenDurationFarOff() {
+        List<Map<String, Object>> results = List.of(
+                song("晴天", "周杰伦", 185_000L),
+                song("晴天", "周杰伦", 269_000L));
+
+        // 期望 269s；第一条 185s 差 84s → 应被淘汰，命中第二条
+        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦", 269_000L))
+                .isEqualTo(song("晴天", "周杰伦", 269_000L));
+    }
+
+    @Test
+    @DisplayName("只有一个候选且时长差过大：返回 null（宁可不播，也不放错版本）")
+    void rejectsSoleCandidateWithWrongDuration() {
+        List<Map<String, Object>> results = List.of(song("晴天", "周杰伦", 185_000L));
+
+        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦", 269_000L)).isNull();
+    }
+
+    @Test
+    @DisplayName("时长在容忍范围内（不同平台取整差异）：放行")
+    void acceptsWhenDurationWithinTolerance() {
+        List<Map<String, Object>> results = List.of(song("晴天", "周杰伦", 266_500L));
+
+        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦", 269_000L)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("候选缺歌手字段：拒绝（2026-11-16 收紧，缺字段等于无法校验）")
+    void rejectsWhenCandidateArtistMissing() {
+        // 旧口径是「缺字段不等于错歌」，但换源候选来自各平台搜索，正常都有 artists；
+        // 缺失往往意味着结构异常或搬运号上传。线上「歌名对、声音不对」的案例里，
+        // 这类无人认领的候选贡献了一部分，宁可放弃也不赌。
         List<Map<String, Object>> results = List.of(Map.of("name", "晴天"));
 
-        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦")).isNotNull();
+        assertThat(SongMatcher.findBestMatch(results, "晴天", "周杰伦")).isNull();
     }
 }

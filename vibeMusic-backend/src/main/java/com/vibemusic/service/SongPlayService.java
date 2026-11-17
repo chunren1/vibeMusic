@@ -52,6 +52,20 @@ public class SongPlayService {
      */
     private final ThreadLocal<String> failoverPlaySource = new ThreadLocal<>();
 
+    /** 本次请求命中的替代版本（换源或降级链）；仅 /resolve 消费，用后即清。 */
+    record SubstituteInfo(String platform, String sourceId, String name, String artists,
+                          String coverUrl, Long durationMs, String reason) {
+    }
+
+    private final ThreadLocal<SubstituteInfo> substituteInfo = new ThreadLocal<>();
+
+    /** 一次性取走本次请求的替代版本信息；无替代时返回 null。 */
+    public SubstituteInfo consumeSubstituteInfo() {
+        SubstituteInfo info = substituteInfo.get();
+        substituteInfo.remove();
+        return info;
+    }
+
     private UserService userService;
 
     /** 播放链接短缓存；可选注入（既有单测直接 new 本类，不走 Spring 上下文）。 */
@@ -139,6 +153,16 @@ public class SongPlayService {
     static final long PLAY_BUDGET_MS = 8000;
 
     public String getPlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
+        return getPlayUrl(sourceId, songName, artist, platform, userCookie, null);
+    }
+
+    /**
+     * 取链（带原曲时长）。
+     *
+     * @param durationMs 原曲时长（毫秒），用于换源时淘汰时长差过大的候选；未知传 null。
+     */
+    public String getPlayUrl(String sourceId, String songName, String artist, String platform,
+                             String userCookie, Long durationMs) {
         // 短缓存：同一会话内的连续 Range 请求（拖动进度 / 断线重连）不再重跑整条降级链。
         // 详见 PlayUrlCache 类注释（TTL 取舍、跨用户隔离、403 失效自愈）。
         // 先清 ThreadLocal：缓存命中路径不会走 resolvePlayUrl 的那句 remove，
@@ -154,7 +178,7 @@ public class SongPlayService {
                 return cached.url();
             }
         }
-        String url = resolvePlayUrl(sourceId, songName, artist, platform, userCookie);
+        String url = resolvePlayUrl(sourceId, songName, artist, platform, userCookie, durationMs);
         if (playUrlCache != null && url != null) {
             playUrlCache.put(userScope, platform, sourceId, url, failoverPlaySource.get());
         }
@@ -172,7 +196,8 @@ public class SongPlayService {
     }
 
     /** 实际取链（原 {@code getPlayUrl} 本体，缓存层在外层同名方法）。 */
-    private String resolvePlayUrl(String sourceId, String songName, String artist, String platform, String userCookie) {
+    private String resolvePlayUrl(String sourceId, String songName, String artist, String platform,
+                                  String userCookie, Long durationMs) {
         // 请求线程捕获 userId（异步取链线程读不到 SecurityContext）。
         final Long callerUserId = UserService.getCurrentUserId();
         // 生产链路整体 8s 超时保护（内层 HTTP 5s，见 PLAY_BUDGET_MS 注释）
@@ -205,7 +230,7 @@ public class SongPlayService {
                 String miguUrl = platformUrlFetcher.fetchMiguUrl(sourceId);
                 if (miguUrl != null) return miguUrl;
                 log.info("getPlayUrl: Migu歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = neteaseFallbackWithMeta(songName, artist, sourceId, userCookie, callerUserId, durationMs);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitKugou || (!explicitQQ && !explicitNE && PlatformUrlFetcher.isKugouHash(sourceId))) {
                 // 酷狗：platform=kugou 显式指定，或无显式平台时的 32 位 hash 猜测
@@ -215,7 +240,7 @@ public class SongPlayService {
                 String kugouUrl = platformUrlFetcher.tryKugouUrl(sourceId);
                 if (kugouUrl != null) return kugouUrl;
                 log.info("getPlayUrl: Kugou歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = neteaseFallbackWithMeta(songName, artist, sourceId, userCookie, callerUserId, durationMs);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitBili || (!explicitQQ && !explicitNE && !explicitMigu && !explicitKugou && PlatformUrlFetcher.isBiliId(sourceId))) {
                 // B站：platform=bilibili 显式指定，或无显式平台时的 BV 猜测
@@ -225,7 +250,7 @@ public class SongPlayService {
                 String biliUrl = platformUrlFetcher.tryBiliUrl(sourceId);
                 if (biliUrl != null) return biliUrl;
                 log.info("getPlayUrl: Bili歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = neteaseFallbackWithMeta(songName, artist, sourceId, userCookie, callerUserId, durationMs);
                 if (neteaseUrl != null) return neteaseUrl;
             } else if (explicitQQ || (!explicitNE && !guessNetEase)) {
                 // 取链实现与其它平台分支共用 fetchQqUrl（单一事实源）
@@ -234,7 +259,7 @@ public class SongPlayService {
                 String qqUrl = platformUrlFetcher.fetchQqUrl(sourceId);
                 if (qqUrl != null) return qqUrl;
                 log.info("getPlayUrl: QQ歌曲 {} 无播放链接，尝试网易云降级", ClientErrorScrubber.scrub(sourceId));
-                String neteaseUrl = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, callerUserId);
+                String neteaseUrl = neteaseFallbackWithMeta(songName, artist, sourceId, userCookie, callerUserId, durationMs);
                 if (neteaseUrl != null) return neteaseUrl;
             } else {
                 // 并行探测 3 级音质（exhigh/higher/standard），取最高可用非试听版本
@@ -260,8 +285,11 @@ public class SongPlayService {
                         log.info("VIP 权限受限: {} 付费曲目当前共享 Cookie 无播放权限（非无版权），继续 QQ 降级", ClientErrorScrubber.scrub(sourceId));
                     }
                     // 网易云无可用链接（全失败或全试听）→ QQ 降级（Q2d 收敛）
-                    String qqUrl = degradeChain.degradeNeteaseToQq(songName, artist, sourceId, DEADLINE);
-                    if (qqUrl != null) return qqUrl;
+                    String qqUrl = degradeChain.degradeNeteaseToQq(songName, artist, sourceId, DEADLINE, durationMs);
+                    if (qqUrl != null) {
+                        captureDegradeSubstitute("原平台无版权或取链失败");
+                        return qqUrl;
+                    }
                 }
                 // QQ 降级已被 fast-fail 有意跳过或已执行过 → 换源不再重复 QQ
                 triedPlatforms.add("qq");
@@ -279,10 +307,13 @@ public class SongPlayService {
         //     而 DB 兜底保留为真正的最终兜底。失败语义不变：仍返回 null → controller 404。
         if (songName != null && !songName.isBlank()) {
             CrossPlatformFailover.Result failover =
-                    crossPlatformFailover.tryFailover(songName, artist, triedPlatforms, DEADLINE);
+                    crossPlatformFailover.tryFailover(songName, artist, triedPlatforms, DEADLINE, durationMs);
             if (failover != null) {
                 // 供流代理补 X-Play-Source 响应头（仅新增头，不改信封/响应体）
                 failoverPlaySource.set(failover.platform());
+                substituteInfo.set(new SubstituteInfo(failover.platform(), failover.sourceId(),
+                        failover.name(), failover.artists(), failover.coverUrl(),
+                        failover.durationMs(), "原曲在其他平台不可播"));
                 return failover.url();
             }
         }
@@ -293,5 +324,94 @@ public class SongPlayService {
                 .eq(Song::getSourceId, sourceId)
                 .select(Song::getId, Song::getUrl));
         return song != null ? song.getUrl() : null;
+    }
+
+    /** 降级链命中后把候选元信息搬到本类的 ThreadLocal（供 /resolve 回显）。 */
+    private void captureDegradeSubstitute(String reason) {
+        NeteaseDegradeChain.Substitute sub = degradeChain.consumeLastSubstitute();
+        if (sub == null) return;
+        substituteInfo.set(new SubstituteInfo(sub.platform(), sub.sourceId(), sub.name(),
+                sub.artists(), sub.coverUrl(), sub.durationMs(), reason));
+    }
+
+    private String neteaseFallbackWithMeta(String songName, String artist, String sourceId,
+                                           String userCookie, Long userId, Long durationMs) {
+        String url = degradeChain.tryNeteaseFallback(songName, artist, sourceId, userCookie, userId, durationMs);
+        if (url != null) captureDegradeSubstitute("原平台无可用链接");
+        return url;
+    }
+
+    /**
+     * 匹配策略版本。规则一变就自增：客户端把它拼进流地址（{@code &v=}），
+     * Media3 的 URL 缓存随之整体失效，用户不必手动清缓存就能摆脱旧规则选出的坏版本。
+     */
+    public static final String MATCH_POLICY_VERSION = "2026-11-16-1";
+
+    /**
+     * 解析结果：客户端拿它渲染「实际在放的那一首」，并据此拼流地址。
+     *
+     * @param isSubstitute true=返回的是替代版本（原曲不可播）
+     * @param hasUrl       false=所有平台都没有可用链接，客户端应直接提示而不是发起流请求
+     */
+    public record PlayResolution(String platform, String sourceId, String name, String artists,
+                                 String coverUrl, Long durationMs, boolean isSubstitute,
+                                 String reason, String matchVersion, boolean hasUrl) {
+    }
+
+    /**
+     * 播放前解析：跑完整降级/换源链，但把「最终落到哪一首」如实返回。
+     *
+     * <p>与 {@link #getPlayUrl} 的区别：后者只回 URL，换源信息塞在 ThreadLocal 里给响应头用，
+     * 客户端根本感知不到「歌已经换了」；这里把平台/曲目/封面/时长一起回给客户端。</p>
+     */
+    public PlayResolution resolve(String sourceId, String name, String artist, String platform,
+                                  String coverUrl, Long durationMs) {
+        substituteInfo.remove();
+        failoverPlaySource.remove();
+        String url = resolvePlayUrl(sourceId, name, artist, platform, resolveUserCookie(), durationMs);
+        SubstituteInfo sub = consumeSubstituteInfo();
+        failoverPlaySource.remove();
+        if (url == null) {
+            return new PlayResolution(platform, sourceId, name, artist, coverUrl, durationMs,
+                    false, "所有平台均无可用链接", MATCH_POLICY_VERSION, false);
+        }
+        if (sub != null) {
+            return new PlayResolution(sub.platform(), sub.sourceId(), sub.name(), sub.artists(),
+                    sub.coverUrl(), sub.durationMs(), true, sub.reason(), MATCH_POLICY_VERSION, true);
+        }
+        return new PlayResolution(platform, sourceId, name, artist, coverUrl, durationMs,
+                false, "", MATCH_POLICY_VERSION, true);
+    }
+
+    /**
+     * 只取指定平台、指定曲目的播放链接——不降级、不换源。
+     *
+     * <p>客户端在 {@code /resolve} 之后必须用它来请求音频：否则流代理会再次跑整条链、
+     * 可能换到另一个平台，于是「显示的」和「听到的」又对不上了。失败返回 null，
+     * 由 controller 回 502，客户端重新解析并提示用户。</p>
+     */
+    public String getExactPlayUrl(String sourceId, String platform) {
+        if (sourceId == null || platform == null) return null;
+        String p = platform.trim().toLowerCase(java.util.Locale.ROOT);
+        try {
+            return switch (p) {
+                case "migu" -> platformUrlFetcher.fetchMiguUrl(sourceId);
+                case "kugou" -> platformUrlFetcher.tryKugouUrl(sourceId);
+                case "bilibili", "bili" -> platformUrlFetcher.tryBiliUrl(sourceId);
+                case "qq" -> platformUrlFetcher.fetchQqUrl(sourceId);
+                case "netease" -> {
+                    NeteaseUrlProbe.NeteaseProbe probe = neteaseUrlProbe.probeNeteaseParallel(
+                            sourceId, new String[]{"exhigh", "higher", "standard"},
+                            System.currentTimeMillis() + PLAY_BUDGET_MS, resolveUserCookie(),
+                            UserService.getCurrentUserId());
+                    yield probe.url;
+                }
+                default -> null;
+            };
+        } catch (Exception e) {
+            log.warn("getExactPlayUrl 失败: platform={}, sourceId={}, err={}",
+                    p, ClientErrorScrubber.scrub(sourceId), ClientErrorScrubber.scrub(e.getMessage()));
+            return null;
+        }
     }
 }

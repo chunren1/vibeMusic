@@ -95,8 +95,15 @@ class CrossPlatformFailover {
         this.clock = clock;
     }
 
-    /** 命中结果：url 供播放，platform 供 {@code X-Play-Source} 响应头（前端提示「已自动切换」）。 */
-    record Result(String url, String platform) {
+    /**
+     * 命中结果。
+     *
+     * <p>除了 url/platform，还带上候选本身的元信息：客户端要能把「实际在放的那一首」
+     * 如实显示出来（封面、歌名、时长、是否替代版本），而不是继续挂着原曲的封面装没事。
+     * quality 目前是尽力而为（取链层暂未回传码率档），未知时为 {@code "unknown"}。</p>
+     */
+    record Result(String url, String platform, String sourceId, String name,
+                  String artists, String coverUrl, Long durationMs, String quality) {
     }
 
     /** 平台名归一：网关/前端可能传 {@code bili}，统一成 {@link #PLATFORM_ORDER} 里的 {@code bilibili}。 */
@@ -116,6 +123,17 @@ class CrossPlatformFailover {
      * @return 命中返回 {@link Result}；全部失败/预算不足/无歌名返回 null
      */
     Result tryFailover(String songName, String artist, Set<String> triedPlatforms, long outerDeadline) {
+        return tryFailover(songName, artist, triedPlatforms, outerDeadline, null);
+    }
+
+    /**
+     * 换源唯一入口（带时长校验）。
+     *
+     * @param expectedDurationMs 原曲时长；非空时用于淘汰时长差过大的候选（DJ/剪辑版），
+     *                           客户端通过 {@code /api/songs/resolve} 传入，未知时传 null。
+     */
+    Result tryFailover(String songName, String artist, Set<String> triedPlatforms,
+                       long outerDeadline, Long expectedDurationMs) {
         if (songName == null || songName.isBlank()) {
             log.debug("换源跳过: 缺少歌名，无法按名搜索");
             return null;
@@ -136,12 +154,13 @@ class CrossPlatformFailover {
                         FAILOVER_BUDGET_MS, platform, ClientErrorScrubber.scrub(keyword));
                 return null;
             }
-            String url = callWithDeadline(() -> tryPlatform(platform, songName, artist, keyword), deadline);
-            if (url != null) {
+            Result hit = callWithDeadline(
+                    () -> tryPlatform(platform, songName, artist, keyword, expectedDurationMs), deadline);
+            if (hit != null) {
                 hitCount.incrementAndGet();
                 log.info("换源成功: '{}' 由平台 {} 提供可播链接（原平台 {} 无可用链）",
                         ClientErrorScrubber.scrub(keyword), platform, tried);
-                return new Result(url, platform);
+                return hit;
             }
             log.info("换源未命中: 平台 {} 无可播链接: '{}'", platform, ClientErrorScrubber.scrub(keyword));
         }
@@ -150,12 +169,13 @@ class CrossPlatformFailover {
     }
 
     /** 单平台：搜索 → 选最佳候选 → 取链。任何异常向上抛给 callWithDeadline 统一兜成 null。 */
-    private String tryPlatform(String platform, String songName, String artist, String keyword) {
+    private Result tryPlatform(String platform, String songName, String artist, String keyword,
+                               Long expectedDurationMs) {
         List<Map<String, Object>> candidates = extractData(search(platform, keyword));
         if (candidates.isEmpty()) return null;
         // tie-break：复用既有 SongMatcher（token 重叠率 + 歌名首字加权，歌名对不上即淘汰），
         // 与网易→QQ 降级链保持同一套「像不像同一首歌」的判定，不另起一套。
-        Map<String, Object> best = SongMatcher.findBestMatch(candidates, songName, artist);
+        Map<String, Object> best = SongMatcher.findBestMatch(candidates, songName, artist, expectedDurationMs);
         if (best == null) return null;
         String candidateId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
         if (candidateId == null || candidateId.isBlank()) return null;
@@ -166,11 +186,14 @@ class CrossPlatformFailover {
             return null;
         }
         String url = fetchUrl(platform, candidateId);
-        if (url != null) {
-            log.info("换源候选命中: 平台 {} id={} ('{}')",
-                    platform, ClientErrorScrubber.scrub(candidateId), ClientErrorScrubber.scrub(matchName));
-        }
-        return url;
+        if (url == null) return null;
+        log.info("换源候选命中: 平台 {} id={} ('{}')",
+                platform, ClientErrorScrubber.scrub(candidateId), ClientErrorScrubber.scrub(matchName));
+        return new Result(url, platform, candidateId, matchName,
+                best.get("artists") != null ? String.valueOf(best.get("artists")) : "",
+                best.get("cover") != null ? String.valueOf(best.get("cover")) : "",
+                best.get("duration") instanceof Number n ? n.longValue() : null,
+                "unknown");
     }
 
     private String buildKeyword(String songName, String artist) {
@@ -243,13 +266,13 @@ class CrossPlatformFailover {
      * 预算约束调用本身而非仅约束是否发起；预算耗尽/超时/异常一律返回 null，
      * 超时取消排队任务，避免慢源占住取链线程池。
      */
-    private String callWithDeadline(Supplier<String> supplier, long deadline) {
+    private <T> T callWithDeadline(Supplier<T> supplier, long deadline) {
         long left = deadline - clock.getAsLong();
         if (left <= 0) {
             log.info("换源限时调用跳过: 预算已耗尽");
             return null;
         }
-        final CompletableFuture<String> future;
+        final CompletableFuture<T> future;
         try {
             future = CompletableFuture.supplyAsync(supplier, getUrlExecutor);
         } catch (RejectedExecutionException e) {

@@ -89,7 +89,7 @@ class SongPlayServiceTest {
                 .thenReturn(Map.of("data", List.of(Map.of())));
         when(neteaseApiService.searchNetease(eq("青花瓷 周杰伦"), anyInt()))
                 .thenReturn(Map.of("data", List.of(
-                        Map.of("id", "123", "name", "青花瓷", "duration", 240000))));
+                        Map.of("id", "123", "name", "青花瓷", "artists", "周杰伦", "duration", 240000))));
         when(neteaseApiService.getSongUrl(eq("123"), anyString()))
                 .thenReturn(Map.of("data", List.of(
                         Map.of("url", "https://ne-cdn.example/x.mp3"))));
@@ -107,7 +107,7 @@ class SongPlayServiceTest {
                 .thenThrow(new RuntimeException("musicapi down"));
         when(neteaseApiService.searchNetease(anyString(), anyInt()))
                 .thenReturn(Map.of("data", List.of(
-                        Map.of("id", "123", "name", "青花瓷", "duration", 240000))));
+                        Map.of("id", "123", "name", "青花瓷", "artists", "周杰伦", "duration", 240000))));
         when(neteaseApiService.getSongUrl(eq("123"), anyString()))
                 .thenReturn(Map.of("data", List.of(
                         Map.of("url", "https://ne-cdn.example/x.mp3"))));
@@ -168,7 +168,7 @@ class SongPlayServiceTest {
                 .thenReturn(Map.of("data", List.of(Map.of())));
         when(neteaseApiService.searchNetease(eq("安静 周杰伦"), anyInt()))
                 .thenReturn(Map.of("data", List.of(
-                        Map.of("id", "123", "name", "安静", "duration", 240000))));
+                        Map.of("id", "123", "name", "安静", "artists", "周杰伦", "duration", 240000))));
         when(neteaseApiService.getSongUrl(eq("123"), anyString()))
                 .thenReturn(Map.of("data", List.of(
                         Map.of("url", "https://ne-cdn.example/x.mp3"))));
@@ -235,7 +235,7 @@ class SongPlayServiceTest {
                 .thenReturn(Map.of("data", List.of(Map.of())));
         when(neteaseApiService.searchNetease(eq("少年 梦然"), anyInt()))
                 .thenReturn(Map.of("data", List.of(
-                        Map.of("id", "123", "name", "少年", "duration", 240000))));
+                        Map.of("id", "123", "name", "少年", "artists", "梦然", "duration", 240000))));
         when(neteaseApiService.getSongUrl(eq("123"), anyString()))
                 .thenReturn(Map.of("data", List.of(
                         Map.of("url", "https://ne-cdn.example/x.mp3"))));

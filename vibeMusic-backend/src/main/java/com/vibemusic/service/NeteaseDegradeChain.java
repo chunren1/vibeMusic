@@ -34,6 +34,27 @@ class NeteaseDegradeChain {
     private final AtomicInteger degradationCount;
     private final ThreadPoolTaskExecutor getUrlExecutor;
 
+    /** 降级命中候选的元信息（供 /resolve 如实回显）。 */
+    record Substitute(String platform, String sourceId, String name, String artists,
+                      String coverUrl, Long durationMs) {
+    }
+
+    /** 命中候选的临时载体：URL + 元信息，由 request 线程落到 lastSubstitute。 */
+    private record Hit(String url, String sourceId, String name, String artists, String cover, Long durationMs) {
+    }
+
+    /**
+     * 最近一次降级命中的候选；由 {@link SongPlayService} 在调用后一次性消费。
+     * 只在 request 线程读写，不进线程池。
+     */
+    private final ThreadLocal<Substitute> lastSubstitute = new ThreadLocal<>();
+
+    Substitute consumeLastSubstitute() {
+        Substitute s = lastSubstitute.get();
+        lastSubstitute.remove();
+        return s;
+    }
+
     NeteaseDegradeChain(SongMapper songMapper,
                         NeteaseApiService neteaseApiService,
                         NeteaseUrlProbe neteaseUrlProbe,
@@ -55,13 +76,22 @@ class NeteaseDegradeChain {
      * 已删除。历史上的孪生元信息路径 getPlayInfo 已整体移除（零生产调用）。
      */
     String degradeNeteaseToQq(String songName, String artist, String sourceId, long deadline) {
+        return degradeNeteaseToQq(songName, artist, sourceId, deadline, null);
+    }
+
+    String degradeNeteaseToQq(String songName, String artist, String sourceId, long deadline,
+                              Long expectedDurationMs) {
         degradationCount.incrementAndGet();
         log.info("音质降级: {} 网易云不可用 → 尝试QQ降级", ClientErrorScrubber.scrub(sourceId));
-        return callWithDeadline(() -> tryQQFallback(songName, artist, sourceId), deadline);
+        Hit hit = callWithDeadline(() -> tryQQFallback(songName, artist, sourceId, expectedDurationMs), deadline);
+        if (hit == null) return null;
+        lastSubstitute.set(new Substitute("qq", hit.sourceId(), hit.name(), hit.artists(),
+                hit.cover(), hit.durationMs()));
+        return hit.url();
     }
 
     @SuppressWarnings("unchecked")
-    private String tryQQFallback(String songName, String artist, String neteaseId) {
+    private Hit tryQQFallback(String songName, String artist, String neteaseId, Long expectedDurationMs) {
         if (songName == null || songName.isBlank()) {
             Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
                     .eq(Song::getSourceId, neteaseId)
@@ -77,7 +107,7 @@ class NeteaseDegradeChain {
             List<Map<String, Object>> data = (List<Map<String, Object>>) result.get("data");
             if (data == null || data.isEmpty()) return null;
             // 歌名/歌手相似度匹配，避免取到错误歌曲
-            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist);
+            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist, expectedDurationMs);
             if (best == null) { log.info("QQ降级: '{}' 无匹配歌曲", ClientErrorScrubber.scrub(keyword)); return null; }
             String qqSourceId = best.get("id") != null ? String.valueOf(best.get("id")) : null;
             String matchName = best.get("name") != null ? String.valueOf(best.get("name")) : "";
@@ -95,7 +125,9 @@ class NeteaseDegradeChain {
                     String url = (String) urlData.get(0).get("url");
                     if (url != null && !url.isEmpty()) {
                         log.info("QQ降级成功: '{}' → QQ '{}' (score={})", ClientErrorScrubber.scrub(keyword), ClientErrorScrubber.scrub(matchName), SongMatcher.similarity(keyword, matchName + matchArtists));
-                        return url;
+                        return new Hit(url, qqSourceId, matchName, matchArtists,
+                                best.get("cover") != null ? String.valueOf(best.get("cover")) : "",
+                                best.get("duration") instanceof Number n ? n.longValue() : null);
                     }
                 }
             }
@@ -107,6 +139,12 @@ class NeteaseDegradeChain {
 
     @SuppressWarnings("unchecked")
     String tryNeteaseFallback(String songName, String artist, String qqSourceId, String userCookie, Long userId) {
+        return tryNeteaseFallback(songName, artist, qqSourceId, userCookie, userId, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    String tryNeteaseFallback(String songName, String artist, String qqSourceId, String userCookie, Long userId,
+                              Long expectedDurationMs) {
         if (songName == null || songName.isBlank()) {
             Song song = songMapper.selectOne(new LambdaQueryWrapper<Song>()
                     .eq(Song::getSourceId, qqSourceId)
@@ -123,7 +161,7 @@ class NeteaseDegradeChain {
             if (data == null || data.isEmpty()) return null;
             // 与 QQ 降级对齐：先挑最像的一条，绝不盲取 data.get(0)。
             // 曾因这里直接取第一条，导致「点歌 404 → 换源」时播成了同名/同歌手的另一首。
-            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist);
+            Map<String, Object> best = SongMatcher.findBestMatch(data, songName, artist, expectedDurationMs);
             if (best == null) {
                 log.info("网易云降级: '{}' 无匹配歌曲，放弃换源", ClientErrorScrubber.scrub(keyword));
                 return null;
@@ -147,6 +185,11 @@ class NeteaseDegradeChain {
                 Object time = urlData.get(0).get("time");
                 if (trial != null || (time instanceof Number && ((Number) time).intValue() <= NeteaseUrlProbe.TRIAL_DURATION_MS)) continue;
                 log.info("网易云降级成功: {} → neteaseId={}, level={}", ClientErrorScrubber.scrub(keyword), neteaseId, level);
+                lastSubstitute.set(new Substitute("netease", neteaseId,
+                        best.get("name") != null ? String.valueOf(best.get("name")) : "",
+                        best.get("artists") != null ? String.valueOf(best.get("artists")) : "",
+                        best.get("cover") != null ? String.valueOf(best.get("cover")) : "",
+                        best.get("duration") instanceof Number n ? n.longValue() : null));
                 return url;
             }
             log.info("网易云降级: {} 所有音质均为试听，跳过", ClientErrorScrubber.scrub(keyword));
