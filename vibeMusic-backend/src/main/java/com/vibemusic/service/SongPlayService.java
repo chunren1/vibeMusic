@@ -331,7 +331,7 @@ public class SongPlayService {
         NeteaseDegradeChain.Substitute sub = degradeChain.consumeLastSubstitute();
         if (sub == null) return;
         substituteInfo.set(new SubstituteInfo(sub.platform(), sub.sourceId(), sub.name(),
-                sub.artists(), sub.coverUrl(), sub.durationMs(), "unknown", reason));
+                sub.artists(), sub.coverUrl(), sub.durationMs(), sub.quality(), reason));
     }
 
     private String neteaseFallbackWithMeta(String songName, String artist, String sourceId,
@@ -345,7 +345,7 @@ public class SongPlayService {
      * 匹配策略版本。规则一变就自增：客户端把它拼进流地址（{@code &v=}），
      * Media3 的 URL 缓存随之整体失效，用户不必手动清缓存就能摆脱旧规则选出的坏版本。
      */
-    public static final String MATCH_POLICY_VERSION = "2026-11-16-1";
+    public static final String MATCH_POLICY_VERSION = "2026-11-17-1";
 
     /**
      * 解析结果：客户端拿它渲染「实际在放的那一首」，并据此拼流地址。

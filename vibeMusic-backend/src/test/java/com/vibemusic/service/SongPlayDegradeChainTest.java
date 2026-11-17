@@ -95,6 +95,36 @@ class SongPlayDegradeChainTest {
     }
 
     @Test
+    @DisplayName("降级链回填真实码率标签，不再一律 unknown")
+    void degradeReportsRealQuality() {
+        when(neteaseApiService.getSongUrl(anyString(), anyString()))
+                .thenThrow(new RuntimeException("netease down"));
+        when(neteaseApiService.searchQQ(eq("青花瓷 周杰伦"), eq(5)))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("id", "qq123", "name", "青花瓷", "artists", "周杰伦", "duration", 240000))));
+        when(neteaseApiService.getQQSongUrl("qq123"))
+                .thenReturn(Map.of("data", List.of(
+                        Map.of("url", "https://ws.stream.qqmusic.qq.com/M800003abc.mp3"))));
+
+        songPlayService.getPlayUrl("12345", "青花瓷", "周杰伦");
+
+        SongPlayService.SubstituteInfo info = songPlayService.consumeSubstituteInfo();
+        assertNotNull(info, "降级命中必须留下替代信息");
+        assertEquals("qq", info.platform());
+        assertEquals("320", info.quality(), "M800 直链应报 320，而不是 unknown");
+    }
+
+    @Test
+    @DisplayName("网易云档位映射到码率标签")
+    void neteaseLevelMapsToQuality() {
+        assertEquals("320", NeteaseDegradeChain.neteaseQuality("exhigh"));
+        assertEquals("192", NeteaseDegradeChain.neteaseQuality("higher"));
+        assertEquals("128", NeteaseDegradeChain.neteaseQuality("standard"));
+        assertEquals("unknown", NeteaseDegradeChain.neteaseQuality("jymaster"));
+        assertEquals("unknown", NeteaseDegradeChain.neteaseQuality(null));
+    }
+
+    @Test
     @DisplayName("降级查询词保持原值：日志净化不得改写上游搜索")
     void keywordIsNotScrubbedBeforeUpstream() {
         when(neteaseApiService.getSongUrl(anyString(), anyString()))

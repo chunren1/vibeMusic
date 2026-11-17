@@ -92,9 +92,11 @@ class PlatformUrlFetcher {
                         String url = (String) data.get(0).get("url");
                         if (url != null && !url.isEmpty()) {
                             // 2026-11-17：酷狗 standard 档并不保证 320k——实测《失眠》的
-                            // standard 与 low 返回**同一份 128k 字节**。所以 standard 只能记
-                            // unknown，让 QQ 真正解析出来的 320k 有机会胜出。
-                            return new Fetched(url, "standard".equals(level) ? "unknown" : "128");
+                            // standard 与 low 返回**同一份 128k 字节**。网关现在把"这一档
+                            // 实际给的是 320 还是回落 128"写进 quality；拿不到才按档位猜。
+                            Object q = data.get(0).get("quality");
+                            return new Fetched(url, q instanceof String s && !s.isBlank()
+                                    ? s : ("standard".equals(level) ? "unknown" : "128"));
                         }
                     }
                 }

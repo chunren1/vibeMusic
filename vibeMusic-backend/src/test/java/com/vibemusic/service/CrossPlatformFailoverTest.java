@@ -101,6 +101,32 @@ class CrossPlatformFailoverTest {
     }
 
     @Test
+    @DisplayName("酷狗只给 128、QQ 有 320 → 继续找，最终用 QQ 的 320")
+    void lowQualityKugouLosesToHighQualityQq() {
+        // 线上《失眠》的复现：酷狗 standard 回落 128，但排序把它当未知档，
+        // 于是 QQ 的 M800(320k) 永远轮不到，用户听到低音质。
+        when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5)))
+                .thenReturn(searchHit("HASH0123456789ABCDEF0123456789AB", NAME, ARTIST, 240000));
+        when(platformUrlFetcher.tryKugouUrlWithQuality("HASH0123456789ABCDEF0123456789AB"))
+                .thenReturn(new PlatformUrlFetcher.Fetched("https://kugou-cdn.example/x.mp3", "128"));
+        when(neteaseApiService.searchQQ(eq(KEYWORD), eq(5)))
+                .thenReturn(searchHit("qq123", NAME, ARTIST, 240000));
+        when(platformUrlFetcher.fetchQqUrlWithQuality("qq123"))
+                .thenReturn(new PlatformUrlFetcher.Fetched(
+                        "https://ws.stream.qqmusic.qq.com/M800003abc.mp3", "320"));
+
+        // 网易云曲目在换源前已把 qq 计入 tried（降级链跑过），这里取 B站来源的曲目，
+        // 让 QQ 仍在候选里——本用例只验证"低音质让位高音质"这一条排序规则。
+        CrossPlatformFailover.Result result =
+                failover.tryFailover(NAME, ARTIST, Set.of("bilibili"), deadline());
+
+        assertNotNull(result);
+        assertEquals("qq", result.platform());
+        assertEquals("320", result.quality());
+        assertEquals("https://ws.stream.qqmusic.qq.com/M800003abc.mp3", result.url());
+    }
+
+    @Test
     @DisplayName("酷狗/QQ 无结果、咪咕命中 → 返回咪咕链接（第三顺位）")
     void thirdPlatformHitAfterTwoMisses() {
         when(neteaseApiService.searchKugou(eq(KEYWORD), eq(5))).thenReturn(emptyResult());

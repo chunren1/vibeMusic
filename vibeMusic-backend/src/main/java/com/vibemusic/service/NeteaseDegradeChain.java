@@ -36,11 +36,12 @@ class NeteaseDegradeChain {
 
     /** 降级命中候选的元信息（供 /resolve 如实回显）。 */
     record Substitute(String platform, String sourceId, String name, String artists,
-                      String coverUrl, Long durationMs) {
+                      String coverUrl, Long durationMs, String quality) {
     }
 
     /** 命中候选的临时载体：URL + 元信息，由 request 线程落到 lastSubstitute。 */
-    private record Hit(String url, String sourceId, String name, String artists, String cover, Long durationMs) {
+    private record Hit(String url, String sourceId, String name, String artists, String cover,
+                       Long durationMs, String quality) {
     }
 
     /**
@@ -86,7 +87,7 @@ class NeteaseDegradeChain {
         Hit hit = callWithDeadline(() -> tryQQFallback(songName, artist, sourceId, expectedDurationMs), deadline);
         if (hit == null) return null;
         lastSubstitute.set(new Substitute("qq", hit.sourceId(), hit.name(), hit.artists(),
-                hit.cover(), hit.durationMs()));
+                hit.cover(), hit.durationMs(), hit.quality()));
         return hit.url();
     }
 
@@ -127,7 +128,8 @@ class NeteaseDegradeChain {
                         log.info("QQ降级成功: '{}' → QQ '{}' (score={})", ClientErrorScrubber.scrub(keyword), ClientErrorScrubber.scrub(matchName), SongMatcher.similarity(keyword, matchName + matchArtists));
                         return new Hit(url, qqSourceId, matchName, matchArtists,
                                 best.get("cover") != null ? String.valueOf(best.get("cover")) : "",
-                                best.get("duration") instanceof Number n ? n.longValue() : null);
+                                best.get("duration") instanceof Number n ? n.longValue() : null,
+                                PlatformUrlFetcher.qqQualityOf(url));
                     }
                 }
             }
@@ -189,7 +191,8 @@ class NeteaseDegradeChain {
                         best.get("name") != null ? String.valueOf(best.get("name")) : "",
                         best.get("artists") != null ? String.valueOf(best.get("artists")) : "",
                         best.get("cover") != null ? String.valueOf(best.get("cover")) : "",
-                        best.get("duration") instanceof Number n ? n.longValue() : null));
+                        best.get("duration") instanceof Number n ? n.longValue() : null,
+                        neteaseQuality(level)));
                 return url;
             }
             log.info("网易云降级: {} 所有音质均为试听，跳过", ClientErrorScrubber.scrub(keyword));
@@ -197,6 +200,17 @@ class NeteaseDegradeChain {
             log.warn("网易云降级搜索失败: {} - {}", ClientErrorScrubber.scrub(songName), ClientErrorScrubber.scrub(e.getMessage()), e);
         }
         return null;
+    }
+
+    /** 网易云音质档位 → 与换源链统一的码率标签（App 端据此显示音质）。 */
+    static String neteaseQuality(String level) {
+        if (level == null) return "unknown";
+        return switch (level) {
+            case "exhigh" -> "320";
+            case "higher" -> "192";
+            case "standard" -> "128";
+            default -> "unknown";
+        };
     }
 
     /**
