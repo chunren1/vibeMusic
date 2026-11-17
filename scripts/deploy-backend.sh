@@ -1046,7 +1046,39 @@ else
   CODE_FINAL="$(rout "curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H 'Host: $PROBE_HOST' '$PROBE_URL/actuator/health' || true")"
   say "  收尾复验（旧容器已删，只剩新容器）经 nginx 探针 → $CODE_FINAL"
   [ "$CODE_FINAL" = "200" ] || fail_final "收尾复验失败：经 nginx 返回 $CODE_FINAL"
+
 fi
+
+  # --- 镜像自动清理（2026-11-17 加）------------------------------------------------
+  # 每次蓝绿固定多留两份镜像：构建标签 vibemusic-backend:<sha> 与 rollback-<ts>，各约 658MB。
+  # 发 10 次就是 6.5GB（11-17 实测：132 个标签 / 15.66GB，占 40G 云盘一大半）。
+  # 口径：每个仓库只保留最新 ${KEEP_ROLLBACKS:-2} 个 rollback + 任何容器正在引用的镜像；
+  #       旧构建标签一并删，但发现它在用就跳过（docker rmi 对在用镜像本来就拒绝，提前跳过少报错）。
+  # 失败不阻断发布：清理是运维优化，不是发布正确性的一部分。
+  say "  清理历史镜像（保留最新 ${KEEP_ROLLBACKS:-2} 个回滚点）..."
+  remote_script <<EOS || say "  注意：镜像清理失败（不影响本次发布，可手工 docker rmi 处理）"
+set -uo pipefail
+KEEP="${KEEP_ROLLBACKS:-2}"
+BEFORE_KB=\$(df -k / | awk 'NR==2{print \$3}')
+for repo in vibemusic-backend vibemusic-musicapi; do
+  rolls=\$(docker images --format '{{.Tag}}' --filter "reference=\${repo}:rollback-*" | sort -r)
+  n=0
+  for t in \$rolls; do
+    n=\$((n+1))
+    [ "\$n" -le "\$KEEP" ] && continue
+    if docker rmi "\${repo}:\$t" >/dev/null 2>&1; then echo "  已删旧回滚 \${repo}:\$t"; fi
+  done
+  in_use=\$(docker ps -a --format '{{.Image}}' | tr "\\n" " ")
+  for t in \$(docker images --format '{{.Tag}}' --filter "reference=\${repo}:*"); do
+    case "\$t" in latest|rollback-*) continue ;; esac
+    case " \$in_use " in *" \${repo}:\$t "*) echo "  跳过在用 \${repo}:\$t"; continue ;; esac
+    if docker rmi "\${repo}:\$t" >/dev/null 2>&1; then echo "  已删旧构建标签 \${repo}:\$t"; fi
+  done
+done
+docker image prune -f >/dev/null 2>&1 || true
+AFTER_KB=\$(df -k / | awk 'NR==2{print \$3}')
+echo "  镜像清理完成: 释放 \$(( (BEFORE_KB-AFTER_KB)/1024 )) MB，磁盘现用 \$(df -h / | awk 'NR==2{print \$5}')"
+EOS
 
 say ""
 if is_dry; then say "===== DRY-RUN 推演结果（以下均为计划，未执行）====="; else say "===== 蓝绿部署完成 ====="; fi
