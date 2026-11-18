@@ -60,8 +60,14 @@ public class HotCacheWarmer {
     /** 单曲典型体积：320k × 4 分钟 ≈ 9.6MB，用它做「还放得下吗」的粗判。 */
     private static final long TYPICAL_SONG_BYTES = 10L * 1024L * 1024L;
 
-    /** 只缓存官方音源：网易云与 QQ 音乐。 */
-    static final Set<String> OFFICIAL_PLATFORMS = Set.of("netease", "qq");
+    /**
+     * 只缓存官方音源：网易云、QQ 音乐、咪咕。
+     *
+     * <p>咪咕 2026-11-18 经用户确认加入：它同样是正版唱片库，只是不在「网易云/QQ」两家里。
+     * 酷狗与 B站 仍然排除——前者音质档位不透明（standard 可能悄悄回落 128），
+     * 后者是视频轨二创，翻唱与剪辑比例最高。</p>
+     */
+    static final Set<String> OFFICIAL_PLATFORMS = Set.of("netease", "qq", "migu");
 
     /** 最低可接受码率档（320k / HQ / FLAC 记为 3）。 */
     static final int MIN_QUALITY_RANK = 3;
@@ -109,14 +115,24 @@ public class HotCacheWarmer {
     }
 
     /**
-     * 首次部署空目录时自动跑一轮，避免「刚上线怎么没变快」这类无谓排查。
-     * 只在目录为空时触发。
+     * 启动时预热：缓存目录为空时自动跑一轮，避免「刚上线怎么没变快」这类无谓排查。
+     *
+     * <p>另外支持手工触发：在缓存目录放一个 {@code .warm-now} 空文件再重启容器，
+     * 即使已有缓存也会立刻重跑一轮（用完即删）。白名单/规则调整后想马上看到效果，
+     * 不必等到凌晨 03:30，也不必为此开一个 HTTP 管理端点。</p>
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmOnFirstBoot() {
         if (!hotCache.isEnabled()) return;
         executor.submit(() -> {
-            if (hotCache.usedBytes() > 0L) return;
+            Path sentinel = hotCache.root().resolve(".warm-now");
+            boolean forced = Files.isRegularFile(sentinel);
+            if (hotCache.usedBytes() > 0L && !forced) return;
+            try {
+                Files.deleteIfExists(sentinel);
+            } catch (Exception ignored) {
+                // 哨兵删不掉最多导致下次重启再跑一轮，不影响正确性
+            }
             Report r = warm();
             log.info("首次启动空缓存，预热结果: 新增 {} / 失败 {} / 停止原因 {}",
                     r.stored(), r.failed(), r.stoppedBy());
