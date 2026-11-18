@@ -15,7 +15,8 @@ NOTE_STATE=/var/run/vibemusic-alert-note.state
 LOG=/var/log/vibemusic-alert.log
 UPSTREAM_CONF=/etc/nginx/conf.d/vibemusic-backend-upstream.conf
 REPEAT_SEC=1800
-DISK_MAX=85          # 根分区使用率上限 %
+DISK_MAX=75          # 根分区使用率上限 %（2026-11-18 从 85 收紧：热歌缓存写入 + 蓝绿发布需要
+                     # ~1.5GB 瞬时余量，85% 时只剩 6GB，留给 MySQL 增长与镜像传输太薄）
 SWAP_MAX=30          # swap 使用率上限 %（2026-10-26 审计改：原 80% 等于永不告警，实测 521M/4G≈13%）
 CONTAINERS="vibemusic-backend vibemusic-musicapi vibemusic-mysql vibemusic-redis"
 MUSICAPI_PORT="${MUSICAPI_PORT:-3000}"   # musicapi 固定绑 127.0.0.1:3000（compose 内网）
