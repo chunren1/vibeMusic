@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 /**
- * 音频流播放控制器 — MinIO 直读 + 远程 URL 代理
+ * 音频流播放控制器 — 热歌本地缓存 + MinIO 直读 + 远程 URL 代理
  *
  * <p>远程代理实现已收敛到 {@link AudioProxyService}（唯一实现），此处仅委托，
  * 避免「同一逻辑孪生副本」问题。</p>
@@ -30,6 +30,7 @@ import java.util.concurrent.*;
 public class StreamController {
 
     private final SongPlayService songPlayService;
+    private final HotCacheService hotCacheService;
     private final PlayHistoryService playHistoryService;
     private final StorageService storageService;
     private final RecommendService recommendService;
@@ -117,6 +118,17 @@ public class StreamController {
                        @RequestParam(required = false) String platform,
                        @RequestParam(required = false, defaultValue = "false") boolean exact,
                        HttpServletRequest request, HttpServletResponse response) {
+        // 0) 热歌本地缓存：命中即从磁盘返回，与上游风控/直链过期彻底解耦
+        java.nio.file.Path cached = hotCacheService.lookup(sourceId);
+        if (cached != null) {
+            try {
+                serveHotCache(cached, sourceId, request, response);
+                return;
+            } catch (Exception e) {
+                log.warn("热歌缓存文件不可用，回退代理: {}", e.getMessage());
+                if (response.isCommitted()) return;
+            }
+        }
         String minioObjectName = "songs/" + sourceId + ".mp3";
         try {
             if (storageService.exists(minioObjectName)) {
@@ -165,4 +177,90 @@ public class StreamController {
         // 上游直连代理：唯一实现在 AudioProxyService
         audioProxyService.proxy(sourceId, name, artist, platform, request, response, false, null, exact);
     }
+
+    /** 热歌缓存元信息的读取器：只读多线程安全。 */
+    private static final com.fasterxml.jackson.databind.ObjectMapper META_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * 本地缓存文件直出。
+     *
+     * <p>Range 语义与 MinIO 分支逐条对齐：不可满足的区间必须回 416，不能把 start 夹到
+     * fileSize-1 伪造 206——Media3 拿到「起点与请求不符」的短 body 会抛
+     * ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE，用户感知是"这首歌一点进度条就崩"。</p>
+     */
+    private void serveHotCache(java.nio.file.Path file, String sourceId,
+                               HttpServletRequest request, HttpServletResponse response) throws IOException {
+        long fileSize = java.nio.file.Files.size(file);
+        String rangeHeader = request.getHeader("Range");
+        response.setContentType("audio/mpeg");
+        response.setHeader("Accept-Ranges", "bytes");
+        response.setHeader("Cache-Control", "private, max-age=86400");
+        applyHotCacheMeta(sourceId, response);
+
+        if (rangeHeader != null && rangeHeader.startsWith("bytes=") && fileSize > 0) {
+            long start = 0, end = fileSize - 1;
+            String[] parts = rangeHeader.substring(6).split("-");
+            if (parts.length > 0 && !parts[0].isEmpty()) start = Long.parseLong(parts[0]);
+            if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
+            if (start >= fileSize || end < start) {
+                response.setStatus(416);
+                response.setHeader("Content-Range", "bytes */" + fileSize);
+                return;
+            }
+            if (end > fileSize - 1) end = fileSize - 1;
+            long length = end - start + 1;
+            response.setStatus(206);
+            response.setHeader("Content-Range", "bytes " + start + "-" + end + "/" + fileSize);
+            response.setContentLengthLong(length);
+            try (InputStream in = java.nio.file.Files.newInputStream(file)) {
+                in.skipNBytes(start);
+                copyExactly(in, response.getOutputStream(), length);
+            }
+            return;
+        }
+        response.setContentLengthLong(fileSize);
+        try (InputStream in = java.nio.file.Files.newInputStream(file);
+             OutputStream out = response.getOutputStream()) {
+            StreamUtils.copy(in, out);
+        }
+    }
+
+    private static void copyExactly(InputStream in, OutputStream out, long length) throws IOException {
+        byte[] buf = new byte[8192];
+        long remaining = length;
+        while (remaining > 0) {
+            int n = in.read(buf, 0, (int) Math.min(buf.length, remaining));
+            if (n < 0) break;
+            out.write(buf, 0, n);
+            remaining -= n;
+        }
+    }
+
+    /** 预热时写下的换源信息：命中缓存也要如实告诉客户端"你听的是替代版本"。 */
+    private void applyHotCacheMeta(String sourceId, HttpServletResponse response) {
+        java.nio.file.Path meta = hotCacheService.metaPath(sourceId);
+        if (!java.nio.file.Files.isRegularFile(meta)) return;
+        try {
+            Map<?, ?> m = META_MAPPER.readValue(
+                    java.nio.file.Files.readString(meta, java.nio.charset.StandardCharsets.UTF_8), Map.class);
+            if (!Boolean.TRUE.equals(m.get("isSubstitute"))) return;
+            String platform = str(m.get("platform"));
+            if (!platform.isBlank()) response.setHeader("X-Play-Source", platform);
+            response.setHeader("X-Play-Substitute", "1");
+            AudioProxyService.setUtf8Header(response, "X-Play-Title", str(m.get("title")));
+            AudioProxyService.setUtf8Header(response, "X-Play-Artist", str(m.get("artist")));
+            AudioProxyService.setUtf8Header(response, "X-Play-Cover", str(m.get("coverUrl")));
+            AudioProxyService.setUtf8Header(response, "X-Play-Reason", str(m.get("reason")));
+            String quality = str(m.get("quality"));
+            if (!quality.isBlank()) response.setHeader("X-Quality", quality);
+        } catch (Exception e) {
+            log.debug("热歌缓存元信息读取失败 {}: {}", sourceId, e.getMessage());
+        }
+    }
+
+    private static String str(Object o) {
+        return o == null ? "" : String.valueOf(o);
+    }
 }
+

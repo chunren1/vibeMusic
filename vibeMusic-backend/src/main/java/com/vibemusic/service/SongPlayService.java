@@ -12,6 +12,8 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -345,6 +347,34 @@ public class SongPlayService {
      * 匹配策略版本。规则一变就自增：客户端把它拼进流地址（{@code &v=}），
      * Media3 的 URL 缓存随之整体失效，用户不必手动清缓存就能摆脱旧规则选出的坏版本。
      */
+    /**
+     * 权威时长：网易云曲库按「歌名 + 歌手」搜到的最像那条的时长（毫秒）。
+     *
+     * <p>热歌缓存用它做真实性基准——DJ 版/加速版/剪辑版与原版时长必然对不上。
+     * 搜不到或该条没有时长时返回 null，调用方应据此放弃缓存（没有基准就没有真实性）。
+     * 复用 {@code neteaseUrlProbe} 而不是自带一个 Bean：探测器的 Cookie/计数器状态都在
+     * {@link SongPlayService} 里初始化，另起一份会漏掉 need-login 与快切窗口。</p>
+     */
+    public Long referenceDurationMs(String name, String artist) {
+        if (name == null || name.isBlank()) return null;
+        try {
+            String keyword = artist == null || artist.isBlank() ? name : name + " " + artist;
+            Map<String, Object> payload = neteaseUrlProbe.fetchNeteaseSearch(keyword, 5, null);
+            if (payload == null) return null;
+            Object data = payload.get("data");
+            if (!(data instanceof List<?> list) || list.isEmpty()) return null;
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> candidates = (List<Map<String, Object>>) list;
+            Map<String, Object> best = SongMatcher.findBestMatch(candidates, name, artist);
+            if (best == null) return null;
+            Object dur = best.get("duration");
+            return dur instanceof Number n && n.longValue() > 0L ? n.longValue() : null;
+        } catch (Exception e) {
+            log.debug("权威时长查询失败「{}」: {}", name, e.getMessage());
+            return null;
+        }
+    }
+
     public static final String MATCH_POLICY_VERSION = "2026-11-17-1";
 
     /**

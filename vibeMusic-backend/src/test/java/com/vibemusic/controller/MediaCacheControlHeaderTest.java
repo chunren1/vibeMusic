@@ -1,5 +1,6 @@
 package com.vibemusic.controller;
 
+import com.vibemusic.service.HotCacheService;
 import com.vibemusic.service.PlayHistoryService;
 import com.vibemusic.service.RecommendService;
 import com.vibemusic.service.SongPlayService;
@@ -44,6 +45,7 @@ class MediaCacheControlHeaderTest {
 
         StreamController controller = new StreamController(
                 mock(SongPlayService.class),
+                new HotCacheService(),
                 mock(PlayHistoryService.class),
                 storageService,
                 mock(RecommendService.class),

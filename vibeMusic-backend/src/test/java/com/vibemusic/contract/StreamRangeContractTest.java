@@ -1,6 +1,7 @@
 package com.vibemusic.contract;
 
 import com.vibemusic.controller.StreamController;
+import com.vibemusic.service.HotCacheService;
 import com.vibemusic.service.AudioProxyService;
 import com.vibemusic.service.PlayHistoryService;
 import com.vibemusic.service.RecommendService;
@@ -73,8 +74,8 @@ class StreamRangeContractTest {
     }
 
     private static StreamController controller(StorageService storage, AudioProxyService proxy) {
-        return new StreamController(mock(SongPlayService.class), mock(PlayHistoryService.class),
-                storage, mock(RecommendService.class), proxy);
+        return new StreamController(mock(SongPlayService.class), new HotCacheService(),
+                mock(PlayHistoryService.class), storage, mock(RecommendService.class), proxy);
     }
 
     @Test

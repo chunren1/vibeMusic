@@ -806,6 +806,17 @@ while IFS='|' read -r src dst rw; do
   if [ "\$rw" = "true" ]; then VOLS+=(-v "\$src:\$dst:rw"); else VOLS+=(-v "\$src:\$dst:ro"); fi
 done < <(docker inspect -f '{{range .Mounts}}{{.Source}}|{{.Destination}}|{{.RW}}{{println}}{{end}}' "\$C")
 
+# 2b) 热歌本地缓存目录（2026-11-17）。不从现容器 Mounts 继承：首次上线时旧容器还没有它，
+#     靠继承永远加不上。目录属主改成镜像里 app 用户的 uid，否则容器内写不进去（非 root）。
+HOT_DIR=/opt/vibeMusic/docker-data/backend/hot-cache
+mkdir -p "\$HOT_DIR"
+if ! docker inspect -f '{{range .Mounts}}{{.Destination}} {{end}}' "\$C" | grep -q '/app/hot-cache'; then
+  HOT_UID=\$(docker run --rm --entrypoint id "\$IMG" -u app 2>/dev/null | awk '{print \$1}' | head -1)
+  if [ -n "\${HOT_UID:-}" ]; then chown -R "\$HOT_UID" "\$HOT_DIR"; else chmod 0777 "\$HOT_DIR"; fi
+  VOLS+=(-v "\$HOT_DIR:/app/hot-cache:rw")
+  echo "  挂载热歌缓存: \$HOT_DIR → /app/hot-cache (uid=\${HOT_UID:-0777})"
+fi
+
 # 3) 健康检查：照抄现容器（compose 覆盖过：liveness + 15s + start_period 180s + 5 次，
 #    镜像 Dockerfile 里那份 30s/3 次/actuator/health 会在冷启动期误判，别用）
 HC_ARGS=()

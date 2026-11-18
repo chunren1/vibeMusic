@@ -93,7 +93,7 @@ public class AudioProxyService {
 
     /** 代理请求头构造：仅 B 站 CDN 附加 Referer，其他域行为不变。 */
     /** HTTP 头只能是 ISO-8859-1：中文歌名/歌手按 UTF-8 百分号编码，客户端 decode 后可直出。 */
-    private static void setUtf8Header(HttpServletResponse response, String name, String value) {
+    public static void setUtf8Header(HttpServletResponse response, String name, String value) {
         if (value == null || value.isEmpty()) return;
         try {
             response.setHeader(name, java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8));

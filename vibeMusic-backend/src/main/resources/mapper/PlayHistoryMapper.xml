@@ -16,4 +16,21 @@
         WHERE ranked.rn > #{keep}
     </delete>
 
+    <!--
+        热歌缓存预热：近 N 天播放次数 Top K。
+        按 source_id 聚合（同一首歌可能会有多个用户/多次播放），歌名歌手取最大值即可——
+        预热只需要能搜到同一首歌，同名不同 source_id 的会被当成不同条目各自缓存。
+    -->
+    <select id="selectHotSongs" resultType="java.util.Map">
+        SELECT source_id AS sourceId,
+               MAX(song_name) AS songName,
+               MAX(artist) AS artist,
+               COUNT(*) AS plays
+        FROM play_history
+        WHERE played_at &gt;= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+        GROUP BY source_id
+        ORDER BY plays DESC
+        LIMIT #{limit}
+    </select>
+
 </mapper>
