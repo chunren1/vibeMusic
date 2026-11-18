@@ -61,13 +61,14 @@ public class HotCacheWarmer {
     private static final long TYPICAL_SONG_BYTES = 10L * 1024L * 1024L;
 
     /**
-     * 只缓存官方音源：网易云、QQ 音乐、咪咕。
+     * 只缓存官方音源：网易云与 QQ 音乐。
      *
-     * <p>咪咕 2026-11-18 经用户确认加入：它同样是正版唱片库，只是不在「网易云/QQ」两家里。
-     * 酷狗与 B站 仍然排除——前者音质档位不透明（standard 可能悄悄回落 128），
-     * 后者是视频轨二创，翻唱与剪辑比例最高。</p>
+     * <p>咪咕曾于 2026-11-18 短暂加入，实测撤回：请求 HQ 档返回的文件名是
+     * {@code MP3_128_16_Stero}（172s / 2.76MB = 128kbps），且搜索接口不给时长
+     * （{@code duration: 0}）——码率与版本两道闸同时失效，不满足"真实性"要求。
+     * 酷狗同样排除（档位不透明），B站是视频轨二创，翻唱比例最高。</p>
      */
-    static final Set<String> OFFICIAL_PLATFORMS = Set.of("netease", "qq", "migu");
+    static final Set<String> OFFICIAL_PLATFORMS = Set.of("netease", "qq");
 
     /** 最低可接受码率档（320k / HQ / FLAC 记为 3）。 */
     static final int MIN_QUALITY_RANK = 3;

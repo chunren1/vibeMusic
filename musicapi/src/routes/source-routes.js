@@ -9,7 +9,7 @@
 const { writeLog } = require('../logger');
 const sourceHealth = require('../source-health');
 const {
-  searchMigu, getMiguUrl, searchKugou, getKugouUrlWithQuality,
+  searchMigu, getMiguUrl, miguQualityOf, searchKugou, getKugouUrlWithQuality,
   searchBili, getBiliUrl, isBiliTrackId, urlCache,
 } = require('../search');
 const { fetchKugouLyric, parseKugouLyricDuration } = require('../kugou-lyric');
@@ -45,7 +45,8 @@ function registerSourceRoutes(app) {
       if (!id) return res.status(400).json({ code: 400, message: '缺少 id 参数' });
       if (!/^\d{4,30}$/.test(id)) return res.status(400).json({ code: 400, message: 'invalid id format' });
       const url = await getMiguUrl(id, copyrightId, toneFlag || 'PQ');
-      res.json({ code: 200, data: [{ id, url }] });
+      // quality 只在拿到链接时出现：toneFlag 不可信（HQ 也可能回 128），以文件名为准。
+      res.json({ code: 200, data: [{ id, url, ...(url ? { quality: miguQualityOf(url) } : {}) }] });
     } catch (error) {
       writeLog('api', 'ERROR', `[/migu/url] ${error.message}`);
       res.status(500).json({ code: 500, message: GENERIC_500 });

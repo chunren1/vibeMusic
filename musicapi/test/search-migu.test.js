@@ -2,7 +2,16 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const axios = require('axios');
-const { searchMigu, mapMiguSong, getMiguUrl, miguCopyrightCache } = require('../src/search');
+const { searchMigu, mapMiguSong, getMiguUrl, miguQualityOf, miguCopyrightCache } = require('../src/search');
+
+test('miguQualityOf 以文件名为准：128/320/FLAC/未知', () => {
+  // 2026-11-18 实测：请求 HQ 也可能回 MP3_128，所以 toneFlag 不能当码率用
+  assert.equal(miguQualityOf('https://x/public/MP3_128_16_Stero/a.mp3?t=1'), '128');
+  assert.equal(miguQualityOf('https://x/public/MP3_320_16_Stero/a.mp3'), '320');
+  assert.equal(miguQualityOf('https://x/a.flac'), 'FLAC');
+  assert.equal(miguQualityOf('https://x/signed.mp3?token=FAKE'), 'unknown');
+  assert.equal(miguQualityOf(null), 'unknown');
+});
 
 const MIGU_SAMPLE = {
   code: '000000',

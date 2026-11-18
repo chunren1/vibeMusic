@@ -92,6 +92,20 @@ async function searchMigu(keyword, limit) {
  * 取咪咕播放地址：手动跟 302（只校验 Location 存在且为 http(s)，不下载），
  * 返回 Location URL 字符串交由后端代理字节流；无版权/异常一律返回 null，永不抛错。
  */
+/**
+ * 从咪咕签名 URL 解析真实码率。
+ *
+ * 文件名里的 MP3_128_16_Stero / MP3_320_16_Stero 是上游自己标的规格。
+ * 2026-11-18 实测：请求 HQ 拿到的仍是 MP3_128（172s / 2.76MB = 128kbps），
+ * 所以 toneFlag 不能当真，只能以文件名为准。
+ */
+function miguQualityOf(url) {
+  if (!url) return 'unknown';
+  if (/FLAC/i.test(url)) return 'FLAC';
+  const m = /MP3_(\d+)_/i.exec(url);
+  return m ? m[1] : 'unknown';
+}
+
 async function getMiguUrl(contentId, copyrightId, toneFlag = 'PQ') {
   try {
     if (contentId == null || contentId === '') return null;
@@ -138,5 +152,6 @@ module.exports = {
   searchMigu,
   mapMiguSong,
   getMiguUrl,
+  miguQualityOf,
   miguCopyrightCache,
 };

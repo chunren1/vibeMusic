@@ -16,12 +16,12 @@ import static org.junit.jupiter.api.Assertions.*;
 class HotCacheWarmerPolicyTest {
 
     @Test
-    @DisplayName("官方平台白名单：netease / qq / migu，酷狗与 B站 排除")
+    @DisplayName("官方平台白名单只有 netease 与 qq（咪咕实测 HQ 实为 128k，已撤回）")
     void officialPlatforms() {
-        assertEquals(3, HotCacheWarmer.OFFICIAL_PLATFORMS.size());
+        assertEquals(2, HotCacheWarmer.OFFICIAL_PLATFORMS.size());
         assertTrue(HotCacheWarmer.OFFICIAL_PLATFORMS.contains("netease"));
         assertTrue(HotCacheWarmer.OFFICIAL_PLATFORMS.contains("qq"));
-        assertTrue(HotCacheWarmer.OFFICIAL_PLATFORMS.contains("migu"));
+        assertFalse(HotCacheWarmer.OFFICIAL_PLATFORMS.contains("migu"));
         assertFalse(HotCacheWarmer.OFFICIAL_PLATFORMS.contains("kugou"));
         assertFalse(HotCacheWarmer.OFFICIAL_PLATFORMS.contains("bilibili"));
     }

@@ -27,7 +27,7 @@ const { UPSTREAM_TIMEOUT, SEARCH_TOTAL_BUDGET, withTimeout } = require('./source
 // 各源适配器。全部 re-export，调用方（routes.js / 单测）无需感知拆分。
 const { searchNetease } = require('./sources/netease');
 const { searchQQ, mapQQSong, buildQQSearchRequest, probeQQSearch } = require('./sources/qq');
-const { searchMigu, mapMiguSong, getMiguUrl, miguCopyrightCache } = require('./sources/migu');
+const { searchMigu, mapMiguSong, getMiguUrl, miguQualityOf, miguCopyrightCache } = require('./sources/migu');
 const {
   searchKugou, mapKugouSong, getKugouPlayData, getKugouUrl, getKugouUrlWithQuality,
   kugouDevice, kugouAndroidSignature, kugouUrlKey, pickKugouUrls,
@@ -76,6 +76,7 @@ module.exports = {
   searchMigu,
   mapMiguSong,
   getMiguUrl,
+  miguQualityOf,
   miguCopyrightCache,
   searchKugou,
   mapKugouSong,

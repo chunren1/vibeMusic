@@ -336,7 +336,7 @@ test('/migu/search 契约：data[歌曲字段]，缺 keyword 400，上游失败�
 test('/migu/url 契约：data[{id,url}]，302→签名 URL、无版权→url null，缺参 400', async (t) => {
   const { server, base } = await startApp();
   t.after(() => new Promise((resolve) => server.close(resolve)));
-  const signedUrl = 'https://cdn.migu.cn/audio/signed.mp3?token=FAKE';
+  const signedUrl = 'https://cdn.migu.cn/public/MP3_320_16_Stero/audio/signed.mp3?token=FAKE';
   let paid = false;
   stubUpstream([['listenSong', () => (paid
     ? { status: 200, data: { code: '200000' } }
@@ -351,6 +351,8 @@ test('/migu/url 契约：data[{id,url}]，302→签名 URL、无版权→url nul
   );
   assert.equal(body.data[0].id, MIGU_CONTENT_ID);
   assert.equal(body.data[0].url, signedUrl);
+  // 码率以文件名为准：toneFlag=PQ 也可能拿到 320，反之亦然（2026-11-18 实测 HQ 回 128）
+  assert.equal(body.data[0].quality, '320', 'quality 必须从 URL 文件名解析');
   assert.equal(body.message, undefined, '该端点无 message 字段（后端不读）');
 
   // 付费/无版权：上游 200000 → url:null（后端据此走降级）

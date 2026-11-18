@@ -128,7 +128,12 @@ class PlatformUrlFetcher {
                     if (data != null && !data.isEmpty()) {
                         String url = (String) data.get(0).get("url");
                         if (url != null && !url.isEmpty()) {
-                            return new Fetched(url, "HQ".equals(tone) ? "HQ" : "PQ");
+                            // 2026-11-18：toneFlag 不可信——请求 HQ 实测会回 MP3_128 的文件。
+                            // 网关按文件名解析出 quality（320/128/FLAC），拿不到才退回档位名。
+                            Object q = data.get(0).get("quality");
+                            String quality = q instanceof String s && !s.isBlank()
+                                    ? s : ("HQ".equals(tone) ? "HQ" : "PQ");
+                            return new Fetched(url, quality);
                         }
                     }
                 }
